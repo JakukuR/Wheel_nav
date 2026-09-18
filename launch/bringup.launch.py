@@ -21,10 +21,14 @@ def generate_launch_description():
     start_nav2 = LaunchConfiguration('start_nav2')
     start_state_estimation = LaunchConfiguration('start_state_estimation')
     use_imu = LaunchConfiguration('use_d455_imu')
+    use_chassis_imu = LaunchConfiguration('use_chassis_imu')
     enable_motion = LaunchConfiguration('enable_hardware_output')
     publish_mount_tf = LaunchConfiguration('publish_mount_tf')
     database = LaunchConfiguration('database_path')
     localization = PythonExpression(["'true' if '", mode, "' == 'localization' else 'false'"])
+    imu_topic = PythonExpression([
+        "'/wheel/imu/data_raw' if '", use_chassis_imu,
+        "' == 'true' else '/r680_nav/d455/imu_filtered'"])
 
     realsense = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -59,6 +63,16 @@ def generate_launch_description():
                    '--qz', '-0.000560247', '--qw', '0.997021207',
                    '--frame-id', 'r680_mapping_floor', '--child-frame-id', 'd455_link'])
 
+    # First real-car fusion test: the chassis IMU is treated as co-located with
+    # the vehicle center and axis-aligned with r680_mapping_floor. Only gyro Z
+    # is consumed by the planar EKF, so translation has no effect in this mode.
+    chassis_imu_tf = Node(
+        package='tf2_ros', executable='static_transform_publisher',
+        name='r680_chassis_imu_mount', condition=IfCondition(use_chassis_imu),
+        arguments=['--x', '0', '--y', '0', '--z', '0',
+                   '--roll', '0', '--pitch', '0', '--yaw', '0',
+                   '--frame-id', 'r680_mapping_floor', '--child-frame-id', 'gyro_link'])
+
     vo = Node(
         package='rtabmap_odom', executable='rgbd_odometry',
         namespace='d455_vo', name='rgbd_odometry', output='screen',
@@ -82,7 +96,8 @@ def generate_launch_description():
         package='robot_localization', executable='ekf_node',
         namespace='d455_slam', name='ekf_filter_node', output='screen',
         condition=IfCondition(start_state_estimation),
-        parameters=[str(config / 'ekf_vo_imu.yaml')],
+        parameters=[str(config / 'ekf_vo_imu.yaml'),
+                    {'imu0': ParameterValue(imu_topic, value_type=str)}],
         remappings=[('odometry/filtered', 'odom')])
 
     rtabmap = IncludeLaunchDescription(
@@ -179,10 +194,11 @@ def generate_launch_description():
         DeclareLaunchArgument('start_nav2', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('start_state_estimation', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('use_d455_imu', default_value='false', choices=['true', 'false']),
+        DeclareLaunchArgument('use_chassis_imu', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('enable_hardware_output', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('publish_mount_tf', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument(
             'database_path', default_value='/home/orin/.local/share/wla/r680-navigation/rtabmap.db'),
-        realsense, mount_tf, imu_filter, vo, ekf, rtabmap,
+        realsense, mount_tf, chassis_imu_tf, imu_filter, vo, ekf, rtabmap,
         chassis, depth_points, *nav2_nodes, monitor, guard,
     ])
