@@ -149,7 +149,13 @@ def generate_launch_description():
             'database_path': database,
             'rtabmap_viz': 'false',
             'rviz': 'false',
-            'args': '--Grid/Sensor 1 --Grid/RangeMax 5.0 --Rtabmap/DetectionRate 1.0',
+            'args': (
+                '--Grid/Sensor 1 --Grid/3D false --Grid/RayTracing true --Grid/RangeMax 5.0 '
+                '--Grid/NormalsSegmentation false '
+                '--Grid/MinGroundHeight -0.08 '
+                '--Grid/MaxGroundHeight 0.04 '
+                '--Rtabmap/DetectionRate 1.0'
+            ),
         }.items())
 
     chassis = Node(
