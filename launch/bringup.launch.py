@@ -1,0 +1,188 @@
+from pathlib import Path
+
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
+from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
+from launch_ros.substitutions import FindPackageShare
+
+
+def generate_launch_description():
+    share = Path(get_package_share_directory('wla_r680_navigation'))
+    config = share / 'config'
+
+    mode = LaunchConfiguration('mode')
+    start_d455 = LaunchConfiguration('start_d455')
+    start_chassis = LaunchConfiguration('start_chassis')
+    start_nav2 = LaunchConfiguration('start_nav2')
+    start_state_estimation = LaunchConfiguration('start_state_estimation')
+    use_imu = LaunchConfiguration('use_d455_imu')
+    enable_motion = LaunchConfiguration('enable_hardware_output')
+    publish_mount_tf = LaunchConfiguration('publish_mount_tf')
+    database = LaunchConfiguration('database_path')
+    localization = PythonExpression(["'true' if '", mode, "' == 'localization' else 'false'"])
+
+    realsense = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([FindPackageShare('realsense2_camera'), 'launch', 'rs_launch.py'])),
+        condition=IfCondition(start_d455),
+        launch_arguments={
+            'camera_namespace': 'r680',
+            'camera_name': 'd455',
+            'serial_no': '_260922306083',
+            'depth_module.depth_profile': '640x480x30',
+            'rgb_camera.color_profile': '640x480x30',
+            'enable_depth': 'true',
+            'enable_color': 'true',
+            'enable_infra': 'false',
+            'enable_gyro': use_imu,
+            'enable_accel': use_imu,
+            'gyro_fps': '200',
+            'accel_fps': '100',
+            'unite_imu_method': '2',
+            'publish_tf': 'true',
+            'align_depth.enable': 'true',
+            'enable_sync': 'true',
+        }.items())
+
+    # The RealSense driver owns all optical-frame TFs. This is the only external
+    # mount edge and must not run beside publish_r680_d455_floor.py.
+    mount_tf = Node(
+        package='tf2_ros', executable='static_transform_publisher',
+        name='r680_d455_floor_mount', condition=IfCondition(publish_mount_tf),
+        arguments=['--x', '0.184428484', '--y', '0.059803590', '--z', '0.501660007',
+                   '--qx', '0.000096773', '--qy', '0.077125800',
+                   '--qz', '-0.000560247', '--qw', '0.997021207',
+                   '--frame-id', 'r680_mapping_floor', '--child-frame-id', 'd455_link'])
+
+    vo = Node(
+        package='rtabmap_odom', executable='rgbd_odometry',
+        namespace='d455_vo', name='rgbd_odometry', output='screen',
+        condition=IfCondition(start_state_estimation),
+        parameters=[str(config / 'rtabmap.yaml')],
+        remappings=[
+            ('rgb/image', '/r680/d455/color/image_raw'),
+            ('depth/image', '/r680/d455/aligned_depth_to_color/image_raw'),
+            ('rgb/camera_info', '/r680/d455/color/camera_info'),
+            ('odom', '/r680_nav/vo_odom'),
+            ('odom_info', '/d455_slam/odom_info')])
+
+    imu_filter = Node(
+        package='imu_filter_madgwick', executable='imu_filter_madgwick_node',
+        namespace='r680_nav/d455', name='imu_filter_madgwick', output='screen',
+        condition=IfCondition(use_imu), parameters=[str(config / 'rtabmap.yaml')],
+        remappings=[('imu/data_raw', '/r680/d455/imu'),
+                    ('imu/data', '/r680_nav/d455/imu_filtered')])
+
+    ekf = Node(
+        package='robot_localization', executable='ekf_node',
+        namespace='d455_slam', name='ekf_filter_node', output='screen',
+        condition=IfCondition(start_state_estimation),
+        parameters=[str(config / 'ekf_vo_imu.yaml')],
+        remappings=[('odometry/filtered', 'odom')])
+
+    rtabmap = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([FindPackageShare('rtabmap_launch'), 'launch', 'rtabmap.launch.py'])),
+        condition=IfCondition(start_state_estimation), launch_arguments={
+            'localization': localization,
+            'namespace': 'd455_slam',
+            'frame_id': 'r680_mapping_floor',
+            'map_frame_id': 'map',
+            'map_topic': '/r680/d455/map',
+            'visual_odometry': 'false',
+            'icp_odometry': 'false',
+            'odom_topic': '/d455_slam/odom',
+            'rgb_topic': '/r680/d455/color/image_raw',
+            'depth_topic': '/r680/d455/aligned_depth_to_color/image_raw',
+            'camera_info_topic': '/r680/d455/color/camera_info',
+            'imu_topic': '/r680_nav/d455/imu_filtered',
+            'subscribe_scan': 'false',
+            'approx_sync': 'true',
+            'approx_sync_max_interval': '0.025',
+            'qos': '2',
+            'rgb_image_transport': 'raw',
+            'depth_image_transport': 'raw',
+            'database_path': database,
+            'rtabmap_viz': 'false',
+            'rviz': 'false',
+            'args': '--Grid/Sensor 1 --Grid/RangeMax 5.0 --Rtabmap/DetectionRate 1.0',
+        }.items())
+
+    chassis = Node(
+        package='turn_on_wheeltec_robot', executable='wheeltec_robot_node',
+        name='wheeltec_robot', output='screen', condition=IfCondition(start_chassis),
+        parameters=[str(config / 'chassis.yaml')],
+        remappings=[
+            ('cmd_vel', '/r680_nav/chassis_cmd_vel'),
+            ('red_vel', '/r680_nav/disabled_red_vel'),
+            ('robot_recharge_flag', '/r680_nav/disabled_recharge_flag'),
+            ('/set_charge', '/r680_nav/disabled_set_charge'),
+            ('odom', '/wheel/odom'),
+            ('imu/data_raw', '/wheel/imu/data_raw')])
+
+    depth_points = Node(
+        package='wla_r680_navigation', executable='depth_to_points',
+        name='r680_d455_depth_to_points', output='screen', condition=IfCondition(start_nav2),
+        parameters=[{'stride': 4, 'max_rate': 10.0, 'min_depth': 0.15, 'max_depth': 5.0}])
+
+    nav_params = str(config / 'nav2.yaml')
+    nav2_nodes = [
+        Node(package='nav2_controller', executable='controller_server',
+             name='controller_server', output='screen', condition=IfCondition(start_nav2),
+             parameters=[nav_params], remappings=[('cmd_vel', 'cmd_vel_nav')]),
+        Node(package='nav2_smoother', executable='smoother_server',
+             name='smoother_server', output='screen', condition=IfCondition(start_nav2),
+             parameters=[nav_params]),
+        Node(package='nav2_planner', executable='planner_server',
+             name='planner_server', output='screen', condition=IfCondition(start_nav2),
+             parameters=[nav_params]),
+        Node(package='nav2_behaviors', executable='behavior_server',
+             name='behavior_server', output='screen', condition=IfCondition(start_nav2),
+             parameters=[nav_params], remappings=[('cmd_vel', 'cmd_vel_nav')]),
+        Node(package='nav2_bt_navigator', executable='bt_navigator',
+             name='bt_navigator', output='screen', condition=IfCondition(start_nav2),
+             parameters=[nav_params]),
+        Node(package='nav2_waypoint_follower', executable='waypoint_follower',
+             name='waypoint_follower', output='screen', condition=IfCondition(start_nav2),
+             parameters=[nav_params]),
+        Node(package='nav2_velocity_smoother', executable='velocity_smoother',
+             name='velocity_smoother', output='screen', condition=IfCondition(start_nav2),
+             parameters=[nav_params], remappings=[('cmd_vel', 'cmd_vel_nav')]),
+        Node(package='nav2_collision_monitor', executable='collision_monitor',
+             name='collision_monitor', output='screen', condition=IfCondition(start_nav2),
+             parameters=[nav_params]),
+        Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
+             name='lifecycle_manager_navigation', output='screen',
+             condition=IfCondition(start_nav2), parameters=[{
+                 'autostart': True,
+                 'node_names': ['controller_server', 'smoother_server', 'planner_server',
+                                'behavior_server', 'bt_navigator', 'waypoint_follower',
+                                'velocity_smoother', 'collision_monitor']}]),
+    ]
+
+    monitor = Node(
+        package='wla_r680_navigation', executable='interface_monitor', output='screen',
+        parameters=[{'require_obstacle_points': True}])
+    guard = Node(
+        package='wla_r680_navigation', executable='command_guard', output='screen',
+        parameters=[{'hardware_output_enabled': ParameterValue(enable_motion, value_type=bool)}])
+
+    return LaunchDescription([
+        DeclareLaunchArgument('mode', default_value='mapping', choices=['mapping', 'localization']),
+        DeclareLaunchArgument('start_d455', default_value='false', choices=['true', 'false']),
+        DeclareLaunchArgument('start_chassis', default_value='false', choices=['true', 'false']),
+        DeclareLaunchArgument('start_nav2', default_value='true', choices=['true', 'false']),
+        DeclareLaunchArgument('start_state_estimation', default_value='true', choices=['true', 'false']),
+        DeclareLaunchArgument('use_d455_imu', default_value='false', choices=['true', 'false']),
+        DeclareLaunchArgument('enable_hardware_output', default_value='false', choices=['true', 'false']),
+        DeclareLaunchArgument('publish_mount_tf', default_value='false', choices=['true', 'false']),
+        DeclareLaunchArgument(
+            'database_path', default_value='/home/orin/.local/share/wla/r680-navigation/rtabmap.db'),
+        realsense, mount_tf, imu_filter, vo, ekf, rtabmap,
+        chassis, depth_points, *nav2_nodes, monitor, guard,
+    ])

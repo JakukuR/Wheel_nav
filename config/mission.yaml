@@ -1,0 +1,11 @@
+startup_timeout_s: 90.0
+exploration_timeout_s: 1800.0
+return_timeout_s: 180.0
+cancel_timeout_s: 10.0
+save_timeout_s: 30.0
+settle_s: 2.0
+complete_hold_s: 15.0
+xy_tolerance_m: 0.10
+yaw_tolerance_rad: 0.15
+stopped_linear_mps: 0.01
+stopped_angular_rps: 0.02

@@ -1,0 +1,131 @@
+# R680 独立导航建图包
+
+`wla_r680_navigation` 位于手柄工作区 `~/ros2_ws`，复用本机仿真的 RGB-D VO、
+RTAB-Map、Nav2、速度平滑、碰撞监控和最终命令门禁。它独立于 WLA Agent。
+底盘驱动和硬件速度输出默认关闭。
+
+## 实车数据链
+
+```text
+D455 RGB + aligned depth + CameraInfo
+  ├─> RTAB RGB-D VO -> /r680_nav/vo_odom
+  │                     └─> robot_localization EKF
+  │                          └─> /d455_slam/odom
+  │                              + TF d455_floor_odom -> r680_mapping_floor
+  ├─> RTAB-Map -> map -> d455_floor_odom + /r680/d455/map
+  └─> C++ depth_to_points -> /r680_nav/d455/points
+                               ├─> Nav2 local obstacle layer
+                               └─> collision_monitor
+
+Nav2 /cmd_vel_nav -> velocity_smoother -> collision_monitor -> C++ command_guard
+                                                        ├─> 安全预览
+                                                        └─> 底盘原始入口（默认关闭）
+```
+
+本包不启动也不依赖 M10P。近场动态障碍来自 D455 对齐深度，保持与仿真
+`/home_sim/d455/points` 动态层相同的数据职责。
+
+## VO / VIO 状态
+
+D455 驱动的 `unite_imu_method=2` 只把不同频率的 gyro/accel 线性插值为同一条
+`sensor_msgs/Imu`，它不是相机内部完成的 VIO，也不提供融合姿态。正常情况下，本包使用
+Madgwick 整理 IMU，再由 `robot_localization` 把 RGB-D VO 与 IMU gyro Z 松耦合，形成
+兼容现有 `/d455_slam/odom` 接口的 VIO。
+
+2026-09-18 实机检查表明：D455 视频设备的 librealsense 序列号为 `260922306083`，
+USB/HID 描述符序列号为 `254343063587`；即使补齐 `/dev/hidraw0` 的 `video` 组权限，
+驱动仍报告 `No HID info provided, IMU is disabled`，没有发布 gyro、accel 或统一 IMU。
+因此 `use_d455_imu` 默认必须保持 `false`，当前可运行链为纯 RGB-D VO。修复 HID 枚举并
+完成六面标定前，不能宣称 VIO 已启用。EKF 已按缺少 IMU 时可继续使用 VO 的方式配置。
+
+## 已核实接口
+
+- RGB：`/r680/d455/color/image_raw`，约 30 Hz。
+- 对齐深度：`/r680/d455/aligned_depth_to_color/image_raw`，约 30 Hz。
+- VO：`/r680_nav/vo_odom`。
+- EKF 输出：`/d455_slam/odom`。
+- 地图：`/r680/d455/map`。
+- D455 障碍点：`/r680_nav/d455/points`。
+- 底盘驱动执行入口：本包重映射为 `/r680_nav/chassis_cmd_vel`。
+
+足迹为前 `0.30 m`、后 `0.25 m`、左右各 `0.24 m`，padding `0.02 m`。其外接半径约 `0.412 m`，所以实车局部/全局膨胀分别使用 `0.45/0.50 m`；`0.20 m` 会关闭 MPPI/Smac 快速碰撞检查。实车初始速度
+限制为 `0.30 m/s`、`0.50 rad/s`。硬件输出默认关闭。
+
+## 构建
+
+```bash
+source ~/.bashrc
+source ~/r680_chassis_candidate_ws/install/setup.bash
+cd ~/ros2_ws
+colcon build --packages-select wla_r680_navigation --symlink-install
+source install/setup.bash
+```
+
+## 安全静止联调
+
+现有定位服务和本包不能同时拥有 `/d455_slam/*` 与对应 TF。先停止旧服务，再复用已运行的
+D455 图像启动新链；下面的命令不会启动底盘驱动，也不会向底盘输出速度：
+
+```bash
+systemctl --user stop r680-d455-localization-stack.service
+
+ros2 launch wla_r680_navigation bringup.launch.py \
+  mode:=mapping \
+  start_d455:=false \
+  start_chassis:=false \
+  start_nav2:=true \
+  start_state_estimation:=true \
+  use_d455_imu:=false \
+  publish_mount_tf:=true \
+  enable_hardware_output:=false
+```
+
+检查：
+
+```bash
+ros2 topic hz /r680_nav/vo_odom
+ros2 topic hz /d455_slam/odom
+ros2 topic hz /r680_nav/d455/points
+ros2 topic echo /r680_nav/localization_ready --once
+ros2 lifecycle get /controller_server
+ros2 param get /r680_command_guard hardware_output_enabled
+```
+
+退出新链后恢复旧定位服务：
+
+```bash
+systemctl --user restart r680-d455-localization-stack.service
+```
+
+
+## 自主探索任务（沿用仿真逻辑）
+
+`explore_lite` 使用与仿真相同的改版：相邻 10 cm 目标合并、到点后 360° 扫描、失败目标
+冷却重试、局部倒车恢复。`mapping_mission` 继续负责稳定前沿复查、图优化锚定的返航、停止确认、
+RTAB-Map 备份和原子地图归档。实车话题和 frame 已改为本包接口。
+
+创建一次全新的任务目录：
+
+```bash
+RUN_DIR=$(ros2 run wla_r680_navigation prepare_mapping_run)
+CONFIG_DIR=$(ros2 pkg prefix wla_r680_navigation)/share/wla_r680_navigation/config
+```
+
+启动 bringup 后，在第二个终端启动任务编排：
+
+```bash
+ros2 run wla_r680_navigation mapping_mission \
+  --output "$RUN_DIR/exploration.json" \
+  --config-dir "$CONFIG_DIR"
+```
+
+任务归档写入 `$RUN_DIR/map_archive/`，包含 `map.pgm`、`map.yaml`、完整栅格 JSON、
+经完整性检查的 `rtabmap.db`、参数快照、任务结果和 SHA-256 manifest。当前默认硬件输出为
+false，因此这两条命令可验证启动和接口，但不会让车运动；开放实车运动前还要完成有人值守的
+急停、制动距离和 D455 盲区验收。
+
+## 后续开放底盘
+
+只有完成静止联调、D455 深度盲区检查、制动距离和急停验证后，才启动候选底盘驱动并把
+`enable_hardware_output` 改为 `true`。原厂 gamepad 与 Nav2 不能同时直接占用原始
+`/cmd_vel`；实车导航必须经过本包的 collision monitor 和 command guard。

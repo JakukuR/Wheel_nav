@@ -1,0 +1,31 @@
+frames:
+  map: map
+  odom: d455_floor_odom
+  base: r680_mapping_floor
+  camera: d455_link
+
+inputs:
+  rgb: /r680/d455/color/image_raw
+  aligned_depth: /r680/d455/aligned_depth_to_color/image_raw
+  camera_info: /r680/d455/color/camera_info
+  d455_imu_combined: /r680/d455/imu
+  chassis_wheel_odom: /wheel/odom
+  chassis_imu: /wheel/imu/data_raw
+
+perception:
+  near_field_points: /r680_nav/d455/points
+
+state_estimation:
+  visual_odom: /r680_nav/vo_odom
+  filtered_imu: /r680_nav/d455/imu_filtered
+  fused_odom: /d455_slam/odom
+  visual_health: /d455_slam/odom_info
+  map: /r680/d455/map
+
+motion:
+  nav2_output: /cmd_vel_nav
+  smoothed: /cmd_vel_smoothed
+  collision_checked: /r680_nav/cmd_vel_collision_checked
+  guarded_preview: /r680_nav/cmd_vel_safe_preview
+  chassis_raw: /r680_nav/chassis_cmd_vel
+  readiness: /r680_nav/localization_ready

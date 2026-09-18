@@ -1,0 +1,39 @@
+/d455_slam/ekf_filter_node:
+  ros__parameters:
+    frequency: 30.0
+    sensor_timeout: 0.20
+    two_d_mode: true
+    publish_tf: true
+    publish_acceleration: false
+    map_frame: map
+    odom_frame: d455_floor_odom
+    base_link_frame: r680_mapping_floor
+    world_frame: d455_floor_odom
+
+    # RGB-D VO supplies planar pose and velocity. Its TF output must remain disabled;
+    # this EKF is the sole owner of d455_floor_odom -> r680_mapping_floor.
+    odom0: /r680_nav/vo_odom
+    odom0_config: [true,  true,  false,
+                   false, false, true,
+                   true,  true,  false,
+                   false, false, true,
+                   false, false, false]
+    odom0_differential: false
+    odom0_relative: false
+    odom0_queue_size: 5
+
+    # Before six-face calibration only gyro Z is fused. Madgwick roll/pitch and
+    # accelerometer channels are intentionally excluded from the planar EKF.
+    imu0: /r680_nav/d455/imu_filtered
+    imu0_config: [false, false, false,
+                  false, false, false,
+                  false, false, false,
+                  false, false, true,
+                  false, false, false]
+    imu0_differential: false
+    imu0_relative: true
+    imu0_remove_gravitational_acceleration: true
+    imu0_queue_size: 20
+
+    print_diagnostics: true
+    dynamic_process_noise_covariance: true

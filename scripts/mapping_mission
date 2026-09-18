@@ -1,0 +1,3 @@
+#!/usr/bin/env python3
+from wla_r680_navigation_py.mission import main
+raise SystemExit(main())

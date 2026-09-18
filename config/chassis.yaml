@@ -1,0 +1,10 @@
+/wheeltec_robot:
+  ros__parameters:
+    usart_port_name: /dev/serial/by-id/usb-WCH.CN_USB_Single_Serial_0002-if00
+    serial_baud_rate: 115200
+    robot_frame_id: r680_mapping_floor
+    odom_frame_id: wheel_odom
+    odom_x_scale: 1.0
+    odom_y_scale: 1.0
+    odom_z_scale_positive: 1.0
+    odom_z_scale_negative: 1.0
