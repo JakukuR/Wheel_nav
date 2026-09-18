@@ -113,6 +113,17 @@ ros2 launch wla_r680_navigation bringup.launch.py \
   publish_mount_tf:=true enable_hardware_output:=false
 ```
 
+## 一键手柄建图
+
+```bash
+cd ~/ros2_ws
+./r680_mapping.sh
+```
+
+脚本使用 `deadman_enabled=false`，但会在开放运动授权前检查手柄必须持续处于零位。
+有图形会话时自动打开预配置 RViz。建图完成后在脚本终端按 `Ctrl+C`，脚本会先停车，
+在建图节点仍存活时保存二维栅格和 RTAB-Map 数据库，然后关闭节点并恢复原定位服务。
+
 ## 手柄遥控建图与归档
 
 手动模式让手柄发布到 `/cmd_vel_nav`，继续经过速度平滑、D455 碰撞监控和最终命令门禁。
