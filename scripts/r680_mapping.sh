@@ -20,6 +20,18 @@ else
   PREPARE_ARGS+=(--hardware-output)
 fi
 
+PAUSE_UNITS=(
+  r680-d455-perception-v1.service
+  r680-m260c-perception-p1.service
+  r680-interest-shadow-p1.service
+  r680-persistent-semantic-map.service
+  r680-state-layer.service
+  r680-behavior-shadow.service
+  r680-unified-web.service
+  r680-diagnostic-history.service
+  r680-d455-dynamic-map-p0.service
+)
+PAUSED_UNITS=()
 BRINGUP_PID=""; GAMEPAD_PID=""; PERMISSION_PID=""; RVIZ_PID=""
 RUN_DIR=""; SAVE_OK=false; STARTED=false
 
@@ -56,6 +68,12 @@ cleanup() {
   stop_group "$RVIZ_PID"
   stop_group "$BRINGUP_PID"
   systemctl --user restart r680-d455-localization-stack.service >/dev/null 2>&1 || true
+  if ((${#PAUSED_UNITS[@]})); then
+    systemctl --user restart r680-readonly-inputs.service >/dev/null 2>&1 || true
+    for unit in "${PAUSED_UNITS[@]}"; do
+      systemctl --user start "$unit" >/dev/null 2>&1 || true
+    done
+  fi
   if [[ "$SAVE_OK" == true ]]; then
     echo "[R680] 已关闭本次节点并恢复原定位服务。"
     find "$RUN_DIR/map_archive" -maxdepth 1 -type f -printf '  %f\n' | sort
@@ -76,7 +94,15 @@ fi
 }
 
 systemctl --user stop r680-d455-localization-stack.service
-systemctl --user restart r680-readonly-inputs.service
+if ! systemctl --user is-active --quiet r680-d455-observation.service; then
+  systemctl --user restart r680-readonly-inputs.service
+fi
+for unit in "${PAUSE_UNITS[@]}"; do
+  if systemctl --user is-active --quiet "$unit"; then
+    PAUSED_UNITS+=("$unit")
+    systemctl --user stop "$unit"
+  fi
+done
 
 RUN_DIR=$(ros2 run wla_r680_navigation prepare_mapping_run "${PREPARE_ARGS[@]}")
 echo "$RUN_DIR" > /tmp/wla_manual_mapping_run
@@ -88,7 +114,7 @@ echo "[R680] 本次运行目录：$RUN_DIR"
 echo "[R680] 前 5 秒保持车辆和手柄完全静止，正在估计 IMU 零偏……"
 setsid ros2 launch wla_r680_navigation bringup.launch.py \
   mode:=mapping database_path:="$DB_PATH" \
-  start_d455:=false start_chassis:=true start_nav2:=true \
+  start_d455:=false start_chassis:=true start_nav2:=true start_navigation_servers:=false \
   start_state_estimation:=true use_d455_imu:=false use_chassis_imu:=true \
   publish_mount_tf:=true enable_hardware_output:="$ENABLE_HARDWARE" \
   >"$RUN_DIR/logs/bringup.log" 2>&1 </dev/null &
@@ -117,6 +143,8 @@ if [[ -e /dev/input/js0 ]]; then
     -p device:=/dev/input/js0 -p cmd_vel_topic:=/cmd_vel_nav \
     -p deadman_enabled:=false -p max_linear_speed:=0.30 \
     -p max_angular_speed:=0.50 -p spin_angular_speed:=0.40 \
+    -p filter_alpha:=0.55 -p max_linear_accel:=0.80 -p max_linear_decel:=1.20 \
+    -p max_angular_accel:=1.80 -p max_angular_decel:=2.50 \
     >"$RUN_DIR/logs/gamepad.log" 2>&1 </dev/null &
 else
   echo '[R680] dry-run：手柄不在线，使用零速度模拟源。'

@@ -19,6 +19,7 @@ def generate_launch_description():
     start_d455 = LaunchConfiguration('start_d455')
     start_chassis = LaunchConfiguration('start_chassis')
     start_nav2 = LaunchConfiguration('start_nav2')
+    start_navigation_servers = LaunchConfiguration('start_navigation_servers')
     start_state_estimation = LaunchConfiguration('start_state_estimation')
     use_imu = LaunchConfiguration('use_d455_imu')
     use_chassis_imu = LaunchConfiguration('use_chassis_imu')
@@ -26,6 +27,10 @@ def generate_launch_description():
     publish_mount_tf = LaunchConfiguration('publish_mount_tf')
     database = LaunchConfiguration('database_path')
     localization = PythonExpression(["'true' if '", mode, "' == 'localization' else 'false'"])
+    full_navigation = PythonExpression(["'", start_nav2, "' == 'true' and '",
+                                        start_navigation_servers, "' == 'true'"])
+    safety_only = PythonExpression(["'", start_nav2, "' == 'true' and '",
+                                    start_navigation_servers, "' == 'false'"])
     imu_topic = PythonExpression([
         "'/r680_nav/chassis/imu_filtered' if '", use_chassis_imu,
         "' == 'true' else '/r680_nav/d455/imu_filtered'"])
@@ -167,22 +172,22 @@ def generate_launch_description():
     nav_params = str(config / 'nav2.yaml')
     nav2_nodes = [
         Node(package='nav2_controller', executable='controller_server',
-             name='controller_server', output='screen', condition=IfCondition(start_nav2),
+             name='controller_server', output='screen', condition=IfCondition(full_navigation),
              parameters=[nav_params], remappings=[('cmd_vel', 'cmd_vel_nav')]),
         Node(package='nav2_smoother', executable='smoother_server',
-             name='smoother_server', output='screen', condition=IfCondition(start_nav2),
+             name='smoother_server', output='screen', condition=IfCondition(full_navigation),
              parameters=[nav_params]),
         Node(package='nav2_planner', executable='planner_server',
-             name='planner_server', output='screen', condition=IfCondition(start_nav2),
+             name='planner_server', output='screen', condition=IfCondition(full_navigation),
              parameters=[nav_params]),
         Node(package='nav2_behaviors', executable='behavior_server',
-             name='behavior_server', output='screen', condition=IfCondition(start_nav2),
+             name='behavior_server', output='screen', condition=IfCondition(full_navigation),
              parameters=[nav_params], remappings=[('cmd_vel', 'cmd_vel_nav')]),
         Node(package='nav2_bt_navigator', executable='bt_navigator',
-             name='bt_navigator', output='screen', condition=IfCondition(start_nav2),
+             name='bt_navigator', output='screen', condition=IfCondition(full_navigation),
              parameters=[nav_params]),
         Node(package='nav2_waypoint_follower', executable='waypoint_follower',
-             name='waypoint_follower', output='screen', condition=IfCondition(start_nav2),
+             name='waypoint_follower', output='screen', condition=IfCondition(full_navigation),
              parameters=[nav_params]),
         Node(package='nav2_velocity_smoother', executable='velocity_smoother',
              name='velocity_smoother', output='screen', condition=IfCondition(start_nav2),
@@ -192,11 +197,16 @@ def generate_launch_description():
              parameters=[nav_params]),
         Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
              name='lifecycle_manager_navigation', output='screen',
-             condition=IfCondition(start_nav2), parameters=[{
+             condition=IfCondition(full_navigation), parameters=[{
                  'autostart': True,
                  'node_names': ['controller_server', 'smoother_server', 'planner_server',
                                 'behavior_server', 'bt_navigator', 'waypoint_follower',
                                 'velocity_smoother', 'collision_monitor']}]),
+        Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
+             name='lifecycle_manager_manual_safety', output='screen',
+             condition=IfCondition(safety_only), parameters=[{
+                 'autostart': True,
+                 'node_names': ['velocity_smoother', 'collision_monitor']}]),
     ]
 
     monitor = Node(
@@ -211,6 +221,7 @@ def generate_launch_description():
         DeclareLaunchArgument('start_d455', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('start_chassis', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('start_nav2', default_value='true', choices=['true', 'false']),
+        DeclareLaunchArgument('start_navigation_servers', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('start_state_estimation', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('use_d455_imu', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('use_chassis_imu', default_value='false', choices=['true', 'false']),
