@@ -27,7 +27,7 @@ def generate_launch_description():
     database = LaunchConfiguration('database_path')
     localization = PythonExpression(["'true' if '", mode, "' == 'localization' else 'false'"])
     imu_topic = PythonExpression([
-        "'/wheel/imu/data_raw' if '", use_chassis_imu,
+        "'/r680_nav/chassis/imu_filtered' if '", use_chassis_imu,
         "' == 'true' else '/r680_nav/d455/imu_filtered'"])
 
     realsense = IncludeLaunchDescription(
@@ -92,6 +92,25 @@ def generate_launch_description():
         remappings=[('imu/data_raw', '/r680/d455/imu'),
                     ('imu/data', '/r680_nav/d455/imu_filtered')])
 
+    chassis_imu_conditioner = Node(
+        package='wla_r680_navigation', executable='imu_conditioner',
+        name='r680_chassis_imu_conditioner', output='screen',
+        condition=IfCondition(use_chassis_imu), parameters=[{
+            'input_topic': '/wheel/imu/data_raw',
+            'output_topic': '/r680_nav/chassis/imu_calibrated_raw',
+            'calibration_samples': 100,
+        }])
+
+    chassis_imu_filter = Node(
+        package='imu_filter_madgwick', executable='imu_filter_madgwick_node',
+        namespace='r680_nav/chassis', name='imu_filter_madgwick', output='screen',
+        condition=IfCondition(use_chassis_imu), parameters=[{
+            'use_mag': False, 'publish_tf': False, 'world_frame': 'enu',
+            'gain': 0.05, 'zeta': 0.0, 'orientation_stddev': 0.10,
+        }], remappings=[
+            ('imu/data_raw', '/r680_nav/chassis/imu_calibrated_raw'),
+            ('imu/data', '/r680_nav/chassis/imu_filtered')])
+
     ekf = Node(
         package='robot_localization', executable='ekf_node',
         namespace='d455_slam', name='ekf_filter_node', output='screen',
@@ -115,7 +134,7 @@ def generate_launch_description():
             'rgb_topic': '/r680/d455/color/image_raw',
             'depth_topic': '/r680/d455/aligned_depth_to_color/image_raw',
             'camera_info_topic': '/r680/d455/color/camera_info',
-            'imu_topic': '/r680_nav/d455/imu_filtered',
+            'imu_topic': imu_topic,
             'subscribe_scan': 'false',
             'approx_sync': 'true',
             'approx_sync_max_interval': '0.025',
@@ -199,6 +218,7 @@ def generate_launch_description():
         DeclareLaunchArgument('publish_mount_tf', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument(
             'database_path', default_value='/home/orin/.local/share/wla/r680-navigation/rtabmap.db'),
-        realsense, mount_tf, chassis_imu_tf, imu_filter, vo, ekf, rtabmap,
+        realsense, mount_tf, chassis_imu_tf, imu_filter, chassis_imu_conditioner,
+        chassis_imu_filter, vo, ekf, rtabmap,
         chassis, depth_points, *nav2_nodes, monitor, guard,
     ])

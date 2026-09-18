@@ -101,9 +101,10 @@ systemctl --user restart r680-d455-localization-stack.service
 ## 车身 IMU 简单融合测试
 
 D455 HID 尚不可用时，可设置 `use_chassis_imu:=true`，将底盘 MPU6050 的
-`/wheel/imu/data_raw` 接入同一个 EKF。当前只融合 `angular_velocity.z`；IMU 被假定在
-`r680_mapping_floor` 车体中心且与车体轴对齐。不要同时启用 `use_d455_imu`。测试时必须
-同时设置 `start_chassis:=true`。这属于 VO + 车身 IMU 松耦合，尚未使用加速度或 IMU 姿态。
+`/wheel/imu/data_raw` 先经启动静止陀螺零偏估计和 Madgwick，再接入同一个 3D EKF。
+当前融合三轴姿态、三轴角速度和三轴加速度；IMU 被假定在 `r680_mapping_floor` 车体中心且
+与车体轴对齐。不要同时启用 `use_d455_imu`。测试时必须同时设置 `start_chassis:=true`，并在
+启动后的前 5 秒保持车辆完全静止。该模式用于桥接短时视觉退化，持续退化仍需轮速观测约束。
 
 ```bash
 ros2 launch wla_r680_navigation bringup.launch.py \

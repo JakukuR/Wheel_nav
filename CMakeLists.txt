@@ -16,12 +16,15 @@ find_package(std_msgs REQUIRED)
 add_executable(command_guard src/command_guard.cpp)
 ament_target_dependencies(command_guard geometry_msgs rclcpp std_msgs)
 
+add_executable(imu_conditioner src/imu_conditioner.cpp)
+ament_target_dependencies(imu_conditioner rclcpp sensor_msgs)
+
 add_executable(interface_monitor src/interface_monitor.cpp)
 add_executable(depth_to_points src/depth_to_points.cpp)
 ament_target_dependencies(interface_monitor nav_msgs rclcpp sensor_msgs std_msgs)
 ament_target_dependencies(depth_to_points rclcpp sensor_msgs)
 
-install(TARGETS command_guard interface_monitor depth_to_points DESTINATION lib/${PROJECT_NAME})
+install(TARGETS command_guard imu_conditioner interface_monitor depth_to_points DESTINATION lib/${PROJECT_NAME})
 ament_python_install_package(wla_r680_navigation_py)
 install(PROGRAMS scripts/mapping_mission scripts/prepare_mapping_run DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME}
