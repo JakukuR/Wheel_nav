@@ -10,6 +10,8 @@ from ament_index_python.packages import get_package_share_directory
 parser = argparse.ArgumentParser(description='Create a fresh R680 mapping run directory.')
 parser.add_argument('--root', type=Path, default=Path.home()/'.local/share/wla/r680-navigation/runs')
 parser.add_argument('--run-id', default=None)
+parser.add_argument('--imu-mode', choices=('disabled', 'chassis-full', 'd455'), default='chassis-full')
+parser.add_argument('--hardware-output', action='store_true')
 args = parser.parse_args()
 run_id = args.run_id or datetime.now().strftime('run-%Y%m%d-%H%M%S')
 if '/' in run_id or run_id in ('.', '..'):
@@ -29,9 +31,9 @@ metadata = {
     'run_id': run_id,
     'database': str(database),
     'initial_origin_valid': True,
-    'imu_mode': 'disabled-d455-hid-unavailable',
+    'imu_mode': args.imu_mode,
     'obstacle_source': '/r680_nav/d455/points',
-    'hardware_output_enabled': False,
+    'hardware_output_enabled': args.hardware_output,
 }
 (run_dir/'run.json').write_text(json.dumps(metadata, indent=2)+'\n')
 print(run_dir)

@@ -17,7 +17,8 @@ perception:
 
 state_estimation:
   visual_odom: /r680_nav/vo_odom
-  filtered_imu: /r680_nav/d455/imu_filtered
+  d455_filtered_imu: /r680_nav/d455/imu_filtered
+  chassis_filtered_imu: /r680_nav/chassis/imu_filtered
   fused_odom: /d455_slam/odom
   visual_health: /d455_slam/odom_info
   map: /r680/d455/map

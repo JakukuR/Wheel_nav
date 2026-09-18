@@ -113,6 +113,18 @@ ros2 launch wla_r680_navigation bringup.launch.py \
   publish_mount_tf:=true enable_hardware_output:=false
 ```
 
+## 手柄遥控建图与归档
+
+手动模式让手柄发布到 `/cmd_vel_nav`，继续经过速度平滑、D455 碰撞监控和最终命令门禁。
+完成后停止手柄与运动授权，再执行：
+
+```bash
+ros2 run wla_r680_navigation save_manual_map --run-dir "$RUN_DIR"
+```
+
+该命令等待车辆稳定停止，调用 RTAB-Map backup，并原子生成与自主任务一致的
+`map_archive/`。启动前约 5 秒必须保持车辆静止，以完成车身 IMU 陀螺零偏估计。
+
 ## 自主探索任务（沿用仿真逻辑）
 
 `explore_lite` 使用与仿真相同的改版：相邻 10 cm 目标合并、到点后 360° 扫描、失败目标

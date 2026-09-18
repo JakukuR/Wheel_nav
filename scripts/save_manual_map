@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+"""Stop manual motion and atomically archive the current RTAB-Map mapping run."""
+import argparse
+import json
+import math
+from pathlib import Path
+import time
+import yaml
+
+import rclpy
+from nav_msgs.msg import OccupancyGrid, Odometry
+from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from std_msgs.msg import Bool
+from std_srvs.srv import Empty
+
+from wla_r680_navigation_py.archive import save_archive
+
+
+def yaw(q):
+    return math.atan2(2.0 * (q.w*q.z + q.x*q.y), 1.0 - 2.0 * (q.y*q.y + q.z*q.z))
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--run-dir', type=Path, required=True)
+    parser.add_argument('--timeout', type=float, default=30.0)
+    args = parser.parse_args()
+    run_dir = args.run_dir.expanduser().resolve()
+    run = json.loads((run_dir/'run.json').read_text())
+    database = Path(run['database'])
+    backup = Path(str(database)+'.back')
+    archive = run_dir/'map_archive'
+    if archive.exists():
+        raise SystemExit(f'archive already exists: {archive}')
+
+    rclpy.init()
+    node = Node('r680_manual_map_saver')
+    retained = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                          durability=DurabilityPolicy.TRANSIENT_LOCAL)
+    state = {'map': None, 'odom': None, 'stopped_since': None}
+    node.create_subscription(OccupancyGrid, '/r680/d455/map',
+                             lambda m: state.update(map=m), retained)
+    node.create_subscription(Odometry, '/d455_slam/odom',
+                             lambda m: state.update(odom=m), 20)
+    permission = node.create_publisher(Bool, '/r680_nav/mission_motion_allowed', 10)
+    backup_client = node.create_client(Empty, '/d455_slam/rtabmap/backup')
+
+    deadline = time.monotonic()+args.timeout
+    while time.monotonic() < deadline:
+        permission.publish(Bool(data=False))
+        rclpy.spin_once(node, timeout_sec=0.05)
+        odom = state['odom']
+        if odom is not None:
+            v = odom.twist.twist
+            stopped = (math.sqrt(v.linear.x**2+v.linear.y**2+v.linear.z**2) < 0.02 and
+                       math.sqrt(v.angular.x**2+v.angular.y**2+v.angular.z**2) < 0.03)
+            if stopped and state['stopped_since'] is None:
+                state['stopped_since'] = time.monotonic()
+            elif not stopped:
+                state['stopped_since'] = None
+        if state['map'] is not None and state['stopped_since'] is not None and \
+                time.monotonic()-state['stopped_since'] >= 2.0 and backup_client.service_is_ready():
+            break
+    else:
+        raise SystemExit('map/odometry/backup service not ready or robot did not settle')
+
+    old_mtime = backup.stat().st_mtime_ns if backup.exists() else None
+    future = backup_client.call_async(Empty.Request())
+    rclpy.spin_until_future_complete(node, future, timeout_sec=args.timeout)
+    if not future.done() or future.result() is None:
+        raise SystemExit('RTAB-Map backup service failed')
+    if not backup.is_file() or backup.stat().st_mtime_ns == old_mtime:
+        raise SystemExit(f'fresh RTAB-Map backup not produced: {backup}')
+
+    m = state['map']; o = m.info.origin
+    grid = dict(frame_id=m.header.frame_id, width=m.info.width, height=m.info.height,
+                resolution=m.info.resolution, origin=[o.position.x, o.position.y, yaw(o.orientation)],
+                data=list(m.data))
+    configs = {}
+    for path in sorted(run_dir.glob('*.yaml')):
+        configs[path.name] = yaml.safe_load(path.read_text())
+    metadata = dict(schema='wla-r680-manual-mapping-result-v1', success=True,
+                    phase='MANUAL_SAVED', run_id=run.get('run_id'),
+                    saved_at_unix_s=time.time(), database=str(database),
+                    fused_odom='/d455_slam/odom', imu='/r680_nav/chassis/imu_filtered')
+    result = save_archive(archive, grid, backup, metadata, configs)
+    (run_dir/'manual_mapping_result.json').write_text(json.dumps(metadata, indent=2)+'\n')
+    node.get_logger().info(f'manual map archive saved: {result}')
+    node.destroy_node(); rclpy.shutdown()
+    print(result)
+
+if __name__ == '__main__':
+    main()
