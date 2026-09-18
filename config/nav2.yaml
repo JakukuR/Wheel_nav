@@ -273,5 +273,5 @@ collision_monitor:
       topic: /r680_nav/d455/points
       min_height: 0.03
       max_height: 1.50
-      use_global_height: true
+      use_global_height: false
       enabled: true

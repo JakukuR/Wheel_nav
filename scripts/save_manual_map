@@ -41,7 +41,7 @@ def main():
     state = {'map': None, 'odom': None, 'stopped_since': None}
     node.create_subscription(OccupancyGrid, '/r680/d455/map',
                              lambda m: state.update(map=m), retained)
-    node.create_subscription(Odometry, '/d455_slam/odom',
+    node.create_subscription(Odometry, '/wheel/odom',
                              lambda m: state.update(odom=m), 20)
     permission = node.create_publisher(Bool, '/r680_nav/mission_motion_allowed', 10)
     backup_client = node.create_client(Empty, '/d455_slam/rtabmap/backup')
