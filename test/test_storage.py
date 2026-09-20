@@ -48,13 +48,17 @@ def test_publish_sequence_and_resolve_latest(tmp_path):
     assert second.name == 'map-2026-09-20-2'
     assert {p.name for p in second.iterdir()} == {
         'map.pgm', 'map.yaml', 'rtabmap.db', 'map_info.json',
-        'semantic.geojson', 'manifest.json'}
+        'semantic.geojson', 'navigation.yaml', 'manifest.json'}
+    startup = yaml.safe_load((second/'navigation.yaml').read_text())
+    assert startup['localization_database'] == 'rtabmap.db'
+    assert startup['default_initial_pose'] is None
     semantic = json.loads((second/'semantic.geojson').read_text())
     assert semantic['features'] == []
     resolved = resolve_navigation_map(settings)
     assert resolved['map_id'] == second.name
     assert Path(resolved['database_path']) == second/'rtabmap.db'
     assert Path(resolved['map_yaml']) == second/'map.yaml'
+    assert Path(resolved['startup_manifest']) == second/'navigation.yaml'
 
 
 def test_checksum_rejects_modified_navigation_file(tmp_path):

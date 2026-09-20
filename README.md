@@ -154,15 +154,20 @@ active_map: latest
 ~/ros2_ws/maps/map-YYYY-MM-DD-N/
 ├── map.pgm
 ├── map.yaml
-├── rtabmap.db
+├── rtabmap.db          # RTAB-Map 开局/漂移重定位的只读源库
 ├── map_info.json
 ├── semantic.geojson
+├── navigation.yaml     # 本地图的统一导航启动入口
 └── manifest.json
 ```
 
 `semantic.geojson` 初始为空，供后续房间、物体、命名点和区域规则扩展；它不计入
 不可变几何文件的校验值。修改存储路径后重新构建或显式传入自定义 `--storage-config`。
 一键建图也可以直接使用另一份配置：
+
+`navigation.yaml` 记录二维栅格、视觉定位数据库、地图元数据、语义层和默认初始位姿的
+相对路径。导航脚本先读取并校验这份文件，因此地图目录可以整体复制到另一台机器，不依赖
+原建图运行目录。控制器、底盘和相机参数仍由 ROS 包统一维护，避免每张地图各存一份后失配。
 
 ```bash
 ./r680_mapping.sh --storage-config /path/to/storage.yaml

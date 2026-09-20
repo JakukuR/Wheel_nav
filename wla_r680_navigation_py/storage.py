@@ -108,7 +108,16 @@ def publish_navigation_map(archive, storage, source_run_id, map_name=None, now=N
                             map_id=name, revision=0, features=[])
             (temporary/'semantic.geojson').write_text(
                 json.dumps(semantic, indent=2, allow_nan=False)+'\n')
-            immutable = ('map.pgm', 'map.yaml', 'rtabmap.db', 'map_info.json')
+            startup = dict(schema='wla-navigation-startup-v1', map_id=name,
+                           frame_id='map', occupancy_map='map.yaml',
+                           localization_database='rtabmap.db',
+                           map_metadata='map_info.json',
+                           semantic_layer='semantic.geojson',
+                           default_initial_pose=None)
+            (temporary/'navigation.yaml').write_text(yaml.safe_dump(
+                startup, sort_keys=False, allow_unicode=True))
+            immutable = ('map.pgm', 'map.yaml', 'rtabmap.db', 'map_info.json',
+                         'navigation.yaml')
             manifest = dict(schema='wla-navigation-map-manifest-v1', map_id=name,
                             frame_id='map', files={item:_sha256(temporary/item)
                                                    for item in immutable})
@@ -153,19 +162,37 @@ def resolve_navigation_map(storage, selection=None):
 
     info = json.loads((directory/'map_info.json').read_text())
     manifest = json.loads((directory/'manifest.json').read_text())
-    if info.get('map_id') != directory.name or manifest.get('map_id') != directory.name:
+    startup = yaml.safe_load((directory/'navigation.yaml').read_text())
+    if (info.get('map_id') != directory.name or
+            manifest.get('map_id') != directory.name or
+            not isinstance(startup, dict) or
+            startup.get('map_id') != directory.name):
         raise ValueError('navigation map identity mismatch')
     files = manifest.get('files')
-    required = {'map.pgm', 'map.yaml', 'rtabmap.db', 'map_info.json'}
+    required = {'map.pgm', 'map.yaml', 'rtabmap.db', 'map_info.json',
+                'navigation.yaml'}
     if not isinstance(files, dict) or set(files) != required:
         raise ValueError('navigation map manifest is incomplete')
     for name, expected in files.items():
         path = directory/name
         if not path.is_file() or _sha256(path) != expected:
             raise ValueError(f'navigation map checksum mismatch: {name}')
-    validate_database(directory/'rtabmap.db')
+    if startup.get('schema') != 'wla-navigation-startup-v1':
+        raise ValueError('unsupported navigation startup schema')
+    names = {}
+    for key in ('occupancy_map', 'localization_database', 'map_metadata',
+                'semantic_layer'):
+        value = startup.get(key)
+        if not isinstance(value, str) or Path(value).name != value:
+            raise ValueError(f'invalid navigation startup path: {key}')
+        names[key] = value
+        if not (directory/value).is_file():
+            raise FileNotFoundError(directory/value)
+    validate_database(directory/names['localization_database'])
     return dict(map_id=directory.name, directory=str(directory),
-                map_yaml=str(directory/'map.yaml'),
-                database_path=str(directory/'rtabmap.db'),
-                map_info=str(directory/'map_info.json'),
-                semantic_layer=str(directory/'semantic.geojson'))
+                startup_manifest=str(directory/'navigation.yaml'),
+                map_yaml=str(directory/names['occupancy_map']),
+                database_path=str(directory/names['localization_database']),
+                map_info=str(directory/names['map_metadata']),
+                semantic_layer=str(directory/names['semantic_layer']),
+                default_initial_pose=startup.get('default_initial_pose'))
