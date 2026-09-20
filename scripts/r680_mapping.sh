@@ -10,10 +10,21 @@ export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
 export CYCLONEDDS_URI="${CYCLONEDDS_URI:-file://$HOME/Wheel_Legged_Agent/deploy/r680/cyclonedds-local.xml}"
 
 DRY_RUN=false
-if [[ "${1:-}" == "--dry-run" ]]; then DRY_RUN=true; shift; fi
-[[ $# -eq 0 ]] || { echo "用法: $0 [--dry-run]" >&2; exit 2; }
+STORAGE_CONFIG=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run) DRY_RUN=true; shift ;;
+    --storage-config)
+      [[ $# -ge 2 ]] || { echo '--storage-config 缺少路径' >&2; exit 2; }
+      STORAGE_CONFIG="$2"; shift 2 ;;
+    *) echo "用法: $0 [--dry-run] [--storage-config PATH]" >&2; exit 2 ;;
+  esac
+done
 ENABLE_HARDWARE=true
 PREPARE_ARGS=(--imu-mode chassis-full)
+if [[ -n "$STORAGE_CONFIG" ]]; then
+  PREPARE_ARGS+=(--storage-config "$STORAGE_CONFIG")
+fi
 if [[ "$DRY_RUN" == true ]]; then
   ENABLE_HARDWARE=false
 else

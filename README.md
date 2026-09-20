@@ -162,6 +162,12 @@ active_map: latest
 
 `semantic.geojson` 初始为空，供后续房间、物体、命名点和区域规则扩展；它不计入
 不可变几何文件的校验值。修改存储路径后重新构建或显式传入自定义 `--storage-config`。
+一键建图也可以直接使用另一份配置：
+
+```bash
+./r680_mapping.sh --storage-config /path/to/storage.yaml
+```
+
 导航侧读取 `active_map`（默认 `latest`），也可指定地图名称：
 
 ```bash
