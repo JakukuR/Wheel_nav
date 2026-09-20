@@ -203,11 +203,16 @@ cd ~/ros2_ws
 脚本必须持续运行，`/navigate_to_pose` action 才存在。RViz 中两个箭头工具职责不同：
 
 - `2D Pose Estimate` 只向 `/d455_slam/initialpose` 发布开局重定位初值，不会导航；
-- `Nav2 Goal` 才会向 `/navigate_to_pose` action 发送目标。下发前确认右侧
+- `2D Goal Pose` 向 `/goal_pose` 发布目标，由 `navigation_goal_bridge` 转成
+  `/navigate_to_pose` action，并把红色目标箭头保持在地图上。下发前确认右侧
   `Navigation 2` 面板显示 Nav2 为 active。
 
+RViz 默认显示青色全局路径 `/plan`、黄色局部路径 `/local_plan`、全局/局部代价地图、
+绿色实际 footprint、橙色碰撞预测区域和按深度着色的 D455 点云。局部代价地图中高代价值
+区域即 D455 障碍层与膨胀层的合成结果。
+
 已知出生点时可以给 RTAB-Map 六维初始位姿；未知时在 RViz 使用 `2D Pose Estimate`
-进行校正，然后再用 `Nav2 Goal` 下发目标：
+进行校正，然后再用 `2D Goal Pose` 下发目标：
 
 ```bash
 ./r680_nav.sh --map map-2026-09-20-1 \

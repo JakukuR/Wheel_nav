@@ -26,6 +26,8 @@ ament_target_dependencies(depth_to_points rclcpp sensor_msgs)
 
 install(TARGETS command_guard imu_conditioner interface_monitor depth_to_points DESTINATION lib/${PROJECT_NAME})
 ament_python_install_package(wla_r680_navigation_py)
+install(PROGRAMS scripts/navigation_goal_bridge
+  DESTINATION lib/${PROJECT_NAME})
 install(PROGRAMS scripts/mapping_mission scripts/prepare_mapping_run scripts/save_manual_map
   scripts/r680_nav.sh
   scripts/resolve_navigation_map scripts/r680_mapping.sh DESTINATION lib/${PROJECT_NAME})

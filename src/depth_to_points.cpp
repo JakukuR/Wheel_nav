@@ -40,7 +40,10 @@ public:
       });
     depth_sub_ = create_subscription<sensor_msgs::msg::Image>(
       depth_topic, qos, std::bind(&DepthToPoints::depth_callback, this, std::placeholders::_1));
-    points_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(output_topic, qos);
+    // Reliable output serves Nav2 reliable obstacle consumers while remaining
+    // compatible with best-effort RViz and health-monitor subscriptions.
+    points_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+      output_topic, rclcpp::QoS(rclcpp::KeepLast(2)).reliable().durability_volatile());
   }
 
 private:

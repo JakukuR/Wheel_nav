@@ -219,6 +219,9 @@ def generate_launch_description():
              condition=IfCondition(safety_only), parameters=[{
                  'autostart': True,
                  'node_names': ['velocity_smoother', 'collision_monitor']}]),
+        Node(package='wla_r680_navigation', executable='navigation_goal_bridge',
+             name='r680_navigation_goal_bridge', output='screen',
+             condition=IfCondition(full_navigation)),
     ]
 
     monitor = Node(

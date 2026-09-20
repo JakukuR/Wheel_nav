@@ -265,7 +265,7 @@ collision_monitor:
       time_before_collision: 1.0
       simulation_time_step: 0.05
       min_points: 4
-      visualize: false
+      visualize: true
       enabled: true
     observation_sources: [d455_points]
     d455_points:
