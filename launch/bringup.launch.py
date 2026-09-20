@@ -26,6 +26,7 @@ def generate_launch_description():
     enable_motion = LaunchConfiguration('enable_hardware_output')
     publish_mount_tf = LaunchConfiguration('publish_mount_tf')
     database = LaunchConfiguration('database_path')
+    initial_pose = LaunchConfiguration('initial_pose')
     localization = PythonExpression(["'true' if '", mode, "' == 'localization' else 'false'"])
     full_navigation = PythonExpression(["'", start_nav2, "' == 'true' and '",
                                         start_navigation_servers, "' == 'true'"])
@@ -147,6 +148,7 @@ def generate_launch_description():
             'rgb_image_transport': 'raw',
             'depth_image_transport': 'raw',
             'database_path': database,
+            'initial_pose': initial_pose,
             'rtabmap_viz': 'false',
             'rviz': 'false',
             'args': (
@@ -239,6 +241,9 @@ def generate_launch_description():
         DeclareLaunchArgument('publish_mount_tf', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument(
             'database_path', default_value='/home/orin/.local/share/wla/r680-navigation/rtabmap.db'),
+        DeclareLaunchArgument(
+            'initial_pose', default_value='',
+            description='Optional RTAB-Map initial pose: x y z roll pitch yaw.'),
         realsense, mount_tf, chassis_imu_tf, imu_filter, chassis_imu_conditioner,
         chassis_imu_filter, vo, ekf, rtabmap,
         chassis, depth_points, *nav2_nodes, monitor, guard,

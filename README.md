@@ -178,6 +178,44 @@ ros2 run wla_r680_navigation resolve_navigation_map --map map-2026-09-20-1
 命令输出 `map_yaml` 和 `database_path`。二维 Nav2 使用 `map.yaml`，RTAB-Map
 localization 使用同目录的 `rtabmap.db`，从而保证几何地图与视觉重定位数据库属于同一版本。
 
+## 一键导航
+
+默认读取 `storage.yaml` 的 `active_map`（当前为 `latest`），启动 RGB-D VO、车身 IMU
+松耦合、RTAB-Map localization、完整 Nav2、D455 障碍层、速度平滑、碰撞监控和 RViz：
+
+```bash
+cd ~/ros2_ws
+./r680_nav.sh
+```
+
+默认是安全预览模式，能定位、规划和检查安全链，但 `command_guard` 不向底盘发布真实速度。
+选择地图和显式开放实车运动：
+
+```bash
+./r680_nav.sh --map map-2026-09-20-1 --enable-motion
+```
+
+已知出生点时可以给 RTAB-Map 六维初始位姿；未知时在 RViz 使用 `2D Pose Estimate`
+进行校正，然后再用 `Nav2 Goal` 下发目标：
+
+```bash
+./r680_nav.sh --map map-2026-09-20-1 \
+  --initial-pose "0 0 0 0 0 0" --enable-motion
+```
+
+脚本启动前校验导航地图 manifest，启动后等待以下条件：
+
+- D455 RGB、深度、相机内参、融合里程计和障碍点云连续健康；
+- `/r680/d455/map` 已产生有效二维栅格；
+- `map -> r680_mapping_floor` TF 可查询；
+- controller、planner、BT navigator、velocity smoother 和 collision monitor 均为 active。
+
+这些条件证明数据链和 Nav2 已就绪，不证明当前相机图像已经与旧地图正确匹配。开放实车
+运动前仍要在 RViz 核对机器人位姿。按 `Ctrl+C` 会撤销运动许可、发送零速、关闭本次节点，
+再恢复原定位服务。脚本先校验 `maps` 中不可变地图，再把 `rtabmap.db` 复制到本次运行目录；
+localization 只写工作副本，不会污染地图包。日志和工作数据库写入
+`run_root/nav-YYYYMMDD-HHMMSS-PID/`。
+
 ## 自主探索任务（沿用仿真逻辑）
 
 `explore_lite` 使用与仿真相同的改版：相邻 10 cm 目标合并、到点后 360° 扫描、失败目标
