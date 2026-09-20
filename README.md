@@ -200,6 +200,12 @@ cd ~/ros2_ws
 ./r680_nav.sh --map map-2026-09-20-1 --enable-motion
 ```
 
+脚本必须持续运行，`/navigate_to_pose` action 才存在。RViz 中两个箭头工具职责不同：
+
+- `2D Pose Estimate` 只向 `/d455_slam/initialpose` 发布开局重定位初值，不会导航；
+- `Nav2 Goal` 才会向 `/navigate_to_pose` action 发送目标。下发前确认右侧
+  `Navigation 2` 面板显示 Nav2 为 active。
+
 已知出生点时可以给 RTAB-Map 六维初始位姿；未知时在 RViz 使用 `2D Pose Estimate`
 进行校正，然后再用 `Nav2 Goal` 下发目标：
 
