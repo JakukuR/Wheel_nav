@@ -1,0 +1,10 @@
+# Full run data: logs, live/backup RTAB-Map databases and complete archives.
+run_root: ~/nav_run
+
+# Compact, immutable navigation maps published after a successful save.
+maps_root: ~/ros2_ws/maps
+map_prefix: map
+
+# Navigation map selection. Use "latest" or an exact directory name such as
+# map-2026-09-20-1.
+active_map: latest

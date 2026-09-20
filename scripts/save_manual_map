@@ -15,6 +15,7 @@ from std_msgs.msg import Bool
 from std_srvs.srv import Empty
 
 from wla_r680_navigation_py.archive import save_archive
+from wla_r680_navigation_py.storage import load_storage_config, publish_navigation_map
 
 
 def yaw(q):
@@ -85,10 +86,17 @@ def main():
                     saved_at_unix_s=time.time(), database=str(database),
                     fused_odom='/d455_slam/odom', imu='/r680_nav/chassis/imu_filtered')
     result = save_archive(archive, grid, backup, metadata, configs)
+    storage = load_storage_config(run_dir/'storage.yaml')
+    navigation_map = publish_navigation_map(
+        result, storage, source_run_id=run.get('run_id'))
+    metadata['navigation_map'] = str(navigation_map)
     (run_dir/'manual_mapping_result.json').write_text(json.dumps(metadata, indent=2)+'\n')
+    (run_dir/'navigation_map_result.json').write_text(json.dumps(dict(
+        map_id=navigation_map.name, directory=str(navigation_map)), indent=2)+'\n')
     node.get_logger().info(f'manual map archive saved: {result}')
+    node.get_logger().info(f'navigation map published: {navigation_map}')
     node.destroy_node(); rclpy.shutdown()
-    print(result)
+    print(navigation_map)
 
 if __name__ == '__main__':
     main()

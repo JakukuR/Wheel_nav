@@ -59,6 +59,9 @@ cleanup() {
     if ros2 run wla_r680_navigation save_manual_map --run-dir "$RUN_DIR" --timeout 45; then
       SAVE_OK=true
       echo "[R680] 地图保存成功：$RUN_DIR/map_archive"
+      NAV_MAP=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["directory"])' \
+        "$RUN_DIR/navigation_map_result.json")
+      echo "[R680] 精简导航地图已发布：$NAV_MAP"
     else
       echo "[R680] 地图自动保存失败，请先不要删除运行目录：$RUN_DIR" >&2
       status=1

@@ -12,6 +12,7 @@ import time
 
 from .archive import save_archive
 from .mission_core import HomeAnchor, MissionResult, arrived, significant_frontiers, stopped_odometry
+from .storage import load_storage_config, publish_navigation_map
 
 
 def load_config(path):
@@ -430,6 +431,12 @@ def main():
             metadata['success'] = result.exploration == 'complete' and result.return_home == 'succeeded' and not result.reason and not flags['cancel']
             metadata['phase'] = ('CANCELED' if flags['cancel'] else 'SUCCEEDED' if metadata['success'] else 'COMPLETED_PARTIAL' if result.exploration == 'partial' and result.return_home == 'succeeded' and not result.reason else 'FAILED')
             save_archive(report['map_directory'],frozen,backup,metadata,config_snapshot)
+            storage = load_storage_config(args.output.parent/'storage.yaml')
+            navigation_map = publish_navigation_map(
+                report['map_directory'], storage, source_run_id=run.get('run_id'))
+            report['navigation_map'] = str(navigation_map)
+            (args.output.parent/'navigation_map_result.json').write_text(json.dumps(dict(
+                map_id=navigation_map.name, directory=str(navigation_map)), indent=2)+'\n')
             result.save = 'succeeded'
         except Exception as exc:
             result.save = 'failed'

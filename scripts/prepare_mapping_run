@@ -6,25 +6,32 @@ from pathlib import Path
 import shutil
 
 from ament_index_python.packages import get_package_share_directory
+from wla_r680_navigation_py.storage import load_storage_config
 
+share = Path(get_package_share_directory('wla_r680_navigation'))
 parser = argparse.ArgumentParser(description='Create a fresh R680 mapping run directory.')
-parser.add_argument('--root', type=Path, default=Path.home()/'.local/share/wla/r680-navigation/runs')
+parser.add_argument('--storage-config', type=Path, default=share/'config/storage.yaml')
+parser.add_argument('--root', type=Path, default=None,
+                    help='Override storage.yaml run_root for this run only.')
 parser.add_argument('--run-id', default=None)
 parser.add_argument('--imu-mode', choices=('disabled', 'chassis-full', 'd455'), default='chassis-full')
 parser.add_argument('--hardware-output', action='store_true')
 args = parser.parse_args()
+storage = load_storage_config(args.storage_config)
 run_id = args.run_id or datetime.now().strftime('run-%Y%m%d-%H%M%S')
 if '/' in run_id or run_id in ('.', '..'):
     raise SystemExit('invalid run id')
-run_dir = args.root.expanduser().resolve()/run_id
+run_root = args.root.expanduser().resolve() if args.root else storage['run_root']
+run_dir = run_root/run_id
 run_dir.mkdir(parents=True, exist_ok=False)
 (run_dir/'logs').mkdir()
-share = Path(get_package_share_directory('wla_r680_navigation'))
 for name in ('nav2.yaml', 'exploration.yaml', 'mission.yaml', 'interfaces.yaml',
              'rtabmap.yaml', 'ekf_vo_imu.yaml', 'camera_mount.yaml', 'chassis.yaml'):
     source = share/'config'/name
     if source.exists():
         shutil.copy2(source, run_dir/name)
+# Preserve the exact storage policy used for this run, including custom paths.
+shutil.copy2(storage['config_path'], run_dir/'storage.yaml')
 database = run_dir/'rtabmap.db'
 metadata = {
     'schema': 'wla-r680-mapping-run-v1',
@@ -34,6 +41,8 @@ metadata = {
     'imu_mode': args.imu_mode,
     'obstacle_source': '/r680_nav/d455/points',
     'hardware_output_enabled': args.hardware_output,
+    'run_root': str(run_root),
+    'maps_root': str(storage['maps_root']),
 }
 (run_dir/'run.json').write_text(json.dumps(metadata, indent=2)+'\n')
 print(run_dir)

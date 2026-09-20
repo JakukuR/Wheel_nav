@@ -26,9 +26,15 @@ ament_target_dependencies(depth_to_points rclcpp sensor_msgs)
 
 install(TARGETS command_guard imu_conditioner interface_monitor depth_to_points DESTINATION lib/${PROJECT_NAME})
 ament_python_install_package(wla_r680_navigation_py)
-install(PROGRAMS scripts/mapping_mission scripts/prepare_mapping_run scripts/save_manual_map scripts/r680_mapping.sh DESTINATION lib/${PROJECT_NAME})
+install(PROGRAMS scripts/mapping_mission scripts/prepare_mapping_run scripts/save_manual_map
+  scripts/resolve_navigation_map scripts/r680_mapping.sh DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY config launch docs DESTINATION share/${PROJECT_NAME}
   PATTERN "__pycache__" EXCLUDE PATTERN "*.pyc" EXCLUDE)
 install(FILES README.md DESTINATION share/${PROJECT_NAME})
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(test_storage test/test_storage.py)
+endif()
 
 ament_package()

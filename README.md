@@ -136,6 +136,42 @@ ros2 run wla_r680_navigation save_manual_map --run-dir "$RUN_DIR"
 该命令等待车辆稳定停止，调用 RTAB-Map backup，并原子生成与自主任务一致的
 `map_archive/`。启动前约 5 秒必须保持车辆静止，以完成车身 IMU 陀螺零偏估计。
 
+## 地图与完整运行产物
+
+默认路径由 `config/storage.yaml` 管理：
+
+```yaml
+run_root: ~/nav_run
+maps_root: ~/ros2_ws/maps
+map_prefix: map
+active_map: latest
+```
+
+每次建图的日志、数据库、参数快照和完整归档保存在
+`~/nav_run/run-YYYYMMDD-HHMMSS/`。保存成功后，系统原子生成精简导航地图：
+
+```text
+~/ros2_ws/maps/map-YYYY-MM-DD-N/
+├── map.pgm
+├── map.yaml
+├── rtabmap.db
+├── map_info.json
+├── semantic.geojson
+└── manifest.json
+```
+
+`semantic.geojson` 初始为空，供后续房间、物体、命名点和区域规则扩展；它不计入
+不可变几何文件的校验值。修改存储路径后重新构建或显式传入自定义 `--storage-config`。
+导航侧读取 `active_map`（默认 `latest`），也可指定地图名称：
+
+```bash
+ros2 run wla_r680_navigation resolve_navigation_map
+ros2 run wla_r680_navigation resolve_navigation_map --map map-2026-09-20-1
+```
+
+命令输出 `map_yaml` 和 `database_path`。二维 Nav2 使用 `map.yaml`，RTAB-Map
+localization 使用同目录的 `rtabmap.db`，从而保证几何地图与视觉重定位数据库属于同一版本。
+
 ## 自主探索任务（沿用仿真逻辑）
 
 `explore_lite` 使用与仿真相同的改版：相邻 10 cm 目标合并、到点后 360° 扫描、失败目标
