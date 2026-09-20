@@ -19,7 +19,7 @@ public:
   {
     timeout_s_ = declare_parameter<double>("timeout_s", 0.30);
     health_timeout_s_ = declare_parameter<double>("health_timeout_s", 0.50);
-    forward_max_ = declare_parameter<double>("forward_max", 0.30);
+    forward_max_ = declare_parameter<double>("forward_max", 1.00);
     reverse_max_ = declare_parameter<double>("reverse_max", 0.08);
     angular_max_ = declare_parameter<double>("angular_max", 0.50);
     hardware_output_enabled_ = declare_parameter<bool>("hardware_output_enabled", false);
