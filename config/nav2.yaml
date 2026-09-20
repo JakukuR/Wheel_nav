@@ -31,7 +31,7 @@ controller_server:
       plugin: nav2_mppi_controller::MPPIController
       time_steps: 56
       model_dt: 0.05
-      batch_size: 1600
+      batch_size: 800
       iteration_count: 1
       vx_std: 0.20
       vy_std: 0.0
