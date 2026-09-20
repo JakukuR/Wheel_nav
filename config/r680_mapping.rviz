@@ -123,7 +123,7 @@ Visualization Manager:
       Class: rviz_default_plugins/Polygon
       Color: 0; 255; 80
       Enabled: true
-      Name: Robot Footprint (0.30/0.25 x 0.48 m)
+      Name: Robot Footprint (0.20 x 0.20 m)
       Topic:
         Depth: 5
         Durability Policy: Volatile
