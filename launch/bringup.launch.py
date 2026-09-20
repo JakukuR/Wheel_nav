@@ -150,7 +150,11 @@ def generate_launch_description():
             'rtabmap_viz': 'false',
             'rviz': 'false',
             'args': (
-                '--Grid/Sensor 1 --Grid/3D false --Grid/RayTracing true --Grid/RangeMax 5.0 '
+                '--Grid/Sensor 1 --Grid/3D false --Grid/RayTracing true '
+                '--Grid/RangeMin 0.25 --Grid/RangeMax 4.0 '
+                '--Grid/NoiseFilteringRadius 0.10 '
+                '--Grid/NoiseFilteringMinNeighbors 5 '
+                '--GridGlobal/Eroded true '
                 '--Grid/NormalsSegmentation false '
                 '--Grid/MinGroundHeight -0.08 '
                 '--Grid/MaxGroundHeight 0.04 '
