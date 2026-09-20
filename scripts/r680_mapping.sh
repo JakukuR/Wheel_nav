@@ -81,7 +81,7 @@ cleanup() {
 
   stop_group "$RVIZ_PID"
   stop_group "$BRINGUP_PID"
-  systemctl --user restart r680-d455-localization-stack.service >/dev/null 2>&1 || true
+  systemctl --user stop r680-d455-localization-stack.service >/dev/null 2>&1 || true
   if ((${#PAUSED_UNITS[@]})); then
     systemctl --user restart r680-readonly-inputs.service >/dev/null 2>&1 || true
     for unit in "${PAUSED_UNITS[@]}"; do
