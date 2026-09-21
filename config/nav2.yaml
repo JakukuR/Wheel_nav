@@ -99,7 +99,7 @@ controller_server:
       PreferForwardCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 1.0
+        cost_weight: 3.0
         threshold_to_consider: 0.5
 
 planner_server:
@@ -135,7 +135,7 @@ behavior_server:
     local_footprint_topic: local_costmap/published_footprint
     global_footprint_topic: global_costmap/published_footprint
     cycle_frequency: 10.0
-    behavior_plugins: [spin, backup, drive_on_heading, wait]
+    behavior_plugins: [backup, drive_on_heading, wait]
     local_frame: d455_floor_odom
     global_frame: map
     robot_base_frame: r680_mapping_floor
@@ -144,8 +144,6 @@ behavior_server:
     max_rotational_vel: 1.50
     min_rotational_vel: 0.05
     rotational_acc_lim: 2.50
-    spin:
-      plugin: nav2_behaviors::Spin
     backup:
       plugin: nav2_behaviors::BackUp
       minimum_speed: 0.02
@@ -207,12 +205,30 @@ global_costmap:
       track_unknown_space: true
       footprint: '[[0.20, 0.20], [0.20, -0.20], [-0.20, -0.20], [-0.20, 0.20]]'
       footprint_padding: 0.02
-      plugins: [static_layer, inflation_layer]
+      plugins: [static_layer, obstacle_layer, inflation_layer]
       static_layer:
         plugin: nav2_costmap_2d::StaticLayer
         map_topic: /r680/d455/map
         map_subscribe_transient_local: true
         subscribe_to_updates: true
+      obstacle_layer:
+        plugin: nav2_costmap_2d::ObstacleLayer
+        enabled: true
+        footprint_clearing_enabled: true
+        observation_sources: d455_points
+        d455_points:
+          topic: /r680_nav/d455/points
+          data_type: PointCloud2
+          clearing: true
+          marking: true
+          min_obstacle_height: 0.04
+          max_obstacle_height: 0.50
+          obstacle_min_range: 0.15
+          obstacle_max_range: 4.5
+          raytrace_min_range: 0.15
+          raytrace_max_range: 5.0
+          expected_update_rate: 0.20
+          observation_persistence: 0.30
       inflation_layer:
         plugin: nav2_costmap_2d::InflationLayer
         inflation_radius: 0.25

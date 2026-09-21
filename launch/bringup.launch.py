@@ -197,7 +197,10 @@ def generate_launch_description():
              parameters=[nav_params], remappings=[('cmd_vel', 'cmd_vel_nav')]),
         Node(package='nav2_bt_navigator', executable='bt_navigator',
              name='bt_navigator', output='screen', condition=IfCondition(full_navigation),
-             parameters=[nav_params]),
+             parameters=[nav_params, {
+                 'default_nav_to_pose_bt_xml': str(config / 'navigate_to_pose_no_spin.xml'),
+                 'default_nav_through_poses_bt_xml': str(config / 'navigate_through_poses_no_spin.xml'),
+             }]),
         Node(package='nav2_waypoint_follower', executable='waypoint_follower',
              name='waypoint_follower', output='screen', condition=IfCondition(full_navigation),
              parameters=[nav_params]),
