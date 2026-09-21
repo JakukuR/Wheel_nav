@@ -117,6 +117,7 @@ PAUSE_UNITS=(
 )
 PAUSED_UNITS=()
 BRINGUP_PID=""; PERMISSION_PID=""; RVIZ_PID=""; STARTED=false
+READONLY_INPUTS_ACTIVE=false
 
 stop_group() {
   local pid="${1:-}"
@@ -141,7 +142,7 @@ cleanup() {
   stop_group "$RVIZ_PID"
   stop_group "$BRINGUP_PID"
   systemctl --user stop r680-d455-localization-stack.service >/dev/null 2>&1 || true
-  if ((${#PAUSED_UNITS[@]})); then
+  if [[ "$READONLY_INPUTS_ACTIVE" == true ]]; then
     systemctl --user restart r680-readonly-inputs.service >/dev/null 2>&1 || true
     for unit in "${PAUSED_UNITS[@]}"; do
       systemctl --user start "$unit" >/dev/null 2>&1 || true
@@ -157,6 +158,9 @@ trap 'exit 130' INT TERM HUP
   echo '[R680 NAV] 未找到候选底盘串口 0002' >&2; exit 1;
 }
 
+if systemctl --user is-active --quiet r680-readonly-inputs.service; then
+  READONLY_INPUTS_ACTIVE=true
+fi
 systemctl --user stop r680-d455-localization-stack.service
 if ! systemctl --user is-active --quiet r680-d455-observation.service; then
   systemctl --user restart r680-readonly-inputs.service
