@@ -181,6 +181,12 @@ def generate_launch_description():
         name='r680_d455_depth_to_points', output='screen', condition=IfCondition(start_nav2),
         parameters=[str(config / 'd455_points.yaml')])
 
+    dynamic_obstacles = Node(
+        package='wla_r680_navigation', executable='dynamic_obstacle_memory',
+        name='r680_dynamic_obstacle_memory', output='screen',
+        condition=IfCondition(start_nav2),
+        parameters=[str(config / 'dynamic_obstacles.yaml')])
+
     nav_params = str(config / 'nav2.yaml')
     nav2_nodes = [
         Node(package='nav2_controller', executable='controller_server',
@@ -263,5 +269,5 @@ def generate_launch_description():
             description='Optional RTAB-Map initial pose: x y z roll pitch yaw.'),
         realsense, mount_tf, chassis_imu_tf, imu_filter, chassis_imu_conditioner,
         chassis_imu_filter, vo, ekf, rtabmap,
-        chassis, depth_points, *nav2_nodes, monitor, guard,
+        chassis, depth_points, dynamic_obstacles, *nav2_nodes, monitor, guard,
     ])

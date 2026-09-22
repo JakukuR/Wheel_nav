@@ -197,7 +197,7 @@ local_costmap:
           obstacle_min_range: 0.15
           obstacle_max_range: 4.5
           expected_update_rate: 0.20
-          observation_persistence: 1.0
+          observation_persistence: 0.5
         d455_clearing:
           topic: /r680_nav/d455/clearing_points
           data_type: PointCloud2
@@ -237,9 +237,12 @@ global_costmap:
         plugin: nav2_costmap_2d::ObstacleLayer
         enabled: true
         footprint_clearing_enabled: true
-        observation_sources: d455_obstacles d455_clearing
-        d455_obstacles:
-          topic: /r680_nav/d455/points
+        # The local costmap reacts to raw points immediately. The global map
+        # only accepts multi-frame confirmed voxels, but retains them when the
+        # forward camera turns away.
+        observation_sources: d455_confirmed d455_clearing
+        d455_confirmed:
+          topic: /r680_nav/d455/points_confirmed
           data_type: PointCloud2
           clearing: false
           marking: true
@@ -247,8 +250,8 @@ global_costmap:
           max_obstacle_height: 0.50
           obstacle_min_range: 0.15
           obstacle_max_range: 4.5
-          expected_update_rate: 0.20
-          observation_persistence: 3.0
+          expected_update_rate: 0.30
+          observation_persistence: 0.3
         d455_clearing:
           topic: /r680_nav/d455/clearing_points
           data_type: PointCloud2

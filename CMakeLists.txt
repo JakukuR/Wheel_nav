@@ -21,15 +21,17 @@ ament_target_dependencies(command_guard geometry_msgs rclcpp std_msgs)
 
 add_executable(imu_conditioner src/imu_conditioner.cpp)
 add_executable(path_speed_profile src/path_speed_profile.cpp)
+add_executable(dynamic_obstacle_memory src/dynamic_obstacle_memory.cpp)
 ament_target_dependencies(imu_conditioner rclcpp sensor_msgs)
 ament_target_dependencies(path_speed_profile nav2_msgs nav_msgs rclcpp std_msgs)
+ament_target_dependencies(dynamic_obstacle_memory geometry_msgs rclcpp sensor_msgs tf2 tf2_ros)
 
 add_executable(interface_monitor src/interface_monitor.cpp)
 add_executable(depth_to_points src/depth_to_points.cpp)
 ament_target_dependencies(interface_monitor nav_msgs rclcpp sensor_msgs std_msgs)
 ament_target_dependencies(depth_to_points geometry_msgs rclcpp sensor_msgs tf2 tf2_ros)
 
-install(TARGETS command_guard imu_conditioner path_speed_profile interface_monitor depth_to_points DESTINATION lib/${PROJECT_NAME})
+install(TARGETS command_guard imu_conditioner path_speed_profile dynamic_obstacle_memory interface_monitor depth_to_points DESTINATION lib/${PROJECT_NAME})
 ament_python_install_package(wla_r680_navigation_py)
 install(PROGRAMS scripts/navigation_goal_bridge
   DESTINATION lib/${PROJECT_NAME})

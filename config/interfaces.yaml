@@ -15,6 +15,7 @@ inputs:
 perception:
   near_field_points: /r680_nav/d455/points
   near_field_clearing_points: /r680_nav/d455/clearing_points
+  confirmed_obstacle_points: /r680_nav/d455/points_confirmed
   near_field_visualization_points: /r680_nav/d455/points_viz
 
 state_estimation:

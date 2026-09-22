@@ -1,0 +1,18 @@
+r680_dynamic_obstacle_memory:
+  ros__parameters:
+    input_topic: /r680_nav/d455/points
+    output_topic: /r680_nav/d455/points_confirmed
+    target_frame: d455_floor_odom
+
+    # A global obstacle must occupy the same 10 cm voxel in three consecutive
+    # D455 updates before it can change the global route.
+    voxel_size: 0.10
+    min_hits: 3
+    confirmation_window: 0.60
+    max_observation_gap: 0.30
+
+    # Keep a confirmed obstacle while the forward-only camera turns away;
+    # after the last observation it is removed within this bounded interval.
+    persistence: 4.0
+    publish_rate: 5.0
+    max_voxels: 30000
