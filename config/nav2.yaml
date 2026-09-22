@@ -11,7 +11,8 @@ controller_server:
   ros__parameters:
     use_sim_time: false
     odom_topic: /d455_slam/odom
-    controller_frequency: 20.0
+    # Orin sustains 15 Hz with MPPI and RGB-D localization; 20 Hz occasionally overruns.
+    controller_frequency: 15.0
     failure_tolerance: 0.3
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.001
@@ -289,9 +290,11 @@ waypoint_follower:
 velocity_smoother:
   ros__parameters:
     use_sim_time: false
-    smoothing_frequency: 40.0
+    # Wheel feedback has about 0.7 s command/response lag. Feeding it back here
+    # repeatedly restarts the acceleration limiter and creates stop-go motion.
+    smoothing_frequency: 20.0
     scale_velocities: false
-    feedback: CLOSED_LOOP
+    feedback: OPEN_LOOP
     max_velocity: [1.20, 0.0, 1.50]
     min_velocity: [-0.70, 0.0, -1.50]
     max_accel: [1.00, 0.0, 2.50]
