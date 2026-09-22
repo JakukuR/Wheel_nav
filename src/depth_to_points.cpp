@@ -77,6 +77,8 @@ public:
       "output_topic", "/r680_nav/d455/points");
     const auto clearing_topic = declare_parameter<std::string>(
       "clearing_output_topic", "/r680_nav/d455/clearing_points");
+    const auto visualization_topic = declare_parameter<std::string>(
+      "visualization_output_topic", "/r680_nav/d455/points_viz");
 
     const auto qos = rclcpp::SensorDataQoS();
     info_sub_ = create_subscription<sensor_msgs::msg::CameraInfo>(
@@ -89,6 +91,8 @@ public:
     const auto output_qos = rclcpp::QoS(rclcpp::KeepLast(2)).reliable().durability_volatile();
     points_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(output_topic, output_qos);
     clearing_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(clearing_topic, output_qos);
+    visualization_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+      visualization_topic, rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile());
   }
 
 private:
@@ -269,8 +273,15 @@ private:
       }
     }
     const auto obstacle_points = filter_obstacles(clearing_points);
-    points_pub_->publish(make_cloud(image->header, target_frame_, obstacle_points));
+    auto obstacle_cloud = make_cloud(image->header, target_frame_, obstacle_points);
+    points_pub_->publish(obstacle_cloud);
     clearing_pub_->publish(make_cloud(image->header, target_frame_, clearing_points));
+
+    // RViz is diagnostic only. A zero stamp asks tf2 for the latest complete
+    // map->base chain and avoids rejecting valid clouds while map correction lags.
+    obstacle_cloud.header.stamp.sec = 0;
+    obstacle_cloud.header.stamp.nanosec = 0;
+    visualization_pub_->publish(obstacle_cloud);
     last_publish_ = now;
   }
 
@@ -296,6 +307,7 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depth_sub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr points_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr clearing_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr visualization_pub_;
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
 };

@@ -241,7 +241,6 @@ names = ['controller_server', 'planner_server', 'bt_navigator',
 clients = {name: node.create_client(GetState, f'/{name}/get_state') for name in names}
 deadline = time.monotonic() + 120.0
 last_report = 0.0
-last_status = None
 while time.monotonic() < deadline:
     rclpy.spin_once(node, timeout_sec=0.2)
     states = {}
@@ -258,12 +257,10 @@ while time.monotonic() < deadline:
         node.destroy_node()
         rclpy.shutdown()
         raise SystemExit(0)
-    status = (ready_count >= 5, map_ok, tf_ok, tuple(states.items()))
-    if status != last_status or time.monotonic() - last_report > 15.0:
-        print('[R680 NAV] 等待就绪:', f'接口={status[0]}', f'地图={status[1]}',
-              f'TF={status[2]}', '生命周期=' + ','.join(f'{k}:{v}' for k, v in states.items()),
+    if time.monotonic() - last_report > 10.0:
+        print('[R680 NAV] 等待就绪:', f'接口={ready_count >= 5}', f'地图={map_ok}',
+              f'TF={tf_ok}', '生命周期=' + ','.join(f'{k}:{v}' for k, v in states.items()),
               flush=True)
-        last_status = status
         last_report = time.monotonic()
 node.destroy_node()
 rclpy.shutdown()

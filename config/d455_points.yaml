@@ -4,6 +4,7 @@ r680_d455_depth_to_points:
     camera_info_topic: /r680/d455/color/camera_info
     output_topic: /r680_nav/d455/points
     clearing_output_topic: /r680_nav/d455/clearing_points
+    visualization_output_topic: /r680_nav/d455/points_viz
     target_frame: r680_mapping_floor
 
     stride: 4

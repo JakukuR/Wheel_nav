@@ -2,7 +2,7 @@ from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
@@ -210,18 +210,22 @@ def generate_launch_description():
         Node(package='nav2_collision_monitor', executable='collision_monitor',
              name='collision_monitor', output='screen', condition=IfCondition(start_nav2),
              parameters=[nav_params]),
-        Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
-             name='lifecycle_manager_navigation', output='screen',
-             condition=IfCondition(full_navigation), parameters=[{
-                 'autostart': True,
-                 'node_names': ['controller_server', 'smoother_server', 'planner_server',
-                                'behavior_server', 'bt_navigator', 'waypoint_follower',
-                                'velocity_smoother', 'collision_monitor']}]),
-        Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
-             name='lifecycle_manager_manual_safety', output='screen',
-             condition=IfCondition(safety_only), parameters=[{
-                 'autostart': True,
-                 'node_names': ['velocity_smoother', 'collision_monitor']}]),
+        TimerAction(period=3.0, actions=[
+            Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
+                 name='lifecycle_manager_navigation', output='screen',
+                 condition=IfCondition(full_navigation), parameters=[{
+                     'autostart': True,
+                     'node_names': ['controller_server', 'smoother_server', 'planner_server',
+                                    'behavior_server', 'bt_navigator', 'waypoint_follower',
+                                    'velocity_smoother', 'collision_monitor']}]),
+        ]),
+        TimerAction(period=3.0, actions=[
+            Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
+                 name='lifecycle_manager_manual_safety', output='screen',
+                 condition=IfCondition(safety_only), parameters=[{
+                     'autostart': True,
+                     'node_names': ['velocity_smoother', 'collision_monitor']}]),
+        ]),
         Node(package='wla_r680_navigation', executable='navigation_goal_bridge',
              name='r680_navigation_goal_bridge', output='screen',
              condition=IfCondition(full_navigation)),
