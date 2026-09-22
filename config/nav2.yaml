@@ -254,7 +254,7 @@ velocity_smoother:
     scale_velocities: false
     feedback: OPEN_LOOP
     max_velocity: [1.00, 0.0, 1.50]
-    min_velocity: [-0.25, 0.0, -1.50]
+    min_velocity: [-0.70, 0.0, -1.50]
     max_accel: [0.80, 0.0, 2.50]
     max_decel: [-1.20, 0.0, -2.50]
     odom_topic: /d455_slam/odom

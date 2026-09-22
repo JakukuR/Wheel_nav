@@ -155,7 +155,8 @@ if [[ -e /dev/input/js0 ]]; then
   setsid ros2 run gamepad_control gamepad_teleop --ros-args \
     --params-file "$HOME/ros2_ws/install/gamepad_control/share/gamepad_control/config/gamepad_params.yaml" \
     -p device:=/dev/input/js0 -p cmd_vel_topic:=/cmd_vel_nav \
-    -p deadman_enabled:=false -p max_linear_speed:=0.30 \
+    -p deadman_enabled:=false -p max_linear_speed:=1.00 \
+    -p max_reverse_speed:=0.70 \
     -p max_angular_speed:=0.50 -p spin_angular_speed:=0.40 \
     -p filter_alpha:=0.55 -p max_linear_accel:=0.80 -p max_linear_decel:=1.20 \
     -p max_angular_accel:=1.80 -p max_angular_decel:=2.50 \
