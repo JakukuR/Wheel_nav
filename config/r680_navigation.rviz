@@ -103,10 +103,10 @@ Visualization Manager:
     - Alpha: 1
       Buffer Length: 1
       Class: rviz_default_plugins/Path
-      Color: 255; 220; 0
+      Color: 255; 0; 0
       Enabled: true
       Line Style: Lines
-      Line Width: 0.07
+      Line Width: 0.10
       Name: Local Controller Plan
       Pose Color: 255; 140; 0
       Pose Style: None
