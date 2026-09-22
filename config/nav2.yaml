@@ -49,7 +49,7 @@ controller_server:
       temperature: 0.3
       gamma: 0.015
       motion_model: DiffDrive
-      visualize: false
+      visualize: true
       critics: [ConstraintCritic, CostCritic, GoalCritic, GoalAngleCritic,
                 PathAlignCritic, PathFollowCritic, PathAngleCritic, PreferForwardCritic]
       ConstraintCritic:
