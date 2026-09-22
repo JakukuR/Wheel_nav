@@ -60,7 +60,8 @@ class GamepadTeleop(Node):
         self.declare_parameter('publish_rate', 50.0)  # Hz
 
         # 速度限制参数
-        self.declare_parameter('max_linear_speed', 1.0)    # m/s
+        self.declare_parameter('max_linear_speed', 1.0)    # m/s forward
+        self.declare_parameter('max_reverse_speed', 0.7)   # m/s reverse
         self.declare_parameter('max_angular_speed', 1.5)    # rad/s
         self.declare_parameter('min_linear_speed', 0.05)    # m/s 最小有效速度（消除蠕动）
 
@@ -113,6 +114,7 @@ class GamepadTeleop(Node):
         self.device = self.get_parameter('device').value
         self.publish_rate = self.get_parameter('publish_rate').value
         self.max_linear = self.get_parameter('max_linear_speed').value
+        self.max_reverse = self.get_parameter('max_reverse_speed').value
         self.max_angular = self.get_parameter('max_angular_speed').value
         self.min_linear = self.get_parameter('min_linear_speed').value
 
@@ -200,7 +202,8 @@ class GamepadTeleop(Node):
         self.get_logger().info('  Gamepad Teleop 手柄遥控节点启动')
         self.get_logger().info(f'  设备: {self.device}')
         self.get_logger().info(f'  话题: {topic}')
-        self.get_logger().info(f'  最大线速度: {self.max_linear} m/s')
+        self.get_logger().info(f'  最大前进速度: {self.max_linear} m/s')
+        self.get_logger().info(f'  最大倒车速度: {self.max_reverse} m/s')
         self.get_logger().info(f'  最大角速度: {self.max_angular} rad/s')
         self.get_logger().info(f'  当前档位: {self.current_profile}')
         self.get_logger().info(f'  死人开关: {"启用" if self.deadman_enabled else "禁用"}')
@@ -480,30 +483,28 @@ class GamepadTeleop(Node):
         profile_scale = self.speed_profiles[self.current_profile]
 
         # (d) 计算目标速度
-        target_linear = raw_linear * self.max_linear * (profile_scale + rt_boost)
+        linear_limit = self.max_linear if raw_linear >= 0.0 else self.max_reverse
+        target_linear = raw_linear * linear_limit * (profile_scale + rt_boost)
         target_angular = raw_angular * self.max_angular * profile_scale
 
         # (e) 转弯自动减速 —— 车速越快，角速度限制越严
         #     这对于高重心车辆非常重要，防止高速急转弯侧翻
-        speed_ratio = abs(self.current_linear) / self.max_linear if self.max_linear > 0 else 0.0
+        active_linear_limit = self.max_linear if self.current_linear >= 0.0 else self.max_reverse
+        speed_ratio = abs(self.current_linear) / active_linear_limit if active_linear_limit > 0 else 0.0
         angular_limit_factor = 1.0 - speed_ratio * (1.0 - self.steer_speed_factor)
         target_angular *= angular_limit_factor
 
-        # (f) 后退时减速 —— 后退最大速度为前进的60%
-        if target_linear < 0:
-            target_linear *= 0.6
-
-        # (g) 速度下限过滤（消除蠕动）
+        # (f) 速度下限过滤（消除蠕动）
         if 0 < abs(target_linear) < self.min_linear:
             target_linear = 0.0
 
-        # (h) 低通滤波 —— 平滑摇杆输入
+        # (g) 低通滤波 —— 平滑摇杆输入
         self.filtered_linear = self.apply_lowpass(
             self.filtered_linear, target_linear, self.filter_alpha)
         self.filtered_angular = self.apply_lowpass(
             self.filtered_angular, target_angular, self.filter_alpha)
 
-        # (i) 加速度限制 —— 防止加速/减速过猛
+        # (h) 加速度限制 —— 防止加速/减速过猛
         self.current_linear = self.apply_accel_limit(
             self.current_linear, self.filtered_linear,
             self.max_lin_accel, self.max_lin_decel, dt)
@@ -511,11 +512,11 @@ class GamepadTeleop(Node):
             self.current_angular, self.filtered_angular,
             self.max_ang_accel, self.max_ang_decel, dt)
 
-        # (j) 最终安全限幅
-        self.current_linear = max(-self.max_linear, min(self.max_linear, self.current_linear))
+        # (i) 最终安全限幅
+        self.current_linear = max(-self.max_reverse, min(self.max_linear, self.current_linear))
         self.current_angular = max(-self.max_angular, min(self.max_angular, self.current_angular))
 
-        # (k) 微小值归零
+        # (j) 微小值归零
         if abs(self.current_linear) < 0.01:
             self.current_linear = 0.0
         if abs(self.current_angular) < 0.01:
