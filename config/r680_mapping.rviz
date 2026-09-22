@@ -189,7 +189,7 @@ Visualization Manager:
       Value: true
     - Class: rviz_default_plugins/Odometry
       Enabled: true
-      Keep: 200
+      Keep: 1
       Name: Fused Odometry
       Position Tolerance: 0.02
       Angle Tolerance: 0.02
