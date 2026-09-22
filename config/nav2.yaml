@@ -173,7 +173,7 @@ local_costmap:
         plugin: nav2_costmap_2d::ObstacleLayer
         enabled: true
         footprint_clearing_enabled: true
-        observation_sources: [d455_obstacles, d455_clearing]
+        observation_sources: d455_obstacles d455_clearing
         d455_obstacles:
           topic: /r680_nav/d455/points
           data_type: PointCloud2
@@ -224,7 +224,7 @@ global_costmap:
         plugin: nav2_costmap_2d::ObstacleLayer
         enabled: true
         footprint_clearing_enabled: true
-        observation_sources: [d455_obstacles, d455_clearing]
+        observation_sources: d455_obstacles d455_clearing
         d455_obstacles:
           topic: /r680_nav/d455/points
           data_type: PointCloud2

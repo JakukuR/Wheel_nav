@@ -193,6 +193,18 @@ setsid ros2 launch wla_r680_navigation bringup.launch.py "${LAUNCH_ARGS[@]}" \
 BRINGUP_PID=$!
 STARTED=true
 
+RVIZ_CONFIG="$CONFIG_DIR/r680_navigation.rviz"
+if [[ "$START_RVIZ" == true ]]; then
+  if [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" ]]; then
+    setsid ros2 run rviz2 rviz2 -d "$RVIZ_CONFIG" \
+      >"$NAV_RUN_DIR/logs/rviz.log" 2>&1 </dev/null &
+    RVIZ_PID=$!
+    echo '[R680 NAV] RViz 已启动，可用 2D Pose Estimate 校正出生位姿，用 Nav2 Goal 下发目标。'
+  else
+    echo '[R680 NAV] 当前无图形会话，跳过 RViz；可在车载桌面终端重新运行。'
+  fi
+fi
+
 python3 - <<'PY'
 import math
 import time
@@ -229,6 +241,7 @@ names = ['controller_server', 'planner_server', 'bt_navigator',
 clients = {name: node.create_client(GetState, f'/{name}/get_state') for name in names}
 deadline = time.monotonic() + 120.0
 last_report = 0.0
+last_status = None
 while time.monotonic() < deadline:
     rclpy.spin_once(node, timeout_sec=0.2)
     states = {}
@@ -245,10 +258,12 @@ while time.monotonic() < deadline:
         node.destroy_node()
         rclpy.shutdown()
         raise SystemExit(0)
-    if time.monotonic() - last_report > 5.0:
-        print('[R680 NAV] 等待就绪:', f'接口={ready_count >= 5}', f'地图={map_ok}',
-              f'TF={tf_ok}', '生命周期=' + ','.join(f'{k}:{v}' for k, v in states.items()),
+    status = (ready_count >= 5, map_ok, tf_ok, tuple(states.items()))
+    if status != last_status or time.monotonic() - last_report > 15.0:
+        print('[R680 NAV] 等待就绪:', f'接口={status[0]}', f'地图={status[1]}',
+              f'TF={status[2]}', '生命周期=' + ','.join(f'{k}:{v}' for k, v in states.items()),
               flush=True)
+        last_status = status
         last_report = time.monotonic()
 node.destroy_node()
 rclpy.shutdown()
@@ -258,18 +273,6 @@ PY
 if ! kill -0 "$BRINGUP_PID" 2>/dev/null; then
   echo '[R680 NAV] 导航主进程在就绪检查后已退出。' >&2
   exit 1
-fi
-
-RVIZ_CONFIG="$CONFIG_DIR/r680_navigation.rviz"
-if [[ "$START_RVIZ" == true ]]; then
-  if [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" ]]; then
-    setsid ros2 run rviz2 rviz2 -d "$RVIZ_CONFIG" \
-      >"$NAV_RUN_DIR/logs/rviz.log" 2>&1 </dev/null &
-    RVIZ_PID=$!
-    echo '[R680 NAV] RViz 已启动，可用 2D Pose Estimate 校正出生位姿，用 Nav2 Goal 下发目标。'
-  else
-    echo '[R680 NAV] 当前无图形会话，跳过 RViz；可在车载桌面终端重新运行。'
-  fi
 fi
 
 if [[ "$ENABLE_MOTION" == true ]]; then
