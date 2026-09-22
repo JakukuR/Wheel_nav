@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>R680 导航网关</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <div class="brand"><span class="logo">WLA</span><div><b>R680 导航网关</b><small id="clock">等待 ROS 数据</small></div></div>
+    <div class="health">
+      <span id="mapChip" class="chip">地图</span>
+      <span id="tfChip" class="chip">定位</span>
+      <span id="cameraChip" class="chip">相机</span>
+      <span id="odomChip" class="chip">里程计</span>
+      <span id="goalChip" class="chip accent">空闲</span>
+    </div>
+  </header>
+  <main>
+    <section class="map-panel panel">
+      <div class="panel-title"><div><b>二维导航视图</b><small id="mapInfo">等待 OccupancyGrid</small></div><div class="coordinates" id="cursorPos">x —　y —</div></div>
+      <div id="mapWrap" class="map-wrap">
+        <canvas id="mapCanvas"></canvas>
+        <div class="map-hint">滚轮缩放 · 右键拖动画布 · 左键拖拽设置位置与方向</div>
+        <div id="toast" class="toast"></div>
+      </div>
+      <div class="legend">
+        <span><i class="robot"></i>车体</span><span><i class="global"></i>全局路径</span>
+        <span><i class="local"></i>局部路径</span><span><i class="near"></i>即时障碍</span>
+        <span><i class="confirmed"></i>确认障碍</span>
+      </div>
+    </section>
+    <aside>
+      <section class="panel camera-panel">
+        <div class="panel-title"><div><b>D455 彩色画面</b><small>低带宽预览</small></div></div>
+        <div class="camera-box"><img id="camera" alt="等待 D455 图像"><span id="cameraEmpty">等待相机图像</span></div>
+      </section>
+      <section class="panel controls">
+        <div class="panel-title"><div><b>导航控制</b><small>在地图上拖出朝向</small></div></div>
+        <div class="mode-row">
+          <button id="goalMode" class="primary active">设置导航目标</button>
+          <button id="poseMode">设置初始位姿</button>
+        </div>
+        <div class="button-row"><button id="fitMap">适配地图</button><button id="cancelGoal" class="danger">取消导航</button></div>
+        <button id="clearMaps" class="wide">清理局部与全局代价地图</button>
+        <div class="metrics">
+          <div><span>线速度</span><strong id="vx">—</strong><small>m/s</small></div>
+          <div><span>角速度</span><strong id="wz">—</strong><small>rad/s</small></div>
+          <div><span>机器人位姿</span><strong id="pose">—</strong><small>map</small></div>
+          <div><span>目标状态</span><strong id="goalStatus">idle</strong><small>NavigateToPose</small></div>
+        </div>
+        <div class="layers">
+          <label><input type="checkbox" data-layer="global_path" checked>全局路径</label>
+          <label><input type="checkbox" data-layer="local_path" checked>局部路径</label>
+          <label><input type="checkbox" data-layer="near_obstacles" checked>即时障碍</label>
+          <label><input type="checkbox" data-layer="confirmed_obstacles" checked>确认障碍</label>
+        </div>
+      </section>
+    </aside>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

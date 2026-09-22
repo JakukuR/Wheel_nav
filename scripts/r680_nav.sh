@@ -192,6 +192,8 @@ setsid ros2 launch wla_r680_navigation bringup.launch.py "${LAUNCH_ARGS[@]}" \
   >"$NAV_RUN_DIR/logs/bringup.log" 2>&1 </dev/null &
 BRINGUP_PID=$!
 STARTED=true
+WEB_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+echo "[R680 NAV] Web： http://${WEB_IP:-127.0.0.1}:8080"
 
 RVIZ_CONFIG="$CONFIG_DIR/r680_navigation.rviz"
 if [[ "$START_RVIZ" == true ]]; then

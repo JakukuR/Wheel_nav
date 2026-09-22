@@ -21,6 +21,9 @@ def generate_launch_description():
     start_nav2 = LaunchConfiguration('start_nav2')
     start_navigation_servers = LaunchConfiguration('start_navigation_servers')
     start_state_estimation = LaunchConfiguration('start_state_estimation')
+    start_web = LaunchConfiguration('start_web')
+    web_host = LaunchConfiguration('web_host')
+    web_port = LaunchConfiguration('web_port')
     use_imu = LaunchConfiguration('use_d455_imu')
     use_chassis_imu = LaunchConfiguration('use_chassis_imu')
     enable_motion = LaunchConfiguration('enable_hardware_output')
@@ -250,6 +253,17 @@ def generate_launch_description():
             'forward_max': 1.20,
             'reverse_max': 0.70,
         }])
+    web_camera = Node(
+        package='wla_r680_navigation', executable='web_camera_bridge',
+        name='r680_web_camera', output='screen', condition=IfCondition(start_web),
+        parameters=[str(config / 'web_gateway.yaml')])
+    web_gateway = Node(
+        package='wla_r680_navigation', executable='web_gateway',
+        name='r680_web_gateway', output='screen', condition=IfCondition(start_web),
+        parameters=[str(config / 'web_gateway.yaml'), {
+            'host': ParameterValue(web_host, value_type=str),
+            'port': ParameterValue(web_port, value_type=int),
+        }])
 
     return LaunchDescription([
         DeclareLaunchArgument('mode', default_value='mapping', choices=['mapping', 'localization']),
@@ -258,6 +272,9 @@ def generate_launch_description():
         DeclareLaunchArgument('start_nav2', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('start_navigation_servers', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('start_state_estimation', default_value='true', choices=['true', 'false']),
+        DeclareLaunchArgument('start_web', default_value='true', choices=['true', 'false']),
+        DeclareLaunchArgument('web_host', default_value='0.0.0.0'),
+        DeclareLaunchArgument('web_port', default_value='8080'),
         DeclareLaunchArgument('use_d455_imu', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('use_chassis_imu', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('enable_hardware_output', default_value='false', choices=['true', 'false']),
@@ -269,5 +286,5 @@ def generate_launch_description():
             description='Optional RTAB-Map initial pose: x y z roll pitch yaw.'),
         realsense, mount_tf, chassis_imu_tf, imu_filter, chassis_imu_conditioner,
         chassis_imu_filter, vo, ekf, rtabmap,
-        chassis, depth_points, dynamic_obstacles, *nav2_nodes, monitor, guard,
+        chassis, depth_points, dynamic_obstacles, *nav2_nodes, monitor, guard, web_camera, web_gateway,
     ])

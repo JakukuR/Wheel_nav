@@ -263,3 +263,28 @@ false，因此这两条命令可验证启动和接口，但不会让车运动；
 只有完成静止联调、D455 深度盲区检查、制动距离和急停验证后，才启动候选底盘驱动并把
 `enable_hardware_output` 改为 `true`。原厂 gamepad 与 Nav2 不能同时直接占用原始
 `/cmd_vel`；实车导航必须经过本包的 collision monitor 和 command guard。
+
+## Web 导航与建图网关
+
+`bringup.launch.py` 默认启动轻量 Web 网关，建图和导航脚本无需增加参数。浏览器可显示二维
+栅格地图、机器人实时位姿、全局/局部路径、即时/确认障碍点、D455 彩色画面、速度和导航
+状态；在地图上左键拖拽可发送导航目标或 `/d455_slam/initialpose`，并可取消导航、清理代价地图。
+
+同一局域网直接访问（以当前 Orin 地址为例）：
+
+```text
+http://172.31.18.156:8080
+```
+
+不开放局域网端口时，可启动仅绑定回环地址的网关，并从本机建立 SSH 隧道：
+
+```bash
+# Orin：启动时覆盖监听地址
+ros2 launch wla_r680_navigation bringup.launch.py web_host:=127.0.0.1
+
+# 本机：保留此 SSH 会话，然后访问 http://127.0.0.1:8080
+ssh -L 8080:127.0.0.1:8080 orin@172.31.18.156
+```
+
+可用 `start_web:=false` 关闭，或用 `web_port:=18080` 修改端口。该页面覆盖日常二维导航、
+建图和调试视图；完整三维点云、TF 树和插件面板仍使用 RViz/Foxglove。

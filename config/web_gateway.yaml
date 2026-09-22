@@ -1,0 +1,15 @@
+r680_web_gateway:
+  ros__parameters:
+    host: 0.0.0.0
+    port: 8080
+    map_topic: /r680/d455/map
+    camera_topic: /r680_nav/d455/color/compressed
+    max_obstacle_points: 800
+
+r680_web_camera:
+  ros__parameters:
+    input_topic: /r680/d455/color/image_raw
+    output_topic: /r680_nav/d455/color/compressed
+    output_rate: 3.0
+    jpeg_quality: 65
+    max_width: 640
