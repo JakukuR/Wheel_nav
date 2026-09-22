@@ -1,9 +1,4 @@
-
-<!--
-  This Behavior Tree replans the global path periodically at 2 Hz and it also has
-  recovery actions specific to planning / control as well as general system issues.
-  This will be continuous if a kinematically valid planner is selected.
--->
+<!-- Continuous replanning with bounded recovery and no spin behavior. -->
 <root BTCPP_format="4" main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">
     <RecoveryNode number_of_retries="6" name="NavigateRecovery">
@@ -13,37 +8,25 @@
         <RateController hz="2.0">
           <RecoveryNode number_of_retries="1" name="ComputePathToPose">
             <ComputePathToPose goal="{goal}" path="{path}" planner_id="{selected_planner}" error_code_id="{compute_path_error_code}"/>
-            <Sequence>
-              <WouldAPlannerRecoveryHelp error_code="{compute_path_error_code}"/>
-              <Wait wait_duration="1.0"/>
-            </Sequence>
+            <ClearEntireCostmap name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_entirely_global_costmap"/>
           </RecoveryNode>
         </RateController>
         <RecoveryNode number_of_retries="1" name="FollowPath">
           <FollowPath path="{path}" controller_id="{selected_controller}" error_code_id="{follow_path_error_code}"/>
-          <Sequence>
-            <WouldAControllerRecoveryHelp error_code="{follow_path_error_code}"/>
-            <Wait wait_duration="0.5"/>
-          </Sequence>
+          <ClearEntireCostmap name="ClearLocalCostmap-Context" service_name="local_costmap/clear_entirely_local_costmap"/>
         </RecoveryNode>
       </PipelineSequence>
-      <Sequence>
-        <Fallback>
-          <WouldAControllerRecoveryHelp error_code="{follow_path_error_code}"/>
-          <WouldAPlannerRecoveryHelp error_code="{compute_path_error_code}"/>
-        </Fallback>
-        <ReactiveFallback name="RecoveryFallback">
-          <GoalUpdated/>
-          <RoundRobin name="RecoveryActions">
-            <Wait wait_duration="3.0"/>
-            <BackUp backup_dist="0.20" backup_speed="0.15" error_code_id="{backup_code_id}"/>
-            <Sequence name="BoundedClearingActions">
-              <ClearCostmapExceptRegion name="ClearDistantLocalCostmap" service_name="local_costmap/clear_except_local_costmap" reset_distance="2.0"/>
-              <ClearCostmapExceptRegion name="ClearDistantGlobalCostmap" service_name="global_costmap/clear_except_global_costmap" reset_distance="3.0"/>
-            </Sequence>
-          </RoundRobin>
-        </ReactiveFallback>
-      </Sequence>
+      <ReactiveFallback name="RecoveryFallback">
+        <GoalUpdated/>
+        <RoundRobin name="RecoveryActions">
+          <Sequence name="ClearCostmaps">
+            <ClearEntireCostmap name="ClearLocalCostmap-Subtree" service_name="local_costmap/clear_entirely_local_costmap"/>
+            <ClearEntireCostmap name="ClearGlobalCostmap-Subtree" service_name="global_costmap/clear_entirely_global_costmap"/>
+          </Sequence>
+          <BackUp backup_dist="0.20" backup_speed="0.18"/>
+          <Wait wait_duration="1.0"/>
+        </RoundRobin>
+      </ReactiveFallback>
     </RecoveryNode>
   </BehaviorTree>
 </root>
