@@ -11,8 +11,8 @@ controller_server:
   ros__parameters:
     use_sim_time: false
     odom_topic: /d455_slam/odom
-    # Orin sustains 15 Hz with MPPI and RGB-D localization; 20 Hz occasionally overruns.
-    controller_frequency: 15.0
+    # MPPI requires the controller period to be no greater than model_dt=0.05 s.
+    controller_frequency: 20.0
     failure_tolerance: 0.3
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.001
