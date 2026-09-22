@@ -247,7 +247,7 @@ def generate_launch_description():
         package='wla_r680_navigation', executable='command_guard', output='screen',
         parameters=[{
             'hardware_output_enabled': ParameterValue(enable_motion, value_type=bool),
-            'forward_max': 1.00,
+            'forward_max': 1.20,
             'reverse_max': 0.70,
         }])
 

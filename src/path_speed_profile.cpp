@@ -46,11 +46,11 @@ public:
   PathSpeedProfile()
   : Node("r680_path_speed_profile")
   {
-    max_speed_ = declare_parameter<double>("max_speed", 1.0);
+    max_speed_ = declare_parameter<double>("max_speed", 1.2);
     min_curve_speed_ = declare_parameter<double>("min_curve_speed", 0.18);
-    lateral_acceleration_max_ = declare_parameter<double>("lateral_acceleration_max", 0.55);
+    lateral_acceleration_max_ = declare_parameter<double>("lateral_acceleration_max", 0.65);
     angular_velocity_max_ = declare_parameter<double>("angular_velocity_max", 1.50);
-    deceleration_max_ = declare_parameter<double>("deceleration_max", 0.80);
+    deceleration_max_ = declare_parameter<double>("deceleration_max", 0.90);
     sample_distance_ = declare_parameter<double>("sample_distance", 0.10);
     lookahead_distance_ = declare_parameter<double>("lookahead_distance", 2.0);
     goal_stop_distance_ = declare_parameter<double>("goal_stop_distance", 0.35);
