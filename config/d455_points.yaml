@@ -1,0 +1,28 @@
+r680_d455_depth_to_points:
+  ros__parameters:
+    depth_topic: /r680/d455/aligned_depth_to_color/image_raw
+    camera_info_topic: /r680/d455/color/camera_info
+    output_topic: /r680_nav/d455/points
+    clearing_output_topic: /r680_nav/d455/clearing_points
+    target_frame: r680_mapping_floor
+
+    stride: 4
+    max_rate: 10.0
+    min_depth: 0.15
+    max_depth: 5.0
+
+    # Local ground estimate inspired by SR-Sentry terrain_analysis:
+    # 20 cm XY cells, low 20% height as local floor, then keep points 5 cm above it.
+    ground_filter_enabled: true
+    ground_cell_size: 0.20
+    ground_quantile: 0.20
+    ground_min_points: 5
+    ground_candidate_min_height: -0.08
+    ground_candidate_max_height: 0.12
+    ground_clearance: 0.05
+    fallback_obstacle_min_height: 0.08
+    obstacle_max_height: 0.50
+
+    # This unfiltered height band is only used for costmap ray clearing.
+    clearing_min_height: -0.08
+    clearing_max_height: 0.50

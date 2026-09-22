@@ -43,7 +43,8 @@ public:
       });
     points_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
       points, qos, [this](sensor_msgs::msg::PointCloud2::ConstSharedPtr msg) {
-        if (msg->width * msg->height > 0) {points_seen_ = now_steady();}
+        // A well-formed empty obstacle cloud is a valid clear scene after ground filtering.
+        if (!msg->header.frame_id.empty() && msg->point_step > 0) {points_seen_ = now_steady();}
       });
     ready_pub_ = create_publisher<std_msgs::msg::Bool>("/r680_nav/localization_ready", 1);
     timer_ = create_wall_timer(100ms, std::bind(&InterfaceMonitor::tick, this));

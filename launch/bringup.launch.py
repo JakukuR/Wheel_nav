@@ -179,7 +179,7 @@ def generate_launch_description():
     depth_points = Node(
         package='wla_r680_navigation', executable='depth_to_points',
         name='r680_d455_depth_to_points', output='screen', condition=IfCondition(start_nav2),
-        parameters=[{'stride': 4, 'max_rate': 10.0, 'min_depth': 0.15, 'max_depth': 5.0}])
+        parameters=[str(config / 'd455_points.yaml')])
 
     nav_params = str(config / 'nav2.yaml')
     nav2_nodes = [

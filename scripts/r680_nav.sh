@@ -260,7 +260,7 @@ if ! kill -0 "$BRINGUP_PID" 2>/dev/null; then
   exit 1
 fi
 
-RVIZ_CONFIG="$CONFIG_DIR/r680_mapping.rviz"
+RVIZ_CONFIG="$CONFIG_DIR/r680_navigation.rviz"
 if [[ "$START_RVIZ" == true ]]; then
   if [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" ]]; then
     setsid ros2 run rviz2 rviz2 -d "$RVIZ_CONFIG" \

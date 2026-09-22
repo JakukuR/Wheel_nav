@@ -186,7 +186,7 @@ PY
 if [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" ]]; then
   setsid ros2 run rviz2 rviz2 -d "$RVIZ_CONFIG" >"$RUN_DIR/logs/rviz.log" 2>&1 </dev/null &
   RVIZ_PID=$!
-  echo '[R680] RViz 已启动：二维地图、D455 点云、融合里程计和 TF。'
+  echo '[R680] RViz 已启动：二维地图、融合里程计和 TF；近场障碍点云仅在导航界面默认显示。'
 else
   echo '[R680] 当前没有图形显示会话，跳过 RViz；在车载桌面终端或 ssh -X 下运行即可自动打开。'
 fi

@@ -208,7 +208,7 @@ Visualization Manager:
       Color: 255; 255; 255
       Color Transformer: AxisColor
       Decay Time: 0.30
-      Enabled: false
+      Enabled: true
       Invert Rainbow: true
       Max Color: 255; 40; 40
       Max Intensity: 4.0
@@ -217,19 +217,19 @@ Visualization Manager:
       Name: D455 Near-field Points
       Position Transformer: XYZ
       Topic:
-        Depth: 2
+        Depth: 10
         Durability Policy: Volatile
         History Policy: Keep Last
-        Reliability Policy: Reliable
+        Reliability Policy: Best Effort
         Value: /r680_nav/d455/points
-      Queue Size: 2
+      Queue Size: 10
       Selectable: false
       Size (Pixels): 3
       Size (m): 0.025
       Style: Flat Squares
       Use Fixed Frame: true
       Use rainbow: true
-      Value: false
+      Value: true
     - Class: rviz_default_plugins/Odometry
       Enabled: true
       Keep: 1

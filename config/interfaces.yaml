@@ -14,6 +14,7 @@ inputs:
 
 perception:
   near_field_points: /r680_nav/d455/points
+  near_field_clearing_points: /r680_nav/d455/clearing_points
 
 state_estimation:
   visual_odom: /r680_nav/vo_odom
