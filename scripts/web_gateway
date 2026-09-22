@@ -20,6 +20,7 @@ from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
 from nav2_msgs.srv import ClearEntireCostmap
 from nav_msgs.msg import OccupancyGrid, Odometry, Path as NavPath
 from rclpy.duration import Duration
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import (
     DurabilityPolicy,
@@ -489,7 +490,7 @@ def main():
         f'WLA web gateway listening on http://{node.host}:{node.port}')
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         server.shutdown()
