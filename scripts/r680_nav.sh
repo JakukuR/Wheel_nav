@@ -180,7 +180,7 @@ echo "[R680 NAV] 本次日志：$NAV_RUN_DIR"
 echo '[R680 NAV] 前 5 秒保持车辆静止，正在估计车身 IMU 零偏……'
 
 LAUNCH_ARGS=(
-  mode:=localization database_path:="$DB_PATH"
+  mode:=localization database_path:="$DB_PATH" web_map_yaml:="$MAP_YAML"
   start_d455:=false start_chassis:=true start_nav2:=true start_navigation_servers:=true
   start_state_estimation:=true use_d455_imu:=false use_chassis_imu:=true
   publish_mount_tf:=true enable_hardware_output:="$ENABLE_MOTION"

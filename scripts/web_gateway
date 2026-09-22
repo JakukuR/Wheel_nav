@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 import numpy as np
 import rclpy
+import yaml
 from PIL import Image as PILImage
 from action_msgs.msg import GoalStatus, GoalStatusArray
 from action_msgs.srv import CancelGoal
@@ -77,6 +78,7 @@ class GatewayNode(Node):
         self.host = self.declare_parameter('host', '0.0.0.0').value
         self.port = int(self.declare_parameter('port', 8080).value)
         self.map_topic = self.declare_parameter('map_topic', '/r680/d455/map').value
+        self.map_yaml = self.declare_parameter('map_yaml', '').value
         self.camera_topic = self.declare_parameter(
             'camera_topic', '/r680_nav/d455/color/compressed').value
         self.max_obstacle_points = int(
@@ -111,7 +113,10 @@ class GatewayNode(Node):
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
         )
-        self.create_subscription(OccupancyGrid, self.map_topic, self._map_cb, map_qos)
+        if self.map_yaml:
+            self._load_static_map(Path(self.map_yaml).expanduser())
+        else:
+            self.create_subscription(OccupancyGrid, self.map_topic, self._map_cb, map_qos)
         self.create_subscription(Odometry, '/d455_slam/odom', self._odom_cb, 10)
         self.create_subscription(NavPath, '/plan', self._global_path_cb, 2)
         self.create_subscription(NavPath, '/local_plan', self._local_path_cb, 2)
@@ -141,6 +146,43 @@ class GatewayNode(Node):
         with self._lock:
             self._received[name] = time.monotonic()
 
+    def _load_static_map(self, yaml_path):
+        yaml_path = yaml_path.resolve()
+        config = yaml.safe_load(yaml_path.read_text())
+        image_path = Path(str(config['image'])).expanduser()
+        if not image_path.is_absolute():
+            image_path = yaml_path.parent / image_path
+        pixels = np.asarray(PILImage.open(image_path).convert('L'), dtype=np.uint8)
+        negate = bool(int(config.get('negate', 0)))
+        occupancy = (pixels.astype(np.float32) if negate else 255.0 - pixels) / 255.0
+        occupied_thresh = float(config.get('occupied_thresh', 0.65))
+        free_thresh = float(config.get('free_thresh', 0.196))
+        image = np.full(pixels.shape, 72, dtype=np.uint8)
+        image[occupancy < free_thresh] = 238
+        image[occupancy > occupied_thresh] = 12
+        encoded = BytesIO()
+        PILImage.fromarray(image).save(encoded, format='PNG')
+        origin = list(config.get('origin', [0.0, 0.0, 0.0]))
+        meta = {
+            'version': 1,
+            'width': int(pixels.shape[1]),
+            'height': int(pixels.shape[0]),
+            'resolution': float(config['resolution']),
+            'origin_x': float(origin[0]),
+            'origin_y': float(origin[1]),
+            'origin_yaw': float(origin[2]),
+            'frame': 'map',
+            'map_id': yaml_path.parent.name,
+            'source': 'selected_map',
+        }
+        with self._lock:
+            self._map_version = 1
+            self._map_png = encoded.getvalue()
+            self._state['map'] = meta
+        self._mark('map')
+        self.get_logger().info(
+            f'Web map pinned to {meta["map_id"]}: {yaml_path}')
+
     def _map_cb(self, msg):
         if msg.info.width == 0 or msg.info.height == 0:
             return
@@ -163,6 +205,8 @@ class GatewayNode(Node):
             'origin_y': float(origin.position.y),
             'origin_yaw': float(_yaw(origin.orientation)),
             'frame': msg.header.frame_id or 'map',
+            'map_id': '',
+            'source': 'ros_topic',
         }
         with self._lock:
             self._map_version += 1

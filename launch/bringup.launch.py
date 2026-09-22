@@ -24,6 +24,7 @@ def generate_launch_description():
     start_web = LaunchConfiguration('start_web')
     web_host = LaunchConfiguration('web_host')
     web_port = LaunchConfiguration('web_port')
+    web_map_yaml = LaunchConfiguration('web_map_yaml')
     use_imu = LaunchConfiguration('use_d455_imu')
     use_chassis_imu = LaunchConfiguration('use_chassis_imu')
     enable_motion = LaunchConfiguration('enable_hardware_output')
@@ -263,6 +264,7 @@ def generate_launch_description():
         parameters=[str(config / 'web_gateway.yaml'), {
             'host': ParameterValue(web_host, value_type=str),
             'port': ParameterValue(web_port, value_type=int),
+            'map_yaml': ParameterValue(web_map_yaml, value_type=str),
         }])
 
     return LaunchDescription([
@@ -275,6 +277,9 @@ def generate_launch_description():
         DeclareLaunchArgument('start_web', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('web_host', default_value='0.0.0.0'),
         DeclareLaunchArgument('web_port', default_value='8080'),
+        DeclareLaunchArgument(
+            'web_map_yaml', default_value='',
+            description='Optional map.yaml pinned in the Web view; empty uses live OccupancyGrid.'),
         DeclareLaunchArgument('use_d455_imu', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('use_chassis_imu', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('enable_hardware_output', default_value='false', choices=['true', 'false']),
