@@ -1,0 +1,15 @@
+r680_path_speed_profile:
+  ros__parameters:
+    path_topic: /local_plan
+    output_topic: /speed_limit
+    debug_topic: /r680_nav/path_speed_limit
+    max_speed: 1.0
+    min_curve_speed: 0.18
+    lateral_acceleration_max: 0.55
+    angular_velocity_max: 1.50
+    deceleration_max: 0.80
+    sample_distance: 0.10
+    lookahead_distance: 2.0
+    goal_stop_distance: 0.35
+    path_timeout: 0.50
+    publish_rate: 10.0

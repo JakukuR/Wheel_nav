@@ -10,6 +10,7 @@
   <buildtool_depend>ament_cmake_python</buildtool_depend>
   <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
+  <depend>nav2_msgs</depend>
   <depend>rclcpp</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
@@ -20,7 +21,6 @@
   <exec_depend>action_msgs</exec_depend>
   <exec_depend>explore_lite_msgs</exec_depend>
   <exec_depend>lifecycle_msgs</exec_depend>
-  <exec_depend>nav2_msgs</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>rtabmap_msgs</exec_depend>
