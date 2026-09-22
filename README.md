@@ -203,7 +203,7 @@ cd ~/ros2_ws
 脚本必须持续运行，`/navigate_to_pose` action 才存在。RViz 中两个箭头工具职责不同：
 
 - `2D Pose Estimate` 只向 `/d455_slam/initialpose` 发布开局重定位初值，不会导航；
-- `2D Goal Pose` 向 `/goal_pose` 发布目标，由 `navigation_goal_bridge` 转成
+- `2D Goal Pose` 向 `/r680_nav/goal_request` 发布目标，由 `navigation_goal_bridge` 转成
   `/navigate_to_pose` action，并把红色目标箭头保持在地图上。下发前确认右侧
   `Navigation 2` 面板显示 Nav2 为 active。
 

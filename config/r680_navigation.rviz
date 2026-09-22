@@ -293,7 +293,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /goal_pose
+        Value: /r680_nav/goal_request
   Transformation:
     Current:
       Class: rviz_default_plugins/TF

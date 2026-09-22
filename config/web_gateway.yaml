@@ -3,6 +3,7 @@ r680_web_gateway:
     host: 0.0.0.0
     port: 8080
     map_topic: /r680/d455/map
+    goal_topic: /r680_nav/goal_request
     camera_topic: /r680_nav/d455/color/compressed
     max_obstacle_points: 800
 

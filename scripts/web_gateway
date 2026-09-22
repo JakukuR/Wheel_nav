@@ -79,6 +79,8 @@ class GatewayNode(Node):
         self.port = int(self.declare_parameter('port', 8080).value)
         self.map_topic = self.declare_parameter('map_topic', '/r680/d455/map').value
         self.map_yaml = self.declare_parameter('map_yaml', '').value
+        self.goal_topic = self.declare_parameter(
+            'goal_topic', '/r680_nav/goal_request').value
         self.camera_topic = self.declare_parameter(
             'camera_topic', '/r680_nav/d455/color/compressed').value
         self.max_obstacle_points = int(
@@ -129,7 +131,7 @@ class GatewayNode(Node):
         self.create_subscription(
             GoalStatusArray, '/navigate_to_pose/_action/status', self._status_cb, 10)
 
-        self._goal_pub = self.create_publisher(PoseStamped, '/goal_pose', 1)
+        self._goal_pub = self.create_publisher(PoseStamped, self.goal_topic, 1)
         self._initial_pose_pub = self.create_publisher(
             PoseWithCovarianceStamped, '/d455_slam/initialpose', 1)
         self._cancel_client = self.create_client(

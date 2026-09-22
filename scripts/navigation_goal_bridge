@@ -16,7 +16,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 class NavigationGoalBridge(Node):
     def __init__(self):
         super().__init__('r680_navigation_goal_bridge')
-        self._goal_topic = self.declare_parameter('goal_topic', '/goal_pose').value
+        self._goal_topic = self.declare_parameter('goal_topic', '/r680_nav/goal_request').value
         self._action_name = self.declare_parameter(
             'action_name', '/navigate_to_pose').value
         self._client = ActionClient(self, NavigateToPose, self._action_name)
@@ -29,7 +29,7 @@ class NavigationGoalBridge(Node):
         self._goal_generation = 0
         self.create_subscription(PoseStamped, self._goal_topic, self._on_goal, 10)
         self.get_logger().info(
-            f'RViz goals: {self._goal_topic} -> {self._action_name}')
+            f'Navigation goals: {self._goal_topic} -> {self._action_name}')
 
     def _publish_marker(self, pose):
         marker = Marker()
