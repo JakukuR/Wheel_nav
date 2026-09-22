@@ -30,7 +30,7 @@ controller_server:
       yaw_goal_tolerance: 0.18
     FollowPath:
       plugin: nav2_mppi_controller::MPPIController
-      time_steps: 56
+      time_steps: 40
       model_dt: 0.05
       batch_size: 800
       iteration_count: 1
@@ -108,14 +108,27 @@ planner_server:
     expected_planner_frequency: 2.0
     planner_plugins: [GridBased]
     GridBased:
-      plugin: nav2_smac_planner::SmacPlanner2D
+      plugin: nav2_smac_planner::SmacPlannerHybrid
       tolerance: 0.10
       downsample_costmap: false
       allow_unknown: true
-      max_iterations: 100000
+      max_iterations: 200000
       max_on_approach_iterations: 1000
       max_planning_time: 0.5
-      cost_travel_multiplier: 3.0
+      motion_model_for_search: DUBIN
+      angle_quantization_bins: 72
+      minimum_turning_radius: 0.40
+      analytic_expansion_ratio: 3.5
+      analytic_expansion_max_length: 2.0
+      analytic_expansion_max_cost: 200.0
+      analytic_expansion_max_cost_override: false
+      non_straight_penalty: 1.20
+      cost_penalty: 3.0
+      retrospective_penalty: 0.015
+      lookup_table_size: 10.0
+      cache_obstacle_heuristic: false
+      allow_primitive_interpolation: true
+      smooth_path: true
 
 smoother_server:
   ros__parameters:
