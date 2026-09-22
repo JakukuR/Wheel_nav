@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Turn RViz PoseStamped goals into Nav2 actions and persistent markers."""
+"""Turn RViz PoseStamped goals into Nav2 actions and goal markers."""
+
+import copy
 
 import rclpy
 from geometry_msgs.msg import PoseStamped
@@ -24,82 +26,83 @@ class NavigationGoalBridge(Node):
             durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self._markers = self.create_publisher(
             MarkerArray, '/r680_nav/goal_marker', marker_qos)
+        self._goal_generation = 0
         self.create_subscription(PoseStamped, self._goal_topic, self._on_goal, 10)
         self.get_logger().info(
             f'RViz goals: {self._goal_topic} -> {self._action_name}')
 
     def _publish_marker(self, pose):
-        arrow = Marker()
-        arrow.header = pose.header
-        arrow.ns = 'nav_goal'
-        arrow.id = 0
-        arrow.type = Marker.ARROW
-        arrow.action = Marker.ADD
-        arrow.pose = pose.pose
-        arrow.scale.x = 0.45
-        arrow.scale.y = 0.12
-        arrow.scale.z = 0.12
-        arrow.color.r = 1.0
-        arrow.color.g = 0.1
-        arrow.color.b = 0.1
-        arrow.color.a = 1.0
-        arrow.lifetime = Duration(seconds=0).to_msg()
-        arrow.frame_locked = True
+        marker = Marker()
+        marker.header = pose.header
+        marker.ns = 'nav_goal'
+        marker.id = 0
+        marker.type = Marker.SPHERE
+        marker.action = Marker.ADD
+        marker.pose = copy.deepcopy(pose.pose)
+        marker.pose.position.z += 0.08
+        marker.scale.x = 0.16
+        marker.scale.y = 0.16
+        marker.scale.z = 0.16
+        marker.color.r = 1.0
+        marker.color.g = 0.2
+        marker.color.b = 0.1
+        marker.color.a = 1.0
+        marker.lifetime = Duration(seconds=0).to_msg()
+        marker.frame_locked = True
+        self._markers.publish(MarkerArray(markers=[marker]))
 
-        label = Marker()
-        label.header = pose.header
-        label.ns = 'nav_goal'
-        label.id = 1
-        label.type = Marker.TEXT_VIEW_FACING
-        label.action = Marker.ADD
-        label.pose = pose.pose
-        label.pose.position.z += 0.45
-        label.scale.z = 0.22
-        label.color.r = 1.0
-        label.color.g = 1.0
-        label.color.b = 1.0
-        label.color.a = 1.0
-        label.text = 'NAV GOAL'
-        label.lifetime = Duration(seconds=0).to_msg()
-        label.frame_locked = True
-        self._markers.publish(MarkerArray(markers=[arrow, label]))
+    def _clear_marker(self, generation):
+        if generation != self._goal_generation:
+            return
+        marker = Marker()
+        marker.action = Marker.DELETEALL
+        self._markers.publish(MarkerArray(markers=[marker]))
 
     def _on_goal(self, pose):
         if not pose.header.frame_id:
             self.get_logger().error('rejecting RViz goal without frame_id')
             return
+        self._goal_generation += 1
+        generation = self._goal_generation
         self._publish_marker(pose)
         if not self._client.server_is_ready():
             self.get_logger().error(
                 f'Nav2 action is not ready: {self._action_name}')
+            self._clear_marker(generation)
             return
         goal = NavigateToPose.Goal()
         goal.pose = pose
         future = self._client.send_goal_async(goal)
-        future.add_done_callback(self._goal_response)
+        future.add_done_callback(
+            lambda completed: self._goal_response(completed, generation))
         self.get_logger().info(
             f'sending goal in {pose.header.frame_id}: '
             f'x={pose.pose.position.x:.3f}, y={pose.pose.position.y:.3f}')
 
-    def _goal_response(self, future):
+    def _goal_response(self, future, generation):
         try:
             handle = future.result()
         except Exception as exc:
             self.get_logger().error(f'goal request failed: {exc}')
+            self._clear_marker(generation)
             return
         if not handle.accepted:
             self.get_logger().error('Nav2 rejected the RViz goal')
+            self._clear_marker(generation)
             return
         self.get_logger().info('Nav2 accepted the RViz goal')
         result = handle.get_result_async()
-        result.add_done_callback(self._goal_result)
+        result.add_done_callback(
+            lambda completed: self._goal_result(completed, generation))
 
-    def _goal_result(self, future):
+    def _goal_result(self, future, generation):
         try:
             wrapped = future.result()
             self.get_logger().info(f'Nav2 goal finished with status={wrapped.status}')
         except Exception as exc:
             self.get_logger().error(f'failed to receive Nav2 result: {exc}')
+        finally:
+            self._clear_marker(generation)
 
 
 def main():
