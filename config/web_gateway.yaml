@@ -5,6 +5,8 @@ r680_web_gateway:
     map_topic: /r680/d455/map
     goal_topic: /r680_nav/goal_request
     camera_topic: /r680_nav/d455/color/compressed
+    cmd_vel_topic: /cmd_vel_nav
+    smoothed_cmd_vel_topic: /cmd_vel_smoothed
     max_obstacle_points: 800
 
 r680_web_camera:

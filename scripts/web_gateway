@@ -16,7 +16,7 @@ from PIL import Image as PILImage
 from action_msgs.msg import GoalStatus, GoalStatusArray
 from action_msgs.srv import CancelGoal
 from ament_index_python.packages import get_package_share_directory
-from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
 from nav2_msgs.srv import ClearEntireCostmap
 from nav_msgs.msg import OccupancyGrid, Odometry, Path as NavPath
 from rclpy.duration import Duration
@@ -84,6 +84,9 @@ class GatewayNode(Node):
             'goal_topic', '/r680_nav/goal_request').value
         self.camera_topic = self.declare_parameter(
             'camera_topic', '/r680_nav/d455/color/compressed').value
+        self.cmd_vel_topic = self.declare_parameter('cmd_vel_topic', '/cmd_vel_nav').value
+        self.smoothed_cmd_vel_topic = self.declare_parameter(
+            'smoothed_cmd_vel_topic', '/cmd_vel_smoothed').value
         self.max_obstacle_points = int(
             self.declare_parameter('max_obstacle_points', 800).value)
 
@@ -100,6 +103,7 @@ class GatewayNode(Node):
             'map': None,
             'robot': None,
             'odom': {'vx': 0.0, 'wz': 0.0},
+            'velocity_commands': {'cmd': None, 'smoothed': None},
             'global_path': [],
             'local_path': [],
             'near_obstacles': [],
@@ -121,6 +125,11 @@ class GatewayNode(Node):
         else:
             self.create_subscription(OccupancyGrid, self.map_topic, self._map_cb, map_qos)
         self.create_subscription(Odometry, '/d455_slam/odom', self._odom_cb, 10)
+        self.create_subscription(
+            Twist, self.cmd_vel_topic, lambda msg: self._velocity_cb(msg, 'cmd'), 10)
+        self.create_subscription(
+            Twist, self.smoothed_cmd_vel_topic,
+            lambda msg: self._velocity_cb(msg, 'smoothed'), 10)
         self.create_subscription(NavPath, '/plan', self._global_path_cb, 2)
         self.create_subscription(NavPath, '/optimal_trajectory', self._local_path_cb, 2)
         self.create_subscription(
@@ -236,6 +245,15 @@ class GatewayNode(Node):
         with self._lock:
             self._camera_jpeg = bytes(msg.data)
         self._mark('camera')
+
+    def _velocity_cb(self, msg, key):
+        sample = {
+            'vx': round(float(msg.linear.x), 3),
+            'wz': round(float(msg.angular.z), 3),
+        }
+        with self._lock:
+            self._state['velocity_commands'][key] = sample
+            self._received['velocity_' + key] = time.monotonic()
 
     def _odom_cb(self, msg):
         with self._lock:

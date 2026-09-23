@@ -36,6 +36,13 @@
         <div class="panel-title"><div><b>D455 彩色画面</b><small>低带宽预览</small></div></div>
         <div class="camera-box"><img id="camera" alt="等待 D455 图像"><span id="cameraEmpty">等待相机图像</span></div>
       </section>
+      <section class="panel velocity-panel">
+        <div class="panel-title"><div><b>速度指令曲线</b><small>最近 30 秒 · 平滑前与平滑后</small></div></div>
+        <div class="velocity-switch"><button id="linearVelocity" class="active">线速度 m/s</button><button id="angularVelocity">角速度 rad/s</button></div>
+        <div class="velocity-legend"><span><i class="velocity-raw"></i>/cmd_vel_nav</span><span><i class="velocity-smooth"></i>/cmd_vel_smoothed</span></div>
+        <div class="velocity-plot"><canvas id="velocityCanvas" aria-label="速度指令曲线"></canvas></div>
+        <div class="velocity-values"><span id="rawVelocity">原始：等待数据</span><span id="smoothVelocity">平滑：等待数据</span></div>
+      </section>
       <section class="panel controls">
         <div class="panel-title"><div><b>导航控制</b><small>在地图上拖出朝向</small></div></div>
         <div class="mode-row">

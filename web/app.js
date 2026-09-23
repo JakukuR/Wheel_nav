@@ -5,6 +5,68 @@ let state=null,mapVersion=-1,scale=1,panX=0,panY=0,fitted=false,mode='goal';
 let drag=null,panning=null,dpr=window.devicePixelRatio||1;
 const enabled={global_path:true,local_path:true,near_obstacles:true,confirmed_obstacles:true};
 const $=id=>document.getElementById(id);
+const velocityCanvas=$('velocityCanvas'),velocityCtx=velocityCanvas.getContext('2d');
+const velocityHistory=[];
+let velocityMode='vx';
+function velocitySample(){
+  if(!state)return;
+  const age=state.ages||{},commands=state.velocity_commands||{},t=state.server_time;
+  const valid=key=>age['velocity_'+key]<1&&commands[key]?
+    {vx:commands[key].vx,wz:commands[key].wz}:null;
+  velocityHistory.push({t,cmd:valid('cmd'),smoothed:valid('smoothed')});
+  while(velocityHistory.length&&velocityHistory[0].t<t-30)velocityHistory.shift();
+  const unit=velocityMode==='vx'?'m/s':'rad/s';
+  $('rawVelocity').textContent=velocityHistory.at(-1).cmd?
+    '原始：'+velocityHistory.at(-1).cmd[velocityMode].toFixed(2)+' '+unit:'原始：无新数据';
+  $('smoothVelocity').textContent=velocityHistory.at(-1).smoothed?
+    '平滑：'+velocityHistory.at(-1).smoothed[velocityMode].toFixed(2)+' '+unit:'平滑：无新数据';
+  drawVelocity();
+}
+function drawVelocity(){
+  const box=velocityCanvas.parentElement.getBoundingClientRect(),w=box.width,h=box.height;
+  if(w<1||h<1)return;
+  const ratio=window.devicePixelRatio||1;
+  velocityCanvas.width=Math.floor(w*ratio);velocityCanvas.height=Math.floor(h*ratio);
+  velocityCtx.setTransform(ratio,0,0,ratio,0,0);
+  velocityCtx.clearRect(0,0,w,h);
+  const left=38,right=w-8,top=10,bottom=h-19,now=velocityHistory.at(-1)?.t||Date.now()/1000;
+  const values=velocityHistory.flatMap(p=>[p.cmd?.[velocityMode],p.smoothed?.[velocityMode]]).filter(Number.isFinite);
+  const limit=Math.max(velocityMode==='vx'?0.5:0.5,...values.map(Math.abs))*1.15;
+  velocityCtx.font='10px ui-monospace,monospace';
+  velocityCtx.fillStyle='#8292a0';
+  velocityCtx.fillText('+'+limit.toFixed(1),3,top+5);
+  velocityCtx.fillText('0',20,(top+bottom)/2+3);
+  velocityCtx.fillText('-'+limit.toFixed(1),3,bottom+3);
+  velocityCtx.fillText('-30s',left,bottom+14);
+  velocityCtx.fillText('now',right-22,bottom+14);
+  velocityCtx.strokeStyle='#2b3947';velocityCtx.lineWidth=1;
+  for(const y of [top,(top+bottom)/2,bottom]){
+    velocityCtx.beginPath();velocityCtx.moveTo(left,y);velocityCtx.lineTo(right,y);velocityCtx.stroke();
+  }
+  const trace=(key,color)=>{
+    velocityCtx.strokeStyle=color;velocityCtx.lineWidth=2;velocityCtx.beginPath();
+    let drawing=false;
+    for(const sample of velocityHistory){
+      const v=sample[key]?.[velocityMode];
+      if(!Number.isFinite(v)){drawing=false;continue}
+      const x=left+(sample.t-(now-30))/30*(right-left);
+      const y=(top+bottom)/2-v/limit*(bottom-top)/2;
+      if(!drawing)velocityCtx.moveTo(x,y);else velocityCtx.lineTo(x,y);
+      drawing=true;
+    }
+    velocityCtx.stroke();
+  };
+  trace('cmd','#27a7ff');trace('smoothed','#ffad32');
+}
+new ResizeObserver(drawVelocity).observe(velocityCanvas.parentElement);
+$('linearVelocity').onclick=()=>{
+  velocityMode='vx';$('linearVelocity').classList.add('active');
+  $('angularVelocity').classList.remove('active');drawVelocity();
+};
+$('angularVelocity').onclick=()=>{
+  velocityMode='wz';$('angularVelocity').classList.add('active');
+  $('linearVelocity').classList.remove('active');drawVelocity();
+};
 function resize(){const r=wrap.getBoundingClientRect();dpr=window.devicePixelRatio||1;canvas.width=Math.max(1,Math.floor(r.width*dpr));canvas.height=Math.max(1,Math.floor(r.height*dpr));canvas.style.width=r.width+'px';canvas.style.height=r.height+'px';draw();}
 new ResizeObserver(resize).observe(wrap);
 function fit(){if(!state?.map)return;const w=state.map.width,h=state.map.height,rect=wrap.getBoundingClientRect();scale=Math.min((rect.width-36)/w,(rect.height-36)/h);panX=(rect.width-w*scale)/2;panY=(rect.height-h*scale)/2;fitted=true;draw();}
@@ -17,7 +79,7 @@ function robot(){if(!state?.robot||!state?.map)return;const r=state.robot,p=worl
 function draw(){const rect=wrap.getBoundingClientRect();ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,rect.width,rect.height);ctx.fillStyle='#080b0f';ctx.fillRect(0,0,rect.width,rect.height);if(!state?.map||!mapImage.complete)return;ctx.imageSmoothingEnabled=false;ctx.drawImage(mapImage,panX,panY,state.map.width*scale,state.map.height*scale);if(enabled.confirmed_obstacles)points(state.confirmed_obstacles,'#d75cffcc',3);if(enabled.near_obstacles)points(state.near_obstacles,'#ffad32cc',3);if(enabled.global_path)path(state.global_path,'#279fff',3);if(enabled.local_path)path(state.local_path,'#ff4057',4);if(state.goal)arrow(state.goal.x,state.goal.y,state.goal.yaw,'#69d0ff','目标');robot();if(drag&&drag.end){const yaw=Math.atan2(drag.end[1]-drag.start[1],drag.end[0]-drag.start[0]);arrow(drag.start[0],drag.start[1],yaw,mode==='goal'?'#69d0ff':'#ffcd5d',mode==='goal'?'新目标':'初始位姿')}}
 function chip(id,ok){const e=$(id);e.classList.toggle('ok',ok);e.classList.toggle('bad',!ok)}
 function updateUi(){if(!state)return;chip('mapChip',state.connected.map);chip('tfChip',state.connected.robot);chip('cameraChip',state.connected.camera);chip('odomChip',state.connected.odom);$('goalChip').textContent=state.goal_status;$('goalStatus').textContent=state.goal_status;$('vx').textContent=(state.odom?.vx??0).toFixed(2);$('wz').textContent=(state.odom?.wz??0).toFixed(2);$('pose').textContent=state.robot?`${state.robot.x.toFixed(2)}, ${state.robot.y.toFixed(2)}`:'—';$('clock').textContent=`网关在线 · ${new Date(state.server_time*1000).toLocaleTimeString()}`;if(state.map){const id=state.map.map_id?`${state.map.map_id} · `:'';$('mapInfo').textContent=`${id}${(state.map.width*state.map.resolution).toFixed(1)} × ${(state.map.height*state.map.resolution).toFixed(1)} m · ${state.map.resolution.toFixed(3)} m/格`;}}
-async function poll(){try{const response=await fetch('/api/state',{cache:'no-store'});if(!response.ok)throw Error(response.status);state=await response.json();if(state.map&&state.map.version!==mapVersion){mapVersion=state.map.version;mapImage.src=`/api/map.png?v=${mapVersion}`;mapImage.onload=()=>{if(!fitted)fit();draw()}}updateUi();draw()}catch(e){$('clock').textContent='网关连接中断'}setTimeout(poll,200)}
+async function poll(){try{const response=await fetch('/api/state',{cache:'no-store'});if(!response.ok)throw Error(response.status);state=await response.json();if(state.map&&state.map.version!==mapVersion){mapVersion=state.map.version;mapImage.src=`/api/map.png?v=${mapVersion}`;mapImage.onload=()=>{if(!fitted)fit();draw()}}updateUi();velocitySample();draw()}catch(e){$('clock').textContent='网关连接中断'}setTimeout(poll,200)}
 function refreshCamera(){const img=$('camera');img.onload=()=>{img.style.display='block';$('cameraEmpty').style.display='none'};img.onerror=()=>{img.style.display='none';$('cameraEmpty').style.display='block'};img.src=`/api/camera.jpg?t=${Date.now()}`;setTimeout(refreshCamera,400)}
 function position(event){const r=canvas.getBoundingClientRect();return[event.clientX-r.left,event.clientY-r.top]}
 canvas.addEventListener('wheel',e=>{if(!state?.map)return;e.preventDefault();const p=position(e),before=screenToWorld(...p),factor=e.deltaY<0?1.15:1/1.15;scale=Math.max(.05,Math.min(20,scale*factor));const after=worldToScreen(...before);panX+=p[0]-after[0];panY+=p[1]-after[1];draw()},{passive:false});
