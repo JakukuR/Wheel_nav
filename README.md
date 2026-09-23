@@ -17,7 +17,8 @@ D455 RGB + aligned depth + CameraInfo
                                ├─> Nav2 local obstacle layer
                                └─> collision_monitor
 
-Nav2 /cmd_vel_nav -> velocity_smoother -> collision_monitor -> C++ command_guard
+Nav2 MPPI /r680_nav/cmd_vel_controller -> C++ goal_approach_limiter
+  -> /cmd_vel_nav -> velocity_smoother -> collision_monitor -> C++ command_guard
                                                         ├─> 安全预览
                                                         └─> 底盘原始入口（默认关闭）
 ```
@@ -207,9 +208,15 @@ cd ~/ros2_ws
   `/navigate_to_pose` action，并把红色目标箭头保持在地图上。下发前确认右侧
   `Navigation 2` 面板显示 Nav2 为 active。
 
-RViz 默认显示青色全局路径 `/plan`、黄色局部路径 `/local_plan`、全局/局部代价地图、
+RViz 默认显示青色全局路径 `/plan`、红色 MPPI 轨迹 `/optimal_trajectory`、全局/局部代价地图、
 绿色实际 footprint、橙色碰撞预测区域和按深度着色的 D455 点云。局部代价地图中高代价值
 区域即 D455 障碍层与膨胀层的合成结果。
+
+曲率限速订阅 MPPI 实际发布的 `/transformed_global_plan`，向 `/speed_limit` 发布上限。
+终点减速单独限制 MPPI 的线速度，保留角速度与 BT 恢复倒车；限速值可查看
+`/r680_nav/goal_approach_speed_limit`。参数见 `config/goal_approach_limiter.yaml`，
+其中 `reaction_delay` 是底盘命令到响应的估计延迟。`/wheel/odom` 不参与此处的速度
+反馈；velocity_smoother 保持 `OPEN_LOOP`。
 
 已知出生点时可以给 RTAB-Map 六维初始位姿；未知时在 RViz 使用 `2D Pose Estimate`
 进行校正，然后再用 `2D Goal Pose` 下发目标：

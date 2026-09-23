@@ -107,7 +107,7 @@ Visualization Manager:
       Enabled: true
       Line Style: Lines
       Line Width: 0.10
-      Name: Local Controller Plan
+      Name: MPPI Local Trajectory
       Pose Color: 255; 140; 0
       Pose Style: None
       Topic:
@@ -115,7 +115,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /local_plan
+        Value: /optimal_trajectory
       Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
@@ -132,7 +132,7 @@ Visualization Manager:
       Buffer Length: 1
       Class: rviz_default_plugins/Path
       Color: 255; 60; 220
-      Enabled: true
+      Enabled: false
       Line Style: Billboards
       Line Width: 0.04
       Name: MPPI Optimal Trajectory

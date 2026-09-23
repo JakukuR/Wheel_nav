@@ -122,7 +122,7 @@ class GatewayNode(Node):
             self.create_subscription(OccupancyGrid, self.map_topic, self._map_cb, map_qos)
         self.create_subscription(Odometry, '/d455_slam/odom', self._odom_cb, 10)
         self.create_subscription(NavPath, '/plan', self._global_path_cb, 2)
-        self.create_subscription(NavPath, '/local_plan', self._local_path_cb, 2)
+        self.create_subscription(NavPath, '/optimal_trajectory', self._local_path_cb, 2)
         self.create_subscription(
             PointCloud2, '/r680_nav/d455/points_viz',
             lambda msg: self._points_cb(msg, 'near_obstacles'), qos_profile_sensor_data)
