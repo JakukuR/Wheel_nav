@@ -53,10 +53,9 @@ public:
     deceleration_max_ = declare_parameter<double>("deceleration_max", 0.90);
     sample_distance_ = declare_parameter<double>("sample_distance", 0.10);
     lookahead_distance_ = declare_parameter<double>("lookahead_distance", 2.0);
-    goal_stop_distance_ = declare_parameter<double>("goal_stop_distance", 0.35);
     path_timeout_ = declare_parameter<double>("path_timeout", 0.50);
     const double publish_rate = declare_parameter<double>("publish_rate", 10.0);
-    const auto path_topic = declare_parameter<std::string>("path_topic", "/local_plan");
+    const auto path_topic = declare_parameter<std::string>("path_topic", "/transformed_global_plan");
     const auto output_topic = declare_parameter<std::string>("output_topic", "/speed_limit");
     const auto debug_topic = declare_parameter<std::string>(
       "debug_topic", "/r680_nav/path_speed_limit");
@@ -65,7 +64,7 @@ public:
       min_curve_speed_ > max_speed_ || lateral_acceleration_max_ <= 0.0 ||
       angular_velocity_max_ <= 0.0 || deceleration_max_ <= 0.0 ||
       sample_distance_ <= 0.0 || lookahead_distance_ <= sample_distance_ ||
-      goal_stop_distance_ < 0.0 || path_timeout_ <= 0.0 || publish_rate <= 0.0)
+      path_timeout_ <= 0.0 || publish_rate <= 0.0)
     {
       throw std::invalid_argument("invalid path speed profile parameters");
     }
@@ -94,14 +93,12 @@ private:
     std::vector<double> arc;
     points.reserve(path.poses.size());
     arc.reserve(path.poses.size());
-    bool includes_goal = false;
     for (size_t pose_index = 0; pose_index < path.poses.size(); ++pose_index) {
       const auto & pose = path.poses[pose_index];
       const Point2 point{pose.pose.position.x, pose.pose.position.y};
       if (points.empty()) {
         points.push_back(point);
         arc.push_back(0.0);
-        includes_goal = path.poses.size() == 1U;
         continue;
       }
       const bool is_last_pose = pose_index + 1U == path.poses.size();
@@ -110,7 +107,6 @@ private:
       const double next_arc = arc.back() + step;
       points.push_back(point);
       arc.push_back(next_arc);
-      includes_goal = is_last_pose;
       if (next_arc >= lookahead_distance_ && !is_last_pose) {break;}
     }
     if (points.size() < 3U) {return max_speed_;}
@@ -127,9 +123,6 @@ private:
     profile.front() = profile[1];
     profile.back() = profile[profile.size() - 2U];
 
-    if (includes_goal && arc.back() <= goal_stop_distance_) {
-      profile.back() = 0.0;
-    }
     for (size_t i = profile.size() - 1U; i > 0U; --i) {
       const double ds = std::max(0.0, arc[i] - arc[i - 1U]);
       const double braking_limit = std::sqrt(
@@ -161,7 +154,6 @@ private:
   double deceleration_max_{};
   double sample_distance_{};
   double lookahead_distance_{};
-  double goal_stop_distance_{};
   double path_timeout_{};
   double current_limit_{0.0};
   std::chrono::steady_clock::time_point last_path_{};
