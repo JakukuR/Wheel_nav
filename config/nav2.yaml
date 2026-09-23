@@ -21,8 +21,9 @@ controller_server:
     goal_checker_plugins: [goal_checker]
     controller_plugins: [FollowPath]
     progress_checker:
-      plugin: nav2_controller::SimpleProgressChecker
+      plugin: nav2_controller::PoseProgressChecker
       required_movement_radius: 0.08
+      required_movement_angle: 0.15
       movement_time_allowance: 10.0
     goal_checker:
       plugin: nav2_controller::SimpleGoalChecker
@@ -49,9 +50,8 @@ controller_server:
       transform_tolerance: 0.20
       temperature: 0.3
       gamma: 0.015
-      motion_model: Ackermann
-      AckermannConstraints:
-        min_turning_r: 0.40
+      # Current R680 chassis can rotate in place; the later wheel-leg platform may differ.
+      motion_model: DiffDrive
       visualize: true
       critics: [ConstraintCritic, CostCritic, GoalCritic, GoalAngleCritic,
                 PathAlignCritic, PathFollowCritic, PathAngleCritic, PreferForwardCritic]
