@@ -40,7 +40,8 @@ controller_server:
       vy_std: 0.0
       wz_std: 0.40
       vx_max: 1.20
-      vx_min: -0.25
+      # Allow small terminal corrections; larger reverse motion stays in Nav2 BackUp.
+      vx_min: -0.12
       vy_max: 0.0
       wz_max: 1.50
       ax_max: 0.80
