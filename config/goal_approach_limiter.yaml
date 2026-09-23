@@ -12,6 +12,6 @@ r680_goal_approach_limiter:
     deceleration: 0.60
     xy_tolerance: 0.12
     minimum_speed: 0.08
-    maximum_speed: 1.20
+    maximum_speed: 0.60
     goal_timeout: 1.5
     tf_max_age: 0.4
