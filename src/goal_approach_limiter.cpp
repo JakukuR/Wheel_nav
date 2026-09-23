@@ -2,8 +2,10 @@
 #include <chrono>
 #include <cmath>
 #include <memory>
+#include <limits>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include "geometry_msgs/msg/twist.hpp"
 #include "nav_msgs/msg/path.hpp"
@@ -13,6 +15,12 @@
 #include "tf2/time.hpp"
 #include "tf2_ros/buffer.hpp"
 #include "tf2_ros/transform_listener.hpp"
+
+struct Point2
+{
+  double x;
+  double y;
+};
 
 class GoalApproachLimiter final : public rclcpp::Node
 {
@@ -53,8 +61,23 @@ public:
         const auto & last = path->poses.back();
         goal_frame_ = last.header.frame_id.empty() ? path->header.frame_id :
           last.header.frame_id;
-        goal_x_ = last.pose.position.x;
-        goal_y_ = last.pose.position.y;
+        path_points_.clear();
+        for (const auto & pose : path->poses) {
+          const auto x = pose.pose.position.x;
+          const auto y = pose.pose.position.y;
+          if (std::isfinite(x) && std::isfinite(y)) {
+            path_points_.push_back({x, y});
+          }
+        }
+        if (path_points_.empty()) {return;}
+        remaining_lengths_.assign(path_points_.size(), 0.0);
+        for (size_t i = path_points_.size() - 1U; i > 0U; --i) {
+          remaining_lengths_[i - 1U] = remaining_lengths_[i] + std::hypot(
+            path_points_[i].x - path_points_[i - 1U].x,
+            path_points_[i].y - path_points_[i - 1U].y);
+        }
+        goal_x_ = path_points_.back().x;
+        goal_y_ = path_points_.back().y;
         last_goal_ = std::chrono::steady_clock::now();
       });
     command_sub_ = create_subscription<geometry_msgs::msg::Twist>(
@@ -63,6 +86,37 @@ public:
   }
 
 private:
+  double remaining_path_distance(double x, double y) const
+  {
+    if (path_points_.size() < 2U) {
+      return std::hypot(goal_x_ - x, goal_y_ - y);
+    }
+    double closest_squared = std::numeric_limits<double>::infinity();
+    double remaining = 0.0;
+    for (size_t i = 0U; i + 1U < path_points_.size(); ++i) {
+      const auto & a = path_points_[i];
+      const auto & b = path_points_[i + 1U];
+      const double dx = b.x - a.x;
+      const double dy = b.y - a.y;
+      const double length_squared = dx * dx + dy * dy;
+      if (length_squared < 1.0e-8) {continue;}
+      const double t = std::clamp(
+        ((x - a.x) * dx + (y - a.y) * dy) / length_squared, 0.0, 1.0);
+      const double offset_x = x - a.x - t * dx;
+      const double offset_y = y - a.y - t * dy;
+      const double squared = offset_x * offset_x + offset_y * offset_y;
+      if (squared < closest_squared) {
+        closest_squared = squared;
+        remaining = (1.0 - t) * std::sqrt(length_squared) +
+          remaining_lengths_[i + 1U];
+      }
+    }
+    if (!std::isfinite(closest_squared)) {
+      return std::hypot(goal_x_ - x, goal_y_ - y);
+    }
+    return remaining + std::sqrt(closest_squared);
+  }
+
   void command_callback(geometry_msgs::msg::Twist::ConstSharedPtr command)
   {
     auto output = *command;
@@ -81,12 +135,18 @@ private:
             goal_x_ - transform.transform.translation.x,
             goal_y_ - transform.transform.translation.y);
           if (std::isfinite(distance)) {
-            const double distance_to_brake = std::max(0.0, distance - xy_tolerance_);
+            // Use the remaining route length so a nearby goal behind a wall
+            // cannot stop the robot before it follows the path around it.
+            const double remaining = std::max(
+              distance, remaining_path_distance(
+                transform.transform.translation.x,
+                transform.transform.translation.y));
+            const double distance_to_brake = std::max(0.0, remaining - xy_tolerance_);
             const double delay_speed = deceleration_ * reaction_delay_;
             const double brake_cap = std::sqrt(
               delay_speed * delay_speed +
               2.0 * deceleration_ * distance_to_brake) - delay_speed;
-            cap = distance <= xy_tolerance_ ? 0.0 :
+            cap = distance <= xy_tolerance_ && remaining <= 0.20 ? 0.0 :
               std::clamp(brake_cap, minimum_speed_, maximum_speed_);
             output.linear.x = std::clamp(output.linear.x, -cap, cap);
           }
@@ -115,6 +175,8 @@ private:
   double tf_max_age_{};
   double goal_x_{};
   double goal_y_{};
+  std::vector<Point2> path_points_;
+  std::vector<double> remaining_lengths_;
   std::chrono::steady_clock::time_point last_goal_{};
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;

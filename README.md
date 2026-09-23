@@ -213,7 +213,7 @@ RViz 默认显示青色全局路径 `/plan`、红色 MPPI 轨迹 `/optimal_traje
 区域即 D455 障碍层与膨胀层的合成结果。
 
 曲率限速订阅 MPPI 实际发布的 `/transformed_global_plan`，向 `/speed_limit` 发布上限。
-终点减速单独限制 MPPI 的线速度，保留角速度与 BT 恢复倒车；限速值可查看
+终点减速按规划路径剩余长度提前限制 MPPI 的线速度，保留角速度与 BT 恢复倒车；限速值可查看
 `/r680_nav/goal_approach_speed_limit`。参数见 `config/goal_approach_limiter.yaml`，
 其中 `reaction_delay` 是底盘命令到响应的估计延迟。`/wheel/odom` 不参与此处的速度
 反馈；velocity_smoother 保持 `OPEN_LOOP`。
