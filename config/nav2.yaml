@@ -119,7 +119,9 @@ planner_server:
       max_iterations: 200000
       max_on_approach_iterations: 1000
       max_planning_time: 0.5
-      motion_model_for_search: REEDS_SHEPP
+      # Use forward-only search so a short initial reverse cusp cannot stall MPPI.
+      # Nav2 BackUp remains available for recovery.
+      motion_model_for_search: DUBIN
       angle_quantization_bins: 72
       minimum_turning_radius: 0.40
       analytic_expansion_ratio: 3.5
