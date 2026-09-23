@@ -19,6 +19,7 @@ public:
   {
     freshness_s_ = declare_parameter<double>("freshness_s", 0.50);
     require_points_ = declare_parameter<bool>("require_obstacle_points", true);
+    require_chassis_odom_ = declare_parameter<bool>("require_chassis_odom", false);
     const auto rgb = declare_parameter<std::string>("rgb_topic", "/r680/d455/color/image_raw");
     const auto depth = declare_parameter<std::string>(
       "depth_topic", "/r680/d455/aligned_depth_to_color/image_raw");
@@ -27,6 +28,8 @@ public:
     const auto odom = declare_parameter<std::string>("odom_topic", "/d455_slam/odom");
     const auto points = declare_parameter<std::string>(
       "obstacle_points_topic", "/r680_nav/d455/points");
+    const auto chassis_odom = declare_parameter<std::string>(
+      "chassis_odom_topic", "/wheel/odom");
 
     const auto qos = rclcpp::SensorDataQoS();
     rgb_sub_ = create_subscription<sensor_msgs::msg::Image>(
@@ -46,6 +49,12 @@ public:
         // A well-formed empty obstacle cloud is a valid clear scene after ground filtering.
         if (!msg->header.frame_id.empty() && msg->point_step > 0) {points_seen_ = now_steady();}
       });
+    chassis_odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
+      chassis_odom, qos, [this](nav_msgs::msg::Odometry::ConstSharedPtr msg) {
+        if (!msg->header.frame_id.empty() && !msg->child_frame_id.empty()) {
+          chassis_odom_seen_ = now_steady();
+        }
+      });
     ready_pub_ = create_publisher<std_msgs::msg::Bool>("/r680_nav/localization_ready", 1);
     timer_ = create_wall_timer(100ms, std::bind(&InterfaceMonitor::tick, this));
   }
@@ -64,14 +73,18 @@ private:
     std_msgs::msg::Bool ready;
     ready.data = fresh(rgb_seen_, stamp) && fresh(depth_seen_, stamp) &&
       fresh(info_seen_, stamp) && fresh(odom_seen_, stamp) &&
-      (!require_points_ || fresh(points_seen_, stamp));
+      (!require_points_ || fresh(points_seen_, stamp)) &&
+      (!require_chassis_odom_ || fresh(chassis_odom_seen_, stamp));
     ready_pub_->publish(ready);
   }
 
   double freshness_s_{0.5};
   bool require_points_{true};
+  bool require_chassis_odom_{false};
   Clock::time_point rgb_seen_{}, depth_seen_{}, info_seen_{}, odom_seen_{}, points_seen_{};
+  Clock::time_point chassis_odom_seen_{};
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr rgb_sub_, depth_sub_;
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr chassis_odom_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr points_sub_;

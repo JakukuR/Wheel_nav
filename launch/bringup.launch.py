@@ -249,7 +249,10 @@ def generate_launch_description():
 
     monitor = Node(
         package='wla_r680_navigation', executable='interface_monitor', output='screen',
-        parameters=[{'require_obstacle_points': True}])
+        parameters=[{
+            'require_obstacle_points': True,
+            'require_chassis_odom': ParameterValue(enable_motion, value_type=bool),
+        }])
     guard = Node(
         package='wla_r680_navigation', executable='command_guard', output='screen',
         parameters=[{

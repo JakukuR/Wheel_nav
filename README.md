@@ -217,6 +217,8 @@ RViz 默认显示青色全局路径 `/plan`、红色 MPPI 轨迹 `/optimal_traje
 `/r680_nav/goal_approach_speed_limit`。参数见 `config/goal_approach_limiter.yaml`，
 其中 `reaction_delay` 是底盘命令到响应的估计延迟。`/wheel/odom` 不参与此处的速度
 反馈；velocity_smoother 保持 `OPEN_LOOP`。
+实车输出开启时，运动健康检查还要求 `/wheel/odom` 持续更新；底盘驱动退出或反馈中断后，
+`command_guard` 将撤销非零速度输出。
 
 已知出生点时可以给 RTAB-Map 六维初始位姿；未知时在 RViz 使用 `2D Pose Estimate`
 进行校正，然后再用 `2D Goal Pose` 下发目标：
