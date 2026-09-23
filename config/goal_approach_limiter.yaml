@@ -1,0 +1,15 @@
+r680_goal_approach_limiter:
+  ros__parameters:
+    base_frame: r680_mapping_floor
+    path_topic: /plan
+    input_topic: /r680_nav/cmd_vel_controller
+    output_topic: /cmd_vel_nav
+    limit_topic: /r680_nav/goal_approach_speed_limit
+    # Measured wheel command response lag; no delayed wheel twist is fed into this filter.
+    reaction_delay: 0.65
+    deceleration: 0.80
+    xy_tolerance: 0.12
+    minimum_speed: 0.08
+    maximum_speed: 1.20
+    goal_timeout: 1.5
+    tf_max_age: 0.4

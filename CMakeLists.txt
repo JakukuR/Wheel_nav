@@ -22,9 +22,11 @@ ament_target_dependencies(command_guard geometry_msgs rclcpp std_msgs)
 
 add_executable(imu_conditioner src/imu_conditioner.cpp)
 add_executable(path_speed_profile src/path_speed_profile.cpp)
+add_executable(goal_approach_limiter src/goal_approach_limiter.cpp)
 add_executable(dynamic_obstacle_memory src/dynamic_obstacle_memory.cpp)
 ament_target_dependencies(imu_conditioner rclcpp sensor_msgs)
 ament_target_dependencies(path_speed_profile nav2_msgs nav_msgs rclcpp std_msgs)
+ament_target_dependencies(goal_approach_limiter geometry_msgs nav_msgs rclcpp std_msgs tf2 tf2_ros)
 ament_target_dependencies(dynamic_obstacle_memory geometry_msgs rclcpp sensor_msgs tf2 tf2_ros)
 
 add_executable(interface_monitor src/interface_monitor.cpp)
@@ -35,7 +37,7 @@ ament_target_dependencies(web_camera_bridge rclcpp sensor_msgs)
 target_link_libraries(web_camera_bridge ${OpenCV_LIBS})
 ament_target_dependencies(depth_to_points geometry_msgs rclcpp sensor_msgs tf2 tf2_ros)
 
-install(TARGETS command_guard imu_conditioner path_speed_profile dynamic_obstacle_memory interface_monitor depth_to_points web_camera_bridge DESTINATION lib/${PROJECT_NAME})
+install(TARGETS command_guard imu_conditioner path_speed_profile goal_approach_limiter dynamic_obstacle_memory interface_monitor depth_to_points web_camera_bridge DESTINATION lib/${PROJECT_NAME})
 ament_python_install_package(wla_r680_navigation_py)
 install(PROGRAMS scripts/navigation_goal_bridge scripts/web_gateway
   DESTINATION lib/${PROJECT_NAME})

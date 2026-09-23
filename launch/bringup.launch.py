@@ -195,7 +195,10 @@ def generate_launch_description():
     nav2_nodes = [
         Node(package='nav2_controller', executable='controller_server',
              name='controller_server', output='screen', condition=IfCondition(full_navigation),
-             parameters=[nav_params], remappings=[('cmd_vel', 'cmd_vel_nav')]),
+             parameters=[nav_params], remappings=[('cmd_vel', '/r680_nav/cmd_vel_controller')]),
+        Node(package='wla_r680_navigation', executable='goal_approach_limiter',
+             name='r680_goal_approach_limiter', output='screen', condition=IfCondition(full_navigation),
+             parameters=[str(config / 'goal_approach_limiter.yaml')]),
         Node(package='wla_r680_navigation', executable='path_speed_profile',
              name='r680_path_speed_profile', output='screen', condition=IfCondition(full_navigation),
              parameters=[str(config / 'path_speed_profile.yaml')]),
