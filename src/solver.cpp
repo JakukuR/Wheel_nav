@@ -2,6 +2,7 @@
 
 #include <OsqpEigen/OsqpEigen.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <stdexcept>
@@ -21,9 +22,9 @@ Solution solve(const Problem & qp, const Reference & reference, double time_limi
   OsqpEigen::Solver solver;
   solver.settings()->setVerbosity(false);
   solver.settings()->setWarmStart(false);
-  solver.settings()->setMaxIteration(400);
-  solver.settings()->setAbsoluteTolerance(1e-3);
-  solver.settings()->setRelativeTolerance(1e-3);
+  solver.settings()->setMaxIteration(800);
+  solver.settings()->setAbsoluteTolerance(5e-4);
+  solver.settings()->setRelativeTolerance(5e-4);
   solver.settings()->setTimeLimit(time_limit_seconds);
   solver.data()->setNumberOfVariables(qp.gradient.size());
   solver.data()->setNumberOfConstraints(qp.lower.size());
@@ -52,9 +53,10 @@ Solution solve(const Problem & qp, const Reference & reference, double time_limi
     return result;
   }
   const Eigen::VectorXd residual = qp.constraints * result.decision;
-  if ((residual.array() < qp.lower.array() - 2e-3).any() ||
-      (residual.array() > qp.upper.array() + 2e-3).any()) {
-    result.failure_reason = "OSQP constraint residual exceeds 0.002";
+  const double max_violation = std::max((qp.lower - residual).maxCoeff(),
+    (residual - qp.upper).maxCoeff());
+  if (max_violation > 2e-3) {
+    result.failure_reason = "OSQP constraint violation=" + std::to_string(max_violation);
     result.decision.resize(0);
     return result;
   }

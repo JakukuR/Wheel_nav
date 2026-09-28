@@ -1,4 +1,5 @@
 #include "wla_diff_mpc/qp.hpp"
+#include "wla_diff_mpc/reference.hpp"
 #include "wla_diff_mpc/solver.hpp"
 
 #include <nav2_core/controller.hpp>
@@ -34,83 +35,6 @@ using RetryableControlError = nav2_core::NoValidControl;
 using ControlError = nav2_core::PlannerException;
 using RetryableControlError = nav2_core::PlannerException;
 #endif
-
-double unwrap(double angle, double previous) {
-  return previous + std::remainder(angle - previous, 2.0 * M_PI);
-}
-
-Reference samplePath(const nav_msgs::msg::Path & path, const State & current,
-                     int horizon, double dt, double v_max, double w_max) {
-  if (path.poses.empty()) throw ControlError("MPC has no path");
-  size_t nearest = 0;
-  double best = std::numeric_limits<double>::infinity();
-  for (size_t i = 0; i < path.poses.size(); ++i) {
-    const auto & p = path.poses[i].pose.position;
-    const double d = std::hypot(p.x - current[0], p.y - current[1]);
-    if (d < best) { best = d; nearest = i; }
-  }
-  if (best > 1.5) throw ControlError("MPC path is too far from robot");
-
-  const double first_heading = nearest + 1 < path.poses.size() ?
-    std::atan2(path.poses[nearest + 1].pose.position.y - path.poses[nearest].pose.position.y,
-               path.poses[nearest + 1].pose.position.x - path.poses[nearest].pose.position.x) :
-    tf2::getYaw(path.poses.back().pose.orientation);
-  const double heading_error = std::remainder(first_heading - current[2], 2.0 * M_PI);
-  if (std::abs(heading_error) > 0.7) {
-    Reference rotation;
-    rotation.states.reserve(horizon + 1);
-    rotation.inputs.reserve(horizon);
-    for (int k = 0; k <= horizon; ++k) {
-      const double progress = std::min(std::abs(heading_error), k * w_max * dt);
-      rotation.states.emplace_back(current[0], current[1],
-        current[2] + std::copysign(progress, heading_error));
-      if (k > 0) rotation.inputs.emplace_back(0.0,
-        (rotation.states[k][2] - rotation.states[k - 1][2]) / dt);
-    }
-    return rotation;
-  }
-
-  Reference ref;
-  ref.states.reserve(horizon + 1);
-  ref.inputs.reserve(horizon);
-  const double step_length = v_max * dt;
-  size_t segment = nearest;
-  double segment_offset = 0.0;
-  for (int k = 0; k <= horizon; ++k) {
-    double advance = k == 0 ? 0.0 : step_length;
-    while (advance > 0.0 && segment + 1 < path.poses.size()) {
-      const auto & a = path.poses[segment].pose.position;
-      const auto & b = path.poses[segment + 1].pose.position;
-      const double length = std::hypot(b.x - a.x, b.y - a.y);
-      if (length < 1e-6) { ++segment; segment_offset = 0.0; continue; }
-      const double available = length - segment_offset;
-      if (advance < available) { segment_offset += advance; advance = 0.0; }
-      else { advance -= available; ++segment; segment_offset = 0.0; }
-    }
-    State x;
-    if (segment + 1 < path.poses.size()) {
-      const auto & a = path.poses[segment].pose.position;
-      const auto & b = path.poses[segment + 1].pose.position;
-      const double length = std::hypot(b.x - a.x, b.y - a.y);
-      const double t = length > 1e-6 ? segment_offset / length : 0.0;
-      x << a.x + t * (b.x - a.x), a.y + t * (b.y - a.y),
-        std::atan2(b.y - a.y, b.x - a.x);
-    } else {
-      const auto & goal = path.poses.back().pose;
-      x << goal.position.x, goal.position.y, tf2::getYaw(goal.orientation);
-    }
-    x[2] = unwrap(x[2], k == 0 ? current[2] : ref.states.back()[2]);
-    ref.states.push_back(x);
-  }
-  for (int k = 0; k < horizon; ++k) {
-    const auto delta = ref.states[k + 1] - ref.states[k];
-    Input u;
-    u << std::min(v_max, std::hypot(delta[0], delta[1]) / dt),
-      std::clamp(delta[2] / dt, -w_max, w_max);
-    ref.inputs.push_back(u);
-  }
-  return ref;
-}
 
 }  // namespace
 
@@ -153,21 +77,30 @@ public:
       number("r_delta_w", settings_.r_rate[1]);
     solve_limit_ = number("solve_time_limit", 0.025);
     cycle_limit_ = number("cycle_time_limit", 0.045);
+    final_align_enter_ = number("final_align_enter_distance", 0.20);
+    final_align_exit_ = number("final_align_exit_distance", 0.28);
+    final_align_wz_max_ = number("final_align_wz_max", 0.22);
+    turn_time_constant_ = number("turn_time_constant", 0.65);
     if (settings_.horizon < 2 || settings_.horizon > 80 || settings_.dt <= 0.0 ||
         settings_.dt > 0.5 || settings_.u_max[0] <= 0.0 || settings_.u_min[0] >= settings_.u_max[0] ||
         settings_.u_max[1] <= 0.0 || solve_limit_ <= 0.0 ||
-        cycle_limit_ <= solve_limit_ || cycle_limit_ >= settings_.dt) {
+        cycle_limit_ <= solve_limit_ || cycle_limit_ >= settings_.dt ||
+        final_align_enter_ <= 0.0 || final_align_exit_ <= final_align_enter_ ||
+        final_align_wz_max_ <= 0.0 || turn_time_constant_ <= 0.0) {
       throw ControlError("invalid MPC configuration");
     }
     configured_v_max_ = settings_.u_max[0];
     predicted_pub_ = node_->create_publisher<nav_msgs::msg::Path>(name_ + "/predicted_path", 1);
   }
 
-  void cleanup() override { predicted_pub_.reset(); node_.reset(); plan_.poses.clear(); }
+  void cleanup() override {
+    predicted_pub_.reset(); node_.reset(); plan_.poses.clear(); final_alignment_ = false;
+  }
   void activate() override { predicted_pub_->on_activate(); }
   void deactivate() override {
     predicted_pub_->on_deactivate();
     previous_command_.setZero();
+    final_alignment_ = false;
   }
   void setPlan(const nav_msgs::msg::Path & path) override {
     std::lock_guard<std::mutex> lock(plan_mutex_);
@@ -206,17 +139,35 @@ public:
     const State current(pose.pose.position.x, pose.pose.position.y,
                         tf2::getYaw(pose.pose.orientation));
     const auto cycle_start = std::chrono::steady_clock::now();
-    const auto reference = samplePath(local_plan, current, settings_.horizon,
-      settings_.dt, settings_.u_max[0], settings_.u_max[1]);
-    const auto problem = makeProblem(settings_, current, previous_command_, reference);
+    const auto & goal = local_plan.poses.back().pose;
+    const double goal_distance = std::hypot(goal.position.x - current[0],
+      goal.position.y - current[1]);
+    final_alignment_ = finalAlignmentMode(final_alignment_, goal_distance,
+      final_align_enter_, final_align_exit_);
+
+    Settings active = settings_;
+    Reference reference;
+    if (final_alignment_) {
+      active.u_min[0] = std::max(active.u_min[0], -0.03);
+      active.u_max[0] = std::min(active.u_max[0], 0.03);
+      active.u_max[1] = std::min(active.u_max[1], final_align_wz_max_);
+      active.u_min[1] = -active.u_max[1];
+      reference = makeRotationReference(current, tf2::getYaw(goal.orientation),
+        active.horizon, active.dt, active.u_max[1], turn_time_constant_);
+    } else {
+      reference = samplePath(local_plan, current, active.horizon, active.dt,
+        active.u_max[0], active.u_max[1], turn_time_constant_);
+    }
+    const auto problem = makeProblem(active, current, previous_command_, reference);
     const auto result = solve(problem, reference, solve_limit_);
     if (!result.valid || result.solve_seconds > solve_limit_) {
+      const double previous_v = previous_command_[0];
       previous_command_.setZero();  // Nav2 publishes zero for NoValidControl.
       throw RetryableControlError("MPC QP rejected: " +
         (result.valid ? std::string("solve time exceeded budget") : result.failure_reason) +
         ", solve_seconds=" + std::to_string(result.solve_seconds) +
-        ", vx_max=" + std::to_string(settings_.u_max[0]) +
-        ", previous_v=" + std::to_string(previous_command_[0]));
+        ", vx_max=" + std::to_string(active.u_max[0]) +
+        ", previous_v=" + std::to_string(previous_v));
     }
     if (std::chrono::duration<double>(std::chrono::steady_clock::now() - cycle_start).count() >
         cycle_limit_) {
@@ -225,7 +176,7 @@ public:
     }
     nav_msgs::msg::Path prediction;
     prediction.header = pose.header;
-    for (int k = 0; k <= settings_.horizon; ++k) {
+    for (int k = 0; k <= active.horizon; ++k) {
       const State predicted = reference.states[k] +
         result.decision.segment<3>(problem.stateIndex(k));
       if (!predicted.allFinite()) throw ControlError("MPC nonfinite prediction");
@@ -287,6 +238,11 @@ private:
   double configured_v_max_ = 0.0;
   double solve_limit_ = 0.025;
   double cycle_limit_ = 0.045;
+  double final_align_enter_ = 0.20;
+  double final_align_exit_ = 0.28;
+  double final_align_wz_max_ = 0.22;
+  double turn_time_constant_ = 0.65;
+  bool final_alignment_ = false;
   std::string name_;
 };
 

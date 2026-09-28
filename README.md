@@ -41,6 +41,13 @@ costmap; it is not a collision-constrained optimizer. It refuses a blocked
 prediction instead of producing a command into it. The predicted path is
 published at `FollowPath/predicted_path` when the plugin name is `FollowPath`.
 
+The path-following reference keeps the last path tangent through its terminal
+point. Within `final_align_enter_distance`, the controller latches into a
+separate, low-speed yaw alignment using the goal orientation. It leaves that
+mode only beyond `final_align_exit_distance`, avoiding mode chatter from pose
+noise. `final_align_wz_max` and `turn_time_constant` limit and taper the final
+angular command; the reference keeps position fixed during alignment.
+
 The current formulation assumes the commanded `(v,wz)` is achieved within a
 model step. R680 measurements have shown substantial chassis response delay,
 especially for yaw. Do not enable this plugin for unattended real-car motion

@@ -9,7 +9,7 @@ foreach(dep geometry_msgs nav_msgs nav2_core nav2_costmap_2d nav2_util pluginlib
   find_package(${dep} REQUIRED)
 endforeach()
 
-add_library(wla_diff_mpc SHARED src/qp.cpp src/solver.cpp src/controller.cpp)
+add_library(wla_diff_mpc SHARED src/qp.cpp src/solver.cpp src/reference.cpp src/controller.cpp)
 target_compile_features(wla_diff_mpc PUBLIC cxx_std_17)
 target_include_directories(wla_diff_mpc PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -31,6 +31,13 @@ if(BUILD_TESTING)
   target_include_directories(qp_regression PRIVATE include)
   target_link_libraries(qp_regression Eigen3::Eigen OsqpEigen::OsqpEigen)
   add_test(NAME qp_regression COMMAND qp_regression)
+
+  add_executable(reference_regression test/reference_regression.cpp src/reference.cpp)
+  target_compile_features(reference_regression PRIVATE cxx_std_17)
+  target_include_directories(reference_regression PRIVATE include)
+  target_link_libraries(reference_regression Eigen3::Eigen)
+  ament_target_dependencies(reference_regression nav_msgs tf2 tf2_geometry_msgs)
+  add_test(NAME reference_regression COMMAND reference_regression)
 endif()
 
 ament_export_include_directories(include)
