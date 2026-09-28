@@ -1,5 +1,6 @@
 #include "wla_diff_mpc/qp.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -130,7 +131,12 @@ Problem makeProblem(const Settings & s, const State & current,
 
       const int rate_row = input_rows + 2 * k + j;
       a.emplace_back(rate_row, qp.inputIndex(k) + j, 1.0);
-      const double reference_change = k == 0 ? ref.inputs[k][j] - previous[j] :
+      // A newly lowered Nav2 speed limit takes precedence over the prior
+      // command slew bound. Otherwise, e.g. 0.30 -> 0.18 m/s with a 0.06 m/s
+      // step limit makes the first QP step mathematically infeasible.
+      const double rate_origin = k == 0 ?
+        std::clamp(previous[j], s.u_min[j], s.u_max[j]) : 0.0;
+      const double reference_change = k == 0 ? ref.inputs[k][j] - rate_origin :
         ref.inputs[k][j] - ref.inputs[k - 1][j];
       if (k > 0) a.emplace_back(rate_row, qp.inputIndex(k - 1) + j, -1.0);
       qp.lower[rate_row] = -s.acceleration_max[j] * s.dt - reference_change;

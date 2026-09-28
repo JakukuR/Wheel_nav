@@ -32,6 +32,7 @@ Solution solve(const Problem & qp, const Reference & reference, double time_limi
       !solver.data()->setLinearConstraintsMatrix(qp.constraints) ||
       !solver.data()->setLowerBound(lower) ||
       !solver.data()->setUpperBound(upper) || !solver.initSolver()) {
+    result.failure_reason = "OSQP initialization failed";
     return result;
   }
   const auto start = std::chrono::steady_clock::now();
@@ -40,22 +41,27 @@ Solution solve(const Problem & qp, const Reference & reference, double time_limi
     std::chrono::steady_clock::now() - start).count();
   if (exit != OsqpEigen::ErrorExitFlag::NoError ||
       solver.getStatus() != OsqpEigen::Status::Solved) {
+    result.failure_reason = "OSQP exit=" + std::to_string(static_cast<int>(exit)) +
+      " status=" + std::to_string(static_cast<int>(solver.getStatus()));
     return result;
   }
   result.decision = solver.getSolution().cast<double>();
   if (result.decision.size() != qp.gradient.size() || !result.decision.allFinite()) {
+    result.failure_reason = "nonfinite or wrong-sized OSQP solution";
     result.decision.resize(0);
     return result;
   }
   const Eigen::VectorXd residual = qp.constraints * result.decision;
   if ((residual.array() < qp.lower.array() - 2e-3).any() ||
       (residual.array() > qp.upper.array() + 2e-3).any()) {
+    result.failure_reason = "OSQP constraint residual exceeds 0.002";
     result.decision.resize(0);
     return result;
   }
   result.command = reference.inputs[0] +
     result.decision.segment<2>(qp.inputIndex(0));
   result.valid = result.command.allFinite();
+  if (!result.valid) result.failure_reason = "nonfinite command";
   return result;
 }
 

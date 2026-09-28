@@ -26,6 +26,13 @@ and linearized dynamics; inequality constraints bound `v`, `wz` and command
 changes per model step. The solver checks convergence and all constraint
 residuals before returning a command.
 
+A newly reduced Nav2 speed limit has priority over the first-step command
+slew bound. Otherwise a limit of 0.18 m/s after a 0.30 m/s command, with a
+0.06 m/s per-step slew bound, makes the QP infeasible. On Jazzy, a failed
+solve or blocked predicted footprint raises `NoValidControl`: Nav2 sends a
+zero command and retries for its configured `failure_tolerance` before
+aborting. Error messages include the OSQP status or the blocked pose.
+
 `config/mpc_example.yaml` is an optional controller parameter block. The
 vehicle's active `nav2.yaml` continues to select MPPI. This controller also
 checks the predicted footprint against the local costmap, but obstacle

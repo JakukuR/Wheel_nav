@@ -47,6 +47,14 @@ int main() {
   check((residual.array() >= qp.lower.array() - 2e-3).all() &&
         (residual.array() <= qp.upper.array() + 2e-3).all(), "QP constraints violated");
 
+  Settings limited = s;
+  limited.u_max[0] = 0.18;
+  qp = makeProblem(limited, State(0.0, 0.0, 0.0), Input(0.30, 0.0), straight);
+  answer = solve(qp, straight, 0.1);
+  check(answer.valid, "newly lowered speed limit made QP infeasible");
+  check(answer.command[0] <= 0.18 + 2e-3 && answer.command[0] >= 0.12 - 2e-3,
+        "new speed cap or bounded first-step slew was ignored");
+
   Reference rotation;
   for (int k = 0; k <= s.horizon; ++k) {
     rotation.states.emplace_back(0.0, 0.0, 0.0);

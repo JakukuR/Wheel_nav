@@ -29,8 +29,10 @@ namespace {
 
 #if __has_include(<nav2_core/controller_exceptions.hpp>)
 using ControlError = nav2_core::ControllerException;
+using RetryableControlError = nav2_core::NoValidControl;
 #else
 using ControlError = nav2_core::PlannerException;
+using RetryableControlError = nav2_core::PlannerException;
 #endif
 
 double unwrap(double angle, double previous) {
@@ -209,11 +211,17 @@ public:
     const auto problem = makeProblem(settings_, current, previous_command_, reference);
     const auto result = solve(problem, reference, solve_limit_);
     if (!result.valid || result.solve_seconds > solve_limit_) {
-      throw ControlError("MPC QP did not converge within time budget");
+      previous_command_.setZero();  // Nav2 publishes zero for NoValidControl.
+      throw RetryableControlError("MPC QP rejected: " +
+        (result.valid ? std::string("solve time exceeded budget") : result.failure_reason) +
+        ", solve_seconds=" + std::to_string(result.solve_seconds) +
+        ", vx_max=" + std::to_string(settings_.u_max[0]) +
+        ", previous_v=" + std::to_string(previous_command_[0]));
     }
     if (std::chrono::duration<double>(std::chrono::steady_clock::now() - cycle_start).count() >
         cycle_limit_) {
-      throw ControlError("MPC matrix build and solve exceeded cycle budget");
+      previous_command_.setZero();
+      throw RetryableControlError("MPC matrix build and solve exceeded cycle budget");
     }
     nav_msgs::msg::Path prediction;
     prediction.header = pose.header;
@@ -241,7 +249,11 @@ public:
         const double cost = checker.footprintCostAtPose(p.position.x, p.position.y,
           tf2::getYaw(p.orientation), footprint);
         if (cost < 0.0 || cost >= nav2_costmap_2d::LETHAL_OBSTACLE) {
-          throw ControlError("MPC predicted footprint is blocked");
+          previous_command_.setZero();
+          throw RetryableControlError("MPC predicted footprint is blocked: step=" +
+            std::to_string(k) + ", x=" + std::to_string(p.position.x) +
+            ", y=" + std::to_string(p.position.y) +
+            ", cost=" + std::to_string(cost));
         }
       }
     }

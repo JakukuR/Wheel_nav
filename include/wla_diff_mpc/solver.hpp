@@ -2,6 +2,8 @@
 
 #include "wla_diff_mpc/qp.hpp"
 
+#include <string>
+
 namespace wla_diff_mpc {
 
 struct Solution {
@@ -9,6 +11,7 @@ struct Solution {
   Input command = Input::Zero();
   Eigen::VectorXd decision;
   double solve_seconds = 0.0;
+  std::string failure_reason;
 };
 
 // One bounded OSQP solve. An invalid or non-converged QP never yields motion.
