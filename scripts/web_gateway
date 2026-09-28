@@ -29,7 +29,7 @@ from rclpy.qos import (
     ReliabilityPolicy,
     qos_profile_sensor_data,
 )
-from sensor_msgs.msg import CompressedImage, PointCloud2
+from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
 from tf2_ros import Buffer, TransformException, TransformListener
 
@@ -82,8 +82,6 @@ class GatewayNode(Node):
         self.map_yaml = self.declare_parameter('map_yaml', '').value
         self.goal_topic = self.declare_parameter(
             'goal_topic', '/r680_nav/goal_request').value
-        self.camera_topic = self.declare_parameter(
-            'camera_topic', '/r680_nav/d455/color/compressed').value
         self.cmd_vel_topic = self.declare_parameter('cmd_vel_topic', '/cmd_vel_nav').value
         self.smoothed_cmd_vel_topic = self.declare_parameter(
             'smoothed_cmd_vel_topic', '/cmd_vel_smoothed').value
@@ -95,9 +93,6 @@ class GatewayNode(Node):
         self._tf_buffer = Buffer(cache_time=Duration(seconds=10.0))
         self._tf_listener = TransformListener(self._tf_buffer, self)
         self._map_png = None
-        self._camera_jpeg = None
-        self._last_camera_request = 0.0
-        self._camera_subscription = None
         self._map_version = 0
         self._state = {
             'map': None,
@@ -152,7 +147,6 @@ class GatewayNode(Node):
             ClearEntireCostmap, '/global_costmap/clear_entirely_global_costmap')
         self.create_timer(0.05, self._process_commands)
         self.create_timer(0.10, self._update_robot_pose)
-        self.create_timer(1.0, self._manage_camera_subscription)
 
     def _mark(self, name):
         with self._lock:
@@ -226,25 +220,6 @@ class GatewayNode(Node):
             self._map_png = encoded.getvalue()
             self._state['map'] = meta
         self._mark('map')
-
-    def _manage_camera_subscription(self):
-        active = time.monotonic() - self._last_camera_request < 4.0
-        if active and self._camera_subscription is None:
-            self._camera_subscription = self.create_subscription(
-                CompressedImage, self.camera_topic, self._camera_cb,
-                qos_profile_sensor_data)
-        elif not active and self._camera_subscription is not None:
-            self.destroy_subscription(self._camera_subscription)
-            self._camera_subscription = None
-            with self._lock:
-                self._camera_jpeg = None
-
-    def _camera_cb(self, msg):
-        if msg.format and 'jpeg' not in msg.format.lower() and 'jpg' not in msg.format.lower():
-            return
-        with self._lock:
-            self._camera_jpeg = bytes(msg.data)
-        self._mark('camera')
 
     def _velocity_cb(self, msg, key):
         sample = {
@@ -415,7 +390,6 @@ class GatewayNode(Node):
         }
         state['connected'] = {
             'map': state['map'] is not None,
-            'camera': state['ages'].get('camera', 999.0) < 2.0,
             'robot': state['ages'].get('robot', 999.0) < 1.0,
             'odom': state['ages'].get('odom', 999.0) < 1.0,
         }
@@ -424,12 +398,6 @@ class GatewayNode(Node):
     def map_png(self):
         with self._lock:
             return self._map_png
-
-    def camera_jpeg(self):
-        self._last_camera_request = time.monotonic()
-        with self._lock:
-            return self._camera_jpeg
-
 
 class GatewayHandler(BaseHTTPRequestHandler):
     server_version = 'WLAWebGateway/1.0'
@@ -457,9 +425,6 @@ class GatewayHandler(BaseHTTPRequestHandler):
         if path == '/api/map.png':
             body = self.gateway.map_png()
             return self._send(200, body, 'image/png') if body else self._send(404)
-        if path == '/api/camera.jpg':
-            body = self.gateway.camera_jpeg()
-            return self._send(200, body, 'image/jpeg') if body else self._send(404)
         static = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css'}
         name = static.get(path)
         if not name:

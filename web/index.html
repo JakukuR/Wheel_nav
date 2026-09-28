@@ -12,7 +12,6 @@
     <div class="health">
       <span id="mapChip" class="chip">地图</span>
       <span id="tfChip" class="chip">定位</span>
-      <span id="cameraChip" class="chip">相机</span>
       <span id="odomChip" class="chip">里程计</span>
       <span id="goalChip" class="chip accent">空闲</span>
     </div>
@@ -32,10 +31,6 @@
       </div>
     </section>
     <aside>
-      <section class="panel camera-panel">
-        <div class="panel-title"><div><b>D455 彩色画面</b><small>低带宽预览</small></div></div>
-        <div class="camera-box"><img id="camera" alt="等待 D455 图像"><span id="cameraEmpty">等待相机图像</span></div>
-      </section>
       <section class="panel velocity-panel">
         <div class="panel-title"><div><b>速度指令曲线</b><small>最近 30 秒 · 平滑前与平滑后</small></div></div>
         <div class="velocity-switch"><button id="linearVelocity" class="active">线速度 m/s</button><button id="angularVelocity">角速度 rad/s</button></div>

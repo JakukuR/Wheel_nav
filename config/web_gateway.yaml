@@ -4,15 +4,6 @@ r680_web_gateway:
     port: 8080
     map_topic: /r680/d455/map
     goal_topic: /r680_nav/goal_request
-    camera_topic: /r680_nav/d455/color/compressed
     cmd_vel_topic: /cmd_vel_nav
     smoothed_cmd_vel_topic: /cmd_vel_smoothed
     max_obstacle_points: 800
-
-r680_web_camera:
-  ros__parameters:
-    input_topic: /r680/d455/color/image_raw
-    output_topic: /r680_nav/d455/color/compressed
-    output_rate: 3.0
-    jpeg_quality: 65
-    max_width: 640

@@ -260,10 +260,6 @@ def generate_launch_description():
             'forward_max': 1.20,
             'reverse_max': 0.70,
         }])
-    web_camera = Node(
-        package='wla_r680_navigation', executable='web_camera_bridge',
-        name='r680_web_camera', output='screen', condition=IfCondition(start_web),
-        parameters=[str(config / 'web_gateway.yaml')])
     web_gateway = Node(
         package='wla_r680_navigation', executable='web_gateway',
         name='r680_web_gateway', output='screen', condition=IfCondition(start_web),
@@ -299,5 +295,5 @@ def generate_launch_description():
             description='Optional RTAB-Map initial pose: x y z roll pitch yaw.'),
         realsense, mount_tf, chassis_imu_tf, imu_filter, chassis_imu_conditioner,
         chassis_imu_filter, vo, ekf, rtabmap,
-        chassis, depth_points, dynamic_obstacles, *nav2_nodes, monitor, guard, web_camera, web_gateway,
+        chassis, depth_points, dynamic_obstacles, *nav2_nodes, monitor, guard, web_gateway,
     ])
