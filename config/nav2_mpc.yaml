@@ -52,6 +52,10 @@ controller_server:
       r_delta_w: 0.5
       solve_time_limit: 0.025
       cycle_time_limit: 0.045
+      final_align_enter_distance: 0.20
+      final_align_exit_distance: 0.28
+      final_align_wz_max: 0.22
+      turn_time_constant: 0.65
 
 planner_server:
   ros__parameters:
