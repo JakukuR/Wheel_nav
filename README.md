@@ -54,6 +54,10 @@ USB/HID 描述符序列号为 `254343063587`；即使补齐 `/dev/hidraw0` 的 `
 
 ## 构建
 
+可选的差速 MPC 控制器源码位于 [addons/wla_diff_mpc](addons/wla_diff_mpc/README.md)。
+它需要作为 `~/ros2_ws/src/wla_diff_mpc` 独立构建；导航脚本用 `--mpc`
+显式选择 `config/nav2_mpc.yaml`，默认仍使用 MPPI。
+
 ```bash
 source ~/.bashrc
 source ~/r680_chassis_candidate_ws/install/setup.bash
