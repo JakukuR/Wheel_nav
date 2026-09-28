@@ -1,0 +1,7 @@
+<library path="wla_diff_mpc">
+  <class name="wla_diff_mpc::DiffMpcController"
+         type="wla_diff_mpc::DiffMpcController"
+         base_class_type="nav2_core::Controller">
+    <description>OSQP trajectory tracking MPC for differential drive.</description>
+  </class>
+</library>
