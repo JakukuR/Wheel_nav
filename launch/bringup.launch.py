@@ -191,7 +191,7 @@ def generate_launch_description():
         condition=IfCondition(start_nav2),
         parameters=[str(config / 'dynamic_obstacles.yaml')])
 
-    nav_params = str(config / 'nav2.yaml')
+    nav_params = LaunchConfiguration('nav_params_file')
     nav2_nodes = [
         Node(package='nav2_controller', executable='controller_server',
              name='controller_server', output='screen', condition=IfCondition(full_navigation),
@@ -279,6 +279,8 @@ def generate_launch_description():
         DeclareLaunchArgument('start_chassis', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('start_nav2', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('start_navigation_servers', default_value='true', choices=['true', 'false']),
+        DeclareLaunchArgument('nav_params_file', default_value=str(config / 'nav2.yaml'),
+                              description='Complete Nav2 parameters file for this run.'),
         DeclareLaunchArgument('start_state_estimation', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('start_web', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('web_host', default_value='0.0.0.0'),

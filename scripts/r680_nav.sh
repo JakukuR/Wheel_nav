@@ -9,6 +9,7 @@ usage() {
   --storage-config PATH  指定存储配置文件
   --initial-pose "X Y Z R P Y"  给 RTAB-Map 提供出生点初值（米、弧度）
   --enable-motion        显式开放真实底盘导航输出（默认仅定位、规划和预览）
+  --mpc                  使用单独的 nav2_mpc.yaml（默认继续使用 nav2.yaml/MPPI）
   --no-rviz              不启动 RViz
   -h, --help             显示帮助
 
@@ -24,6 +25,7 @@ MAP_NAME=""
 STORAGE_CONFIG=""
 INITIAL_POSE=""
 ENABLE_MOTION=false
+USE_MPC=false
 START_RVIZ=true
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -37,6 +39,7 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo '--initial-pose 缺少六维位姿' >&2; exit 2; }
       INITIAL_POSE="$2"; shift 2 ;;
     --enable-motion) ENABLE_MOTION=true; shift ;;
+    --mpc) USE_MPC=true; shift ;;
     --no-rviz) START_RVIZ=false; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "未知参数: $1" >&2; usage >&2; exit 2 ;;
@@ -52,6 +55,13 @@ export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
 export CYCLONEDDS_URI="${CYCLONEDDS_URI:-file://$HOME/Wheel_Legged_Agent/deploy/r680/cyclonedds-local.xml}"
 
 CONFIG_DIR=$(ros2 pkg prefix wla_r680_navigation)/share/wla_r680_navigation/config
+NAV2_PARAMS_FILE="$CONFIG_DIR/nav2.yaml"
+if [[ "$USE_MPC" == true ]]; then
+  NAV2_PARAMS_FILE="$CONFIG_DIR/nav2_mpc.yaml"
+  [[ -f "$NAV2_PARAMS_FILE" ]] || { echo "MPC 参数文件不存在: $NAV2_PARAMS_FILE" >&2; exit 1; }
+  ros2 pkg prefix wla_diff_mpc >/dev/null || { echo '未构建 wla_diff_mpc 插件' >&2; exit 1; }
+  export LD_LIBRARY_PATH="$HOME/.local/wla_mpc_deps/lib:${LD_LIBRARY_PATH:-}"
+fi
 if [[ -z "$STORAGE_CONFIG" ]]; then
   STORAGE_CONFIG="$CONFIG_DIR/storage.yaml"
 fi
@@ -177,10 +187,13 @@ echo "[R680 NAV] 二维栅格：$MAP_YAML"
 echo "[R680 NAV] RTAB-Map 只读源库：$SOURCE_DB_PATH"
 echo "[R680 NAV] RTAB-Map 本次工作副本：$DB_PATH"
 echo "[R680 NAV] 本次日志：$NAV_RUN_DIR"
+echo "[R680 NAV] Nav2 参数：$NAV2_PARAMS_FILE"
+cp "$NAV2_PARAMS_FILE" "$NAV_RUN_DIR/nav2.yaml"
 echo '[R680 NAV] 前 5 秒保持车辆静止，正在估计车身 IMU 零偏……'
 
 LAUNCH_ARGS=(
   mode:=localization database_path:="$DB_PATH" web_map_yaml:="$MAP_YAML"
+  nav_params_file:="$NAV2_PARAMS_FILE"
   start_d455:=false start_chassis:=true start_nav2:=true start_navigation_servers:=true
   start_state_estimation:=true use_d455_imu:=false use_chassis_imu:=true
   publish_mount_tf:=true enable_hardware_output:="$ENABLE_MOTION"
