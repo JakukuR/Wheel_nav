@@ -20,6 +20,7 @@ def generate_launch_description():
     start_chassis = LaunchConfiguration('start_chassis')
     start_nav2 = LaunchConfiguration('start_nav2')
     obstacle_scan = LaunchConfiguration('obstacle_scan')
+    start_dynamic_obstacles = LaunchConfiguration('start_dynamic_obstacles')
     start_navigation_servers = LaunchConfiguration('start_navigation_servers')
     start_state_estimation = LaunchConfiguration('start_state_estimation')
     start_web = LaunchConfiguration('start_web')
@@ -37,6 +38,8 @@ def generate_launch_description():
                                         start_navigation_servers, "' == 'true'"])
     safety_only = PythonExpression(["'", start_nav2, "' == 'true' and '",
                                     start_navigation_servers, "' == 'false'"])
+    dynamic_obstacles_enabled = PythonExpression(["'", start_nav2, "' == 'true' and '",
+                                                  start_dynamic_obstacles, "' == 'true'"])
     imu_topic = PythonExpression([
         "'/r680_nav/chassis/imu_filtered' if '", use_chassis_imu,
         "' == 'true' else '/r680_nav/d455/imu_filtered'"])
@@ -212,7 +215,7 @@ def generate_launch_description():
     dynamic_obstacles = Node(
         package='wla_r680_navigation', executable='dynamic_obstacle_memory',
         name='r680_dynamic_obstacle_memory', output='screen',
-        condition=IfCondition(start_nav2),
+        condition=IfCondition(dynamic_obstacles_enabled),
         parameters=[str(config / 'dynamic_obstacles.yaml')])
 
     nav_params = LaunchConfiguration('nav_params_file')
@@ -301,6 +304,7 @@ def generate_launch_description():
         DeclareLaunchArgument('start_chassis', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('start_nav2', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('obstacle_scan', default_value='false', choices=['true', 'false']),
+        DeclareLaunchArgument('start_dynamic_obstacles', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('start_navigation_servers', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('nav_params_file', default_value=str(config / 'nav2.yaml'),
                               description='Complete Nav2 parameters file for this run.'),

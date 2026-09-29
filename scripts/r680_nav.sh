@@ -12,6 +12,7 @@ usage() {
   --mpc                  显式使用 MPC（当前默认）
   --mppi                 切回 nav2.yaml/MPPI
   --scan-obstacles       局部代价地图试用 D455 点云生成的 LaserScan（默认仍用点云）
+  --test-scan-only       使用独立 nav2_test.yaml：MPC + 局部 Scan，关闭全局 D455 动态层
   --no-rviz              不启动 RViz
   -h, --help             显示帮助
 
@@ -21,6 +22,7 @@ usage() {
   ./r680_nav.sh --map map-2026-09-20-1 --initial-pose "0 0 0 0 0 0"
   ./r680_nav.sh --map map-2026-09-20-1 --enable-motion
   ./r680_nav.sh --map map-2026-09-20-1 --scan-obstacles
+  ./r680_nav.sh --map map-2026-09-20-1 --test-scan-only
 EOF
 }
 
@@ -30,6 +32,7 @@ INITIAL_POSE=""
 ENABLE_MOTION=false
 USE_MPC=true
 SCAN_OBSTACLES=false
+TEST_SCAN_ONLY=false
 START_RVIZ=true
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -46,6 +49,7 @@ while [[ $# -gt 0 ]]; do
     --mpc) USE_MPC=true; shift ;;
     --mppi) USE_MPC=false; shift ;;
     --scan-obstacles) SCAN_OBSTACLES=true; shift ;;
+    --test-scan-only) TEST_SCAN_ONLY=true; SCAN_OBSTACLES=true; shift ;;
     --no-rviz) START_RVIZ=false; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "未知参数: $1" >&2; usage >&2; exit 2 ;;
@@ -67,6 +71,11 @@ if [[ "$USE_MPC" == true ]]; then
   [[ -f "$NAV2_PARAMS_FILE" ]] || { echo "MPC 参数文件不存在: $NAV2_PARAMS_FILE" >&2; exit 1; }
   ros2 pkg prefix wla_diff_mpc >/dev/null || { echo '未构建 wla_diff_mpc 插件' >&2; exit 1; }
   export LD_LIBRARY_PATH="$HOME/.local/wla_mpc_deps/lib:${LD_LIBRARY_PATH:-}"
+fi
+if [[ "$TEST_SCAN_ONLY" == true ]]; then
+  [[ "$USE_MPC" == true ]] || { echo '--test-scan-only 仅支持 MPC，不能与 --mppi 同时使用' >&2; exit 2; }
+  NAV2_PARAMS_FILE="$CONFIG_DIR/nav2_test.yaml"
+  [[ -f "$NAV2_PARAMS_FILE" ]] || { echo "测试参数文件不存在: $NAV2_PARAMS_FILE" >&2; exit 1; }
 fi
 if [[ -z "$STORAGE_CONFIG" ]]; then
   STORAGE_CONFIG="$CONFIG_DIR/storage.yaml"
@@ -104,7 +113,7 @@ PY
 )
 NAV_RUN_DIR="$RUN_ROOT/nav-$(date +%Y%m%d-%H%M%S)-$$"
 mkdir -p "$NAV_RUN_DIR/logs"
-if [[ "$SCAN_OBSTACLES" == true ]]; then
+if [[ "$SCAN_OBSTACLES" == true && "$TEST_SCAN_ONLY" == false ]]; then
   python3 - "$NAV2_PARAMS_FILE" "$NAV_RUN_DIR/nav2_scan.yaml" <<'PY'
 import sys
 import yaml
@@ -136,6 +145,7 @@ cat > "$NAV_RUN_DIR/navigation.json" <<EOF
   "initial_pose": "$INITIAL_POSE",
   "hardware_output_enabled": $ENABLE_MOTION,
   "local_obstacle_input": "$(if [[ "$SCAN_OBSTACLES" == true ]]; then echo scan; else echo pointcloud; fi)",
+  "global_dynamic_obstacles_enabled": $(if [[ "$TEST_SCAN_ONLY" == true ]]; then echo false; else echo true; fi),
   "started_at": "$(date --iso-8601=seconds)"
 }
 EOF
@@ -232,6 +242,7 @@ LAUNCH_ARGS=(
   mode:=localization database_path:="$DB_PATH" web_map_yaml:="$MAP_YAML"
   nav_params_file:="$NAV2_PARAMS_FILE"
   obstacle_scan:="$SCAN_OBSTACLES"
+  start_dynamic_obstacles:="$(if [[ "$TEST_SCAN_ONLY" == true ]]; then echo false; else echo true; fi)"
   start_d455:=false start_chassis:=true start_nav2:=true start_navigation_servers:=true
   start_state_estimation:=true use_d455_imu:=false use_chassis_imu:=true
   publish_mount_tf:=true enable_hardware_output:="$ENABLE_MOTION"
