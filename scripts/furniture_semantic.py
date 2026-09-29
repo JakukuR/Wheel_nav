@@ -171,6 +171,8 @@ class FurnitureSemantic(Node):
             if not isinstance(point, list) or len(point) != 3:
                 continue
             home = props.get('role') == 'home'
+            if not home and props.get('status') != 'confirmed':
+                continue
             marker = Marker()
             marker.header.frame_id = 'map'
             marker.header.stamp = self.get_clock().now().to_msg()
@@ -202,8 +204,7 @@ class FurnitureSemantic(Node):
             label.pose.position.z += 0.22
             label.scale.z = 0.17
             label.color.r = label.color.g = label.color.b = label.color.a = 1.0
-            label.text = '出生点' if home else props.get('label', '?') + (
-                '' if props.get('status') == 'confirmed' else ' ?')
+            label.text = '出生点' if home else props.get('label', '?')
             markers.markers.append(label)
         self.marker_pub.publish(markers)
 

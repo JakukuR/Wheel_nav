@@ -195,9 +195,9 @@ class GatewayNode(Node):
                             'id': str(feature.get('id', ''))[:64]}
                     if props.get('role') == 'home':
                         semantic['home'] = item
-                    elif props.get('role') == 'furniture':
-                        item['status'] = ('confirmed' if props.get('status') ==
-                                          'confirmed' else 'tentative')
+                    elif (props.get('role') == 'furniture' and
+                          props.get('status') == 'confirmed'):
+                        item['status'] = 'confirmed'
                         semantic['furniture'].append(item)
             except (OSError, ValueError, TypeError, KeyError, AttributeError):
                 pass

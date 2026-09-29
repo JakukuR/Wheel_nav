@@ -13,6 +13,6 @@
 @media(max-width:620px){.velocity-panel{height:258px}}
 
 /* Semantic map overlay */
-.legend .home{background:#30dc9b}.legend .furniture-tentative{background:#f2ad38}.legend .furniture-confirmed{background:#287dff}
+.legend .home{background:#30dc9b}.legend .furniture-confirmed{background:#287dff}
 #semanticInfo{color:#71c8bd}
 .map-panel .panel-title{height:auto;min-height:68px}
