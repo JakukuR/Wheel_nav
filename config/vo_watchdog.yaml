@@ -17,5 +17,11 @@ r680_vo_watchdog:
     wheel_mismatch_limit: 3
     # 角度正负号与时延需实测确认后再开放轮/VO 航向比较。
     compare_wheel_yaw: false
-    # 故障时只发送一次 SIGTERM；本次任务保持锁定，须人工核对地图定位。
+    # 故障时只发送一次 SIGTERM；新 VO 与地图重新匹配且稳定后自动恢复。
     restart_enabled: true
+    # VO 新进程稳定、RTAB-Map 重新定位且地图位姿与轮里程计一致才解除锁定。
+    localization_topic: /d455_slam/localization_pose
+    recovery_stable_s: 2.0
+    localization_stale_s: 3.0
+    localization_translation_error_m: 0.40
+    localization_yaw_change_rad: 0.80

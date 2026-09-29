@@ -30,7 +30,7 @@ ament_target_dependencies(goal_approach_limiter geometry_msgs nav_msgs rclcpp st
 ament_target_dependencies(dynamic_obstacle_memory geometry_msgs rclcpp sensor_msgs tf2 tf2_ros)
 
 add_executable(vo_watchdog src/vo_watchdog.cpp)
-ament_target_dependencies(vo_watchdog nav_msgs rclcpp rtabmap_msgs std_msgs)
+ament_target_dependencies(vo_watchdog geometry_msgs nav_msgs rclcpp rtabmap_msgs std_msgs tf2 tf2_ros)
 
 add_executable(interface_monitor src/interface_monitor.cpp)
 add_executable(depth_to_points src/depth_to_points.cpp)

@@ -11,11 +11,16 @@
 
 #include <unistd.h>
 
+#include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "rtabmap_msgs/msg/info.hpp"
 #include "rtabmap_msgs/msg/odom_info.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "tf2/time.h"
+#include "tf2_ros/buffer.h"
+#include "tf2_ros/transform_listener.h"
 
 using namespace std::chrono_literals;
 namespace fs = std::filesystem;
@@ -36,14 +41,26 @@ public:
     wheel_mismatch_limit_ = declare_parameter<int>("wheel_mismatch_limit", 3);
     compare_wheel_yaw_ = declare_parameter<bool>("compare_wheel_yaw", false);
     restart_enabled_ = declare_parameter<bool>("restart_enabled", true);
+    recovery_stable_s_ = declare_parameter<double>("recovery_stable_s", 2.0);
+    localization_stale_s_ = declare_parameter<double>("localization_stale_s", 3.0);
+    localization_translation_error_m_ =
+      declare_parameter<double>("localization_translation_error_m", 0.40);
+    localization_yaw_change_rad_ =
+      declare_parameter<double>("localization_yaw_change_rad", 0.80);
     const auto vo_topic = declare_parameter<std::string>("vo_topic", "/r680_nav/vo_odom");
     const auto info_topic = declare_parameter<std::string>("info_topic", "/d455_slam/odom_info");
     const auto wheel_topic = declare_parameter<std::string>("wheel_topic", "/wheel/odom");
+    const auto localization_topic = declare_parameter<std::string>(
+      "localization_topic", "/d455_slam/localization_pose");
+    const auto map_info_topic = declare_parameter<std::string>(
+      "map_info_topic", "/d455_slam/info");
 
     if (startup_grace_s_ <= 0 || stale_s_ <= 0 || lost_limit_ < 1 ||
       jump_linear_mps_ <= 0 || jump_angular_rps_ <= 0 || wheel_window_s_ <= 0 ||
       wheel_translation_error_m_ <= 0 || wheel_yaw_error_rad_ <= 0 ||
-      wheel_mismatch_limit_ < 1) {
+      wheel_mismatch_limit_ < 1 || recovery_stable_s_ <= 0 ||
+      localization_stale_s_ <= 0 || localization_translation_error_m_ <= 0 ||
+      localization_yaw_change_rad_ <= 0) {
       throw std::invalid_argument("invalid VO watchdog thresholds");
     }
 
@@ -63,6 +80,23 @@ public:
           wheel_seen_ = Clock::now();
         }
       });
+    localization_sub_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+      localization_topic, rclcpp::SensorDataQoS(),
+      [this](geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr msg) {
+        onLocalization(*msg);
+      });
+    map_info_sub_ = create_subscription<rtabmap_msgs::msg::Info>(
+      map_info_topic, rclcpp::SensorDataQoS(),
+      [this](rtabmap_msgs::msg::Info::ConstSharedPtr msg) {
+        if (fault_latched_ && respawn_seen_.time_since_epoch().count() != 0 &&
+          rclcpp::Time(msg->header.stamp) > respawn_ros_stamp_ &&
+          (msg->loop_closure_id > 0 || msg->proximity_detection_id > 0 ||
+          msg->landmark_id > 0)) {
+          map_matched_after_respawn_ = true;
+        }
+      });
+    tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
+    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
     timer_ = create_wall_timer(100ms, [this]() {tick();});
     RCLCPP_INFO(get_logger(), "VO watchdog armed; restart=%s", restart_enabled_ ? "on" : "off");
   }
@@ -71,22 +105,32 @@ private:
   using Clock = std::chrono::steady_clock;
   struct Pose {double x, y, yaw;};
 
-  static bool finitePose(const nav_msgs::msg::Odometry & msg)
+  static bool finitePose(const geometry_msgs::msg::Pose & pose)
   {
-    const auto & p = msg.pose.pose.position;
-    const auto & q = msg.pose.pose.orientation;
+    const auto & p = pose.position;
+    const auto & q = pose.orientation;
     return std::isfinite(p.x) && std::isfinite(p.y) &&
            std::isfinite(q.x) && std::isfinite(q.y) &&
            std::isfinite(q.z) && std::isfinite(q.w) &&
            (q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w) > 0.5;
   }
 
-  static Pose poseOf(const nav_msgs::msg::Odometry & msg)
+  static bool finitePose(const nav_msgs::msg::Odometry & msg)
   {
-    const auto & p = msg.pose.pose.position;
-    const auto & q = msg.pose.pose.orientation;
+    return finitePose(msg.pose.pose);
+  }
+
+  static Pose poseOf(const geometry_msgs::msg::Pose & pose)
+  {
+    const auto & p = pose.position;
+    const auto & q = pose.orientation;
     return {p.x, p.y, std::atan2(2.0*(q.w*q.z + q.x*q.y),
       1.0 - 2.0*(q.y*q.y + q.z*q.z))};
+  }
+
+  static Pose poseOf(const nav_msgs::msg::Odometry & msg)
+  {
+    return poseOf(msg.pose.pose);
   }
 
   static double angleDifference(double a, double b)
@@ -105,18 +149,61 @@ private:
     return std::chrono::duration<double>(Clock::now()-t).count();
   }
 
+  std::optional<Pose> currentMapPose() const
+  {
+    try {
+      const auto transform = tf_buffer_->lookupTransform(
+        "map", "r680_mapping_floor", tf2::TimePointZero);
+      const double stamp_age =
+        (get_clock()->now() - rclcpp::Time(transform.header.stamp)).seconds();
+      if (stamp_age < -0.2 || stamp_age > localization_stale_s_) {return std::nullopt;}
+      const auto & p = transform.transform.translation;
+      const auto & q = transform.transform.rotation;
+      if (!std::isfinite(p.x) || !std::isfinite(p.y) ||
+        !std::isfinite(q.x) || !std::isfinite(q.y) ||
+        !std::isfinite(q.z) || !std::isfinite(q.w)) {return std::nullopt;}
+      return Pose{p.x, p.y, std::atan2(2.0*(q.w*q.z + q.x*q.y),
+        1.0 - 2.0*(q.y*q.y + q.z*q.z))};
+    } catch (const tf2::TransformException &) {
+      return std::nullopt;
+    }
+  }
+
+  void onLocalization(const geometry_msgs::msg::PoseWithCovarianceStamped & msg)
+  {
+    if (msg.header.frame_id != "map" || !finitePose(msg.pose.pose)) {return;}
+    const auto & covariance = msg.pose.covariance;
+    if (!std::isfinite(covariance[0]) || !std::isfinite(covariance[7]) ||
+      !std::isfinite(covariance[35]) || covariance[0] < 0 ||
+      covariance[7] < 0 || covariance[35] < 0 ||
+      covariance[0] > 1.0 || covariance[7] > 1.0 || covariance[35] > 1.0) {return;}
+    const double stamp_age = (get_clock()->now() - rclcpp::Time(msg.header.stamp)).seconds();
+    if (stamp_age < -0.2 || stamp_age > localization_stale_s_) {return;}
+    if (fault_latched_) {
+      if (respawn_seen_.time_since_epoch().count() != 0 &&
+        rclcpp::Time(msg.header.stamp) > respawn_ros_stamp_) {
+        recovery_map_pose_ = poseOf(msg.pose.pose);
+        recovery_map_seen_ = Clock::now();
+      }
+    }
+  }
+
   void onInfo(const rtabmap_msgs::msg::OdomInfo & msg)
   {
-    if (fault_latched_) {return;}
+    if (fault_latched_ && respawn_seen_.time_since_epoch().count() == 0) {return;}
     info_seen_ = Clock::now();
     lost_count_ = msg.lost ? lost_count_ + 1 : 0;
-    if (lost_count_ >= lost_limit_) {fault("visual tracking lost");}
+    if (!fault_latched_ && lost_count_ >= lost_limit_) {fault("visual tracking lost");}
   }
 
   void onVo(const nav_msgs::msg::Odometry & msg)
   {
-    if (fault_latched_) {return;}
-    if (!finitePose(msg)) {fault("non-finite VO pose"); return;}
+    if (fault_latched_ && respawn_seen_.time_since_epoch().count() == 0) {return;}
+    if (!finitePose(msg)) {
+      if (fault_latched_) {vo_seen_ = {}; recovery_stable_since_ = {};}
+      else {fault("non-finite VO pose");}
+      return;
+    }
     const auto stamp = rclcpp::Time(msg.header.stamp);
     const auto pose = poseOf(msg);
     if (last_vo_) {
@@ -124,7 +211,10 @@ private:
       if (dt > 0.0 && dt < 0.5) {
         if (distance(pose, *last_vo_) > 0.15 + jump_linear_mps_*dt ||
           std::abs(angleDifference(pose.yaw, last_vo_->yaw)) > 0.20 + jump_angular_rps_*dt) {
-          fault("VO pose discontinuity");
+          if (fault_latched_) {vo_seen_ = {}; recovery_stable_since_ = {};}
+          else {fault("VO pose discontinuity");}
+          last_vo_ = pose;
+          last_stamp_ = stamp;
           return;
         }
       }
@@ -132,6 +222,7 @@ private:
     vo_seen_ = Clock::now();
     last_vo_ = pose;
     last_stamp_ = stamp;
+    if (fault_latched_) {return;}
 
     // Compare movement over windows, not single frames; wheel odometry is an
     // independent diagnostic, not a replacement for camera localization.
@@ -181,10 +272,21 @@ private:
     if (fault_latched_) {return;}
     fault_latched_ = true;
     reason_ = why;
+    anchor_valid_at_fault_ = anchor_map_pose_.has_value() &&
+      age(anchor_map_seen_) < localization_stale_s_ && age(wheel_seen_) < 0.30;
+    respawn_seen_ = {};
+    recovery_map_seen_ = {};
+    map_matched_after_respawn_ = false;
+    recovery_map_pose_.reset();
+    recovery_stable_since_ = {};
+    vo_seen_ = {};
+    info_seen_ = {};
+    last_vo_.reset();
+    lost_count_ = 0;
     std_msgs::msg::Bool unhealthy;
     unhealthy.data = false;
     health_pub_->publish(unhealthy);
-    RCLCPP_ERROR(get_logger(), "VO fault: %s; motion stays locked until full bringup restart",
+    RCLCPP_ERROR(get_logger(), "VO fault: %s; motion locked until VO and map relocalize",
       why.c_str());
     if (!restart_enabled_) {return;}
     const auto pids = voPids();
@@ -194,6 +296,9 @@ private:
       return;
     }
     vo_pid_ = pids.front();
+    if (!anchor_valid_at_fault_) {
+      RCLCPP_ERROR(get_logger(), "no recent map/odometry anchor; automatic motion recovery disabled");
+    }
     if (::kill(vo_pid_, SIGTERM) == 0) {
       RCLCPP_WARN(get_logger(), "sent SIGTERM to VO pid %d; launch will respawn it", vo_pid_);
     } else {
@@ -203,6 +308,60 @@ private:
 
   void tick()
   {
+    if (!fault_latched_ && age(vo_seen_) <= stale_s_ &&
+      age(info_seen_) <= stale_s_ && age(wheel_seen_) < 0.30) {
+      const auto map_pose = currentMapPose();
+      if (map_pose) {
+        anchor_map_pose_ = map_pose;
+        anchor_wheel_pose_ = wheel_;
+        anchor_map_seen_ = Clock::now();
+      }
+    }
+    if (fault_latched_ && restart_enabled_ && vo_pid_ > 0) {
+      if (respawn_seen_.time_since_epoch().count() == 0) {
+        const auto pids = voPids();
+        if (pids.size() == 1 && pids.front() != vo_pid_) {
+          respawn_seen_ = Clock::now();
+          respawn_ros_stamp_ = get_clock()->now();
+          vo_seen_ = {};
+          info_seen_ = {};
+          map_matched_after_respawn_ = false;
+          last_vo_.reset();
+          recovery_stable_since_ = {};
+          RCLCPP_WARN(get_logger(), "new VO process %d detected; waiting for relocalization",
+            pids.front());
+        }
+      } else {
+        const bool tracking = age(vo_seen_) <= stale_s_ &&
+          age(info_seen_) <= stale_s_ && lost_count_ == 0;
+        const auto map_tf_pose = currentMapPose();
+        const bool localized = anchor_valid_at_fault_ && recovery_map_pose_ &&
+          map_tf_pose &&
+          age(recovery_map_seen_) <= localization_stale_s_ &&
+          map_matched_after_respawn_ &&
+          distance(*map_tf_pose, *recovery_map_pose_) <= localization_translation_error_m_ &&
+          std::abs(angleDifference(map_tf_pose->yaw, recovery_map_pose_->yaw)) <=
+            localization_yaw_change_rad_ &&
+          std::abs(distance(*recovery_map_pose_, *anchor_map_pose_) -
+            distance(wheel_, anchor_wheel_pose_)) <= localization_translation_error_m_ &&
+          std::abs(angleDifference(recovery_map_pose_->yaw, anchor_map_pose_->yaw)) <=
+            localization_yaw_change_rad_ && age(wheel_seen_) < 0.30;
+        if (tracking && localized) {
+          if (recovery_stable_since_.time_since_epoch().count() == 0) {
+            recovery_stable_since_ = Clock::now();
+          }
+          if (age(recovery_stable_since_) >= recovery_stable_s_) {
+            fault_latched_ = false;
+            reason_.clear();
+            window_vo_.reset();
+            mismatch_count_ = 0;
+            RCLCPP_WARN(get_logger(), "VO and map localization stable; motion health restored");
+          }
+        } else {
+          recovery_stable_since_ = {};
+        }
+      }
+    }
     if (!fault_latched_ && age(started_) > startup_grace_s_ &&
       (age(vo_seen_) > stale_s_ || age(info_seen_) > stale_s_)) {
       fault("VO odometry or tracking status timed out");
@@ -213,25 +372,39 @@ private:
     health.data = healthy;
     health_pub_->publish(health);
     std_msgs::msg::String status;
-    status.data = fault_latched_ ? "fault_latched: " + reason_ :
+    status.data = fault_latched_ ?
+      (!anchor_valid_at_fault_ ? "manual_relocalization_required: " :
+      respawn_seen_.time_since_epoch().count() == 0 ? "restarting_vo: " :
+      "waiting_for_map_relocalization: ") + reason_ :
       (healthy ? "healthy" : "waiting_for_vo");
     status_pub_->publish(status);
   }
 
   double startup_grace_s_{}, stale_s_{}, jump_linear_mps_{}, jump_angular_rps_{};
   double wheel_window_s_{}, wheel_translation_error_m_{}, wheel_yaw_error_rad_{};
+  double recovery_stable_s_{}, localization_stale_s_{};
+  double localization_translation_error_m_{}, localization_yaw_change_rad_{};
   int lost_limit_{}, wheel_mismatch_limit_{}, lost_count_{0}, mismatch_count_{0};
   bool compare_wheel_yaw_{false}, restart_enabled_{true}, fault_latched_{false};
+  bool anchor_valid_at_fault_{false}, map_matched_after_respawn_{false};
   pid_t vo_pid_{-1};
   std::string reason_;
   Clock::time_point started_, vo_seen_{}, info_seen_{}, wheel_seen_{}, window_started_{};
-  Pose wheel_{}, window_wheel_{};
-  std::optional<Pose> last_vo_, window_vo_;
+  Clock::time_point anchor_map_seen_{}, recovery_map_seen_{}, respawn_seen_{};
+  Clock::time_point recovery_stable_since_{};
+  Pose wheel_{}, window_wheel_{}, anchor_wheel_pose_{};
+  std::optional<Pose> last_vo_, window_vo_, anchor_map_pose_, recovery_map_pose_;
   rclcpp::Time last_stamp_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time respawn_ros_stamp_{0, 0, RCL_ROS_TIME};
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr vo_sub_, wheel_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr
+    localization_sub_;
+  rclcpp::Subscription<rtabmap_msgs::msg::Info>::SharedPtr map_info_sub_;
   rclcpp::Subscription<rtabmap_msgs::msg::OdomInfo>::SharedPtr info_sub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr health_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
+  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 
