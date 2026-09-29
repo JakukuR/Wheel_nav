@@ -9,7 +9,8 @@ usage() {
   --storage-config PATH  指定存储配置文件
   --initial-pose "X Y Z R P Y"  给 RTAB-Map 提供出生点初值（米、弧度）
   --enable-motion        显式开放真实底盘导航输出（默认仅定位、规划和预览）
-  --mpc                  使用单独的 nav2_mpc.yaml（默认继续使用 nav2.yaml/MPPI）
+  --mpc                  显式使用 MPC（当前默认）
+  --mppi                 切回 nav2.yaml/MPPI
   --no-rviz              不启动 RViz
   -h, --help             显示帮助
 
@@ -25,7 +26,7 @@ MAP_NAME=""
 STORAGE_CONFIG=""
 INITIAL_POSE=""
 ENABLE_MOTION=false
-USE_MPC=false
+USE_MPC=true
 START_RVIZ=true
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -40,6 +41,7 @@ while [[ $# -gt 0 ]]; do
       INITIAL_POSE="$2"; shift 2 ;;
     --enable-motion) ENABLE_MOTION=true; shift ;;
     --mpc) USE_MPC=true; shift ;;
+    --mppi) USE_MPC=false; shift ;;
     --no-rviz) START_RVIZ=false; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "未知参数: $1" >&2; usage >&2; exit 2 ;;
