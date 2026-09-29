@@ -271,6 +271,7 @@ last_report = 0.0
 bringup_log = Path(os.environ['WLA_BRINGUP_LOG'])
 log_offset = 0
 log_tail = ''
+manager_active = False
 while time.monotonic() < deadline:
     with bringup_log.open(errors='replace') as stream:
         stream.seek(log_offset)
@@ -278,16 +279,19 @@ while time.monotonic() < deadline:
         log_offset = stream.tell()
     if 'Failed to bring up all requested nodes' in log_tail + new_log:
         raise SystemExit('Nav2 生命周期启动失败；查看本次 logs/bringup.log')
+    if 'Managed nodes are active' in log_tail + new_log:
+        manager_active = True
     log_tail = (log_tail + new_log)[-80:]
     rclpy.spin_once(node, timeout_sec=0.2)
-    states = {}
-    for name, client in clients.items():
-        if not client.service_is_ready():
-            states[name] = 0
-            continue
-        future = client.call_async(GetState.Request())
-        rclpy.spin_until_future_complete(node, future, timeout_sec=0.5)
-        states[name] = future.result().current_state.id if future.done() and future.result() else 0
+    states = {name: 0 for name in names}
+    # The lifecycle manager owns these services during bringup. Poll only after activation.
+    if manager_active:
+        for name, client in clients.items():
+            if not client.service_is_ready():
+                continue
+            future = client.call_async(GetState.Request())
+            rclpy.spin_until_future_complete(node, future, timeout_sec=0.5)
+            states[name] = future.result().current_state.id if future.done() and future.result() else 0
     tf_ok = tf_buffer.can_transform('map', 'r680_mapping_floor', rclpy.time.Time(),
                                     timeout=Duration(seconds=0.05))
     if ready_count >= 5 and map_ok and tf_ok and all(v == 3 for v in states.values()):
