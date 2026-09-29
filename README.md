@@ -314,3 +314,19 @@ ssh -L 8080:127.0.0.1:8080 orin@172.31.18.156
 `/r680_nav/vo_watchdog_status` 和运行日志，重新确认地图位姿后重启整次导航。
 阈值位于 `config/vo_watchdog.yaml`。这种检测可识别明显异常，不能保证发现缓慢、
 与轮速里程计共同漂移的误差；重启 VO 也不等于完成地图重定位。
+
+
+## ROS 2 家具语义图
+
+`r680_mapping.sh` 在原 ROS 2 建图链中以 1 Hz 采样 D455 RGB、对齐深度和图像时间戳的
+`map -> d455_color_optical_frame` TF。`furniture_semantic.py` 只识别 YOLO11s 的
+`chair`、`dining table`、`couch`、`bed`。定位健康且连续收到数据后，将起始车体位姿
+记为 `home`；家具至少经过三次检测及两个相距 0.25 m 的视角才标为 `confirmed`。
+单视角观测保留为 `tentative`。建图阶段结果先写在本次运行目录的 `semantic.geojson`，
+保存二维地图时复制到 `maps/map-*/semantic.geojson` 并绑定正式地图 ID。
+导航时继续读写所选地图的该文件，但不会用当前导航启动位姿覆盖既有出生点。
+
+`/r680_nav/semantic_markers` 可在 RViz 查看：绿色为出生点、橙色为待确认家具、
+蓝色为已确认家具；`/r680_nav/semantic_status` 是 JSON 状态。语义位置仅为家具表面
+采样点，不能直接作为导航目标。此实现只使用 ROS 2 建图/定位图，不启用 Agent 的
+旧语义地图服务；YOLO 模型和现有 Python 推理环境作为运行资产复用。

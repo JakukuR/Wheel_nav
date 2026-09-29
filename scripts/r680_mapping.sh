@@ -131,6 +131,8 @@ setsid ros2 launch wla_r680_navigation bringup.launch.py \
   start_d455:=false start_chassis:=true start_nav2:=true start_navigation_servers:=false \
   start_state_estimation:=true use_d455_imu:=false use_chassis_imu:=true \
   publish_mount_tf:=true enable_hardware_output:="$ENABLE_HARDWARE" \
+  start_semantics:=true semantic_output:="$RUN_DIR/semantic.geojson" \
+  semantic_map_id:="$(basename "$RUN_DIR")" semantic_mark_home:=true \
   >"$RUN_DIR/logs/bringup.log" 2>&1 </dev/null &
 BRINGUP_PID=$!
 STARTED=true

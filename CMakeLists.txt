@@ -39,7 +39,7 @@ ament_target_dependencies(depth_to_points geometry_msgs rclcpp sensor_msgs tf2 t
 
 install(TARGETS command_guard imu_conditioner path_speed_profile goal_approach_limiter dynamic_obstacle_memory vo_watchdog interface_monitor depth_to_points DESTINATION lib/${PROJECT_NAME})
 ament_python_install_package(wla_r680_navigation_py)
-install(PROGRAMS scripts/navigation_goal_bridge scripts/web_gateway
+install(PROGRAMS scripts/navigation_goal_bridge scripts/web_gateway scripts/furniture_semantic.py
   DESTINATION lib/${PROJECT_NAME})
 install(PROGRAMS scripts/mapping_mission scripts/prepare_mapping_run scripts/save_manual_map
   scripts/r680_nav.sh

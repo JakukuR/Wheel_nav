@@ -70,3 +70,36 @@ def test_checksum_rejects_modified_navigation_file(tmp_path):
     (published/'map.pgm').write_bytes(b'changed')
     with pytest.raises(ValueError, match='checksum mismatch'):
         resolve_navigation_map(settings, published.name)
+
+
+def test_publish_preserves_mapping_semantics_and_home(tmp_path):
+    run_dir = tmp_path/'run'
+    archive = run_dir/'map_archive'
+    run_dir.mkdir()
+    make_archive(archive)
+    candidate = dict(type='FeatureCollection', schema='wla-semantic-map-v1',
+                     map_id='run-a', revision=2, features=[dict(
+                         type='Feature', id='home',
+                         geometry=dict(type='Point', coordinates=[0.0, 0.0, 0.0]),
+                         properties=dict(role='home', label='出生点'))])
+    (run_dir/'semantic.geojson').write_text(json.dumps(candidate))
+    published = publish_navigation_map(
+        archive, storage(tmp_path), 'run-a',
+        now=datetime(2026, 9, 20, tzinfo=timezone.utc))
+    copied = json.loads((published/'semantic.geojson').read_text())
+    assert copied['map_id'] == published.name
+    assert copied['features'][0]['properties']['role'] == 'home'
+    assert copied['features'][0]['geometry']['coordinates'] == [0.0, 0.0, 0.0]
+
+
+def test_publish_rejects_semantics_from_another_run(tmp_path):
+    run_dir = tmp_path/'run'
+    archive = run_dir/'map_archive'
+    run_dir.mkdir()
+    make_archive(archive)
+    (run_dir/'semantic.geojson').write_text(json.dumps(dict(
+        type='FeatureCollection', schema='wla-semantic-map-v1',
+        map_id='run-elsewhere', revision=0, features=[])))
+    with pytest.raises(ValueError, match='identity mismatch'):
+        publish_navigation_map(archive, storage(tmp_path), 'run-a',
+                               now=datetime(2026, 9, 20, tzinfo=timezone.utc))

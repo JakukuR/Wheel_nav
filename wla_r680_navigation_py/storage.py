@@ -106,6 +106,16 @@ def publish_navigation_map(archive, storage, source_run_id, map_name=None, now=N
                 json.dumps(info, indent=2, allow_nan=False)+'\n')
             semantic = dict(type='FeatureCollection', schema='wla-semantic-map-v1',
                             map_id=name, revision=0, features=[])
+            source_semantic = archive.parent/'semantic.geojson'
+            if source_semantic.is_file():
+                candidate = json.loads(source_semantic.read_text())
+                if (candidate.get('schema') != 'wla-semantic-map-v1'
+                        or candidate.get('map_id') != source_run_id
+                        or candidate.get('type') != 'FeatureCollection'
+                        or not isinstance(candidate.get('features'), list)):
+                    raise ValueError('mapping semantic layer identity mismatch')
+                semantic = candidate
+                semantic['map_id'] = name
             (temporary/'semantic.geojson').write_text(
                 json.dumps(semantic, indent=2, allow_nan=False)+'\n')
             startup = dict(schema='wla-navigation-startup-v1', map_id=name,

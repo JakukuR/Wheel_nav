@@ -254,6 +254,16 @@ Visualization Manager:
         Reliability Policy: Best Effort
         Value: /d455_slam/odom
       Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Furniture and Home
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /r680_nav/semantic_markers
+      Value: true
     - Class: rviz_default_plugins/TF
       Enabled: false
       Frame Timeout: 15

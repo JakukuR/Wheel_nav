@@ -2,7 +2,7 @@ from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
@@ -174,6 +174,17 @@ def generate_launch_description():
             ),
         }.items())
 
+    semantic_collector = ExecuteProcess(
+        cmd=[LaunchConfiguration('semantic_python'),
+             str(share.parents[1] / 'lib' / 'wla_r680_navigation' / 'furniture_semantic.py'),
+             '--output', LaunchConfiguration('semantic_output'),
+             '--map-id', LaunchConfiguration('semantic_map_id'),
+             '--model', LaunchConfiguration('semantic_model'),
+             '--hz', '1.0',
+             '--mark-home', LaunchConfiguration('semantic_mark_home')],
+        name='r680_furniture_semantic', output='screen',
+        condition=IfCondition(LaunchConfiguration('start_semantics')))
+
     chassis = Node(
         package='turn_on_wheeltec_robot', executable='wheeltec_robot_node',
         name='wheeltec_robot', output='screen', condition=IfCondition(start_chassis),
@@ -286,6 +297,14 @@ def generate_launch_description():
                               description='Complete Nav2 parameters file for this run.'),
         DeclareLaunchArgument('start_state_estimation', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('start_web', default_value='true', choices=['true', 'false']),
+        DeclareLaunchArgument('start_semantics', default_value='false', choices=['true', 'false']),
+        DeclareLaunchArgument('semantic_output', default_value='/tmp/wla-semantic.geojson'),
+        DeclareLaunchArgument('semantic_map_id', default_value='unassigned'),
+        DeclareLaunchArgument('semantic_mark_home', default_value='false', choices=['true', 'false']),
+        DeclareLaunchArgument('semantic_python',
+                              default_value='/home/orin/Wheel_Legged_Agent/.venv-perception/bin/python'),
+        DeclareLaunchArgument('semantic_model',
+                              default_value='/home/orin/Wheel_Legged_Agent/models/yolo11s.engine'),
         DeclareLaunchArgument('web_host', default_value='0.0.0.0'),
         DeclareLaunchArgument('web_port', default_value='8080'),
         DeclareLaunchArgument(
@@ -302,5 +321,5 @@ def generate_launch_description():
             description='Optional RTAB-Map initial pose: x y z roll pitch yaw.'),
         realsense, mount_tf, chassis_imu_tf, imu_filter, chassis_imu_conditioner,
         chassis_imu_filter, vo, vo_watchdog, ekf, rtabmap,
-        chassis, depth_points, dynamic_obstacles, *nav2_nodes, monitor, guard, web_gateway,
+        chassis, depth_points, dynamic_obstacles, semantic_collector, *nav2_nodes, monitor, guard, web_gateway,
     ])
