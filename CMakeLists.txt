@@ -34,6 +34,7 @@ ament_target_dependencies(vo_watchdog nav_msgs rclcpp rtabmap_msgs std_msgs)
 
 add_executable(interface_monitor src/interface_monitor.cpp)
 add_executable(depth_to_points src/depth_to_points.cpp)
+target_include_directories(depth_to_points PRIVATE include)
 ament_target_dependencies(interface_monitor nav_msgs rclcpp sensor_msgs std_msgs)
 ament_target_dependencies(depth_to_points geometry_msgs rclcpp sensor_msgs tf2 tf2_ros)
 
@@ -51,6 +52,9 @@ install(FILES README.md DESTINATION share/${PROJECT_NAME})
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(test_storage test/test_storage.py)
+  add_executable(test_isolated_clusters test/test_isolated_clusters.cpp)
+  target_include_directories(test_isolated_clusters PRIVATE include)
+  add_test(NAME isolated_clusters COMMAND test_isolated_clusters)
 endif()
 
 ament_package()

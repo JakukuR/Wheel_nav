@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "geometry_msgs/msg/transform_stamped.hpp"
+#include "wla_r680_navigation/isolated_clusters.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/image_encodings.hpp"
 #include "sensor_msgs/msg/camera_info.hpp"
@@ -68,6 +69,10 @@ public:
     obstacle_max_height_ = declare_parameter<double>("obstacle_max_height", 0.50);
     clearing_min_height_ = declare_parameter<double>("clearing_min_height", -0.08);
     clearing_max_height_ = declare_parameter<double>("clearing_max_height", 0.50);
+    isolated_cluster_cell_size_ = std::max(
+      0.01, declare_parameter<double>("isolated_cluster_cell_size", 0.05));
+    isolated_cluster_min_cells_ = static_cast<size_t>(
+      std::max<int64_t>(1, declare_parameter<int64_t>("isolated_cluster_min_cells", 3)));
 
     const auto depth_topic = declare_parameter<std::string>(
       "depth_topic", "/r680/d455/aligned_depth_to_color/image_raw");
@@ -75,6 +80,8 @@ public:
       "camera_info_topic", "/r680/d455/color/camera_info");
     const auto output_topic = declare_parameter<std::string>(
       "output_topic", "/r680_nav/d455/points");
+    const auto safety_topic = declare_parameter<std::string>(
+      "safety_output_topic", "/r680_nav/d455/points_safety");
     const auto clearing_topic = declare_parameter<std::string>(
       "clearing_output_topic", "/r680_nav/d455/clearing_points");
     const auto visualization_topic = declare_parameter<std::string>(
@@ -90,6 +97,7 @@ public:
 
     const auto output_qos = rclcpp::QoS(rclcpp::KeepLast(2)).reliable().durability_volatile();
     points_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(output_topic, output_qos);
+    safety_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(safety_topic, output_qos);
     clearing_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(clearing_topic, output_qos);
     visualization_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
       visualization_topic, rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile());
@@ -272,7 +280,10 @@ private:
         clearing_points.push_back(point);
       }
     }
-    const auto obstacle_points = filter_obstacles(clearing_points);
+    const auto ground_filtered = filter_obstacles(clearing_points);
+    safety_pub_->publish(make_cloud(image->header, target_frame_, ground_filtered));
+    const auto obstacle_points = wla_r680_navigation::remove_isolated_clusters(
+      ground_filtered, isolated_cluster_cell_size_, isolated_cluster_min_cells_);
     auto obstacle_cloud = make_cloud(image->header, target_frame_, obstacle_points);
     points_pub_->publish(obstacle_cloud);
     clearing_pub_->publish(make_cloud(image->header, target_frame_, clearing_points));
@@ -301,11 +312,14 @@ private:
   double obstacle_max_height_{0.50};
   double clearing_min_height_{-0.08};
   double clearing_max_height_{0.50};
+  double isolated_cluster_cell_size_{0.05};
+  size_t isolated_cluster_min_cells_{3};
   std::chrono::steady_clock::time_point last_publish_{};
   sensor_msgs::msg::CameraInfo::ConstSharedPtr camera_info_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depth_sub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr points_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr safety_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr clearing_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr visualization_pub_;
   tf2_ros::Buffer tf_buffer_;

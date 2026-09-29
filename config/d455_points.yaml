@@ -3,6 +3,7 @@ r680_d455_depth_to_points:
     depth_topic: /r680/d455/aligned_depth_to_color/image_raw
     camera_info_topic: /r680/d455/color/camera_info
     output_topic: /r680_nav/d455/points
+    safety_output_topic: /r680_nav/d455/points_safety
     clearing_output_topic: /r680_nav/d455/clearing_points
     visualization_output_topic: /r680_nav/d455/points_viz
     target_frame: r680_mapping_floor
@@ -23,6 +24,11 @@ r680_d455_depth_to_points:
     ground_clearance: 0.05
     fallback_obstacle_min_height: 0.08
     obstacle_max_height: 0.50
+
+    # Reject 1-2 isolated occupied XY cells after ground filtering.
+    # Applied to marking/visualization clouds; clearing rays remain unfiltered.
+    isolated_cluster_cell_size: 0.05
+    isolated_cluster_min_cells: 3
 
     # This unfiltered height band is only used for costmap ray clearing.
     clearing_min_height: -0.08
