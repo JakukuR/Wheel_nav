@@ -1,0 +1,13 @@
+r680_d455_point_to_scan:
+  ros__parameters:
+    input_topic: /r680_nav/d455/points
+    output_topic: /r680_nav/d455/scan
+    expected_frame: r680_mapping_floor
+    angle_min: -1.57079632679
+    angle_max: 1.57079632679
+    angle_increment: 0.00872664626  # 0.5 degree; no invented rear rays
+    range_min: 0.15
+    range_max: 4.5
+    min_height: -0.08       # Points were already ground-filtered in depth_to_points.
+    max_height: 0.50
+    scan_time: 0.10         # Source cloud is at most 10 Hz.

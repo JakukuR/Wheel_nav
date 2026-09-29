@@ -34,11 +34,14 @@ ament_target_dependencies(vo_watchdog geometry_msgs nav_msgs rclcpp rtabmap_msgs
 
 add_executable(interface_monitor src/interface_monitor.cpp)
 add_executable(depth_to_points src/depth_to_points.cpp)
+add_executable(point_to_scan src/point_to_scan.cpp)
 target_include_directories(depth_to_points PRIVATE include)
+target_include_directories(point_to_scan PRIVATE include)
 ament_target_dependencies(interface_monitor nav_msgs rclcpp sensor_msgs std_msgs)
 ament_target_dependencies(depth_to_points geometry_msgs rclcpp sensor_msgs tf2 tf2_ros)
+ament_target_dependencies(point_to_scan rclcpp sensor_msgs)
 
-install(TARGETS command_guard imu_conditioner path_speed_profile goal_approach_limiter dynamic_obstacle_memory vo_watchdog interface_monitor depth_to_points DESTINATION lib/${PROJECT_NAME})
+install(TARGETS command_guard imu_conditioner path_speed_profile goal_approach_limiter dynamic_obstacle_memory vo_watchdog interface_monitor depth_to_points point_to_scan DESTINATION lib/${PROJECT_NAME})
 ament_python_install_package(wla_r680_navigation_py)
 install(PROGRAMS scripts/navigation_goal_bridge scripts/web_gateway scripts/furniture_semantic.py
   DESTINATION lib/${PROJECT_NAME})
@@ -55,6 +58,9 @@ if(BUILD_TESTING)
   add_executable(test_isolated_clusters test/test_isolated_clusters.cpp)
   target_include_directories(test_isolated_clusters PRIVATE include)
   add_test(NAME isolated_clusters COMMAND test_isolated_clusters)
+  add_executable(test_scan_projection test/test_scan_projection.cpp)
+  target_include_directories(test_scan_projection PRIVATE include)
+  add_test(NAME scan_projection COMMAND test_scan_projection)
 endif()
 
 ament_package()

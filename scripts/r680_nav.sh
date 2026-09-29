@@ -11,6 +11,7 @@ usage() {
   --enable-motion        显式开放真实底盘导航输出（默认仅定位、规划和预览）
   --mpc                  显式使用 MPC（当前默认）
   --mppi                 切回 nav2.yaml/MPPI
+  --scan-obstacles       局部代价地图试用 D455 点云生成的 LaserScan（默认仍用点云）
   --no-rviz              不启动 RViz
   -h, --help             显示帮助
 
@@ -19,6 +20,7 @@ usage() {
   ./r680_nav.sh --map map-2026-09-20-1
   ./r680_nav.sh --map map-2026-09-20-1 --initial-pose "0 0 0 0 0 0"
   ./r680_nav.sh --map map-2026-09-20-1 --enable-motion
+  ./r680_nav.sh --map map-2026-09-20-1 --scan-obstacles
 EOF
 }
 
@@ -27,6 +29,7 @@ STORAGE_CONFIG=""
 INITIAL_POSE=""
 ENABLE_MOTION=false
 USE_MPC=true
+SCAN_OBSTACLES=false
 START_RVIZ=true
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -42,6 +45,7 @@ while [[ $# -gt 0 ]]; do
     --enable-motion) ENABLE_MOTION=true; shift ;;
     --mpc) USE_MPC=true; shift ;;
     --mppi) USE_MPC=false; shift ;;
+    --scan-obstacles) SCAN_OBSTACLES=true; shift ;;
     --no-rviz) START_RVIZ=false; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "未知参数: $1" >&2; usage >&2; exit 2 ;;
@@ -100,6 +104,25 @@ PY
 )
 NAV_RUN_DIR="$RUN_ROOT/nav-$(date +%Y%m%d-%H%M%S)-$$"
 mkdir -p "$NAV_RUN_DIR/logs"
+if [[ "$SCAN_OBSTACLES" == true ]]; then
+  python3 - "$NAV2_PARAMS_FILE" "$NAV_RUN_DIR/nav2_scan.yaml" <<'PY'
+import sys
+import yaml
+
+with open(sys.argv[1], encoding='utf-8') as stream:
+    params = yaml.safe_load(stream)
+layer = params['local_costmap']['local_costmap']['ros__parameters']['obstacle_layer']
+original = layer.pop('d455_obstacles')
+sources = layer['observation_sources'].split()
+if sources != ['d455_obstacles', 'd455_clearing']:
+    raise SystemExit(f'unexpected local obstacle sources: {sources}')
+layer['observation_sources'] = 'd455_scan d455_clearing'
+layer['d455_scan'] = dict(original, topic='/r680_nav/d455/scan', data_type='LaserScan')
+with open(sys.argv[2], 'w', encoding='utf-8') as stream:
+    yaml.safe_dump(params, stream, sort_keys=False, allow_unicode=True)
+PY
+  NAV2_PARAMS_FILE="$NAV_RUN_DIR/nav2_scan.yaml"
+fi
 SOURCE_DB_PATH="$DB_PATH"
 DB_PATH="$NAV_RUN_DIR/rtabmap.db"
 cp --reflink=auto "$SOURCE_DB_PATH" "$DB_PATH"
@@ -112,6 +135,7 @@ cat > "$NAV_RUN_DIR/navigation.json" <<EOF
   "working_database": "$DB_PATH",
   "initial_pose": "$INITIAL_POSE",
   "hardware_output_enabled": $ENABLE_MOTION,
+  "local_obstacle_input": "$(if [[ "$SCAN_OBSTACLES" == true ]]; then echo scan; else echo pointcloud; fi)",
   "started_at": "$(date --iso-8601=seconds)"
 }
 EOF
@@ -200,12 +224,14 @@ echo "[R680 NAV] RTAB-Map 只读源库：$SOURCE_DB_PATH"
 echo "[R680 NAV] RTAB-Map 本次工作副本：$DB_PATH"
 echo "[R680 NAV] 本次日志：$NAV_RUN_DIR"
 echo "[R680 NAV] Nav2 参数：$NAV2_PARAMS_FILE"
+echo "[R680 NAV] 局部障碍标记：$(if [[ "$SCAN_OBSTACLES" == true ]]; then echo '/r680_nav/d455/scan'; else echo '/r680_nav/d455/points'; fi)"
 cp "$NAV2_PARAMS_FILE" "$NAV_RUN_DIR/nav2.yaml"
 echo '[R680 NAV] 前 5 秒保持车辆静止，正在估计车身 IMU 零偏……'
 
 LAUNCH_ARGS=(
   mode:=localization database_path:="$DB_PATH" web_map_yaml:="$MAP_YAML"
   nav_params_file:="$NAV2_PARAMS_FILE"
+  obstacle_scan:="$SCAN_OBSTACLES"
   start_d455:=false start_chassis:=true start_nav2:=true start_navigation_servers:=true
   start_state_estimation:=true use_d455_imu:=false use_chassis_imu:=true
   publish_mount_tf:=true enable_hardware_output:="$ENABLE_MOTION"
@@ -234,7 +260,7 @@ if [[ "$START_RVIZ" == true ]]; then
   fi
 fi
 
-WLA_BRINGUP_LOG="$NAV_RUN_DIR/logs/bringup.log" python3 - <<'PY'
+WLA_BRINGUP_LOG="$NAV_RUN_DIR/logs/bringup.log" WLA_REQUIRE_SCAN="$SCAN_OBSTACLES" python3 - <<'PY'
 import math
 import os
 import time
@@ -244,7 +270,8 @@ from lifecycle_msgs.srv import GetState
 from nav_msgs.msg import OccupancyGrid
 from rclpy.duration import Duration
 from rclpy.node import Node
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
+from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Bool
 from tf2_ros import Buffer, TransformListener
 
@@ -252,6 +279,8 @@ rclpy.init()
 node = Node('r680_navigation_ready_waiter')
 ready_count = 0
 map_ok = False
+require_scan = os.environ['WLA_REQUIRE_SCAN'] == 'true'
+last_scan = 0.0
 
 def ready_cb(msg):
     global ready_count
@@ -261,10 +290,18 @@ def map_cb(msg):
     global map_ok
     map_ok = msg.info.width > 0 and msg.info.height > 0 and len(msg.data) > 0
 
+def scan_cb(msg):
+    global last_scan
+    if msg.header.frame_id == 'r680_mapping_floor' and msg.ranges:
+        last_scan = time.monotonic()
+
 node.create_subscription(Bool, '/r680_nav/localization_ready', ready_cb, 10)
 map_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                      reliability=ReliabilityPolicy.RELIABLE)
 node.create_subscription(OccupancyGrid, '/r680/d455/map', map_cb, map_qos)
+if require_scan:
+    node.create_subscription(LaserScan, '/r680_nav/d455/scan',
+                             scan_cb, qos_profile_sensor_data)
 tf_buffer = Buffer()
 tf_listener = TransformListener(tf_buffer, node)
 names = ['controller_server', 'planner_server', 'bt_navigator',
@@ -298,13 +335,15 @@ while time.monotonic() < deadline:
             states[name] = future.result().current_state.id if future.done() and future.result() else 0
     tf_ok = tf_buffer.can_transform('map', 'r680_mapping_floor', rclpy.time.Time(),
                                     timeout=Duration(seconds=0.05))
-    if ready_count >= 5 and map_ok and tf_ok and all(v == 3 for v in states.values()):
+    scan_ok = not require_scan or time.monotonic() - last_scan < 0.6
+    if ready_count >= 5 and map_ok and tf_ok and scan_ok and all(v == 3 for v in states.values()):
         node.destroy_node()
         rclpy.shutdown()
         raise SystemExit(0)
     if time.monotonic() - last_report > 10.0:
         print('[R680 NAV] 等待就绪:', f'接口={ready_count >= 5}', f'地图={map_ok}',
-              f'TF={tf_ok}', '生命周期=' + ','.join(f'{k}:{v}' for k, v in states.items()),
+              f'TF={tf_ok}', f'Scan={scan_ok}',
+              '生命周期=' + ','.join(f'{k}:{v}' for k, v in states.items()),
               flush=True)
         last_report = time.monotonic()
 node.destroy_node()

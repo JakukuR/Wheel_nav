@@ -199,6 +199,22 @@ cd ~/ros2_ws
 ```
 
 默认是安全预览模式，能定位、规划和检查安全链，但 `command_guard` 不向底盘发布真实速度。
+需要对比 D455 伪 Scan 的局部避障效果时，先在预览模式运行：
+
+```bash
+./r680_nav.sh --map map-2026-09-29-1 --scan-obstacles --no-rviz
+ros2 topic hz /r680_nav/d455/scan
+```
+
+`--scan-obstacles` 从已完成地面/孤立簇过滤的 `/r680_nav/d455/points` 生成
+`/r680_nav/d455/scan`，以每 0.5° 最近点标记 **局部** Nav2 障碍；没有观测的角度为
+`inf`。D455 仍是前视相机，转换不会生成背后的真实观测，也不会提高原始 10 Hz 更新率。
+局部清障继续使用 `/r680_nav/d455/clearing_points`，全局动态层与 `collision_monitor`
+仍用独立点云，避免把 Scan 的空扇区误当作已观察到的自由空间。本次派生的完整 Nav2
+参数保存在运行目录 `nav2_scan.yaml` 和 `nav2.yaml`；不加该选项仍使用原点云。
+在 RViz 中可手动添加 LaserScan 显示该话题，先核对扫描点与原点云、局部代价地图一致，
+再决定是否单独进行实车低速验证。
+
 选择地图和显式开放实车运动：
 
 ```bash
