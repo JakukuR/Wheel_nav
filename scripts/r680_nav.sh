@@ -132,9 +132,19 @@ READONLY_INPUTS_ACTIVE=false
 stop_group() {
   local pid="${1:-}"
   [[ -n "$pid" ]] || return 0
+  # The setsid leader may exit before its ROS children. Check the process group,
+  # otherwise an orphaned lifecycle manager can break the next bringup.
   kill -INT -- "-$pid" 2>/dev/null || true
-  for _ in {1..30}; do kill -0 "$pid" 2>/dev/null || return 0; sleep 0.1; done
+  for _ in {1..50}; do
+    kill -0 -- "-$pid" 2>/dev/null || return 0
+    sleep 0.1
+  done
   kill -TERM -- "-$pid" 2>/dev/null || true
+  for _ in {1..50}; do
+    kill -0 -- "-$pid" 2>/dev/null || return 0
+    sleep 0.1
+  done
+  kill -KILL -- "-$pid" 2>/dev/null || true
 }
 
 cleanup() {
@@ -220,9 +230,11 @@ if [[ "$START_RVIZ" == true ]]; then
   fi
 fi
 
-python3 - <<'PY'
+WLA_BRINGUP_LOG="$NAV_RUN_DIR/logs/bringup.log" python3 - <<'PY'
 import math
+import os
 import time
+from pathlib import Path
 import rclpy
 from lifecycle_msgs.srv import GetState
 from nav_msgs.msg import OccupancyGrid
@@ -256,7 +268,17 @@ names = ['controller_server', 'planner_server', 'bt_navigator',
 clients = {name: node.create_client(GetState, f'/{name}/get_state') for name in names}
 deadline = time.monotonic() + 120.0
 last_report = 0.0
+bringup_log = Path(os.environ['WLA_BRINGUP_LOG'])
+log_offset = 0
+log_tail = ''
 while time.monotonic() < deadline:
+    with bringup_log.open(errors='replace') as stream:
+        stream.seek(log_offset)
+        new_log = stream.read()
+        log_offset = stream.tell()
+    if 'Failed to bring up all requested nodes' in log_tail + new_log:
+        raise SystemExit('Nav2 生命周期启动失败；查看本次 logs/bringup.log')
+    log_tail = (log_tail + new_log)[-80:]
     rclpy.spin_once(node, timeout_sec=0.2)
     states = {}
     for name, client in clients.items():
