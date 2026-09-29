@@ -80,6 +80,7 @@ class GatewayNode(Node):
         self.port = int(self.declare_parameter('port', 8080).value)
         self.map_topic = self.declare_parameter('map_topic', '/r680/d455/map').value
         self.map_yaml = self.declare_parameter('map_yaml', '').value
+        self.semantic_path = self.declare_parameter('semantic_path', '').value
         self.goal_topic = self.declare_parameter(
             'goal_topic', '/r680_nav/goal_request').value
         self.cmd_vel_topic = self.declare_parameter('cmd_vel_topic', '/cmd_vel_nav').value
@@ -96,6 +97,7 @@ class GatewayNode(Node):
         self._map_version = 0
         self._state = {
             'map': None,
+            'semantic': {'map_id': '', 'revision': 0, 'home': None, 'furniture': []},
             'robot': None,
             'odom': {'vx': 0.0, 'wz': 0.0},
             'velocity_commands': {'cmd': None, 'smoothed': None},
@@ -147,6 +149,60 @@ class GatewayNode(Node):
             ClearEntireCostmap, '/global_costmap/clear_entirely_global_costmap')
         self.create_timer(0.05, self._process_commands)
         self.create_timer(0.10, self._update_robot_pose)
+        self.create_timer(1.0, self._load_semantic_layer)
+        self._load_semantic_layer()
+
+    def _load_semantic_layer(self):
+        empty = {'map_id': '', 'revision': 0, 'home': None, 'furniture': []}
+        semantic = empty
+        if self.semantic_path:
+            try:
+                path = Path(self.semantic_path).expanduser()
+                # The collector atomically replaces this small GeoJSON file.
+                if path.stat().st_size > 2_000_000:
+                    raise ValueError('semantic map is too large')
+                document = json.loads(path.read_text(encoding='utf-8'))
+                if (document.get('type') != 'FeatureCollection' or
+                        document.get('schema') != 'wla-semantic-map-v1'):
+                    raise ValueError('invalid semantic map schema')
+                with self._lock:
+                    selected_map = self._state['map']
+                map_id = str(document.get('map_id', ''))
+                if (selected_map and selected_map.get('map_id') and
+                        map_id != selected_map['map_id']):
+                    raise ValueError('semantic map belongs to another map')
+                features = document.get('features', [])
+                if not isinstance(features, list) or len(features) > 256:
+                    raise ValueError('invalid semantic feature count')
+                semantic = {'map_id': map_id,
+                            'revision': int(document.get('revision', 0)),
+                            'home': None, 'furniture': []}
+                for feature in features:
+                    if not isinstance(feature, dict):
+                        continue
+                    geometry = feature.get('geometry', {})
+                    if geometry.get('type') != 'Point':
+                        continue
+                    coordinates = geometry.get('coordinates', [])
+                    if len(coordinates) < 2:
+                        continue
+                    x, y = float(coordinates[0]), float(coordinates[1])
+                    if not (math.isfinite(x) and math.isfinite(y)):
+                        continue
+                    props = feature.get('properties', {})
+                    item = {'x': x, 'y': y,
+                            'label': str(props.get('label', ''))[:48],
+                            'id': str(feature.get('id', ''))[:64]}
+                    if props.get('role') == 'home':
+                        semantic['home'] = item
+                    elif props.get('role') == 'furniture':
+                        item['status'] = ('confirmed' if props.get('status') ==
+                                          'confirmed' else 'tentative')
+                        semantic['furniture'].append(item)
+            except (OSError, ValueError, TypeError, KeyError, AttributeError):
+                pass
+        with self._lock:
+            self._state['semantic'] = semantic
 
     def _mark(self, name):
         with self._lock:

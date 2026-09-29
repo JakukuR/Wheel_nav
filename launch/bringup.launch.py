@@ -285,6 +285,7 @@ def generate_launch_description():
             'host': ParameterValue(web_host, value_type=str),
             'port': ParameterValue(web_port, value_type=int),
             'map_yaml': ParameterValue(web_map_yaml, value_type=str),
+            'semantic_path': ParameterValue(LaunchConfiguration('semantic_output'), value_type=str),
         }])
 
     return LaunchDescription([

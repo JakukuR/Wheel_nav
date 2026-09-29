@@ -18,7 +18,7 @@
   </header>
   <main>
     <section class="map-panel panel">
-      <div class="panel-title"><div><b>二维导航视图</b><small id="mapInfo">等待 OccupancyGrid</small></div><div class="coordinates" id="cursorPos">x —　y —</div></div>
+      <div class="panel-title"><div><b>二维导航视图</b><small id="mapInfo">等待 OccupancyGrid</small><small id="semanticInfo">语义地图：等待数据</small></div><div class="coordinates" id="cursorPos">x —　y —</div></div>
       <div id="mapWrap" class="map-wrap">
         <canvas id="mapCanvas"></canvas>
         <div class="map-hint">滚轮缩放 · 右键拖动画布 · 左键拖拽设置位置与方向</div>
@@ -27,7 +27,7 @@
       <div class="legend">
         <span><i class="robot"></i>车体</span><span><i class="global"></i>全局路径</span>
         <span><i class="local"></i>局部路径</span><span><i class="near"></i>即时障碍</span>
-        <span><i class="confirmed"></i>确认障碍</span>
+        <span><i class="confirmed"></i>确认障碍</span><span><i class="home"></i>出生点</span><span><i class="furniture-tentative"></i>家具候选</span><span><i class="furniture-confirmed"></i>已确认家具</span>
       </div>
     </section>
     <aside>
@@ -57,6 +57,8 @@
           <label><input type="checkbox" data-layer="local_path" checked>局部路径</label>
           <label><input type="checkbox" data-layer="near_obstacles" checked>即时障碍</label>
           <label><input type="checkbox" data-layer="confirmed_obstacles" checked>确认障碍</label>
+          <label><input type="checkbox" data-layer="home" checked>出生点</label>
+          <label><input type="checkbox" data-layer="semantic_furniture" checked>家具语义</label>
         </div>
       </section>
     </aside>
