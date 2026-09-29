@@ -20,3 +20,19 @@
 .home-action{background:#123d36;border-color:#2c8b72;color:#9df4d5}
 .home-action:hover:not(:disabled){background:#185449}
 .home-action:disabled{opacity:.45;cursor:not-allowed}
+
+/* The user map shares the navigation canvas transform but has no controls or debug layers. */
+.view-tabs{display:flex;gap:4px;padding:4px;border:1px solid #345063;border-radius:11px;background:#081522}
+.view-tabs button{border:0;background:transparent;padding:7px 14px;color:#b6c8d4}
+.view-tabs button.active{background:#1c769f;color:#fff}
+.user-view header .health,.user-view aside,.user-view .map-panel .panel-title,
+.user-view .legend,.user-view .map-hint,.user-view .toast{display:none}
+.user-view .brand small{display:none}
+.user-view{display:flex;flex-direction:column;height:100dvh;overflow:hidden}
+.user-view header{flex:none}
+.user-view main{display:block;flex:1;min-height:0;height:auto;padding:10px}
+.user-view .map-panel{height:100%;min-height:0;border-color:#c8d6da;background:#eaf0f0}
+.user-view .map-wrap{min-height:0;background:#edf3f3}
+.user-view canvas{cursor:grab}
+.user-view canvas:active{cursor:grabbing}
+@media(max-width:680px){.view-tabs{margin-left:auto}.view-tabs button{padding:6px 9px;font-size:11px}.user-view main{padding:6px}}

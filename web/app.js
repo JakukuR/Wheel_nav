@@ -1,8 +1,11 @@
 'use strict';
 const canvas=document.getElementById('mapCanvas'),ctx=canvas.getContext('2d');
-const wrap=document.getElementById('mapWrap'),mapImage=new Image();
+const wrap=document.getElementById('mapWrap'),mapImage=new Image(),userMapImage=new Image(),robotSticker=new Image();
 let state=null,mapVersion=-1,scale=1,panX=0,panY=0,fitted=false,mode='goal';
-let drag=null,panning=null,dpr=window.devicePixelRatio||1;
+let view='nav';
+robotSticker.src='/robot-sticker.png';
+robotSticker.onload=()=>draw();
+let drag=null,panning=null,dpr=window.devicePixelRatio||1,drawQueued=false;
 const enabled={global_path:true,local_path:true,near_obstacles:true,confirmed_obstacles:true,home:true,semantic_furniture:true};
 const $=id=>document.getElementById(id);
 const velocityCanvas=$('velocityCanvas'),velocityCtx=velocityCanvas.getContext('2d');
@@ -101,23 +104,41 @@ function drawSemantic(){
     ctx.fillText('出生点',x+13,y-9);ctx.restore();}
 }
 function robot(){if(!state?.robot||!state?.map)return;const r=state.robot,p=worldToScreen(r.x,r.y),metersToPx=scale/state.map.resolution;ctx.save();ctx.translate(...p);ctx.rotate(-r.yaw);ctx.fillStyle='#16d5b244';ctx.strokeStyle='#28f3cd';ctx.lineWidth=2;ctx.fillRect(-.2*metersToPx,-.2*metersToPx,.4*metersToPx,.4*metersToPx);ctx.strokeRect(-.2*metersToPx,-.2*metersToPx,.4*metersToPx,.4*metersToPx);ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(.32*metersToPx,0);ctx.stroke();ctx.restore()}
-function draw(){const rect=wrap.getBoundingClientRect();ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,rect.width,rect.height);ctx.fillStyle='#080b0f';ctx.fillRect(0,0,rect.width,rect.height);if(!state?.map||!mapImage.complete)return;ctx.imageSmoothingEnabled=false;ctx.drawImage(mapImage,panX,panY,state.map.width*scale,state.map.height*scale);if(enabled.confirmed_obstacles)points(state.confirmed_obstacles,'#d75cffcc',3);if(enabled.near_obstacles)points(state.near_obstacles,'#ffad32cc',3);drawSemantic();if(enabled.global_path)path(state.global_path,'#279fff',3);if(enabled.local_path)path(state.local_path,'#ff4057',4);if(state.goal)arrow(state.goal.x,state.goal.y,state.goal.yaw,'#69d0ff','目标');robot();if(drag&&drag.end){const yaw=Math.atan2(drag.end[1]-drag.start[1],drag.end[0]-drag.start[0]);arrow(drag.start[0],drag.start[1],yaw,mode==='goal'?'#69d0ff':'#ffcd5d',mode==='goal'?'新目标':'初始位姿')}}
+function userRobot(){
+  if(!state?.connected?.robot||!state.robot||!robotSticker.naturalWidth)return;
+  const r=state.robot,p=worldToScreen(r.x,r.y),size=Math.max(58,Math.min(92,scale/state.map.resolution*.60));
+  ctx.save();ctx.translate(...p);ctx.rotate(Math.PI/2-r.yaw);
+  ctx.drawImage(robotSticker,-size/2,-size/2,size,size);ctx.restore();
+}
+function draw(){if(drawQueued)return;drawQueued=true;requestAnimationFrame(paintMap)}
+function paintMap(){drawQueued=false;const rect=wrap.getBoundingClientRect();ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,rect.width,rect.height);ctx.fillStyle=view==='user'?'#eef3f3':'#080b0f';ctx.fillRect(0,0,rect.width,rect.height);if(!state?.map||!mapImage.naturalWidth)return;
+  if(view==='user'){
+    const image=state.map.user_map&&userMapImage.naturalWidth?userMapImage:mapImage;
+    ctx.imageSmoothingEnabled=image===userMapImage;
+    ctx.drawImage(image,panX,panY,state.map.width*scale,state.map.height*scale);
+    userRobot();return;
+  }
+  ctx.imageSmoothingEnabled=false;ctx.drawImage(mapImage,panX,panY,state.map.width*scale,state.map.height*scale);if(enabled.confirmed_obstacles)points(state.confirmed_obstacles,'#d75cffcc',3);if(enabled.near_obstacles)points(state.near_obstacles,'#ffad32cc',3);drawSemantic();if(enabled.global_path)path(state.global_path,'#279fff',3);if(enabled.local_path)path(state.local_path,'#ff4057',4);if(state.goal)arrow(state.goal.x,state.goal.y,state.goal.yaw,'#69d0ff','目标');robot();if(drag&&drag.end){const yaw=Math.atan2(drag.end[1]-drag.start[1],drag.end[0]-drag.start[0]);arrow(drag.start[0],drag.start[1],yaw,mode==='goal'?'#69d0ff':'#ffcd5d',mode==='goal'?'新目标':'初始位姿')}}
 function chip(id,ok){const e=$(id);e.classList.toggle('ok',ok);e.classList.toggle('bad',!ok)}
 function updateUi(){if(!state)return;const semantic=state.semantic||{};const furniture=semantic.furniture||[];const confirmed=furniture.filter(item=>item.status==='confirmed').length;$('semanticInfo').textContent=`语义地图：${semantic.home?'出生点已标记':'无出生点'} · 已确认家具 ${confirmed}`;$('returnHome').disabled=!(semantic.home&&state.connected.map&&state.connected.robot);chip('mapChip',state.connected.map);chip('tfChip',state.connected.robot);chip('odomChip',state.connected.odom);$('goalChip').textContent=state.goal_status;$('goalStatus').textContent=state.goal_status;$('vx').textContent=(state.odom?.vx??0).toFixed(2);$('wz').textContent=(state.odom?.wz??0).toFixed(2);$('pose').textContent=state.robot?`${state.robot.x.toFixed(2)}, ${state.robot.y.toFixed(2)}`:'—';$('clock').textContent=`网关在线 · ${new Date(state.server_time*1000).toLocaleTimeString()}`;if(state.map){const id=state.map.map_id?`${state.map.map_id} · `:'';$('mapInfo').textContent=`${id}${(state.map.width*state.map.resolution).toFixed(1)} × ${(state.map.height*state.map.resolution).toFixed(1)} m · ${state.map.resolution.toFixed(3)} m/格`;}}
-async function poll(){try{const response=await fetch('/api/state',{cache:'no-store'});if(!response.ok)throw Error(response.status);state=await response.json();if(state.map&&state.map.version!==mapVersion){mapVersion=state.map.version;mapImage.src=`/api/map.png?v=${mapVersion}`;mapImage.onload=()=>{if(!fitted)fit();draw()}}updateUi();velocitySample();draw()}catch(e){$('clock').textContent='网关连接中断'}setTimeout(poll,200)}
+async function poll(){try{const response=await fetch('/api/state',{cache:'no-store'});if(!response.ok)throw Error(response.status);state=await response.json();if(state.map&&state.map.version!==mapVersion){mapVersion=state.map.version;mapImage.src=`/api/map.png?v=${mapVersion}`;if(state.map.user_map)userMapImage.src=`/api/user_map.png?v=${mapVersion}`;else userMapImage.removeAttribute('src')}updateUi();velocitySample();draw()}catch(e){$('clock').textContent='网关连接中断'}setTimeout(poll,200)}
 function position(event){const r=canvas.getBoundingClientRect();return[event.clientX-r.left,event.clientY-r.top]}
 canvas.addEventListener('wheel',e=>{if(!state?.map)return;e.preventDefault();const p=position(e),before=screenToWorld(...p),factor=e.deltaY<0?1.15:1/1.15;scale=Math.max(.05,Math.min(20,scale*factor));const after=worldToScreen(...before);panX+=p[0]-after[0];panY+=p[1]-after[1];draw()},{passive:false});
 canvas.addEventListener('contextmenu',e=>e.preventDefault());
-canvas.addEventListener('pointerdown',e=>{if(!state?.map)return;canvas.setPointerCapture(e.pointerId);const p=position(e);if(e.button===2||e.button===1){panning={p,x:panX,y:panY}}else if(e.button===0){drag={start:screenToWorld(...p),end:null}}});
+canvas.addEventListener('pointerdown',e=>{if(!state?.map)return;canvas.setPointerCapture(e.pointerId);const p=position(e);if(e.button===2||e.button===1||view==='user'){panning={p,x:panX,y:panY}}else if(e.button===0){drag={start:screenToWorld(...p),end:null}}});
 canvas.addEventListener('pointermove',e=>{if(!state?.map)return;const p=position(e),w=screenToWorld(...p);$('cursorPos').textContent=`x ${w[0].toFixed(2)}　y ${w[1].toFixed(2)}`;if(panning){panX=panning.x+p[0]-panning.p[0];panY=panning.y+p[1]-panning.p[1];draw()}else if(drag){drag.end=w;draw()}});
 canvas.addEventListener('pointerup',async e=>{if(panning){panning=null;return}if(!drag)return;const end=drag.end||drag.start,yaw=Math.atan2(end[1]-drag.start[1],end[0]-drag.start[0]),payload={x:drag.start[0],y:drag.start[1],yaw};drag=null;draw();await post(mode==='goal'?'/api/goal':'/api/initial_pose',payload);toast(mode==='goal'?'导航目标已发送':'初始位姿已发送')});
 async function post(url,body={}){const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!response.ok)throw Error(await response.text())}
 function toast(message){const e=$('toast');e.textContent=message;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),1800)}
 function setMode(value){mode=value;$('goalMode').classList.toggle('active',value==='goal');$('poseMode').classList.toggle('active',value==='initial_pose')}
+function setView(value){view=value;drag=null;panning=null;document.body.classList.toggle('user-view',value==='user');document.body.classList.toggle('nav-view',value==='nav');$('navView').classList.toggle('active',value==='nav');$('userView').classList.toggle('active',value==='user');document.querySelector('.brand b').textContent=value==='user'?'我的地图':'R680 导航网关';$('mapTitle').textContent=value==='user'?'我的地图':'二维导航视图';requestAnimationFrame(()=>{resize();fit()})}
+$('navView').onclick=()=>setView('nav');$('userView').onclick=()=>setView('user');
 $('goalMode').onclick=()=>setMode('goal');$('poseMode').onclick=()=>setMode('initial_pose');$('fitMap').onclick=fit;
 $('cancelGoal').onclick=async()=>{await post('/api/cancel');toast('已请求取消导航')};
 $('returnHome').onclick=async()=>{try{await post('/api/return_home');toast('已发送返回出生点目标')}catch(error){toast('出生点或定位不可用')}};
 $('clearMaps').onclick=async()=>{await post('/api/clear_costmaps');toast('已请求清理代价地图')};
 document.querySelectorAll('[data-layer]').forEach(e=>e.onchange=()=>{enabled[e.dataset.layer]=e.checked;draw()});
 mapImage.onload=()=>{if(!fitted)fit();draw()};
+userMapImage.onload=()=>draw();
+userMapImage.onerror=()=>draw();
 resize();poll();

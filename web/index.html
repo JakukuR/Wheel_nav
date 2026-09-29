@@ -6,9 +6,10 @@
   <title>R680 导航网关</title>
   <link rel="stylesheet" href="/style.css">
 </head>
-<body>
+<body class="nav-view">
   <header>
     <div class="brand"><span class="logo">WLA</span><div><b>R680 导航网关</b><small id="clock">等待 ROS 数据</small></div></div>
+    <nav class="view-tabs" aria-label="地图视图"><button id="navView" class="active" type="button">导航调试</button><button id="userView" type="button">用户地图</button></nav>
     <div class="health">
       <span id="mapChip" class="chip">地图</span>
       <span id="tfChip" class="chip">定位</span>
@@ -18,7 +19,7 @@
   </header>
   <main>
     <section class="map-panel panel">
-      <div class="panel-title"><div><b>二维导航视图</b><small id="mapInfo">等待 OccupancyGrid</small><small id="semanticInfo">语义地图：等待数据</small></div><div class="coordinates" id="cursorPos">x —　y —</div></div>
+      <div class="panel-title"><div><b id="mapTitle">二维导航视图</b><small id="mapInfo">等待 OccupancyGrid</small><small id="semanticInfo">语义地图：等待数据</small></div><div class="coordinates" id="cursorPos">x —　y —</div></div>
       <div id="mapWrap" class="map-wrap">
         <canvas id="mapCanvas"></canvas>
         <div class="map-hint">滚轮缩放 · 右键拖动画布 · 左键拖拽设置位置与方向</div>
