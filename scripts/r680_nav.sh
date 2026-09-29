@@ -207,7 +207,7 @@ LAUNCH_ARGS=(
   start_d455:=false start_chassis:=true start_nav2:=true start_navigation_servers:=true
   start_state_estimation:=true use_d455_imu:=false use_chassis_imu:=true
   publish_mount_tf:=true enable_hardware_output:="$ENABLE_MOTION"
-  start_semantics:=true semantic_output:="$MAP_DIR/semantic.geojson"
+  start_semantics:=false semantic_output:="$MAP_DIR/semantic.geojson"
   semantic_map_id:="$(basename "$MAP_DIR")" semantic_mark_home:=false
 )
 if [[ -n "$INITIAL_POSE" ]]; then
