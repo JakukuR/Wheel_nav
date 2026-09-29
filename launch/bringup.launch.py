@@ -86,6 +86,7 @@ def generate_launch_description():
     vo = Node(
         package='rtabmap_odom', executable='rgbd_odometry',
         namespace='d455_vo', name='rgbd_odometry', output='screen',
+        respawn=True, respawn_delay=2.0,
         condition=IfCondition(start_state_estimation),
         parameters=[str(config / 'rtabmap.yaml')],
         remappings=[
@@ -94,6 +95,11 @@ def generate_launch_description():
             ('rgb/camera_info', '/r680/d455/color/camera_info'),
             ('odom', '/r680_nav/vo_odom'),
             ('odom_info', '/d455_slam/odom_info')])
+
+    vo_watchdog = Node(
+        package='wla_r680_navigation', executable='vo_watchdog',
+        name='r680_vo_watchdog', output='screen', condition=IfCondition(localization),
+        parameters=[str(config / 'vo_watchdog.yaml')])
 
     imu_filter = Node(
         package='imu_filter_madgwick', executable='imu_filter_madgwick_node',
@@ -252,6 +258,7 @@ def generate_launch_description():
         parameters=[{
             'require_obstacle_points': True,
             'require_chassis_odom': ParameterValue(enable_motion, value_type=bool),
+            'require_vo_watchdog': ParameterValue(localization, value_type=bool),
         }])
     guard = Node(
         package='wla_r680_navigation', executable='command_guard', output='screen',
@@ -294,6 +301,6 @@ def generate_launch_description():
             'initial_pose', default_value='',
             description='Optional RTAB-Map initial pose: x y z roll pitch yaw.'),
         realsense, mount_tf, chassis_imu_tf, imu_filter, chassis_imu_conditioner,
-        chassis_imu_filter, vo, ekf, rtabmap,
+        chassis_imu_filter, vo, vo_watchdog, ekf, rtabmap,
         chassis, depth_points, dynamic_obstacles, *nav2_nodes, monitor, guard, web_gateway,
     ])

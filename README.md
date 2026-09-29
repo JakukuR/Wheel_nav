@@ -301,3 +301,16 @@ ssh -L 8080:127.0.0.1:8080 orin@172.31.18.156
 
 可用 `start_web:=false` 关闭，或用 `web_port:=18080` 修改端口。该页面覆盖日常二维导航、
 建图和调试视图；完整三维点云、TF 树和插件面板仍使用 RViz/Foxglove。
+
+## 导航 VO 看门狗
+
+定位模式启动 `vo_watchdog`（C++）。它观察 `/r680_nav/vo_odom`、
+`/d455_slam/odom_info` 和 `/wheel/odom`；连续跟踪丢失、输入超时、明显位姿突跳，
+或连续多个窗口与轮式里程计明显不符时，将
+`/r680_nav/vo_watchdog_healthy` 置为 false。`interface_monitor` 把这个状态纳入
+`/r680_nav/localization_ready`，`command_guard` 随即输出零速。看门狗只查找
+`/d455_vo/rgbd_odometry` 对应的唯一进程，向它发送一次 SIGTERM，launch 延时 2 秒重启。
+本次导航的故障状态保持锁定，不会因为 VO 重新发布消息就继续执行旧目标；检查
+`/r680_nav/vo_watchdog_status` 和运行日志，重新确认地图位姿后重启整次导航。
+阈值位于 `config/vo_watchdog.yaml`。这种检测可识别明显异常，不能保证发现缓慢、
+与轮速里程计共同漂移的误差；重启 VO 也不等于完成地图重定位。

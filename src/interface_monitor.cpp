@@ -20,6 +20,7 @@ public:
     freshness_s_ = declare_parameter<double>("freshness_s", 0.50);
     require_points_ = declare_parameter<bool>("require_obstacle_points", true);
     require_chassis_odom_ = declare_parameter<bool>("require_chassis_odom", false);
+    require_vo_watchdog_ = declare_parameter<bool>("require_vo_watchdog", false);
     const auto rgb = declare_parameter<std::string>("rgb_topic", "/r680/d455/color/image_raw");
     const auto depth = declare_parameter<std::string>(
       "depth_topic", "/r680/d455/aligned_depth_to_color/image_raw");
@@ -55,6 +56,11 @@ public:
           chassis_odom_seen_ = now_steady();
         }
       });
+    vo_watchdog_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/r680_nav/vo_watchdog_healthy", 10, [this](std_msgs::msg::Bool::ConstSharedPtr msg) {
+        vo_watchdog_healthy_ = msg->data;
+        vo_watchdog_seen_ = now_steady();
+      });
     ready_pub_ = create_publisher<std_msgs::msg::Bool>("/r680_nav/localization_ready", 1);
     timer_ = create_wall_timer(100ms, std::bind(&InterfaceMonitor::tick, this));
   }
@@ -74,17 +80,21 @@ private:
     ready.data = fresh(rgb_seen_, stamp) && fresh(depth_seen_, stamp) &&
       fresh(info_seen_, stamp) && fresh(odom_seen_, stamp) &&
       (!require_points_ || fresh(points_seen_, stamp)) &&
-      (!require_chassis_odom_ || fresh(chassis_odom_seen_, stamp));
+      (!require_chassis_odom_ || fresh(chassis_odom_seen_, stamp)) &&
+      (!require_vo_watchdog_ || (vo_watchdog_healthy_ && fresh(vo_watchdog_seen_, stamp)));
     ready_pub_->publish(ready);
   }
 
   double freshness_s_{0.5};
   bool require_points_{true};
   bool require_chassis_odom_{false};
+  bool require_vo_watchdog_{false};
+  bool vo_watchdog_healthy_{false};
   Clock::time_point rgb_seen_{}, depth_seen_{}, info_seen_{}, odom_seen_{}, points_seen_{};
-  Clock::time_point chassis_odom_seen_{};
+  Clock::time_point chassis_odom_seen_{}, vo_watchdog_seen_{};
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr rgb_sub_, depth_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr chassis_odom_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr vo_watchdog_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr points_sub_;

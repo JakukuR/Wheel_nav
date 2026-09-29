@@ -1,0 +1,21 @@
+r680_vo_watchdog:
+  ros__parameters:
+    vo_topic: /r680_nav/vo_odom
+    info_topic: /d455_slam/odom_info
+    wheel_topic: /wheel/odom
+    # 启动图像/深度同步的宽限；之后 VO 或 OdomInfo 超时即锁定本次任务。
+    startup_grace_s: 12.0
+    stale_s: 1.5
+    lost_limit: 3
+    # 诊断阈值高于当前 1.2 m/s 命令上限，避免将正常加速误判为跳变。
+    jump_linear_mps: 2.5
+    jump_angular_rps: 3.0
+    wheel_window_s: 0.5
+    # 轮式里程计尚未作为定位真值，只检测持续且显著的运动量分歧。
+    wheel_translation_error_m: 0.45
+    wheel_yaw_error_rad: 0.65
+    wheel_mismatch_limit: 3
+    # 角度正负号与时延需实测确认后再开放轮/VO 航向比较。
+    compare_wheel_yaw: false
+    # 故障时只发送一次 SIGTERM；本次任务保持锁定，须人工核对地图定位。
+    restart_enabled: true
