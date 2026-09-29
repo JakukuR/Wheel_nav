@@ -194,7 +194,10 @@ class GatewayNode(Node):
                             'label': str(props.get('label', ''))[:48],
                             'id': str(feature.get('id', ''))[:64]}
                     if props.get('role') == 'home':
-                        semantic['home'] = item
+                        yaw = float(props.get('yaw_rad', 0.0))
+                        if math.isfinite(yaw):
+                            item['yaw'] = yaw
+                            semantic['home'] = item
                     elif (props.get('role') == 'furniture' and
                           props.get('status') == 'confirmed'):
                         item['status'] = 'confirmed'
@@ -203,6 +206,21 @@ class GatewayNode(Node):
                 pass
         with self._lock:
             self._state['semantic'] = semantic
+
+    def home_goal(self):
+        # Re-read the file on click, so a stale browser state cannot select
+        # a home marker from a different or no-longer-selected map.
+        self._load_semantic_layer()
+        with self._lock:
+            map_meta = self._state['map']
+            semantic = self._state['semantic']
+            home = semantic['home']
+            robot_stamp = self._received.get('robot', 0.0)
+            if (map_meta is None or home is None or
+                    (map_meta.get('map_id') and semantic['map_id'] != map_meta['map_id']) or
+                    time.monotonic() - robot_stamp >= 1.0):
+                return None
+            return {'x': home['x'], 'y': home['y'], 'yaw': home['yaw']}
 
     def _mark(self, name):
         with self._lock:
@@ -495,6 +513,12 @@ class GatewayHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
+        if path == '/api/return_home':
+            home = self.gateway.home_goal()
+            if home is None:
+                return self._send(409, b'home or localization unavailable', 'text/plain')
+            self.gateway.enqueue('goal', home)
+            return self._send(202, b'{"accepted":true}', 'application/json')
         actions = {
             '/api/goal': 'goal',
             '/api/initial_pose': 'initial_pose',

@@ -16,3 +16,7 @@
 .legend .home{background:#30dc9b}.legend .furniture-confirmed{background:#287dff}
 #semanticInfo{color:#71c8bd}
 .map-panel .panel-title{height:auto;min-height:68px}
+
+.home-action{background:#123d36;border-color:#2c8b72;color:#9df4d5}
+.home-action:hover:not(:disabled){background:#185449}
+.home-action:disabled{opacity:.45;cursor:not-allowed}
