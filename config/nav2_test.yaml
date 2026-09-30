@@ -243,7 +243,7 @@ velocity_smoother:
     max_decel: [-1.20, 0.0, -2.50]
     odom_topic: /wheel/odom
     odom_duration: 0.1
-    deadband_velocity: [0.05, 0.05, 0.05]
+    deadband_velocity: [0.0, 0.0, 0.02]  # Preserve small MPC linear corrections near the goal.
     velocity_timeout: 0.30
 
 collision_monitor:
