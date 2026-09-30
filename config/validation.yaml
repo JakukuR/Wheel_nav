@@ -29,6 +29,9 @@ cuvslam_validation:
     max_input_age_s: 0.5
     max_imu_gap_s: 0.15
     queue_depth: 8
+    # 30 Hz images / 2 = 15 Hz SDK input, while preserving every real 20 Hz IMU sample.
+    # Decimation 1 produced SDK FrameDropped/IMU-coverage warnings on this chassis.
+    image_decimation: 2
     # Include SDK inertia initialization state in the validation log.
     verbosity: 3
     statistics_path: /tmp/cuvslam_validation_statistics.json

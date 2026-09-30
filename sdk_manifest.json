@@ -1,0 +1,13 @@
+{
+  "sdk": "nvidia-isaac/cuVSLAM",
+  "version": "17.0.0",
+  "commit": "57f42cc92d93eef47577d726789852a350b2a369",
+  "cuda": "13.2.86",
+  "gpu_architecture": 87,
+  "source_modified": false,
+  "sdk_mode": "Inertial stereo+IMU",
+  "cUNLS": false,
+  "lmdb_version": "0.9.31",
+  "lmdb_sha256": "dd70a8c67807b3b8532b3e987b0a4e998962ecc28643e1af5ec77696b081c9b0",
+  "note": "GitHub source archive; embedded SDK git version metadata unavailable. Revision recorded out-of-band."
+}

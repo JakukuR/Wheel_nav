@@ -12,10 +12,12 @@ SDK 源码、依赖、编译产物位于 `~/ros2_ws/.runtime/cuvslam_validation/
 cd ~/ros2_ws
 ./r680_vio_test.sh --seconds 60
 # 纯双目基线
-./r680_vio_test.sh --stereo-only --seconds 30
+./r680_vio_test.sh --stereo-only --image-decimation 1 --seconds 30
 ```
 
 脚本临时启用 D455 两个 640×480@30 Hz 红外流、关闭红外投射器，退出时恢复。
+相机参数通过一个原子事务批量更新两侧红外流，避免驱动同步器在单侧停流时卡住。
+本测试目录使用文件锁，上一轮完成恢复前不能开始下一轮。
 临时底盘驱动的速度和充电命令输入映射到测试专用空闲话题。
 不要与导航、手柄底盘驱动并行打开串口；测试时保持车辆静止。
 Ctrl+C 或达到时限后关闭本脚本创建的节点。
@@ -39,6 +41,10 @@ Ctrl+C 或达到时限后关闭本脚本创建的节点。
 `config/validation.yaml`：相机安装矩阵、IMU 外参、噪声、时间偏移和输入话题。
 车身 IMU 暂按车体中心且轴向一致假设；没有把原始加速度先经过 Madgwick/EKF。
 SDK 使用 `Inertial` 模式联合估计；`--stereo-only` 使用 `Multicamera` 模式。
+默认 `image_decimation: 2`，将图像选帧到 15 Hz，IMU 保留真实约 20 Hz 的全部样本。
+`--image-decimation 1` 可复现 30 Hz 图像相对于 20 Hz IMU 的覆盖不足问题。
+`imu_state_frames > 0` 不是惯性初始化成功的证据；需要 `inertial_initialized: true`、
+重力可用及 SDK `IMU INIT DONE` 日志，并继续验证运动与遮挡恢复。
 
 ```text
 ~/nav_run/cuvslam_validation/run-YYYYMMDD-HHMMSS-PID/

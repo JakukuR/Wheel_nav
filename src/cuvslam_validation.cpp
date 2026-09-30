@@ -85,10 +85,11 @@ public:
     max_age_ns_ = static_cast<int64_t>(declare_parameter<double>("max_input_age_s", 0.5) * 1e9);
     max_imu_gap_ns_ = static_cast<int64_t>(declare_parameter<double>("max_imu_gap_s", 0.15) * 1e9);
     depth_ = declare_parameter<int>("queue_depth", 8);
+    image_decimation_ = declare_parameter<int>("image_decimation", 2);
     imu_pose_ = from_array(declare_parameter<std::vector<double>>("base_from_imu", {0, 0, 0, 0, 0, 0, 1}));
     cuvslam::SetVerbosity(declare_parameter<int>("verbosity", 0));
     if (frequency_ <= 0 || depth_ < 2 || depth_ > 100 || tolerance_ns_ < 0 ||
-      max_age_ns_ <= 0 || max_imu_gap_ns_ <= 0) {
+      max_age_ns_ <= 0 || max_imu_gap_ns_ <= 0 || image_decimation_ < 1 || image_decimation_ > 6) {
       throw std::invalid_argument("invalid timing or queue parameters");
     }
     pub_ = create_publisher<nav_msgs::msg::Odometry>(
@@ -270,6 +271,10 @@ private:
           if (use_imu_ && last_received_imu_ - lt > max_age_ns_) {
             images_[0].pop_front(); images_[1].pop_front(); ++stale_frames_; continue;
           }
+          if (++paired_frames_ % static_cast<size_t>(image_decimation_) != 0) {
+            // Do not drain/register IMUs here: retain them for the next selected image frame.
+            images_[0].pop_front(); images_[1].pop_front(); ++decimated_frames_; continue;
+          }
           infos = infos_;
           for (size_t i = 0; i < 2; ++i) { pair[i] = images_[i].front(); images_[i].pop_front(); }
           while (!imus_.empty() && stamp_ns(imus_.front()->header.stamp) + imu_offset_ns_ <= lt) {
@@ -360,7 +365,8 @@ private:
         max_displacement_ = std::max(max_displacement_, (position - first_position_).norm());
         final_position_ = position;
         if (published_frames_ % 30 == 0) {
-          status(use_imu_ ? "tracking_inertial_validation_only" : "tracking_stereo_validation_only");
+          status(use_imu_ ? (gravity_frames_ > 0 ? "tracking_inertial_validation_only" :
+            "tracking_visual_waiting_inertial_initialization") : "tracking_stereo_validation_only");
           RCLCPP_INFO(get_logger(), "frames=%zu lost=%zu track=%.2fms age=%.2fms IMU=%zu gravity=%zu imu_state=%zu displacement=%.4fm",
             published_frames_, lost_frames_, elapsed, latency_ms_.back(), registered_imu_, gravity_frames_, imu_state_frames_, max_displacement_);
         }
@@ -387,6 +393,9 @@ private:
     out << std::setprecision(9) << "{\n"
       << "  \"validation_only\": true,\n  \"calibration_provisional\": true,\n"
       << "  \"mode\": \"" << (use_imu_ ? "Inertial" : "Multicamera") << "\",\n"
+      << "  \"inertial_initialized\": " << (gravity_frames_ > 0 ? "true" : "false") << ",\n"
+      << "  \"image_decimation\": " << image_decimation_ << ",\n"
+      << "  \"decimated_frames\": " << decimated_frames_ << ",\n"
       << "  \"faulted\": " << (fault_.empty() ? "false" : "true") << ",\n"
       << "  \"tracked_frames\": " << tracked_frames_ << ",\n  \"published_frames\": " << published_frames_ << ",\n"
       << "  \"lost_frames\": " << lost_frames_ << ",\n  \"invalid_poses\": " << invalid_poses_ << ",\n"
@@ -414,7 +423,8 @@ private:
   std::atomic<bool> stopped_{false};
   std::string base_, camera_link_, odom_, expected_imu_frame_, statistics_path_, fault_;
   double frequency_{}, gyro_noise_{}, gyro_walk_{}, accel_noise_{}, accel_walk_{}, max_displacement_{};
-  int depth_{};
+  int depth_{}, image_decimation_{};
+  size_t paired_frames_{}, decimated_frames_{};
   int64_t imu_offset_ns_{}, tolerance_ns_{}, max_age_ns_{}, max_imu_gap_ns_{};
   int64_t last_received_imu_{}, last_registered_imu_{}, last_call_stamp_{};
   size_t received_imu_{}, registered_imu_{}, tracked_frames_{}, published_frames_{}, lost_frames_{}, invalid_poses_{};
