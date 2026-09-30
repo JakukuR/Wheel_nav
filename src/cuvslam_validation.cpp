@@ -297,7 +297,7 @@ private:
           if (last_registered_imu_ == 0 || frame_stamp - last_registered_imu_ > max_imu_gap_ns_) { imu_gap = true; }
         }
         if (imu_gap) { ++imu_gap_frames_; status("imu_gap_no_output"); continue; }
-        cuvslam::ImageSet images;
+        cuvslam::Odometry::ImageSet images;
         for (size_t i = 0; i < 2; ++i) {
           if (pair[i]->width != infos[i]->width || pair[i]->height != infos[i]->height) {
             throw std::runtime_error("image dimensions changed; restart validation explicitly");
@@ -339,7 +339,7 @@ private:
           }
         }
         nav_msgs::msg::Odometry message;
-        message.header.stamp = rclcpp::Time(estimate.timestamp_ns).to_msg();
+        message.header.stamp = rclcpp::Time(estimate.timestamp_ns);
         message.header.frame_id = odom_;
         message.child_frame_id = base_;
         message.pose.pose.position.x = result.pose.translation[0];
