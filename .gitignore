@@ -1,0 +1,9 @@
+build/
+install/
+log/
+.runtime/
+__pycache__/
+*.pyc
+*.db
+*.mcap
+*.db3
