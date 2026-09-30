@@ -68,6 +68,9 @@ public:
   Validation() : Node("cuvslam_validation"), buffer_(get_clock()), listener_(buffer_)
   {
     use_imu_ = declare_parameter<bool>("use_imu", true);
+    async_sba_ = declare_parameter<bool>("async_sba", false);
+    max_pose_speed_ = declare_parameter<double>("max_pose_speed_mps", 2.0);
+    max_pose_angular_speed_ = declare_parameter<double>("max_pose_angular_speed_radps", 4.0);
     base_ = declare_parameter<std::string>("base_frame", "r680_mapping_floor");
     camera_link_ = declare_parameter<std::string>("camera_link_frame", "d455_link");
     camera_mount_ = from_array(declare_parameter<std::vector<double>>("base_from_camera_link",
@@ -75,7 +78,7 @@ public:
     odom_ = declare_parameter<std::string>("odom_frame", "cuvslam_validation_odom");
     expected_imu_frame_ = declare_parameter<std::string>("expected_imu_frame", "gyro_link");
     statistics_path_ = declare_parameter<std::string>("statistics_path", "/tmp/cuvslam_validation_statistics.json");
-    frequency_ = declare_parameter<double>("imu_frequency", 20.0);
+    frequency_ = declare_parameter<double>("imu_frequency", 200.0);
     gyro_noise_ = declare_parameter<double>("gyro_noise_density", 0.000079);
     gyro_walk_ = declare_parameter<double>("gyro_random_walk", 0.00002);
     accel_noise_ = declare_parameter<double>("accel_noise_density", 0.0012);
@@ -85,11 +88,13 @@ public:
     max_age_ns_ = static_cast<int64_t>(declare_parameter<double>("max_input_age_s", 0.5) * 1e9);
     max_imu_gap_ns_ = static_cast<int64_t>(declare_parameter<double>("max_imu_gap_s", 0.15) * 1e9);
     depth_ = declare_parameter<int>("queue_depth", 8);
-    image_decimation_ = declare_parameter<int>("image_decimation", 2);
+    image_decimation_ = declare_parameter<int>("image_decimation", 1);
     imu_pose_ = from_array(declare_parameter<std::vector<double>>("base_from_imu", {0, 0, 0, 0, 0, 0, 1}));
     cuvslam::SetVerbosity(declare_parameter<int>("verbosity", 0));
     if (frequency_ <= 0 || depth_ < 2 || depth_ > 100 || tolerance_ns_ < 0 ||
-      max_age_ns_ <= 0 || max_imu_gap_ns_ <= 0 || image_decimation_ < 1 || image_decimation_ > 6) {
+      max_age_ns_ <= 0 || max_imu_gap_ns_ <= 0 || image_decimation_ < 1 || image_decimation_ > 6 ||
+      !std::isfinite(max_pose_speed_) || max_pose_speed_ <= 0 ||
+      !std::isfinite(max_pose_angular_speed_) || max_pose_angular_speed_ <= 0) {
       throw std::invalid_argument("invalid timing or queue parameters");
     }
     pub_ = create_publisher<nav_msgs::msg::Odometry>(
@@ -102,6 +107,7 @@ public:
         declare_parameter<std::string>(side + "_topic", "/r680/d455/infra" + std::to_string(i + 1) + "/image_rect_raw"),
         rclcpp::SensorDataQoS().keep_last(depth_),
         [this, i](Image::ConstSharedPtr msg) {
+          if (stopped_) return;
           std::lock_guard<std::mutex> lock(mutex_);
           if (msg->encoding != "mono8" || msg->step != msg->width ||
             msg->data.size() != static_cast<size_t>(msg->width) * msg->height) {
@@ -130,6 +136,7 @@ public:
     imu_sub_ = create_subscription<Imu>(
       declare_parameter<std::string>("imu_topic", "/r680_vio_test/chassis/imu_raw"),
       rclcpp::SensorDataQoS().keep_last(1000), [this](Imu::ConstSharedPtr msg) {
+        if (stopped_) return;
         std::lock_guard<std::mutex> lock(mutex_);
         const auto t = stamp_ns(msg->header.stamp) + imu_offset_ns_;
         const auto & a = msg->linear_acceleration;
@@ -231,7 +238,7 @@ private:
     config.odometry_mode = use_imu_ ? cuvslam::Odometry::OdometryMode::Inertial : cuvslam::Odometry::OdometryMode::Multicamera;
     config.use_gpu = true;
     config.rectified_stereo_camera = true;
-    config.async_sba = true;
+    config.async_sba = async_sba_;
     cuvslam::WarmUpGPU();
     tracker_ = std::make_unique<cuvslam::Odometry>(rig, config);
     RCLCPP_INFO(get_logger(), "cuVSLAM %s initialized: mode=%s baseline=%.6fm IMU=%.2fHz; mount=[%.5f %.5f %.5f]",
@@ -332,6 +339,22 @@ private:
         bool finite = std::all_of(result.pose.translation.begin(), result.pose.translation.end(), [](float v) {return std::isfinite(v);}) &&
           std::all_of(result.pose.rotation.begin(), result.pose.rotation.end(), [](float v) {return std::isfinite(v);});
         if (!finite) { ++invalid_poses_; status("invalid_pose_no_output"); continue; }
+        const Eigen::Vector3d position(result.pose.translation[0], result.pose.translation[1], result.pose.translation[2]);
+        const Eigen::Quaterniond rotation(result.pose.rotation[3], result.pose.rotation[0],
+          result.pose.rotation[1], result.pose.rotation[2]);
+        if (have_previous_pose_) {
+          const double dt = (estimate.timestamp_ns - previous_pose_stamp_) * 1e-9;
+          if (dt <= 0 || (position - previous_position_).norm() > max_pose_speed_ * dt ||
+              previous_rotation_.angularDistance(rotation) > max_pose_angular_speed_ * dt) {
+            ++invalid_poses_;
+            status("implausible_pose_halted_no_output");
+            throw std::runtime_error("estimated pose exceeds bounded sensor-test motion limits; capture retained, no navigation hookup");
+          }
+        }
+        previous_position_ = position;
+        previous_rotation_ = rotation;
+        previous_pose_stamp_ = estimate.timestamp_ns;
+        have_previous_pose_ = true;
         if (use_imu_) {
           if (auto gravity = tracker_->GetLastGravity()) {
             ++gravity_frames_;
@@ -360,7 +383,6 @@ private:
         pub_->publish(message);
         ++published_frames_;
         latency_ms_.push_back((get_clock()->now().nanoseconds() - frame_stamp) * 1e-6);
-        const Eigen::Vector3d position(message.pose.pose.position.x, message.pose.pose.position.y, message.pose.pose.position.z);
         if (!have_first_pose_) { first_position_ = position; have_first_pose_ = true; }
         max_displacement_ = std::max(max_displacement_, (position - first_position_).norm());
         final_position_ = position;
@@ -373,6 +395,7 @@ private:
       }
     } catch (const std::exception & ex) {
       fault_ = ex.what();
+      stopped_ = true;
       RCLCPP_ERROR(get_logger(), "validation halted: %s", ex.what());
       status("fatal_validation_fault_no_output");
     }
@@ -419,7 +442,11 @@ private:
       << "  \"final_position\": [" << final_position_.x() << ", " << final_position_.y() << ", " << final_position_.z() << "]\n}\n";
   }
 
-  bool use_imu_{}, have_first_pose_{};
+  bool use_imu_{}, async_sba_{}, have_first_pose_{}, have_previous_pose_{};
+  double max_pose_speed_{}, max_pose_angular_speed_{};
+  int64_t previous_pose_stamp_{};
+  Eigen::Vector3d previous_position_{Eigen::Vector3d::Zero()};
+  Eigen::Quaterniond previous_rotation_{Eigen::Quaterniond::Identity()};
   std::atomic<bool> stopped_{false};
   std::string base_, camera_link_, odom_, expected_imu_frame_, statistics_path_, fault_;
   double frequency_{}, gyro_noise_{}, gyro_walk_{}, accel_noise_{}, accel_walk_{}, max_displacement_{};

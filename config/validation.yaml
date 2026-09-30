@@ -14,8 +14,13 @@ cuvslam_validation:
     output_topic: /r680_vio_test/odom
     status_topic: /r680_vio_test/status
     use_imu: true
+    # Synchronous SBA during diagnostics, per the upstream troubleshooting guide.
+    async_sba: false
+    # Halt implausible SDK pose output during slow hand-push tests; never connected to navigation.
+    max_pose_speed_mps: 2.0
+    max_pose_angular_speed_radps: 4.0
     # Measured serial feedback rate, NOT the internal MPU6050 sampling rate.
-    imu_frequency: 20.0
+    imu_frequency: 200.0
     # Starting estimates for a smoke test. Full Allan/extrinsic calibration is pending.
     gyro_noise_density: 0.000079
     gyro_random_walk: 0.00002
@@ -29,9 +34,8 @@ cuvslam_validation:
     max_input_age_s: 0.5
     max_imu_gap_s: 0.15
     queue_depth: 8
-    # 30 Hz images / 2 = 15 Hz SDK input, while preserving every real 20 Hz IMU sample.
-    # Decimation 1 produced SDK FrameDropped/IMU-coverage warnings on this chassis.
-    image_decimation: 2
+    # Chassis feedback measured ~198.6 Hz: use every 30 Hz stereo image.
+    image_decimation: 1
     # Include SDK inertia initialization state in the validation log.
     verbosity: 3
     statistics_path: /tmp/cuvslam_validation_statistics.json

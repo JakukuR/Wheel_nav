@@ -64,8 +64,16 @@ class CameraParameters:
         return future.result()
 
     def get(self, names):
-        response = self.complete(self.client.get_parameters(names))
-        return dict(zip(names, (parameter_value_to_python(v) for v in response.values)))
+        # Services appear before the RealSense device finishes declaring its parameters.
+        deadline = time.monotonic() + 30
+        while True:
+            response = self.complete(self.client.get_parameters(names))
+            values = dict(zip(names, (parameter_value_to_python(v) for v in response.values)))
+            if len(values) == len(names) and all(value is not None for value in values.values()):
+                return values
+            if time.monotonic() >= deadline:
+                raise TimeoutError('D455 parameters not declared after 30 seconds')
+            rclpy.spin_once(self.node, timeout_sec=.25)
 
     def set(self, values):
         # Update both IR flags together: changing one side alone can strand the driver's syncer.
@@ -97,9 +105,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--seconds', type=float, default=60)
     parser.add_argument('--stereo-only', action='store_true')
-    parser.add_argument('--image-decimation', type=int, choices=range(1, 7), default=2)
+    parser.add_argument('--record', action='store_true', help='Record stereo, raw IMU, wheel feedback and static TF for replay')
+    parser.add_argument('--hand-push', action='store_true', help='Label operator-provided manual motion; still never sends motor commands')
+    parser.add_argument('--teleop', action='store_true', help='Label operator gamepad motion through an independently running driver')
+    parser.add_argument('--image-decimation', type=int, choices=range(1, 7), default=1)
     parser.add_argument('--prepare-camera', action='store_true', help='Temporarily enable IR stereo, disable emitter; restore on exit')
+    parser.add_argument('--start-camera', action='store_true', help='Start an owned ROS D455 driver when none is running')
     parser.add_argument('--start-chassis', action='store_true', help='Start a feedback-only driver with unused command inputs')
+    parser.add_argument('--use-running-chassis', action='store_false', dest='start_chassis', help='Reuse existing chassis feedback; never opens the serial port')
+    parser.add_argument('--imu-topic', default='/r680_vio_test/chassis/imu_raw')
+    parser.add_argument('--wheel-odom-topic', default='/r680_vio_test/wheel_odom')
     parser.add_argument('--serial-port', default='/dev/serial/by-id/usb-WCH.CN_USB_Single_Serial_0002-if00')
     parser.add_argument('--run-root', type=Path, default=Path.home() / 'nav_run' / 'cuvslam_validation')
     parser.add_argument('--config', type=Path)
@@ -122,12 +137,16 @@ def main():
     (run / 'validation.yaml').write_bytes(config.read_bytes())
     children, handles, originals, samples = [], [], {}, []
     camera = None
+    owned_camera = None
     executable = prefix / 'lib' / 'wla_cuvslam_validation' / 'cuvslam_validation'
     command = [str(executable), '--ros-args', '--params-file', str(config),
                '-p', f'use_imu:={str(not args.stereo_only).lower()}',
+               '-p', f'imu_topic:={args.imu_topic}', '-p', f'wheel_odom_topic:={args.wheel_odom_topic}',
                '-p', f'image_decimation:={args.image_decimation}',
                '-p', f'statistics_path:={run / "statistics.json"}']
-    metadata = {'command': command, 'stationary_only': True, 'motion_commanded': False,
+    metadata = {'command': command, 'stationary_only': not (args.hand_push or args.teleop), 'motion_commanded': False,
+                'operator_hand_push': args.hand_push,
+                'operator_teleop': args.teleop,
                 'ros_domain_id': os.getenv('ROS_DOMAIN_ID'), 'rmw': os.getenv('RMW_IMPLEMENTATION'),
                 'duration_seconds': args.seconds, 'run_dir': str(run)}
     def start(cmd, filename):
@@ -140,6 +159,32 @@ def main():
         raise KeyboardInterrupt(f'signal {signum}')
     previous_term_handler = signal.signal(signal.SIGTERM, on_termination)
     try:
+        if args.start_camera:
+            # Explicit opt-in. Avoid duplicate providers even if the device could be opened.
+            rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
+            check_node = Node(f'cuvslam_camera_owner_check_{os.getpid()}')
+            try:
+                deadline = time.monotonic() + 1.5
+                while time.monotonic() < deadline:
+                    rclpy.spin_once(check_node, timeout_sec=.1)
+                names = check_node.get_node_names_and_namespaces()
+                if ('d455', '/r680') in names:
+                    raise RuntimeError('/r680/d455 already exists; omit --start-camera')
+            finally:
+                check_node.destroy_node()
+                rclpy.shutdown()
+            camera_executable = Path(get_package_prefix('realsense2_camera')) / 'lib/realsense2_camera/realsense2_camera_node'
+            camera_command = [str(camera_executable), '--ros-args', '-r', '__ns:=/r680', '-r', '__node:=d455']
+            camera_params = {'camera_name': 'd455', 'serial_no': '_260922306083',
+                             'depth_module.depth_profile': '640x480x30', 'rgb_camera.color_profile': '640x480x30',
+                             'depth_module.infra_profile': '640x480x30', 'enable_depth': 'true', 'enable_color': 'true',
+                             'enable_infra1': 'true', 'enable_infra2': 'true', 'enable_gyro': 'false', 'enable_accel': 'false',
+                             'publish_tf': 'true', 'align_depth.enable': 'true', 'enable_sync': 'true'}
+            for name, value in camera_params.items():
+                camera_command += ['-p', f'{name}:={value}']
+            owned_camera = start(camera_command, 'camera.log')
+            metadata['camera_owned'] = True
+            metadata['camera_command'] = camera_command
         if args.prepare_camera:
             camera = CameraParameters()
             changes = {'depth_module.infra_profile': '640x480x30',
@@ -165,6 +210,13 @@ def main():
             start(cmd, 'chassis.log')
             time.sleep(2)
         child = start(command, 'tracker.log')
+        if args.record:
+            bag_command = ['ros2', 'bag', 'record', '--storage', 'sqlite3', '-o', str(run / 'sensors'),
+                '/r680/d455/infra1/image_rect_raw', '/r680/d455/infra2/image_rect_raw',
+                '/r680/d455/infra1/camera_info', '/r680/d455/infra2/camera_info',
+                args.imu_topic, args.wheel_odom_topic, '/tf_static', '/cmd_vel']
+            start(bag_command, 'bag.log')
+            metadata['bag_command'] = bag_command
         metadata['tracker_pid'] = child.pid
         (run / 'run.json').write_text(json.dumps(metadata, indent=2) + '\n')
         print(f'VALIDATION ONLY, no motion: {run}', flush=True)
@@ -182,9 +234,8 @@ def main():
         (run / 'run.json').write_text(json.dumps(metadata, indent=2) + '\n')
     finally:
         for child in reversed(children):
-            terminate(child)
-        for handle in handles:
-            handle.close()
+            if child is not owned_camera:
+                terminate(child)
         restore_errors = []
         if camera is not None:
             try:
@@ -194,6 +245,10 @@ def main():
                 restore_errors.append(str(exc))
             finally:
                 camera.close()
+        if owned_camera is not None:
+            terminate(owned_camera)
+        for handle in handles:
+            handle.close()
         cpu = [(b['cpu_seconds'] - a['cpu_seconds']) / (b['time_monotonic'] - a['time_monotonic']) * 100
                for a, b in zip(samples, samples[1:])]
         result = {'samples': samples, 'cpu_percent_one_core_mean': sum(cpu) / len(cpu) if cpu else None,

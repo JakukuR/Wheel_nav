@@ -11,6 +11,13 @@ SDK 源码、依赖、编译产物位于 `~/ros2_ws/.runtime/cuvslam_validation/
 ```bash
 cd ~/ros2_ws
 ./r680_vio_test.sh --seconds 60
+# 相机驱动未启动时，显式由测试脚本创建并在结束后关闭：
+./r680_vio_test.sh --start-camera --record --seconds 60
+# 人工手推采集（无电机命令）：
+./r680_vio_test.sh --start-camera --record --hand-push --seconds 60
+# 已有手柄和底盘节点时复用它，不重复打开串口：
+./r680_vio_test.sh --start-camera --use-running-chassis \
+  --imu-topic /imu/data_raw --wheel-odom-topic /odom --teleop --record --seconds 120
 # 纯双目基线
 ./r680_vio_test.sh --stereo-only --image-decimation 1 --seconds 30
 ```
@@ -41,8 +48,10 @@ Ctrl+C 或达到时限后关闭本脚本创建的节点。
 `config/validation.yaml`：相机安装矩阵、IMU 外参、噪声、时间偏移和输入话题。
 车身 IMU 暂按车体中心且轴向一致假设；没有把原始加速度先经过 Madgwick/EKF。
 SDK 使用 `Inertial` 模式联合估计；`--stereo-only` 使用 `Multicamera` 模式。
-默认 `image_decimation: 2`，将图像选帧到 15 Hz，IMU 保留真实约 20 Hz 的全部样本。
-`--image-decimation 1` 可复现 30 Hz 图像相对于 20 Hz IMU 的覆盖不足问题。
+当前默认 `image_decimation: 1`、图像 30 Hz、`imu_frequency: 200.0`。
+2026-09-30 实测车身 IMU 约 198.6 Hz；保留全部真实 IMU，不插值伪造样本。
+诊断默认同步 SBA（`async_sba: false`），并对超过 2 m/s 或 4 rad/s 的位姿增量停止测试里程计输出。
+限值用于缓慢手推测试的异常检测，不能作为正常车辆运动边界或定位正确性的证明。
 `imu_state_frames > 0` 不是惯性初始化成功的证据；需要 `inertial_initialized: true`、
 重力可用及 SDK `IMU INIT DONE` 日志，并继续验证运动与遮挡恢复。
 
@@ -57,9 +66,17 @@ SDK 使用 `Inertial` 模式联合估计；`--stereo-only` 使用 `Multicamera` 
 └── resources.json       # CPU、RSS、线程采样；100% 为一个 CPU 核
 ```
 
-车身串口反馈实际约 20 Hz，时间戳为上位机发布时间，尚无硬件采样时间戳。
+车身串口反馈现约 200 Hz，时间戳仍为上位机发布时间，尚无硬件采样时间戳。
 噪声参数仅为静止样本估值，外参、时间偏移及完整 IMU 标定待验证。
 静止通过不代表动态、遮挡或高速转弯可靠；不应直接替换生产导航里程计。
+
+`--record` 额外生成 `sensors/` ROS bag（左右目、内参、原始 IMU、轮速、TF 和 `/cmd_vel`）。
+记录数据不写入相机或 IMU 的标定；VIO 重启仍须重新初始化启动状态。
+回放比较使用独立 ROS_DOMAIN_ID=74，不启动任何硬件节点：
+
+```bash
+ros2 run wla_cuvslam_validation replay_validation.py ~/nav_run/cuvslam_validation/run-<ID>/sensors --seconds 12
+```
 
 ## 编译
 
