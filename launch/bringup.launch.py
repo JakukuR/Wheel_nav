@@ -77,9 +77,9 @@ def generate_launch_description():
                    '--qz', '-0.000560247', '--qw', '0.997021207',
                    '--frame-id', 'r680_mapping_floor', '--child-frame-id', 'd455_link'])
 
-    # First real-car fusion test: the chassis IMU is treated as co-located with
-    # the vehicle center and axis-aligned with r680_mapping_floor. Only gyro Z
-    # is consumed by the planar EKF, so translation has no effect in this mode.
+    # Provisional rigid-body extrinsic: chassis IMU at the vehicle center,
+    # axis-aligned with r680_mapping_floor. The current EKF consumes all axes;
+    # verify the physical mounting before treating this identity as calibrated.
     chassis_imu_tf = Node(
         package='tf2_ros', executable='static_transform_publisher',
         name='r680_chassis_imu_mount', condition=IfCondition(use_chassis_imu),
@@ -119,6 +119,7 @@ def generate_launch_description():
             'input_topic': '/wheel/imu/data_raw',
             'output_topic': '/r680_nav/chassis/imu_calibrated_raw',
             'calibration_samples': 100,
+            'calibration_duration_s': 5.0,
         }])
 
     chassis_imu_filter = Node(
