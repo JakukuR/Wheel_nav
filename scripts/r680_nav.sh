@@ -9,6 +9,8 @@ usage() {
   --storage-config PATH  指定存储配置文件
   --initial-pose "X Y Z R P Y"  给 RTAB-Map 提供出生点初值（米、弧度）
   --enable-motion        显式开放真实底盘导航输出（默认仅定位、规划和预览）
+  --cuvslam              使用 cuVSLAM 双目 + 车身 IMU（试验前端，初始化前禁止运动）
+  --rgbd                 使用原 RGB-D VO + EKF（默认，回退入口）
   --mpc                  显式使用 MPC（当前默认）
   --mppi                 切回 nav2.yaml/MPPI
   --scan-obstacles       局部代价地图试用 D455 点云生成的 LaserScan（默认仍用点云）
@@ -31,6 +33,7 @@ STORAGE_CONFIG=""
 INITIAL_POSE=""
 ENABLE_MOTION=false
 USE_MPC=true
+ODOM_SOURCE=rgbd
 SCAN_OBSTACLES=false
 TEST_SCAN_ONLY=false
 START_RVIZ=true
@@ -46,6 +49,8 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo '--initial-pose 缺少六维位姿' >&2; exit 2; }
       INITIAL_POSE="$2"; shift 2 ;;
     --enable-motion) ENABLE_MOTION=true; shift ;;
+    --cuvslam) ODOM_SOURCE=cuvslam; shift ;;
+    --rgbd) ODOM_SOURCE=rgbd; shift ;;
     --mpc) USE_MPC=true; shift ;;
     --mppi) USE_MPC=false; shift ;;
     --scan-obstacles) SCAN_OBSTACLES=true; shift ;;
@@ -59,7 +64,25 @@ done
 source /opt/ros/jazzy/setup.bash
 source "$HOME/r680_chassis_candidate_ws/install/setup.bash"
 source "$HOME/ros2_ws/install/setup.bash"
+if [[ "$ODOM_SOURCE" == cuvslam ]]; then
+  CUVSLAM_SETUP="$HOME/ros2_ws/.runtime/cuvslam_navigation/install/setup.bash"
+  [[ -f "$CUVSLAM_SETUP" ]] || { echo 'cuVSLAM 导航前端未构建，使用 --rgbd 回退' >&2; exit 1; }
+  source "$CUVSLAM_SETUP"
+  ros2 pkg prefix wla_cuvslam_navigation >/dev/null
+fi
 set -u
+# A second driver cannot share this serial port. Do not terminate operator sessions.
+python3 - <<'PYCHECK'
+from pathlib import Path
+import os
+for entry in Path('/proc').iterdir():
+    if not entry.name.isdigit(): continue
+    try:
+        target = os.readlink(entry / 'exe')
+    except OSError: continue
+    if target.endswith('/wheeltec_robot_node'):
+        raise SystemExit('底盘驱动已在运行；请先停止独立底盘/手柄启动会话，再运行导航，避免串口冲突。')
+PYCHECK
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-73}"
 export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
 export CYCLONEDDS_URI="${CYCLONEDDS_URI:-file://$HOME/Wheel_Legged_Agent/deploy/r680/cyclonedds-local.xml}"
@@ -143,6 +166,7 @@ cat > "$NAV_RUN_DIR/navigation.json" <<EOF
   "source_database": "$SOURCE_DB_PATH",
   "working_database": "$DB_PATH",
   "initial_pose": "$INITIAL_POSE",
+  "odom_source": "$ODOM_SOURCE",
   "hardware_output_enabled": $ENABLE_MOTION,
   "local_obstacle_input": "$(if [[ "$SCAN_OBSTACLES" == true ]]; then echo scan; else echo pointcloud; fi)",
   "global_dynamic_obstacles_enabled": $(if [[ "$TEST_SCAN_ONLY" == true ]]; then echo false; else echo true; fi),
@@ -200,10 +224,10 @@ cleanup() {
   systemctl --user stop r680-d455-localization-stack.service >/dev/null 2>&1 || true
   if [[ "$READONLY_INPUTS_ACTIVE" == true ]]; then
     systemctl --user restart r680-readonly-inputs.service >/dev/null 2>&1 || true
-    for unit in "${PAUSED_UNITS[@]}"; do
-      systemctl --user start "$unit" >/dev/null 2>&1 || true
-    done
   fi
+  for unit in "${PAUSED_UNITS[@]}"; do
+    systemctl --user start "$unit" >/dev/null 2>&1 || true
+  done
   echo "[R680 NAV] 已关闭本次导航并恢复原定位服务。日志：$NAV_RUN_DIR"
   exit "$status"
 }
@@ -218,8 +242,17 @@ if systemctl --user is-active --quiet r680-readonly-inputs.service; then
   READONLY_INPUTS_ACTIVE=true
 fi
 systemctl --user stop r680-d455-localization-stack.service
-if ! systemctl --user is-active --quiet r680-d455-observation.service; then
-  systemctl --user restart r680-readonly-inputs.service
+if [[ "$ODOM_SOURCE" == cuvslam ]]; then
+  for unit in r680-d455-observation.service r680-readonly-inputs.service; do
+    if systemctl --user is-active --quiet "$unit"; then
+      PAUSED_UNITS+=("$unit")
+      systemctl --user stop "$unit"
+    fi
+  done
+else
+  if ! systemctl --user is-active --quiet r680-d455-observation.service; then
+    systemctl --user restart r680-readonly-inputs.service
+  fi
 fi
 for unit in "${PAUSE_UNITS[@]}"; do
   if systemctl --user is-active --quiet "$unit"; then
@@ -227,6 +260,20 @@ for unit in "${PAUSE_UNITS[@]}"; do
     systemctl --user stop "$unit"
   fi
 done
+
+if [[ "$ODOM_SOURCE" == cuvslam ]]; then
+  python3 - <<'PYCAMERA'
+from pathlib import Path
+import os
+for entry in Path('/proc').iterdir():
+    if not entry.name.isdigit(): continue
+    try:
+        target = os.readlink(entry / 'exe')
+    except OSError: continue
+    if target.endswith('/realsense2_camera_node'):
+        raise SystemExit('仍有独立 RealSense 驱动运行；请先关闭该相机会话，避免重复打开 D455。')
+PYCAMERA
+fi
 
 echo "[R680 NAV] 地图：$MAP_DIR"
 echo "[R680 NAV] 二维栅格：$MAP_YAML"
@@ -236,15 +283,22 @@ echo "[R680 NAV] 本次日志：$NAV_RUN_DIR"
 echo "[R680 NAV] Nav2 参数：$NAV2_PARAMS_FILE"
 echo "[R680 NAV] 局部障碍标记：$(if [[ "$SCAN_OBSTACLES" == true ]]; then echo '/r680_nav/d455/scan'; else echo '/r680_nav/d455/points'; fi)"
 cp "$NAV2_PARAMS_FILE" "$NAV_RUN_DIR/nav2.yaml"
-echo '[R680 NAV] 前 5 秒保持车辆静止，正在估计车身 IMU 零偏……'
+echo "[R680 NAV] 里程计前端：$ODOM_SOURCE"
+if [[ "$ODOM_SOURCE" == cuvslam ]]; then
+  cp "$CONFIG_DIR/cuvslam.yaml" "$NAV_RUN_DIR/cuvslam.yaml"
+  echo '[R680 NAV] cuVSLAM 初始化前运动锁定；需纹理场景和适量真实运动激励，预览时可手推。'
+else
+  echo '[R680 NAV] 前 5 秒保持车辆静止，正在估计车身 IMU 零偏……'
+fi
 
 LAUNCH_ARGS=(
   mode:=localization database_path:="$DB_PATH" web_map_yaml:="$MAP_YAML"
   nav_params_file:="$NAV2_PARAMS_FILE"
   obstacle_scan:="$SCAN_OBSTACLES"
   start_dynamic_obstacles:="$(if [[ "$TEST_SCAN_ONLY" == true ]]; then echo false; else echo true; fi)"
-  start_d455:=false start_chassis:=true start_nav2:=true start_navigation_servers:=true
+  start_d455:="$(if [[ "$ODOM_SOURCE" == cuvslam ]]; then echo true; else echo false; fi)" start_chassis:=true start_nav2:=true start_navigation_servers:=true
   start_state_estimation:=true use_d455_imu:=false use_chassis_imu:=true
+  odom_source:="$ODOM_SOURCE" cuvslam_statistics_path:="$NAV_RUN_DIR/cuvslam_statistics.json"
   publish_mount_tf:=true enable_hardware_output:="$ENABLE_MOTION"
   start_semantics:=false semantic_output:="$MAP_DIR/semantic.geojson"
   semantic_map_id:="$(basename "$MAP_DIR")" semantic_mark_home:=false
@@ -271,7 +325,7 @@ if [[ "$START_RVIZ" == true ]]; then
   fi
 fi
 
-WLA_BRINGUP_LOG="$NAV_RUN_DIR/logs/bringup.log" WLA_REQUIRE_SCAN="$SCAN_OBSTACLES" python3 - <<'PY'
+WLA_BRINGUP_LOG="$NAV_RUN_DIR/logs/bringup.log" WLA_REQUIRE_SCAN="$SCAN_OBSTACLES" WLA_ODOM_SOURCE="$ODOM_SOURCE" python3 - <<'PY'
 import math
 import os
 import time
@@ -283,7 +337,7 @@ from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import LaserScan
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 from tf2_ros import Buffer, TransformListener
 
 rclpy.init()
@@ -292,6 +346,11 @@ ready_count = 0
 map_ok = False
 require_scan = os.environ['WLA_REQUIRE_SCAN'] == 'true'
 last_scan = 0.0
+frontend_status = '等待传感器' if os.environ['WLA_ODOM_SOURCE'] == 'cuvslam' else 'rgbd'
+
+def frontend_cb(msg):
+    global frontend_status
+    frontend_status = msg.data
 
 def ready_cb(msg):
     global ready_count
@@ -307,6 +366,8 @@ def scan_cb(msg):
         last_scan = time.monotonic()
 
 node.create_subscription(Bool, '/r680_nav/localization_ready', ready_cb, 10)
+if os.environ['WLA_ODOM_SOURCE'] == 'cuvslam':
+    node.create_subscription(String, '/r680_nav/vo_watchdog_status', frontend_cb, 10)
 map_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                      reliability=ReliabilityPolicy.RELIABLE)
 node.create_subscription(OccupancyGrid, '/r680/d455/map', map_cb, map_qos)
@@ -353,7 +414,7 @@ while time.monotonic() < deadline:
         raise SystemExit(0)
     if time.monotonic() - last_report > 10.0:
         print('[R680 NAV] 等待就绪:', f'接口={ready_count >= 5}', f'地图={map_ok}',
-              f'TF={tf_ok}', f'Scan={scan_ok}',
+              f'TF={tf_ok}', f'Scan={scan_ok}', f'前端={frontend_status}',
               '生命周期=' + ','.join(f'{k}:{v}' for k, v in states.items()),
               flush=True)
         last_report = time.monotonic()

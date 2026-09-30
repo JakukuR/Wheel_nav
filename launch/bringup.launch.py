@@ -23,6 +23,12 @@ def generate_launch_description():
     start_dynamic_obstacles = LaunchConfiguration('start_dynamic_obstacles')
     start_navigation_servers = LaunchConfiguration('start_navigation_servers')
     start_state_estimation = LaunchConfiguration('start_state_estimation')
+    odom_source = LaunchConfiguration('odom_source')
+    cuvslam_enabled = PythonExpression(["'", start_state_estimation, "' == 'true' and '", odom_source, "' == 'cuvslam'"])
+    legacy_estimation = PythonExpression(["'", start_state_estimation, "' == 'true' and '", odom_source, "' == 'rgbd'"])
+    legacy_chassis_imu = PythonExpression(["'", LaunchConfiguration('use_chassis_imu'), "' == 'true' and '", odom_source, "' == 'rgbd'"])
+    chassis_imu_topic = LaunchConfiguration('chassis_imu_topic')
+    chassis_odom_topic = LaunchConfiguration('chassis_odom_topic')
     start_web = LaunchConfiguration('start_web')
     web_host = LaunchConfiguration('web_host')
     web_port = LaunchConfiguration('web_port')
@@ -56,7 +62,11 @@ def generate_launch_description():
             'rgb_camera.color_profile': '640x480x30',
             'enable_depth': 'true',
             'enable_color': 'true',
-            'enable_infra': 'false',
+            'enable_infra1': PythonExpression(["'true' if '", odom_source, "' == 'cuvslam' else 'false'"]),
+            'enable_infra2': PythonExpression(["'true' if '", odom_source, "' == 'cuvslam' else 'false'"]),
+            'depth_module.infra_profile': '640x480x30',
+            'config_file': PythonExpression(["'", str(config / 'd455_cuvslam.yaml'),
+                                              "' if '", odom_source, "' == 'cuvslam' else \"''\""]),
             'enable_gyro': use_imu,
             'enable_accel': use_imu,
             'gyro_fps': '200',
@@ -91,7 +101,7 @@ def generate_launch_description():
         package='rtabmap_odom', executable='rgbd_odometry',
         namespace='d455_vo', name='rgbd_odometry', output='screen',
         respawn=True, respawn_delay=2.0,
-        condition=IfCondition(start_state_estimation),
+        condition=IfCondition(legacy_estimation),
         parameters=[str(config / 'rtabmap.yaml')],
         remappings=[
             ('rgb/image', '/r680/d455/color/image_raw'),
@@ -103,7 +113,20 @@ def generate_launch_description():
     vo_watchdog = Node(
         package='wla_r680_navigation', executable='vo_watchdog',
         name='r680_vo_watchdog', output='screen', condition=IfCondition(localization),
-        parameters=[str(config / 'vo_watchdog.yaml')])
+        parameters=[str(config / 'vo_watchdog.yaml'), {
+            'frontend': odom_source,
+            'vo_topic': PythonExpression(["'/d455_slam/odom' if '", odom_source, "' == 'cuvslam' else '/r680_nav/vo_odom'"]),
+            'wheel_topic': chassis_odom_topic,
+        }])
+
+    cuvslam = Node(
+        package='wla_cuvslam_navigation', executable='cuvslam_odometry',
+        namespace='d455_vio', name='cuvslam_odometry', output='screen',
+        respawn=True, respawn_delay=2.0, condition=IfCondition(cuvslam_enabled),
+        parameters=[LaunchConfiguration('cuvslam_params_file'), {
+            'imu_topic': chassis_imu_topic, 'wheel_odom_topic': chassis_odom_topic,
+            'statistics_path': LaunchConfiguration('cuvslam_statistics_path'),
+        }])
 
     imu_filter = Node(
         package='imu_filter_madgwick', executable='imu_filter_madgwick_node',
@@ -115,8 +138,8 @@ def generate_launch_description():
     chassis_imu_conditioner = Node(
         package='wla_r680_navigation', executable='imu_conditioner',
         name='r680_chassis_imu_conditioner', output='screen',
-        condition=IfCondition(use_chassis_imu), parameters=[{
-            'input_topic': '/wheel/imu/data_raw',
+        condition=IfCondition(legacy_chassis_imu), parameters=[{
+            'input_topic': chassis_imu_topic,
             'output_topic': '/r680_nav/chassis/imu_calibrated_raw',
             'calibration_samples': 100,
             'calibration_duration_s': 5.0,
@@ -125,7 +148,7 @@ def generate_launch_description():
     chassis_imu_filter = Node(
         package='imu_filter_madgwick', executable='imu_filter_madgwick_node',
         namespace='r680_nav/chassis', name='imu_filter_madgwick', output='screen',
-        condition=IfCondition(use_chassis_imu), parameters=[{
+        condition=IfCondition(legacy_chassis_imu), parameters=[{
             'use_mag': False, 'publish_tf': False, 'world_frame': 'enu',
             'gain': 0.05, 'zeta': 0.0, 'orientation_stddev': 0.10,
         }], remappings=[
@@ -135,7 +158,7 @@ def generate_launch_description():
     ekf = Node(
         package='robot_localization', executable='ekf_node',
         namespace='d455_slam', name='ekf_filter_node', output='screen',
-        condition=IfCondition(start_state_estimation),
+        condition=IfCondition(legacy_estimation),
         parameters=[str(config / 'ekf_vo_imu.yaml'),
                     {'imu0': ParameterValue(imu_topic, value_type=str)}],
         remappings=[('odometry/filtered', 'odom')])
@@ -155,7 +178,7 @@ def generate_launch_description():
             'rgb_topic': '/r680/d455/color/image_raw',
             'depth_topic': '/r680/d455/aligned_depth_to_color/image_raw',
             'camera_info_topic': '/r680/d455/color/camera_info',
-            'imu_topic': imu_topic,
+            'imu_topic': PythonExpression(["'/r680_nav/disabled_rtabmap_imu' if '", odom_source, "' == 'cuvslam' else '", imu_topic, "'"]),
             'subscribe_scan': 'false',
             'approx_sync': 'true',
             'approx_sync_max_interval': '0.025',
@@ -279,6 +302,7 @@ def generate_launch_description():
         package='wla_r680_navigation', executable='interface_monitor', output='screen',
         parameters=[{
             'require_obstacle_points': True,
+            'chassis_odom_topic': chassis_odom_topic,
             'require_chassis_odom': ParameterValue(enable_motion, value_type=bool),
             'require_vo_watchdog': ParameterValue(localization, value_type=bool),
         }])
@@ -310,6 +334,11 @@ def generate_launch_description():
         DeclareLaunchArgument('nav_params_file', default_value=str(config / 'nav2.yaml'),
                               description='Complete Nav2 parameters file for this run.'),
         DeclareLaunchArgument('start_state_estimation', default_value='true', choices=['true', 'false']),
+        DeclareLaunchArgument('odom_source', default_value='rgbd', choices=['rgbd', 'cuvslam']),
+        DeclareLaunchArgument('chassis_imu_topic', default_value='/wheel/imu/data_raw'),
+        DeclareLaunchArgument('chassis_odom_topic', default_value='/wheel/odom'),
+        DeclareLaunchArgument('cuvslam_params_file', default_value=str(config / 'cuvslam.yaml')),
+        DeclareLaunchArgument('cuvslam_statistics_path', default_value='/tmp/cuvslam_navigation_statistics.json'),
         DeclareLaunchArgument('start_web', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('start_semantics', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('semantic_output', default_value='/tmp/wla-semantic.geojson'),
@@ -334,7 +363,7 @@ def generate_launch_description():
             'initial_pose', default_value='',
             description='Optional RTAB-Map initial pose: x y z roll pitch yaw.'),
         realsense, mount_tf, chassis_imu_tf, imu_filter, chassis_imu_conditioner,
-        chassis_imu_filter, vo, vo_watchdog, ekf, rtabmap,
+        chassis_imu_filter, vo, cuvslam, vo_watchdog, ekf, rtabmap,
         chassis, depth_points, scan_converter, dynamic_obstacles, semantic_collector,
         *nav2_nodes, monitor, guard, web_gateway,
     ])

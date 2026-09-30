@@ -1,0 +1,3 @@
+# RealSense launch config_file uses a flat parameter map (not ROS node nesting).
+# Passive rectified stereo avoids tracking the infrared projector pattern.
+depth_module.emitter_enabled: 0

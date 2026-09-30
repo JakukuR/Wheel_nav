@@ -30,6 +30,8 @@ class VoWatchdog final : public rclcpp::Node
 public:
   VoWatchdog() : Node("r680_vo_watchdog"), started_(Clock::now())
   {
+    frontend_ = declare_parameter<std::string>("frontend", "rgbd");
+    if (frontend_ != "rgbd" && frontend_ != "cuvslam") throw std::invalid_argument("unknown frontend");
     startup_grace_s_ = declare_parameter<double>("startup_grace_s", 12.0);
     stale_s_ = declare_parameter<double>("stale_s", 1.5);
     lost_limit_ = declare_parameter<int>("lost_limit", 3);
@@ -69,9 +71,24 @@ public:
     vo_sub_ = create_subscription<nav_msgs::msg::Odometry>(
       vo_topic, rclcpp::SensorDataQoS(),
       [this](nav_msgs::msg::Odometry::ConstSharedPtr msg) {onVo(*msg);});
-    info_sub_ = create_subscription<rtabmap_msgs::msg::OdomInfo>(
-      info_topic, rclcpp::SensorDataQoS(),
-      [this](rtabmap_msgs::msg::OdomInfo::ConstSharedPtr msg) {onInfo(*msg);});
+    if (frontend_ == "rgbd") {
+      info_sub_ = create_subscription<rtabmap_msgs::msg::OdomInfo>(
+        info_topic, rclcpp::SensorDataQoS(),
+        [this](rtabmap_msgs::msg::OdomInfo::ConstSharedPtr msg) {onInfo(*msg);});
+    } else {
+      frontend_health_sub_ = create_subscription<std_msgs::msg::Bool>(
+        "/r680_nav/vio_tracking_healthy", 10,
+        [this](std_msgs::msg::Bool::ConstSharedPtr msg) {
+          if (fault_latched_ && respawn_seen_.time_since_epoch().count() == 0) return;
+          info_seen_ = Clock::now();
+          frontend_ready_ = msg->data;
+          if (msg->data) frontend_was_ready_ = true;
+          lost_count_ = msg->data ? 0 : lost_count_ + 1;
+          // Initial SDK gravity estimation is a waiting state, not tracking loss.
+          if (!fault_latched_ && frontend_was_ready_ && lost_count_ >= lost_limit_)
+            fault("cuVSLAM inertial tracking unhealthy");
+        });
+    }
     wheel_sub_ = create_subscription<nav_msgs::msg::Odometry>(
       wheel_topic, rclcpp::SensorDataQoS(),
       [this](nav_msgs::msg::Odometry::ConstSharedPtr msg) {
@@ -88,6 +105,9 @@ public:
     map_info_sub_ = create_subscription<rtabmap_msgs::msg::Info>(
       map_info_topic, rclcpp::SensorDataQoS(),
       [this](rtabmap_msgs::msg::Info::ConstSharedPtr msg) {
+        if (msg->loop_closure_id > 0 || msg->proximity_detection_id > 0 || msg->landmark_id > 0) {
+          initial_map_matched_ = true;
+        }
         if (fault_latched_ && respawn_seen_.time_since_epoch().count() != 0 &&
           rclcpp::Time(msg->header.stamp) > respawn_ros_stamp_ &&
           (msg->loop_closure_id > 0 || msg->proximity_detection_id > 0 ||
@@ -179,6 +199,7 @@ private:
       covariance[0] > 1.0 || covariance[7] > 1.0 || covariance[35] > 1.0) {return;}
     const double stamp_age = (get_clock()->now() - rclcpp::Time(msg.header.stamp)).seconds();
     if (stamp_age < -0.2 || stamp_age > localization_stale_s_) {return;}
+    initial_localization_seen_ = Clock::now();
     if (fault_latched_) {
       if (respawn_seen_.time_since_epoch().count() != 0 &&
         rclcpp::Time(msg.header.stamp) > respawn_ros_stamp_) {
@@ -248,7 +269,7 @@ private:
     if (mismatch_count_ >= wheel_mismatch_limit_) {fault("VO/wheel motion disagreement");}
   }
 
-  static std::vector<pid_t> voPids()
+  std::vector<pid_t> voPids() const
   {
     std::vector<pid_t> result;
     for (const auto & entry : fs::directory_iterator("/proc")) {
@@ -256,11 +277,15 @@ private:
       if (name.empty() || !std::all_of(name.begin(), name.end(), ::isdigit)) {continue;}
       std::error_code ec;
       const auto exe = fs::read_symlink(entry.path() / "exe", ec).string();
-      if (ec || exe.find("/rtabmap_odom/rgbd_odometry") == std::string::npos) {continue;}
+      const auto expected = frontend_ == "cuvslam" ?
+        "/wla_cuvslam_navigation/cuvslam_odometry" : "/rtabmap_odom/rgbd_odometry";
+      if (ec || exe.size() < std::string(expected).size() ||
+        exe.compare(exe.size() - std::string(expected).size(), std::string(expected).size(), expected) != 0) {continue;}
       std::ifstream command(entry.path() / "cmdline", std::ios::binary);
       std::string args((std::istreambuf_iterator<char>(command)), std::istreambuf_iterator<char>());
-      if (args.find("__ns:=/d455_vo") != std::string::npos &&
-          args.find("__node:=rgbd_odometry") != std::string::npos) {
+      const auto ns = frontend_ == "cuvslam" ? "__ns:=/d455_vio" : "__ns:=/d455_vo";
+      const auto node = frontend_ == "cuvslam" ? "__node:=cuvslam_odometry" : "__node:=rgbd_odometry";
+      if (args.find(ns) != std::string::npos && args.find(node) != std::string::npos) {
         result.push_back(static_cast<pid_t>(std::stoi(name)));
       }
     }
@@ -283,6 +308,8 @@ private:
     info_seen_ = {};
     last_vo_.reset();
     lost_count_ = 0;
+    frontend_ready_ = false;
+    frontend_was_ready_ = false;
     std_msgs::msg::Bool unhealthy;
     unhealthy.data = false;
     health_pub_->publish(unhealthy);
@@ -291,8 +318,8 @@ private:
     if (!restart_enabled_) {return;}
     const auto pids = voPids();
     if (pids.size() != 1) {
-      RCLCPP_ERROR(get_logger(), "expected exactly one /d455_vo/rgbd_odometry process, found %zu",
-        pids.size());
+      RCLCPP_ERROR(get_logger(), "expected exactly one %s frontend process, found %zu",
+        frontend_.c_str(), pids.size());
       return;
     }
     vo_pid_ = pids.front();
@@ -308,7 +335,7 @@ private:
 
   void tick()
   {
-    if (!fault_latched_ && age(vo_seen_) <= stale_s_ &&
+    if (!fault_latched_ && (frontend_ == "rgbd" || frontend_ready_) && age(vo_seen_) <= stale_s_ &&
       age(info_seen_) <= stale_s_ && age(wheel_seen_) < 0.30) {
       const auto map_pose = currentMapPose();
       if (map_pose) {
@@ -333,7 +360,8 @@ private:
         }
       } else {
         const bool tracking = age(vo_seen_) <= stale_s_ &&
-          age(info_seen_) <= stale_s_ && lost_count_ == 0;
+          age(info_seen_) <= stale_s_ && lost_count_ == 0 &&
+          (frontend_ == "rgbd" || frontend_ready_);
         const auto map_tf_pose = currentMapPose();
         const bool localized = anchor_valid_at_fault_ && recovery_map_pose_ &&
           map_tf_pose &&
@@ -367,7 +395,9 @@ private:
       fault("VO odometry or tracking status timed out");
     }
     const bool healthy = !fault_latched_ && age(vo_seen_) <= stale_s_ &&
-      age(info_seen_) <= stale_s_ && lost_count_ == 0;
+      age(info_seen_) <= stale_s_ && lost_count_ == 0 &&
+      (frontend_ == "rgbd" || (frontend_ready_ && initial_map_matched_ &&
+      age(initial_localization_seen_) <= localization_stale_s_ && currentMapPose().has_value()));
     std_msgs::msg::Bool health;
     health.data = healthy;
     health_pub_->publish(health);
@@ -376,7 +406,8 @@ private:
       (!anchor_valid_at_fault_ ? "manual_relocalization_required: " :
       respawn_seen_.time_since_epoch().count() == 0 ? "restarting_vo: " :
       "waiting_for_map_relocalization: ") + reason_ :
-      (healthy ? "healthy" : "waiting_for_vo");
+      (healthy ? "healthy" : frontend_ == "cuvslam" ?
+        (frontend_ready_ ? "waiting_for_map_relocalization" : "waiting_for_inertial_initialization") : "waiting_for_vo");
     status_pub_->publish(status);
   }
 
@@ -387,6 +418,10 @@ private:
   int lost_limit_{}, wheel_mismatch_limit_{}, lost_count_{0}, mismatch_count_{0};
   bool compare_wheel_yaw_{false}, restart_enabled_{true}, fault_latched_{false};
   bool anchor_valid_at_fault_{false}, map_matched_after_respawn_{false};
+  std::string frontend_;
+  bool frontend_ready_{false}, frontend_was_ready_{false}, initial_map_matched_{false};
+  Clock::time_point initial_localization_seen_{};
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr frontend_health_sub_;
   pid_t vo_pid_{-1};
   std::string reason_;
   Clock::time_point started_, vo_seen_{}, info_seen_{}, wheel_seen_{}, window_started_{};
