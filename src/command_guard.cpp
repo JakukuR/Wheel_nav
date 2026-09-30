@@ -6,8 +6,11 @@
 #include <string>
 
 #include "geometry_msgs/msg/twist.hpp"
+#include "geometry_msgs/msg/twist_stamped.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/bool.hpp"
+#include "std_msgs/msg/string.hpp"
+#include "wla_r680_navigation/vio_init_policy.hpp"
 
 using namespace std::chrono_literals;
 
@@ -24,6 +27,7 @@ public:
     angular_max_ = declare_parameter<double>("angular_max", 1.50);
     hardware_output_enabled_ = declare_parameter<bool>("hardware_output_enabled", false);
     require_mission_permission_ = declare_parameter<bool>("require_mission_permission", true);
+    init_mode_enabled_ = declare_parameter<bool>("initialization_mode_enabled", false);
     const auto input_topic = declare_parameter<std::string>(
       "input_topic", "/r680_nav/cmd_vel_collision_checked");
     const auto health_topic = declare_parameter<std::string>(
@@ -59,6 +63,20 @@ public:
         permission_received_ = std::chrono::steady_clock::now();
       });
     timer_ = create_wall_timer(20ms, std::bind(&CommandGuard::tick, this));
+    if (init_mode_enabled_) {
+      init_state_sub_ = create_subscription<std_msgs::msg::String>(
+        "/r680_nav/vio_init_state", 1, [this](std_msgs::msg::String::ConstSharedPtr msg) {
+          init_state_ = msg->data; init_state_received_ = std::chrono::steady_clock::now();
+        });
+      init_permit_sub_ = create_subscription<std_msgs::msg::Bool>(
+        "/r680_nav/vio_init_permit", 1, [this](std_msgs::msg::Bool::ConstSharedPtr msg) {
+          init_permitted_ = msg->data; init_permit_received_ = std::chrono::steady_clock::now();
+        });
+      init_request_sub_ = create_subscription<geometry_msgs::msg::TwistStamped>(
+        "/r680_nav/vio_init_request", 1, [this](geometry_msgs::msg::TwistStamped::ConstSharedPtr msg) {
+          init_request_ = *msg; init_request_received_ = std::chrono::steady_clock::now();
+        });
+    }
 
     RCLCPP_WARN(
       get_logger(), "raw chassis output is %s; raw topic is %s",
@@ -75,12 +93,29 @@ private:
     const bool mission_permitted = !require_mission_permission_ ||
       (mission_allowed_ && permission_age <= health_timeout_s_);
     const bool permitted = healthy_ && mission_permitted &&
-      command_age <= timeout_s_ && health_age <= health_timeout_s_;
+      command_age <= timeout_s_ && health_age <= health_timeout_s_ &&
+      (!init_mode_enabled_ || (init_state_ == "succeeded" &&
+      std::chrono::duration<double>(now - init_state_received_).count() <= 0.20));
 
     geometry_msgs::msg::Twist output;
     if (permitted && std::isfinite(command_.linear.x) && std::isfinite(command_.angular.z)) {
       output.linear.x = std::clamp(command_.linear.x, -reverse_max_, forward_max_);
       output.angular.z = std::clamp(command_.angular.z, -angular_max_, angular_max_);
+    }
+    if (init_mode_enabled_ && init_state_ == "moving") {
+      const double stamp_age = (get_clock()->now() - rclcpp::Time(init_request_.header.stamp)).seconds();
+      const bool bootstrap_permitted = init_permitted_ &&
+        std::chrono::duration<double>(now - init_state_received_).count() <= 0.20 &&
+        std::chrono::duration<double>(now - init_permit_received_).count() <= 0.20 &&
+        std::chrono::duration<double>(now - init_request_received_).count() <= 0.20 &&
+        stamp_age >= -0.1 && stamp_age <= 0.20 &&
+        init_request_.header.frame_id == "r680_mapping_floor" && command_age <= 0.20;
+      if (bootstrap_permitted) {
+        output.linear.x = std::max(0.0, wla_r680_navigation::bound_init_component(
+          command_.linear.x, init_request_.twist.linear.x, 0.08));
+        output.angular.z = wla_r680_navigation::bound_init_component(
+          command_.angular.z, init_request_.twist.angular.z, 0.20);
+      }
     }
     preview_pub_->publish(output);
     if (hardware_output_enabled_) {
@@ -94,6 +129,10 @@ private:
   double reverse_max_{};
   double angular_max_{};
   bool hardware_output_enabled_{false};
+  bool init_mode_enabled_{false}, init_permitted_{false};
+  std::string init_state_;
+  geometry_msgs::msg::TwistStamped init_request_;
+  std::chrono::steady_clock::time_point init_state_received_{}, init_permit_received_{}, init_request_received_{};
   bool require_mission_permission_{true};
   bool mission_allowed_{false};
   bool healthy_{false};
@@ -106,6 +145,9 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr health_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr permission_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr init_permit_sub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr init_state_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr init_request_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 

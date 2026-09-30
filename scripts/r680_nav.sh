@@ -10,6 +10,7 @@ usage() {
   --initial-pose "X Y Z R P Y"  给 RTAB-Map 提供出生点初值（米、弧度）
   --enable-motion        显式开放真实底盘导航输出（默认仅定位、规划和预览）
   --cuvslam              使用 cuVSLAM 双目 + 车身 IMU（试验前端，初始化前禁止运动）
+  --auto-vio-init        cuVSLAM 启动受限运动初始化（仅已确认空旷的起步区；无 --enable-motion 则仅预览）
   --rgbd                 使用原 RGB-D VO + EKF（默认，回退入口）
   --mpc                  显式使用 MPC（当前默认）
   --mppi                 切回 nav2.yaml/MPPI
@@ -34,6 +35,7 @@ INITIAL_POSE=""
 ENABLE_MOTION=false
 USE_MPC=true
 ODOM_SOURCE=rgbd
+AUTO_VIO_INIT=false
 SCAN_OBSTACLES=false
 TEST_SCAN_ONLY=false
 START_RVIZ=true
@@ -49,6 +51,7 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo '--initial-pose 缺少六维位姿' >&2; exit 2; }
       INITIAL_POSE="$2"; shift 2 ;;
     --enable-motion) ENABLE_MOTION=true; shift ;;
+    --auto-vio-init) AUTO_VIO_INIT=true; shift ;;
     --cuvslam) ODOM_SOURCE=cuvslam; shift ;;
     --rgbd) ODOM_SOURCE=rgbd; shift ;;
     --mpc) USE_MPC=true; shift ;;
@@ -61,6 +64,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ "$AUTO_VIO_INIT" == true && "$ODOM_SOURCE" != cuvslam ]]; then
+  echo '--auto-vio-init 需要同时指定 --cuvslam' >&2; exit 2
+fi
 source /opt/ros/jazzy/setup.bash
 source "$HOME/r680_chassis_candidate_ws/install/setup.bash"
 source "$HOME/ros2_ws/install/setup.bash"
@@ -167,6 +173,7 @@ cat > "$NAV_RUN_DIR/navigation.json" <<EOF
   "working_database": "$DB_PATH",
   "initial_pose": "$INITIAL_POSE",
   "odom_source": "$ODOM_SOURCE",
+  "auto_vio_init": $AUTO_VIO_INIT,
   "hardware_output_enabled": $ENABLE_MOTION,
   "local_obstacle_input": "$(if [[ "$SCAN_OBSTACLES" == true ]]; then echo scan; else echo pointcloud; fi)",
   "global_dynamic_obstacles_enabled": $(if [[ "$TEST_SCAN_ONLY" == true ]]; then echo false; else echo true; fi),
@@ -286,7 +293,13 @@ cp "$NAV2_PARAMS_FILE" "$NAV_RUN_DIR/nav2.yaml"
 echo "[R680 NAV] 里程计前端：$ODOM_SOURCE"
 if [[ "$ODOM_SOURCE" == cuvslam ]]; then
   cp "$CONFIG_DIR/cuvslam.yaml" "$NAV_RUN_DIR/cuvslam.yaml"
-  echo '[R680 NAV] cuVSLAM 初始化前运动锁定；需纹理场景和适量真实运动激励，预览时可手推。'
+  if [[ "$AUTO_VIO_INIT" == true ]]; then
+    cp "$CONFIG_DIR/vio_initializer.yaml" "$NAV_RUN_DIR/vio_initializer.yaml"
+    echo "[R680 NAV] 自动初始化：最大请求 0.06m/s、0.20rad/s，路径预算 0.25m；真实输出=$ENABLE_MOTION"
+    echo '[R680 NAV] 此选项用于已确认空旷的起步区；初始化失败将停车锁定，不自动重试。'
+  else
+    echo '[R680 NAV] cuVSLAM 初始化前运动锁定；需纹理场景和适量真实运动激励，预览时可手推。'
+  fi
 else
   echo '[R680 NAV] 前 5 秒保持车辆静止，正在估计车身 IMU 零偏……'
 fi
@@ -299,6 +312,7 @@ LAUNCH_ARGS=(
   start_d455:="$(if [[ "$ODOM_SOURCE" == cuvslam ]]; then echo true; else echo false; fi)" start_chassis:=true start_nav2:=true start_navigation_servers:=true
   start_state_estimation:=true use_d455_imu:=false use_chassis_imu:=true
   odom_source:="$ODOM_SOURCE" cuvslam_statistics_path:="$NAV_RUN_DIR/cuvslam_statistics.json"
+  auto_vio_init:="$AUTO_VIO_INIT" vio_init_result_path:="$NAV_RUN_DIR/vio_init.json"
   publish_mount_tf:=true enable_hardware_output:="$ENABLE_MOTION"
   start_semantics:=false semantic_output:="$MAP_DIR/semantic.geojson"
   semantic_map_id:="$(basename "$MAP_DIR")" semantic_mark_home:=false
@@ -325,7 +339,7 @@ if [[ "$START_RVIZ" == true ]]; then
   fi
 fi
 
-WLA_BRINGUP_LOG="$NAV_RUN_DIR/logs/bringup.log" WLA_REQUIRE_SCAN="$SCAN_OBSTACLES" WLA_ODOM_SOURCE="$ODOM_SOURCE" python3 - <<'PY'
+WLA_BRINGUP_LOG="$NAV_RUN_DIR/logs/bringup.log" WLA_REQUIRE_SCAN="$SCAN_OBSTACLES" WLA_ODOM_SOURCE="$ODOM_SOURCE" WLA_AUTO_VIO_INIT="$AUTO_VIO_INIT" python3 - <<'PY'
 import math
 import os
 import time
@@ -346,7 +360,13 @@ ready_count = 0
 map_ok = False
 require_scan = os.environ['WLA_REQUIRE_SCAN'] == 'true'
 last_scan = 0.0
+init_state = 'waiting_inputs'
+auto_init = os.environ['WLA_AUTO_VIO_INIT'] == 'true'
 frontend_status = '等待传感器' if os.environ['WLA_ODOM_SOURCE'] == 'cuvslam' else 'rgbd'
+
+def init_cb(msg):
+    global init_state
+    init_state = msg.data
 
 def frontend_cb(msg):
     global frontend_status
@@ -368,6 +388,8 @@ def scan_cb(msg):
 node.create_subscription(Bool, '/r680_nav/localization_ready', ready_cb, 10)
 if os.environ['WLA_ODOM_SOURCE'] == 'cuvslam':
     node.create_subscription(String, '/r680_nav/vo_watchdog_status', frontend_cb, 10)
+if auto_init:
+    node.create_subscription(String, '/r680_nav/vio_init_state', init_cb, 10)
 map_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                      reliability=ReliabilityPolicy.RELIABLE)
 node.create_subscription(OccupancyGrid, '/r680/d455/map', map_cb, map_qos)
@@ -396,6 +418,8 @@ while time.monotonic() < deadline:
         manager_active = True
     log_tail = (log_tail + new_log)[-80:]
     rclpy.spin_once(node, timeout_sec=0.2)
+    if auto_init and init_state == 'failed':
+        raise SystemExit('自动 VIO 初始化失败并已锁定；查看本次 vio_init.json，退出后可用 --rgbd 回退')
     states = {name: 0 for name in names}
     # The lifecycle manager owns these services during bringup. Poll only after activation.
     if manager_active:
@@ -408,13 +432,13 @@ while time.monotonic() < deadline:
     tf_ok = tf_buffer.can_transform('map', 'r680_mapping_floor', rclpy.time.Time(),
                                     timeout=Duration(seconds=0.05))
     scan_ok = not require_scan or time.monotonic() - last_scan < 0.6
-    if ready_count >= 5 and map_ok and tf_ok and scan_ok and all(v == 3 for v in states.values()):
+    if ready_count >= 5 and map_ok and tf_ok and scan_ok and (not auto_init or init_state == 'succeeded') and all(v == 3 for v in states.values()):
         node.destroy_node()
         rclpy.shutdown()
         raise SystemExit(0)
     if time.monotonic() - last_report > 10.0:
         print('[R680 NAV] 等待就绪:', f'接口={ready_count >= 5}', f'地图={map_ok}',
-              f'TF={tf_ok}', f'Scan={scan_ok}', f'前端={frontend_status}',
+              f'TF={tf_ok}', f'Scan={scan_ok}', f'前端={frontend_status}', f'初始化={init_state if auto_init else 'disabled'}',
               '生命周期=' + ','.join(f'{k}:{v}' for k, v in states.items()),
               flush=True)
         last_report = time.monotonic()

@@ -9,6 +9,7 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, Pyth
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
+from nav2_common.launch import RewrittenYaml
 
 
 def generate_launch_description():
@@ -24,6 +25,11 @@ def generate_launch_description():
     start_navigation_servers = LaunchConfiguration('start_navigation_servers')
     start_state_estimation = LaunchConfiguration('start_state_estimation')
     odom_source = LaunchConfiguration('odom_source')
+    auto_vio_init = LaunchConfiguration('auto_vio_init')
+    init_enabled = PythonExpression(["'", auto_vio_init, "' == 'true' and '", odom_source,
+                                     "' == 'cuvslam' and '", start_nav2, "' == 'true'"])
+    nav_command_topic = PythonExpression(["'/r680_nav/nav_command_input' if ", init_enabled,
+                                          " else '/cmd_vel_nav'"])
     cuvslam_enabled = PythonExpression(["'", start_state_estimation, "' == 'true' and '", odom_source, "' == 'cuvslam'"])
     legacy_estimation = PythonExpression(["'", start_state_estimation, "' == 'true' and '", odom_source, "' == 'rgbd'"])
     legacy_chassis_imu = PythonExpression(["'", LaunchConfiguration('use_chassis_imu'), "' == 'true' and '", odom_source, "' == 'rgbd'"])
@@ -249,7 +255,9 @@ def generate_launch_description():
              parameters=[nav_params], remappings=[('cmd_vel', '/r680_nav/cmd_vel_controller')]),
         Node(package='wla_r680_navigation', executable='goal_approach_limiter',
              name='r680_goal_approach_limiter', output='screen', condition=IfCondition(full_navigation),
-             parameters=[str(config / 'goal_approach_limiter.yaml')]),
+             parameters=[RewrittenYaml(
+                 source_file=str(config / 'goal_approach_limiter.yaml'),
+                 param_rewrites={'output_topic': nav_command_topic}, convert_types=True)]),
         Node(package='wla_r680_navigation', executable='path_speed_profile',
              name='r680_path_speed_profile', output='screen', condition=IfCondition(full_navigation),
              parameters=[str(config / 'path_speed_profile.yaml')]),
@@ -261,7 +269,7 @@ def generate_launch_description():
              parameters=[nav_params]),
         Node(package='nav2_behaviors', executable='behavior_server',
              name='behavior_server', output='screen', condition=IfCondition(full_navigation),
-             parameters=[nav_params], remappings=[('cmd_vel', 'cmd_vel_nav')]),
+             parameters=[nav_params], remappings=[('cmd_vel', nav_command_topic)]),
         Node(package='nav2_bt_navigator', executable='bt_navigator',
              name='bt_navigator', output='screen', condition=IfCondition(full_navigation),
              parameters=[nav_params, {
@@ -310,9 +318,19 @@ def generate_launch_description():
         package='wla_r680_navigation', executable='command_guard', output='screen',
         parameters=[{
             'hardware_output_enabled': ParameterValue(enable_motion, value_type=bool),
+            'initialization_mode_enabled': ParameterValue(init_enabled, value_type=bool),
             'forward_max': 1.20,
             'reverse_max': 0.70,
         }])
+    initializer = Node(
+        package='wla_r680_navigation', executable='vio_initializer', name='r680_vio_initializer',
+        output='screen', condition=IfCondition(init_enabled),
+        parameters=[RewrittenYaml(
+            source_file=str(config / 'vio_initializer.yaml'),
+            param_rewrites={
+                'imu_topic': chassis_imu_topic, 'wheel_odom_topic': chassis_odom_topic,
+                'result_path': LaunchConfiguration('vio_init_result_path'),
+            }, convert_types=True)])
     web_gateway = Node(
         package='wla_r680_navigation', executable='web_gateway',
         name='r680_web_gateway', output='screen', condition=IfCondition(start_web),
@@ -334,6 +352,8 @@ def generate_launch_description():
         DeclareLaunchArgument('nav_params_file', default_value=str(config / 'nav2.yaml'),
                               description='Complete Nav2 parameters file for this run.'),
         DeclareLaunchArgument('start_state_estimation', default_value='true', choices=['true', 'false']),
+        DeclareLaunchArgument('auto_vio_init', default_value='false', choices=['true', 'false']),
+        DeclareLaunchArgument('vio_init_result_path', default_value='/tmp/r680_vio_init.json'),
         DeclareLaunchArgument('odom_source', default_value='rgbd', choices=['rgbd', 'cuvslam']),
         DeclareLaunchArgument('chassis_imu_topic', default_value='/wheel/imu/data_raw'),
         DeclareLaunchArgument('chassis_odom_topic', default_value='/wheel/odom'),
@@ -365,5 +385,5 @@ def generate_launch_description():
         realsense, mount_tf, chassis_imu_tf, imu_filter, chassis_imu_conditioner,
         chassis_imu_filter, vo, cuvslam, vo_watchdog, ekf, rtabmap,
         chassis, depth_points, scan_converter, dynamic_obstacles, semantic_collector,
-        *nav2_nodes, monitor, guard, web_gateway,
+        *nav2_nodes, monitor, guard, initializer, web_gateway,
     ])
