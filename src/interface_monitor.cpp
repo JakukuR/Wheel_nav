@@ -21,6 +21,8 @@ public:
     require_points_ = declare_parameter<bool>("require_obstacle_points", true);
     require_chassis_odom_ = declare_parameter<bool>("require_chassis_odom", false);
     require_vo_watchdog_ = declare_parameter<bool>("require_vo_watchdog", false);
+    require_vio_health_ = declare_parameter<bool>("require_vio_health", false);
+    require_mapping_odom_ = declare_parameter<bool>("require_mapping_odom", false);
     const auto rgb = declare_parameter<std::string>("rgb_topic", "/r680/d455/color/image_raw");
     const auto depth = declare_parameter<std::string>(
       "depth_topic", "/r680/d455/aligned_depth_to_color/image_raw");
@@ -61,6 +63,14 @@ public:
         vo_watchdog_healthy_ = msg->data;
         vo_watchdog_seen_ = now_steady();
       });
+    vio_health_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/r680_nav/vio_tracking_healthy", 1, [this](std_msgs::msg::Bool::ConstSharedPtr msg) {
+        vio_healthy_ = msg->data; vio_seen_ = now_steady();
+      });
+    mapping_health_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/r680_nav/mapping_odom_ready", 1, [this](std_msgs::msg::Bool::ConstSharedPtr msg) {
+        mapping_healthy_ = msg->data; mapping_seen_ = now_steady();
+      });
     ready_pub_ = create_publisher<std_msgs::msg::Bool>("/r680_nav/localization_ready", 1);
     timer_ = create_wall_timer(100ms, std::bind(&InterfaceMonitor::tick, this));
   }
@@ -81,7 +91,9 @@ private:
       fresh(info_seen_, stamp) && fresh(odom_seen_, stamp) &&
       (!require_points_ || fresh(points_seen_, stamp)) &&
       (!require_chassis_odom_ || fresh(chassis_odom_seen_, stamp)) &&
-      (!require_vo_watchdog_ || (vo_watchdog_healthy_ && fresh(vo_watchdog_seen_, stamp)));
+      (!require_vo_watchdog_ || (vo_watchdog_healthy_ && fresh(vo_watchdog_seen_, stamp))) &&
+      (!require_vio_health_ || (vio_healthy_ && fresh(vio_seen_, stamp))) &&
+      (!require_mapping_odom_ || (mapping_healthy_ && fresh(mapping_seen_, stamp)));
     ready_pub_->publish(ready);
   }
 
@@ -90,11 +102,17 @@ private:
   bool require_chassis_odom_{false};
   bool require_vo_watchdog_{false};
   bool vo_watchdog_healthy_{false};
+  bool require_vio_health_{false}, vio_healthy_{false};
+  Clock::time_point vio_seen_{};
+  bool require_mapping_odom_{false}, mapping_healthy_{false};
+  Clock::time_point mapping_seen_{};
   Clock::time_point rgb_seen_{}, depth_seen_{}, info_seen_{}, odom_seen_{}, points_seen_{};
   Clock::time_point chassis_odom_seen_{}, vo_watchdog_seen_{};
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr rgb_sub_, depth_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr chassis_odom_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr vo_watchdog_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr vio_health_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr mapping_health_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr points_sub_;

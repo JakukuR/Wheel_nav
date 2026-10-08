@@ -24,6 +24,8 @@ ament_target_dependencies(command_guard geometry_msgs rclcpp std_msgs)
 add_executable(vio_initializer src/vio_initializer.cpp)
 target_include_directories(vio_initializer PRIVATE include)
 ament_target_dependencies(vio_initializer geometry_msgs lifecycle_msgs nav_msgs rclcpp sensor_msgs std_msgs)
+add_executable(mapping_odom_gate src/mapping_odom_gate.cpp)
+ament_target_dependencies(mapping_odom_gate nav_msgs rclcpp std_msgs)
 
 add_executable(imu_conditioner src/imu_conditioner.cpp)
 add_executable(path_speed_profile src/path_speed_profile.cpp)
@@ -46,12 +48,12 @@ ament_target_dependencies(interface_monitor nav_msgs rclcpp sensor_msgs std_msgs
 ament_target_dependencies(depth_to_points geometry_msgs rclcpp sensor_msgs tf2 tf2_ros)
 ament_target_dependencies(point_to_scan rclcpp sensor_msgs)
 
-install(TARGETS command_guard vio_initializer imu_conditioner path_speed_profile goal_approach_limiter dynamic_obstacle_memory vo_watchdog interface_monitor depth_to_points point_to_scan DESTINATION lib/${PROJECT_NAME})
+install(TARGETS command_guard vio_initializer mapping_odom_gate imu_conditioner path_speed_profile goal_approach_limiter dynamic_obstacle_memory vo_watchdog interface_monitor depth_to_points point_to_scan DESTINATION lib/${PROJECT_NAME})
 ament_python_install_package(wla_r680_navigation_py)
 install(PROGRAMS scripts/navigation_goal_bridge scripts/web_gateway scripts/furniture_semantic.py
   DESTINATION lib/${PROJECT_NAME})
 install(PROGRAMS scripts/mapping_mission scripts/prepare_mapping_run scripts/save_manual_map
-  scripts/r680_nav.sh
+  scripts/r680_nav.sh scripts/wait_mapping_ready
   scripts/resolve_navigation_map scripts/r680_mapping.sh DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY config launch docs web DESTINATION share/${PROJECT_NAME}
   PATTERN "__pycache__" EXCLUDE PATTERN "*.pyc" EXCLUDE)
@@ -60,6 +62,7 @@ install(FILES README.md DESTINATION share/${PROJECT_NAME})
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(test_storage test/test_storage.py)
+  ament_add_pytest_test(test_mapping_run test/test_mapping_run.py)
   add_executable(test_vio_init_policy test/test_vio_init_policy.cpp)
   target_include_directories(test_vio_init_policy PRIVATE include)
   add_test(NAME vio_init_policy COMMAND test_vio_init_policy)

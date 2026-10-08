@@ -220,6 +220,9 @@ cleanup() {
   set +e
   echo
   echo '[R680 NAV] 正在撤销运动授权并停止导航节点……'
+  if [[ "$AUTO_VIO_INIT" == true && "$STARTED" == true ]]; then
+    timeout 2 ros2 topic pub --once /r680_nav/vio_init_cancel std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true
+  fi
   stop_group "$PERMISSION_PID"
   timeout 2 ros2 topic pub --once /r680_nav/mission_motion_allowed \
     std_msgs/msg/Bool '{data: false}' >/dev/null 2>&1 || true

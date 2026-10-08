@@ -124,6 +124,10 @@ public:
       "/r680_nav/nav_command_input", 1, [this](geometry_msgs::msg::Twist::ConstSharedPtr m) {
         if (policy_->state() == wla::InitPolicy::State::Succeeded) {nav_ = *m; nav_seen_ = Clock::now();}
       });
+    cancel_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/r680_nav/vio_init_cancel", 1, [this](std_msgs::msg::Bool::ConstSharedPtr msg) {
+        if (msg->data) {policy_->fail("operator_cancelled"); nav_seen_ = {};}
+      });
     mux_pub_ = create_publisher<geometry_msgs::msg::Twist>("/cmd_vel_nav", 1);
     request_pub_ = create_publisher<geometry_msgs::msg::TwistStamped>("/r680_nav/vio_init_request", 1);
     permit_pub_ = create_publisher<std_msgs::msg::Bool>("/r680_nav/vio_init_permit", 1);
@@ -306,6 +310,7 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr points_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr vio_status_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr vio_health_sub_, localization_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr cancel_sub_;
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr nav_sub_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr mux_pub_;
   rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr request_pub_;

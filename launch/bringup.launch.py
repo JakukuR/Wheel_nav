@@ -31,6 +31,9 @@ def generate_launch_description():
     nav_command_topic = PythonExpression(["'/r680_nav/nav_command_input' if ", init_enabled,
                                           " else '/cmd_vel_nav'"])
     cuvslam_enabled = PythonExpression(["'", start_state_estimation, "' == 'true' and '", odom_source, "' == 'cuvslam'"])
+    cuvslam_mapping = PythonExpression(["'", mode, "' == 'mapping' and '", odom_source, "' == 'cuvslam'"])
+    mapping_odom_topic = PythonExpression(["'/r680_nav/mapping_odom' if ", cuvslam_mapping,
+                                           " else '/d455_slam/odom'"])
     legacy_estimation = PythonExpression(["'", start_state_estimation, "' == 'true' and '", odom_source, "' == 'rgbd'"])
     legacy_chassis_imu = PythonExpression(["'", LaunchConfiguration('use_chassis_imu'), "' == 'true' and '", odom_source, "' == 'rgbd'"])
     chassis_imu_topic = LaunchConfiguration('chassis_imu_topic')
@@ -129,10 +132,16 @@ def generate_launch_description():
         package='wla_cuvslam_navigation', executable='cuvslam_odometry',
         namespace='d455_vio', name='cuvslam_odometry', output='screen',
         respawn=True, respawn_delay=2.0, condition=IfCondition(cuvslam_enabled),
-        parameters=[LaunchConfiguration('cuvslam_params_file'), {
-            'imu_topic': chassis_imu_topic, 'wheel_odom_topic': chassis_odom_topic,
-            'statistics_path': LaunchConfiguration('cuvslam_statistics_path'),
-        }])
+        parameters=[RewrittenYaml(
+            source_file=LaunchConfiguration('cuvslam_params_file'),
+            param_rewrites={
+                'imu_topic': chassis_imu_topic, 'wheel_odom_topic': chassis_odom_topic,
+                'statistics_path': LaunchConfiguration('cuvslam_statistics_path'),
+            }, convert_types=True)])
+    mapping_gate = Node(
+        package='wla_r680_navigation', executable='mapping_odom_gate',
+        name='r680_mapping_odom_gate', output='screen', condition=IfCondition(cuvslam_mapping),
+        parameters=[{'require_initialization_supervisor': ParameterValue(init_enabled, value_type=bool)}])
 
     imu_filter = Node(
         package='imu_filter_madgwick', executable='imu_filter_madgwick_node',
@@ -180,7 +189,7 @@ def generate_launch_description():
             'map_topic': '/r680/d455/map',
             'visual_odometry': 'false',
             'icp_odometry': 'false',
-            'odom_topic': '/d455_slam/odom',
+            'odom_topic': mapping_odom_topic,
             'rgb_topic': '/r680/d455/color/image_raw',
             'depth_topic': '/r680/d455/aligned_depth_to_color/image_raw',
             'camera_info_topic': '/r680/d455/color/camera_info',
@@ -313,6 +322,8 @@ def generate_launch_description():
             'chassis_odom_topic': chassis_odom_topic,
             'require_chassis_odom': ParameterValue(enable_motion, value_type=bool),
             'require_vo_watchdog': ParameterValue(localization, value_type=bool),
+            'require_vio_health': ParameterValue(PythonExpression(["'", odom_source, "' == 'cuvslam'"]), value_type=bool),
+            'require_mapping_odom': ParameterValue(cuvslam_mapping, value_type=bool),
         }])
     guard = Node(
         package='wla_r680_navigation', executable='command_guard', output='screen',
@@ -383,7 +394,7 @@ def generate_launch_description():
             'initial_pose', default_value='',
             description='Optional RTAB-Map initial pose: x y z roll pitch yaw.'),
         realsense, mount_tf, chassis_imu_tf, imu_filter, chassis_imu_conditioner,
-        chassis_imu_filter, vo, cuvslam, vo_watchdog, ekf, rtabmap,
+        chassis_imu_filter, vo, cuvslam, mapping_gate, vo_watchdog, ekf, rtabmap,
         chassis, depth_points, scan_converter, dynamic_obstacles, semantic_collector,
         *nav2_nodes, monitor, guard, initializer, web_gateway,
     ])

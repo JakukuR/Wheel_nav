@@ -4,6 +4,7 @@ from datetime import datetime
 import json
 from pathlib import Path
 import shutil
+import yaml
 
 from ament_index_python.packages import get_package_share_directory
 from wla_r680_navigation_py.storage import load_storage_config
@@ -14,9 +15,12 @@ parser.add_argument('--storage-config', type=Path, default=share/'config/storage
 parser.add_argument('--root', type=Path, default=None,
                     help='Override storage.yaml run_root for this run only.')
 parser.add_argument('--run-id', default=None)
-parser.add_argument('--imu-mode', choices=('disabled', 'chassis-full', 'd455'), default='chassis-full')
+parser.add_argument('--imu-mode', choices=('disabled', 'chassis-full', 'chassis-vio', 'd455'), default='chassis-full')
+parser.add_argument('--odom-source', choices=('rgbd', 'cuvslam'), default='rgbd')
+parser.add_argument('--auto-vio-init', action='store_true')
 parser.add_argument('--hardware-output', action='store_true')
 args = parser.parse_args()
+if args.auto_vio_init and args.odom_source != 'cuvslam': parser.error('--auto-vio-init requires cuvslam')
 storage = load_storage_config(args.storage_config)
 run_id = args.run_id or datetime.now().strftime('run-%Y%m%d-%H%M%S')
 if '/' in run_id or run_id in ('.', '..'):
@@ -30,8 +34,15 @@ for name in ('nav2.yaml', 'exploration.yaml', 'mission.yaml', 'interfaces.yaml',
     source = share/'config'/name
     if source.exists():
         shutil.copy2(source, run_dir/name)
-# Preserve the exact storage policy used for this run, including custom paths.
-shutil.copy2(storage['config_path'], run_dir/'storage.yaml')
+if args.odom_source == 'cuvslam':
+    for name in ('cuvslam.yaml', 'd455_cuvslam.yaml', 'vio_initializer.yaml'):
+        shutil.copy2(share/'config'/name, run_dir/name)
+# Keep the source snapshot, but resolve relative paths before relocating it.
+# The saver loads this copy from run_dir, not from the original config folder.
+shutil.copy2(storage['config_path'], run_dir/'source_storage.yaml')
+resolved_storage = yaml.safe_load(storage['config_path'].read_text())
+resolved_storage.update(run_root=str(run_root), maps_root=str(storage['maps_root']))
+(run_dir/'storage.yaml').write_text(yaml.safe_dump(resolved_storage, sort_keys=False))
 database = run_dir/'rtabmap.db'
 metadata = {
     'schema': 'wla-r680-mapping-run-v1',
@@ -39,6 +50,10 @@ metadata = {
     'database': str(database),
     'initial_origin_valid': True,
     'imu_mode': args.imu_mode,
+    'odom_source': args.odom_source,
+    'auto_vio_init': args.auto_vio_init,
+    'rtabmap_odom_topic': '/r680_nav/mapping_odom' if args.odom_source == 'cuvslam' else '/d455_slam/odom',
+    'imu_topic': '/wheel/imu/data_raw' if args.odom_source == 'cuvslam' else '/r680_nav/chassis/imu_filtered',
     'obstacle_source': '/r680_nav/d455/points',
     'hardware_output_enabled': args.hardware_output,
     'run_root': str(run_root),

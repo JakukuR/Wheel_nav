@@ -56,7 +56,7 @@ def run(case):
         ('/r680/d455/aligned_depth_to_color/image_raw', Image), ('/r680_nav/d455/points_safety', PointCloud2),
         ('/r680_nav/vio_status', String), ('/r680_nav/vio_tracking_healthy', Bool),
         ('/r680_nav/localization_ready', Bool), ('/r680_nav/mission_motion_allowed', Bool),
-        ('/r680_nav/nav_command_input', Twist)]}
+        ('/r680_nav/nav_command_input', Twist), ('/r680_nav/vio_init_cancel', Bool)]}
     def service_cb(req, res):
         active = not (case == 'lifecycle' and state['fault_at'] is not None)
         res.current_state.id = 3 if active else 2
@@ -79,6 +79,8 @@ def run(case):
                     state['fault_at'] = current
                     if case == 'node_exit': processes[0].terminate()
             fault = state['fault_at'] is not None
+            if case == 'cancel' and fault:
+                publishers['/r680_nav/vio_init_cancel'].publish(Bool(data=True))
             preview = state['preview']
             x += preview.linear.x * math.cos(yaw)*dt
             y += preview.linear.x * math.sin(yaw)*dt
@@ -177,6 +179,6 @@ if __name__ == '__main__':
     assert os.environ.get('ROS_DOMAIN_ID') == '74', 'Synthetic tests require isolated ROS_DOMAIN_ID=74'
     rclpy.init()
     try:
-        for case in ['success', 'obstacle', 'imu_gap', 'pose_jump', 'depth_unknown', 'cloud_malformed', 'lifecycle', 'timeout', 'node_exit']: run(case)
+        for case in ['success', 'obstacle', 'imu_gap', 'pose_jump', 'depth_unknown', 'cloud_malformed', 'lifecycle', 'timeout', 'node_exit', 'cancel']: run(case)
         legacy_guard()
     finally: rclpy.shutdown()

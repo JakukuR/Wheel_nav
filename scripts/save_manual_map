@@ -39,11 +39,11 @@ def main():
     node = Node('r680_manual_map_saver')
     retained = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
                           durability=DurabilityPolicy.TRANSIENT_LOCAL)
-    state = {'map': None, 'odom': None, 'stopped_since': None}
+    state = {'map': None, 'odom': None, 'odom_at': 0, 'stopped_since': None}
     node.create_subscription(OccupancyGrid, '/r680/d455/map',
                              lambda m: state.update(map=m), retained)
     node.create_subscription(Odometry, '/wheel/odom',
-                             lambda m: state.update(odom=m), 20)
+                             lambda m: state.update(odom=m, odom_at=time.monotonic()), 20)
     permission = node.create_publisher(Bool, '/r680_nav/mission_motion_allowed', 10)
     backup_client = node.create_client(Empty, '/d455_slam/rtabmap/backup')
 
@@ -52,7 +52,7 @@ def main():
         permission.publish(Bool(data=False))
         rclpy.spin_once(node, timeout_sec=0.05)
         odom = state['odom']
-        if odom is not None:
+        if odom is not None and time.monotonic()-state['odom_at'] < 0.5:
             v = odom.twist.twist
             stopped = (math.sqrt(v.linear.x**2+v.linear.y**2+v.linear.z**2) < 0.02 and
                        math.sqrt(v.angular.x**2+v.angular.y**2+v.angular.z**2) < 0.03)
@@ -60,6 +60,8 @@ def main():
                 state['stopped_since'] = time.monotonic()
             elif not stopped:
                 state['stopped_since'] = None
+        else:
+            state['stopped_since'] = None
         if state['map'] is not None and state['stopped_since'] is not None and \
                 time.monotonic()-state['stopped_since'] >= 2.0 and backup_client.service_is_ready():
             break
@@ -84,7 +86,11 @@ def main():
     metadata = dict(schema='wla-r680-manual-mapping-result-v1', success=True,
                     phase='MANUAL_SAVED', run_id=run.get('run_id'),
                     saved_at_unix_s=time.time(), database=str(database),
-                    fused_odom='/d455_slam/odom', imu='/r680_nav/chassis/imu_filtered')
+                    fused_odom='/d455_slam/odom',
+                    odom_source=run.get('odom_source', 'rgbd'),
+                    rtabmap_odom=run.get('rtabmap_odom_topic', '/d455_slam/odom'),
+                    imu=run.get('imu_topic', '/r680_nav/chassis/imu_filtered'),
+                    auto_vio_init=run.get('auto_vio_init', False))
     result = save_archive(archive, grid, backup, metadata, configs)
     storage = load_storage_config(run_dir/'storage.yaml')
     navigation_map = publish_navigation_map(
