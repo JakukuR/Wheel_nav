@@ -37,6 +37,7 @@ ament_target_dependencies(goal_approach_limiter geometry_msgs nav_msgs rclcpp st
 ament_target_dependencies(dynamic_obstacle_memory geometry_msgs rclcpp sensor_msgs tf2 tf2_ros)
 
 add_executable(vo_watchdog src/vo_watchdog.cpp)
+target_include_directories(vo_watchdog PRIVATE include)
 ament_target_dependencies(vo_watchdog geometry_msgs nav_msgs rclcpp rtabmap_msgs std_msgs tf2 tf2_ros)
 
 add_executable(interface_monitor src/interface_monitor.cpp)
@@ -62,6 +63,9 @@ install(FILES README.md DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
+  add_executable(test_relocalization_prior test/test_relocalization_prior.cpp)
+  target_include_directories(test_relocalization_prior PRIVATE include)
+  add_test(NAME relocalization_prior COMMAND test_relocalization_prior)
   ament_add_pytest_test(test_storage test/test_storage.py)
   ament_add_pytest_test(test_mapping_run test/test_mapping_run.py)
   add_executable(test_vio_init_policy test/test_vio_init_policy.cpp)

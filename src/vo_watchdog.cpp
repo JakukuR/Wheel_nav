@@ -21,6 +21,7 @@
 #include "tf2/time.h"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
+#include "wla_r680_navigation/relocalization_prior.hpp"
 
 using namespace std::chrono_literals;
 namespace fs = std::filesystem;
@@ -49,6 +50,18 @@ public:
       declare_parameter<double>("localization_translation_error_m", 0.40);
     localization_yaw_change_rad_ =
       declare_parameter<double>("localization_yaw_change_rad", 0.80);
+    prior_enabled_ = declare_parameter<bool>("relocalization_prior_enabled", true);
+    prior_max_travel_ = declare_parameter<double>("prior_max_translation_m", 0.50);
+    prior_max_yaw_ = declare_parameter<double>("prior_max_yaw_rad", 0.80);
+    prior_stop_time_ = declare_parameter<double>("prior_stop_stable_s", 0.50);
+    prior_wait_time_ = declare_parameter<double>("prior_tracking_stable_s", 1.0);
+    prior_max_wait_ = declare_parameter<double>("prior_max_wait_s", 20.0);
+    const auto initial_pose_topic = declare_parameter<std::string>(
+      "initial_pose_topic", "/d455_slam/initialpose");
+    if (!std::isfinite(prior_max_travel_+prior_max_yaw_+prior_stop_time_+
+        prior_wait_time_+prior_max_wait_) || prior_max_travel_ <= 0 ||
+        prior_max_yaw_ <= 0 || prior_stop_time_ <= 0 || prior_wait_time_ <= 0 ||
+        prior_max_wait_ <= prior_wait_time_) throw std::invalid_argument("invalid recovery prior limits");
     const auto vo_topic = declare_parameter<std::string>("vo_topic", "/r680_nav/vo_odom");
     const auto info_topic = declare_parameter<std::string>("info_topic", "/d455_slam/odom_info");
     const auto wheel_topic = declare_parameter<std::string>("wheel_topic", "/wheel/odom");
@@ -68,6 +81,7 @@ public:
 
     health_pub_ = create_publisher<std_msgs::msg::Bool>("/r680_nav/vo_watchdog_healthy", 10);
     status_pub_ = create_publisher<std_msgs::msg::String>("/r680_nav/vo_watchdog_status", 10);
+    prior_pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(initial_pose_topic, 1);
     vo_sub_ = create_subscription<nav_msgs::msg::Odometry>(
       vo_topic, rclcpp::SensorDataQoS(),
       [this](nav_msgs::msg::Odometry::ConstSharedPtr msg) {onVo(*msg);});
@@ -92,9 +106,13 @@ public:
     wheel_sub_ = create_subscription<nav_msgs::msg::Odometry>(
       wheel_topic, rclcpp::SensorDataQoS(),
       [this](nav_msgs::msg::Odometry::ConstSharedPtr msg) {
-        if (finitePose(*msg)) {
+        const double stamp_age=(get_clock()->now()-rclcpp::Time(msg->header.stamp)).seconds();
+        if (finitePose(*msg) && stamp_age>=-0.2 && stamp_age<0.30 &&
+            std::isfinite(msg->twist.twist.linear.x+msg->twist.twist.angular.z)) {
           wheel_ = poseOf(*msg);
           wheel_seen_ = Clock::now();
+          wheel_linear_ = msg->twist.twist.linear.x;
+          wheel_angular_ = msg->twist.twist.angular.z;
         }
       });
     localization_sub_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
@@ -304,6 +322,9 @@ private:
     map_matched_after_respawn_ = false;
     recovery_map_pose_.reset();
     recovery_stable_since_ = {};
+    prior_sent_ = false;
+    prior_stopped_since_ = {};
+    prior_tracking_since_ = {};
     vo_seen_ = {};
     info_seen_ = {};
     last_vo_.reset();
@@ -362,6 +383,40 @@ private:
         const bool tracking = age(vo_seen_) <= stale_s_ &&
           age(info_seen_) <= stale_s_ && lost_count_ == 0 &&
           (frontend_ == "rgbd" || frontend_ready_);
+        const bool stopped = age(wheel_seen_) < 0.30 &&
+          std::isfinite(wheel_linear_+wheel_angular_) &&
+          std::abs(wheel_linear_) < 0.02 && std::abs(wheel_angular_) < 0.04;
+        if (!stopped) prior_stopped_since_ = {};
+        else if (prior_stopped_since_.time_since_epoch().count() == 0) prior_stopped_since_ = Clock::now();
+        if (!tracking) prior_tracking_since_ = {};
+        else if (prior_tracking_since_.time_since_epoch().count() == 0) prior_tracking_since_ = Clock::now();
+        // Send once per frontend generation, only before a genuine map match.
+        // Publication does not clear any recovery proof or motion lock.
+        if (prior_enabled_ && anchor_valid_at_fault_ && !prior_sent_ &&
+            !map_matched_after_respawn_ && age(respawn_seen_) < prior_max_wait_ &&
+            age(prior_stopped_since_) >= prior_stop_time_ && stopped &&
+            age(prior_tracking_since_) >= prior_wait_time_ && tracking) {
+          const auto prior = wla_r680_navigation::stoppedRelocalizationPrior(
+            {anchor_map_pose_->x, anchor_map_pose_->y, anchor_map_pose_->yaw},
+            {anchor_wheel_pose_.x, anchor_wheel_pose_.y, anchor_wheel_pose_.yaw},
+            {wheel_.x, wheel_.y, wheel_.yaw}, prior_max_travel_, prior_max_yaw_);
+          if (prior) {
+            geometry_msgs::msg::PoseWithCovarianceStamped msg;
+            msg.header.frame_id = "map"; msg.header.stamp = get_clock()->now();
+            msg.pose.pose.position.x = prior->x; msg.pose.pose.position.y = prior->y;
+            msg.pose.pose.orientation.z = std::sin(prior->yaw/2);
+            msg.pose.pose.orientation.w = std::cos(prior->yaw/2);
+            const double travel = distance(wheel_, anchor_wheel_pose_);
+            msg.pose.covariance[0] = msg.pose.covariance[7] = 0.04+travel*travel;
+            msg.pose.covariance[35] = 0.04;
+            prior_pub_->publish(msg); prior_sent_ = true;
+            RCLCPP_WARN(get_logger(), "relocalization prior sent: x=%.3f y=%.3f yaw=%.3f, wheel travel=%.3f; map match still required",
+              prior->x, prior->y, prior->yaw, travel);
+          } else {
+            prior_sent_ = true;  // Bound exceeded: no retry with an untrusted prior.
+            RCLCPP_WARN(get_logger(), "relocalization prior refused: wheel displacement exceeds short-stop bounds");
+          }
+        }
         const auto map_tf_pose = currentMapPose();
         const bool localized = anchor_valid_at_fault_ && recovery_map_pose_ &&
           map_tf_pose &&
@@ -387,6 +442,11 @@ private:
           }
         } else {
           recovery_stable_since_ = {};
+          RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+            "recovery remains locked: tracking=%d map_match=%d fresh_map_pose=%d map_tf=%d anchor=%d prior_sent=%d; use initialpose if visual matching fails",
+            tracking, map_matched_after_respawn_,
+            recovery_map_pose_.has_value() && age(recovery_map_seen_) <= localization_stale_s_,
+            map_tf_pose.has_value(), anchor_valid_at_fault_, prior_sent_);
         }
       }
     }
@@ -415,6 +475,10 @@ private:
   double wheel_window_s_{}, wheel_translation_error_m_{}, wheel_yaw_error_rad_{};
   double recovery_stable_s_{}, localization_stale_s_{};
   double localization_translation_error_m_{}, localization_yaw_change_rad_{};
+  bool prior_enabled_{true}, prior_sent_{false};
+  double prior_max_travel_{}, prior_max_yaw_{}, prior_stop_time_{}, prior_wait_time_{}, prior_max_wait_{};
+  double wheel_linear_{0}, wheel_angular_{0};
+  Clock::time_point prior_stopped_since_{}, prior_tracking_since_{};
   int lost_limit_{}, wheel_mismatch_limit_{}, lost_count_{0}, mismatch_count_{0};
   bool compare_wheel_yaw_{false}, restart_enabled_{true}, fault_latched_{false};
   bool anchor_valid_at_fault_{false}, map_matched_after_respawn_{false};
@@ -438,6 +502,7 @@ private:
   rclcpp::Subscription<rtabmap_msgs::msg::OdomInfo>::SharedPtr info_sub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr health_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr prior_pub_;
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   rclcpp::TimerBase::SharedPtr timer_;

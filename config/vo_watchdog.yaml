@@ -25,3 +25,12 @@ r680_vo_watchdog:
     localization_stale_s: 3.0
     localization_translation_error_m: 0.40
     localization_yaw_change_rad: 0.80
+    # One initialpose after respawn and verified stationary/tracking feedback.
+    # This hint never replaces real RTAB-Map match/pose/stability verification.
+    relocalization_prior_enabled: true
+    initial_pose_topic: /d455_slam/initialpose
+    prior_max_translation_m: 0.50
+    prior_max_yaw_rad: 0.80
+    prior_stop_stable_s: 0.50
+    prior_tracking_stable_s: 1.0
+    prior_max_wait_s: 20.0
