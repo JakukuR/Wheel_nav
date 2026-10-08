@@ -16,6 +16,7 @@ usage() {
   --mppi                 切回 nav2.yaml/MPPI
   --scan-obstacles       局部代价地图试用 D455 点云生成的 LaserScan（默认仍用点云）
   --test-scan-only       使用独立 nav2_test.yaml：MPC + 局部 Scan，关闭全局 D455 动态层
+  --test-recovery        使用 nav2_recovery_test.yaml：MPC + 局部 Scan + 有时限的全局动态障碍
   --no-rviz              不启动 RViz
   -h, --help             显示帮助
 
@@ -38,6 +39,7 @@ ODOM_SOURCE=rgbd
 AUTO_VIO_INIT=false
 SCAN_OBSTACLES=false
 TEST_SCAN_ONLY=false
+TEST_RECOVERY=false
 START_RVIZ=true
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -58,11 +60,15 @@ while [[ $# -gt 0 ]]; do
     --mppi) USE_MPC=false; shift ;;
     --scan-obstacles) SCAN_OBSTACLES=true; shift ;;
     --test-scan-only) TEST_SCAN_ONLY=true; SCAN_OBSTACLES=true; shift ;;
+    --test-recovery) TEST_RECOVERY=true; SCAN_OBSTACLES=true; shift ;;
     --no-rviz) START_RVIZ=false; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "未知参数: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
+if [[ "$TEST_RECOVERY" == true && ( "$TEST_SCAN_ONLY" == true || "$USE_MPC" == false ) ]]; then
+  echo '--test-recovery 不能与 --test-scan-only 或 --mppi 同时使用' >&2; exit 2
+fi
 
 if [[ "$AUTO_VIO_INIT" == true && "$ODOM_SOURCE" != cuvslam ]]; then
   echo '--auto-vio-init 需要同时指定 --cuvslam' >&2; exit 2
@@ -109,6 +115,10 @@ fi
 if [[ -z "$STORAGE_CONFIG" ]]; then
   STORAGE_CONFIG="$CONFIG_DIR/storage.yaml"
 fi
+if [[ "$TEST_RECOVERY" == true ]]; then
+  NAV2_PARAMS_FILE="$CONFIG_DIR/nav2_recovery_test.yaml"
+  [[ -f "$NAV2_PARAMS_FILE" ]] || { echo "测试参数文件不存在: $NAV2_PARAMS_FILE" >&2; exit 1; }
+fi
 [[ -f "$STORAGE_CONFIG" ]] || { echo "存储配置不存在: $STORAGE_CONFIG" >&2; exit 1; }
 
 RESOLVE_ARGS=(--storage-config "$STORAGE_CONFIG")
@@ -142,7 +152,7 @@ PY
 )
 NAV_RUN_DIR="$RUN_ROOT/nav-$(date +%Y%m%d-%H%M%S)-$$"
 mkdir -p "$NAV_RUN_DIR/logs"
-if [[ "$SCAN_OBSTACLES" == true && "$TEST_SCAN_ONLY" == false ]]; then
+if [[ "$SCAN_OBSTACLES" == true && "$TEST_SCAN_ONLY" == false && "$TEST_RECOVERY" == false ]]; then
   python3 - "$NAV2_PARAMS_FILE" "$NAV_RUN_DIR/nav2_scan.yaml" <<'PY'
 import sys
 import yaml
@@ -177,6 +187,7 @@ cat > "$NAV_RUN_DIR/navigation.json" <<EOF
   "hardware_output_enabled": $ENABLE_MOTION,
   "local_obstacle_input": "$(if [[ "$SCAN_OBSTACLES" == true ]]; then echo scan; else echo pointcloud; fi)",
   "global_dynamic_obstacles_enabled": $(if [[ "$TEST_SCAN_ONLY" == true ]]; then echo false; else echo true; fi),
+  "recovery_test": $TEST_RECOVERY,
   "started_at": "$(date --iso-8601=seconds)"
 }
 EOF
@@ -313,7 +324,7 @@ LAUNCH_ARGS=(
   mode:=localization database_path:="$DB_PATH" web_map_yaml:="$MAP_YAML"
   nav_params_file:="$NAV2_PARAMS_FILE"
   obstacle_scan:="$SCAN_OBSTACLES"
-  start_dynamic_obstacles:="$(if [[ "$TEST_SCAN_ONLY" == true ]]; then echo false; else echo true; fi)"
+  start_dynamic_obstacles:="$(if [[ "$TEST_SCAN_ONLY" == true || "$TEST_RECOVERY" == true ]]; then echo false; else echo true; fi)"
   start_d455:="$(if [[ "$ODOM_SOURCE" == cuvslam ]]; then echo true; else echo false; fi)" start_chassis:=true start_nav2:=true start_navigation_servers:=true
   start_state_estimation:=true use_d455_imu:=false use_chassis_imu:=true
   odom_source:="$ODOM_SOURCE" cuvslam_statistics_path:="$NAV_RUN_DIR/cuvslam_statistics.json"

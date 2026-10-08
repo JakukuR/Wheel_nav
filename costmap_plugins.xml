@@ -1,0 +1,5 @@
+<library path="wla_timed_obstacle_layer">
+  <class name="wla_r680_navigation::TimedObstacleLayer" type="wla_r680_navigation::TimedObstacleLayer" base_class_type="nav2_costmap_2d::Layer">
+    <description>Confirmed global obstacles with bounded TTL and static-map preservation.</description>
+  </class>
+</library>
