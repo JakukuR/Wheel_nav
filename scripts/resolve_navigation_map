@@ -17,7 +17,16 @@ def main():
                         help='Map directory name; defaults to storage.yaml active_map.')
     args = parser.parse_args()
     storage = load_storage_config(args.storage_config)
-    print(json.dumps(resolve_navigation_map(storage, args.selection), indent=2))
+    try:
+        result = resolve_navigation_map(storage, args.selection)
+    except (ValueError, OSError) as exc:
+        message = str(exc)
+        if message == 'navigation map checksum mismatch: map.pgm':
+            message += ('\nIf map.pgm was intentionally edited, validate and accept it with:\n'
+                        '  ros2 run wla_r680_navigation accept_navigation_map_edit '
+                        '--map <map-name> --reason <edit-description>')
+        parser.exit(1, message+'\n')
+    print(json.dumps(result, indent=2))
 
 
 if __name__ == '__main__':

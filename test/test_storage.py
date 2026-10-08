@@ -7,7 +7,8 @@ import pytest
 import yaml
 
 from wla_r680_navigation_py.storage import (
-    load_storage_config, publish_navigation_map, resolve_navigation_map)
+    accept_navigation_map_edit, load_storage_config, publish_navigation_map,
+    resolve_navigation_map, _pgm_geometry)
 
 
 def make_archive(path):
@@ -70,6 +71,57 @@ def test_checksum_rejects_modified_navigation_file(tmp_path):
     (published/'map.pgm').write_bytes(b'changed')
     with pytest.raises(ValueError, match='checksum mismatch'):
         resolve_navigation_map(settings, published.name)
+
+
+def test_accept_intentional_pgm_edit_keeps_geometry_and_backups(tmp_path):
+    archive = tmp_path/'archive'
+    make_archive(archive)
+    settings = storage(tmp_path)
+    published = publish_navigation_map(archive, settings, 'run-a')
+    before = (published/'manifest.json').read_bytes()
+    edited = b'P5\n# Created by GIMP\n2 2\n255\n\xfe\xfe\xcd\xfe'
+    (published/'map.pgm').write_bytes(edited)
+    result = accept_navigation_map_edit(settings, published.name, 'Remove confirmed noise')
+    assert result['changed']
+    backup = Path(result['backup'])
+    assert (backup/'manifest.before.json').read_bytes() == before
+    assert (backup/'map.accepted.pgm').read_bytes() == edited
+    assert (archive/'map.pgm').read_bytes() != edited
+    assert resolve_navigation_map(settings, published.name)['map_id'] == published.name
+    assert not accept_navigation_map_edit(settings, published.name, 'No new edits')['changed']
+
+
+@pytest.mark.parametrize('damage', ['dimensions', 'truncated', 'db', 'yaml', 'metadata'])
+def test_edit_acceptance_rejects_invalid_bundle_without_writing(tmp_path, damage):
+    archive = tmp_path/'archive'
+    make_archive(archive)
+    settings = storage(tmp_path)
+    published = publish_navigation_map(archive, settings, 'run-a')
+    (published/'map.pgm').write_bytes(b'P5\n2 2\n255\n\xfe\xfe\xcd\xfe')
+    if damage == 'dimensions':
+        (published/'map.pgm').write_bytes(b'P5\n1 4\n255\n\xfe\xfe\xcd\xfe')
+    elif damage == 'truncated':
+        (published/'map.pgm').write_bytes(b'P5\n2 2\n255\n\xfe')
+    else:
+        name = {'db': 'rtabmap.db', 'yaml': 'map.yaml', 'metadata': 'map_info.json'}[damage]
+        with (published/name).open('ab') as stream:
+            stream.write(b' ')
+    before = (published/'manifest.json').read_bytes()
+    with pytest.raises(ValueError):
+        accept_navigation_map_edit(settings, published.name, 'Test')
+    assert (published/'manifest.json').read_bytes() == before
+    assert not list(published.glob('map-edit-*'))
+
+
+@pytest.mark.parametrize('selection,reason', [('latest', 'Test'), (None, 'Test'), ('map-2026-10-08-1', ' ')])
+def test_edit_acceptance_requires_explicit_selection_and_reason(tmp_path, selection, reason):
+    with pytest.raises(ValueError):
+        accept_navigation_map_edit(storage(tmp_path), selection, reason)
+
+
+def test_pgm_parser_does_not_strip_whitespace_valued_pixels():
+    assert _pgm_geometry(b'P5\n2 2\n255\n\n\t\r ') == (2, 2)
+    assert _pgm_geometry(b'P5\r\n2 2\r\n255\r\n\n\t\r ') == (2, 2)
 
 
 def test_publish_preserves_mapping_semantics_and_home(tmp_path):

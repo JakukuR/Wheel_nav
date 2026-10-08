@@ -54,7 +54,8 @@ install(PROGRAMS scripts/navigation_goal_bridge scripts/web_gateway scripts/furn
   DESTINATION lib/${PROJECT_NAME})
 install(PROGRAMS scripts/mapping_mission scripts/prepare_mapping_run scripts/save_manual_map
   scripts/r680_nav.sh scripts/wait_mapping_ready
-  scripts/resolve_navigation_map scripts/r680_mapping.sh DESTINATION lib/${PROJECT_NAME})
+  scripts/resolve_navigation_map scripts/accept_navigation_map_edit
+  scripts/r680_mapping.sh DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY config launch docs web DESTINATION share/${PROJECT_NAME}
   PATTERN "__pycache__" EXCLUDE PATTERN "*.pyc" EXCLUDE)
 install(FILES README.md DESTINATION share/${PROJECT_NAME})
