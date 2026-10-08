@@ -1,6 +1,7 @@
 #include "wla_diff_mpc/qp.hpp"
 #include "wla_diff_mpc/reference.hpp"
 #include "wla_diff_mpc/solver.hpp"
+#include "wla_diff_mpc/obstacle_braking.hpp"
 
 #include <nav2_core/controller.hpp>
 #if __has_include(<nav2_core/controller_exceptions.hpp>)
@@ -81,6 +82,13 @@ public:
     final_align_exit_ = number("final_align_exit_distance", 0.28);
     final_align_wz_max_ = number("final_align_wz_max", 0.22);
     turn_time_constant_ = number("turn_time_constant", 0.65);
+    braking_deceleration_ = number("obstacle_braking_deceleration", 0.4);
+    reaction_time_ = number("obstacle_reaction_time", 0.7);
+    stop_margin_ = number("obstacle_stop_margin", 0.10);
+    retry_scale_ = number("collision_retry_speed_scale", 0.5);
+    if (!std::isfinite(braking_deceleration_+reaction_time_+stop_margin_+retry_scale_) ||
+        braking_deceleration_<=0 || reaction_time_<0 || stop_margin_<0 || retry_scale_<=0 || retry_scale_>=1)
+      throw ControlError("invalid obstacle braking configuration");
     if (settings_.horizon < 2 || settings_.horizon > 80 || settings_.dt <= 0.0 ||
         settings_.dt > 0.5 || settings_.u_max[0] <= 0.0 || settings_.u_min[0] >= settings_.u_max[0] ||
         settings_.u_max[1] <= 0.0 || solve_limit_ <= 0.0 ||
@@ -158,8 +166,52 @@ public:
       reference = samplePath(local_plan, current, active.horizon, active.dt,
         active.u_max[0], active.u_max[1], turn_time_constant_);
     }
-    const auto problem = makeProblem(active, current, previous_command_, reference);
-    const auto result = solve(problem, reference, solve_limit_);
+    std::unique_lock<nav2_costmap_2d::Costmap2D::mutex_t> map_lock(*costmap_->getMutex());
+    nav2_costmap_2d::FootprintCollisionChecker<nav2_costmap_2d::Costmap2D *> checker(costmap_);
+    const auto footprint = costmap_ros_->getRobotFootprint();
+    auto blocked=[&](const State & s) {
+      const double cost=checker.footprintCostAtPose(s[0],s[1],s[2],footprint);
+      if (cost<0 || cost>=nav2_costmap_2d::LETHAL_OBSTACLE) return true;
+      // Also test interior cell centers: the Nav2 checker primarily samples edges.
+      std::vector<std::pair<double,double>> polygon;
+      double minx=1e9,miny=1e9,maxx=-1e9,maxy=-1e9;
+      for (const auto & p:footprint) {
+        const double x=s[0]+std::cos(s[2])*p.x-std::sin(s[2])*p.y;
+        const double y=s[1]+std::sin(s[2])*p.x+std::cos(s[2])*p.y;
+        polygon.emplace_back(x,y);minx=std::min(minx,x);maxx=std::max(maxx,x);
+        miny=std::min(miny,y);maxy=std::max(maxy,y);
+      }
+      unsigned int x0,y0,x1,y1;
+      if (polygon.size()<3 || !costmap_->worldToMap(minx,miny,x0,y0) ||
+          !costmap_->worldToMap(maxx,maxy,x1,y1)) return true;
+      for (unsigned int y=y0;y<=y1;++y) for (unsigned int x=x0;x<=x1;++x) {
+        if (costmap_->getCost(x,y)<nav2_costmap_2d::LETHAL_OBSTACLE) continue;
+        double wx,wy;costmap_->mapToWorld(x,y,wx,wy);bool inside=false;
+        for (size_t i=0,j=polygon.size()-1;i<polygon.size();j=i++) {
+          const auto & a=polygon[i];const auto & b=polygon[j];
+          if ((a.second>wy)!=(b.second>wy) && wx<(b.first-a.first)*(wy-a.second)/(b.second-a.second)+a.first)
+            inside=!inside;
+        }
+        if (inside) return true;
+      }
+      return false;
+    };
+    const double obstacle_distance=collisionDistance(reference.states,costmap_->getResolution(),blocked);
+    if (std::isfinite(obstacle_distance) && !final_alignment_) {
+      const double cap=brakingSpeed(obstacle_distance,braking_deceleration_,reaction_time_,stop_margin_);
+      if (cap<0.01) {
+        previous_command_.setZero();
+        throw RetryableControlError("MPC reference blocked inside stopping margin; waiting for global replan");
+      }
+      if (cap<active.u_max[0]) {
+        active.u_max[0]=cap; active.u_min[0]=std::max(active.u_min[0],-cap);
+        reference=samplePath(local_plan,current,active.horizon,active.dt,cap,active.u_max[1],turn_time_constant_);
+        RCLCPP_WARN_THROTTLE(node_->get_logger(),*node_->get_clock(),2000,
+          "MPC obstacle braking: collision distance=%.3fm speed cap=%.3fm/s",obstacle_distance,cap);
+      }
+    }
+    auto problem = makeProblem(active, current, previous_command_, reference);
+    auto result = solve(problem, reference, solve_limit_);
     if (!result.valid || result.solve_seconds > solve_limit_) {
       const double previous_v = previous_command_[0];
       previous_command_.setZero();  // Nav2 publishes zero for NoValidControl.
@@ -174,39 +226,30 @@ public:
       previous_command_.setZero();
       throw RetryableControlError("MPC matrix build and solve exceeded cycle budget");
     }
-    nav_msgs::msg::Path prediction;
-    prediction.header = pose.header;
-    for (int k = 0; k <= active.horizon; ++k) {
-      const State predicted = reference.states[k] +
-        result.decision.segment<3>(problem.stateIndex(k));
-      if (!predicted.allFinite()) throw ControlError("MPC nonfinite prediction");
-      geometry_msgs::msg::PoseStamped point;
-      point.header = prediction.header;
-      point.pose.position.x = predicted[0];
-      point.pose.position.y = predicted[1];
-      tf2::Quaternion q;
-      q.setRPY(0.0, 0.0, predicted[2]);
-      point.pose.orientation = tf2::toMsg(q);
-      prediction.poses.push_back(point);
+    auto predicted=nonlinearPrediction(current,reference,problem,result.decision,active.dt);
+    auto safe=[&](){return !std::isfinite(collisionDistance(predicted,costmap_->getResolution(),blocked));};
+    if (!safe() && !final_alignment_) {
+      const double remaining=cycle_limit_-std::chrono::duration<double>(std::chrono::steady_clock::now()-cycle_start).count()-0.003;
+      if (remaining>0.003) {
+        active.u_max[0]*=retry_scale_; active.u_min[0]=std::max(active.u_min[0],-active.u_max[0]);
+        reference=samplePath(local_plan,current,active.horizon,active.dt,active.u_max[0],active.u_max[1],turn_time_constant_);
+        problem=makeProblem(active,current,previous_command_,reference);
+        result=solve(problem,reference,std::min(solve_limit_,remaining));
+        if (result.valid) predicted=nonlinearPrediction(current,reference,problem,result.decision,active.dt);
+      } else result.valid=false;
     }
-    // This QP tracks a collision-free reference; it does not optimize obstacle
-    // constraints. Reject any predicted footprint that enters lethal/unknown space.
-    {
-      std::unique_lock<nav2_costmap_2d::Costmap2D::mutex_t> lock(*costmap_->getMutex());
-      nav2_costmap_2d::FootprintCollisionChecker<nav2_costmap_2d::Costmap2D *> checker(costmap_);
-      const auto footprint = costmap_ros_->getRobotFootprint();
-      for (size_t k = 1; k < prediction.poses.size(); ++k) {
-        const auto & p = prediction.poses[k].pose;
-        const double cost = checker.footprintCostAtPose(p.position.x, p.position.y,
-          tf2::getYaw(p.orientation), footprint);
-        if (cost < 0.0 || cost >= nav2_costmap_2d::LETHAL_OBSTACLE) {
-          previous_command_.setZero();
-          throw RetryableControlError("MPC predicted footprint is blocked: step=" +
-            std::to_string(k) + ", x=" + std::to_string(p.position.x) +
-            ", y=" + std::to_string(p.position.y) +
-            ", cost=" + std::to_string(cost));
-        }
-      }
+    if (!result.valid || !safe() ||
+        std::chrono::duration<double>(std::chrono::steady_clock::now()-cycle_start).count()>cycle_limit_) {
+      previous_command_.setZero();
+      throw RetryableControlError("MPC collision/budget rejection after bounded braking retry; waiting for global replan");
+    }
+    map_lock.unlock();
+    nav_msgs::msg::Path prediction; prediction.header=pose.header;
+    for (const auto & p:predicted) {
+      geometry_msgs::msg::PoseStamped point;point.header=pose.header;
+      point.pose.position.x=p[0];point.pose.position.y=p[1];
+      tf2::Quaternion q;q.setRPY(0,0,p[2]);point.pose.orientation=tf2::toMsg(q);
+      prediction.poses.push_back(point);
     }
     geometry_msgs::msg::TwistStamped command;
     command.header.stamp = node_->now();
@@ -242,6 +285,7 @@ private:
   double final_align_exit_ = 0.28;
   double final_align_wz_max_ = 0.22;
   double turn_time_constant_ = 0.65;
+  double braking_deceleration_{0.4},reaction_time_{0.7},stop_margin_{0.1},retry_scale_{0.5};
   bool final_alignment_ = false;
   std::string name_;
 };
