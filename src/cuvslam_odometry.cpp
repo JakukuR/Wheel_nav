@@ -11,6 +11,8 @@
 #include <memory>
 #include <mutex>
 #include <numeric>
+#include <sstream>
+#include <unistd.h>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -28,6 +30,7 @@
 #include "std_msgs/msg/bool.hpp"
 #include "tf2_ros/transform_broadcaster.h"
 #include "odometry_contract.hpp"
+#include "health_evidence.hpp"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
 
@@ -98,6 +101,9 @@ public:
     odom_ = declare_parameter<std::string>("odom_frame", "d455_floor_odom");
     expected_imu_frame_ = declare_parameter<std::string>("expected_imu_frame", "gyro_link");
     statistics_path_ = declare_parameter<std::string>("statistics_path", "/tmp/cuvslam_validation_statistics.json");
+    diagnostics_path_ = declare_parameter<std::string>("health_diagnostics_path", "");
+    if (diagnostics_path_.empty()) diagnostics_path_=(std::filesystem::path(statistics_path_).parent_path()/
+      ("vio_health-"+std::to_string(::getpid())+".jsonl")).string();
     frequency_ = declare_parameter<double>("imu_frequency", 200.0);
     gyro_noise_ = declare_parameter<double>("gyro_noise_density", 0.000079);
     gyro_walk_ = declare_parameter<double>("gyro_random_walk", 0.00002);
@@ -205,12 +211,60 @@ public:
   }
 
 private:
+  static std::string jsonString(const std::string & value)
+  {
+    std::string out="\"";
+    for (unsigned char c:value) {
+      if (c=='"' || c=='\\') {out+='\\';out+=static_cast<char>(c);}
+      else if (c=='\n') out+="\\n";
+      else if (c=='\r') out+="\\r";
+      else if (c=='\t') out+="\\t";
+      else if (c<0x20) out+='?';
+      else out+=static_cast<char>(c);
+    }
+    return out+'"';
+  }
+
+  // Transitions are immediate; repeated evidence is capped at 1 Hz. A PID file
+  // preserves each respawn's evidence rather than overwriting the last run.
+  void diagnostic(const std::string & reason,const std::string & details="",bool force=false)
+  {
+    const auto now=std::chrono::steady_clock::now();
+    if (!force && reason==last_diagnostic_reason_ &&
+        std::chrono::duration<double>(now-last_diagnostic_time_).count()<1.0) return;
+    const bool changed=reason!=last_diagnostic_reason_;
+    last_diagnostic_reason_=reason;last_diagnostic_time_=now;
+    ++diagnostic_events_;
+    const std::string evidence=details.empty() ? "{}" : details;
+    if (reason!="tracking_inertial_ready" || changed || force)
+      RCLCPP_WARN(get_logger(),"VIO diagnostic reason=%s evidence=%s",reason.c_str(),evidence.c_str());
+    try {
+      const auto path=std::filesystem::path(diagnostics_path_);
+      if (!path.parent_path().empty()) std::filesystem::create_directories(path.parent_path());
+      std::ofstream out(path,std::ios::app);
+      if (!out) throw std::runtime_error("cannot append diagnostic file");
+      out<<"{\"ros_stamp_ns\":"<<get_clock()->now().nanoseconds()<<",\"pid\":"<<::getpid()
+        <<",\"frame_stamp_ns\":"<<last_call_stamp_<<",\"reason\":"<<jsonString(reason)
+        <<",\"tracked_frames\":"<<tracked_frames_<<",\"published_frames\":"<<published_frames_
+        <<",\"registered_imu\":"<<registered_imu_<<",\"observations\":"<<last_observations_
+        <<",\"warming_up\":"<<(last_warming_up_ ? "true" : "false")
+        <<",\"evidence\":"<<evidence<<"}\n";
+      out.flush();if(!out)throw std::runtime_error("diagnostic write failed");
+    } catch (const std::exception & error) {
+      RCLCPP_WARN_THROTTLE(get_logger(),*get_clock(),5000,"VIO diagnostic persistence failed: %s",error.what());
+    }
+  }
+
   void status(const std::string & state)
   {
+    diagnostic(state);
     std_msgs::msg::Bool health;
     health.data = state == "tracking_inertial_ready";
     health_pub_->publish(health);
-    if (!health.data) initialization_gate_.update(false, get_clock()->now().seconds(), initialization_stable_s_);
+    if (!health.data) {
+      last_gate_stamp_s_=get_clock()->now().seconds();
+      initialization_gate_.update(false,last_gate_stamp_s_,initialization_stable_s_);
+    }
     std_msgs::msg::String msg;
     msg.data = state;
     status_pub_->publish(msg);
@@ -335,7 +389,13 @@ private:
           }
           if (last_registered_imu_ == 0 || frame_stamp - last_registered_imu_ > max_imu_gap_ns_) { imu_gap = true; }
         }
-        if (imu_gap) { ++imu_gap_frames_; status("imu_gap_no_output"); continue; }
+        if (imu_gap) {
+          ++imu_gap_frames_;
+          diagnostic("imu_gap_no_output","{\"frame_stamp_ns\":"+std::to_string(frame_stamp)+
+            ",\"last_registered_imu_ns\":"+std::to_string(last_registered_imu_)+
+            ",\"max_imu_gap_ns\":"+std::to_string(max_imu_gap_ns_)+"}");
+          status("imu_gap_no_output"); continue;
+        }
         cuvslam::Odometry::ImageSet images;
         for (size_t i = 0; i < 2; ++i) {
           if (pair[i]->width != infos[i]->width || pair[i]->height != infos[i]->height) {
@@ -366,6 +426,8 @@ private:
         if (initialization_diagnostics_) {
           cuvslam::Odometry::State sdk_state;
           tracker_->GetState(sdk_state);
+          last_observations_=static_cast<int64_t>(sdk_state.observations.size());
+          last_warming_up_=sdk_state.warming_up;
           if (sdk_state.keyframe && estimate.world_from_rig) {
             ++keyframes_; keyframe_stamps_.push_back(frame_stamp);
           }
@@ -397,6 +459,13 @@ private:
           if (dt <= 0 || (position - previous_position_).norm() > max_pose_speed_ * dt ||
               previous_rotation_.angularDistance(rotation) > max_pose_angular_speed_ * dt) {
             ++invalid_poses_;
+            std::ostringstream evidence; evidence<<std::setprecision(12)
+              <<"{\"dt_s\":"<<dt<<",\"translation_m\":"<<(position-previous_position_).norm()
+              <<",\"rotation_rad\":"<<previous_rotation_.angularDistance(rotation)
+              <<",\"max_linear_mps\":"<<max_pose_speed_<<",\"max_angular_radps\":"<<max_pose_angular_speed_
+              <<",\"previous_position\":["<<previous_position_.x()<<','<<previous_position_.y()<<','<<previous_position_.z()
+              <<"],\"position\":["<<position.x()<<','<<position.y()<<','<<position.z()<<"]}";
+            diagnostic("pose_motion_bounds",evidence.str(),true);
             status("implausible_pose_halted_no_output");
             throw std::runtime_error("estimated pose exceeds navigation motion bounds");
           }
@@ -414,15 +483,22 @@ private:
         previous_pose_stamp_ = estimate.timestamp_ns;
         have_previous_pose_ = true;
         bool inertial_valid = false;
+        wla_vio::HealthEvidence health_evidence;
+        health_evidence.velocity_valid=velocity_valid;
+        double gravity_norm=-1,gyro_norm=-1,accel_norm=-1;
         if (use_imu_) {
           bool gravity_valid = false, bias_valid = false;
           if (auto gravity = tracker_->GetLastGravity()) {
+            health_evidence.gravity_available=true;
             ++gravity_frames_;
             last_gravity_ = *gravity;
             const Eigen::Vector3d g((*gravity)[0], (*gravity)[1], (*gravity)[2]);
             gravity_valid = g.allFinite() && g.norm() >= 8.0 && g.norm() <= 11.5;
+            gravity_norm=g.allFinite() ? g.norm() : -1;
+            health_evidence.gravity_valid=gravity_valid;
           }
           if (auto imu = tracker_->GetImuState()) {
+            health_evidence.imu_available=true;
             ++imu_state_frames_;
             last_gyro_bias_ = imu->gyro_bias;
             last_accel_bias_ = imu->acc_bias;
@@ -430,6 +506,10 @@ private:
             const Eigen::Vector3d accel(imu->acc_bias[0], imu->acc_bias[1], imu->acc_bias[2]);
             bias_valid = gyro.allFinite() && accel.allFinite() &&
               gyro.norm() <= max_gyro_bias_ && accel.norm() <= max_accel_bias_;
+            gyro_norm=gyro.allFinite() ? gyro.norm() : -1;
+            accel_norm=accel.allFinite() ? accel.norm() : -1;
+            health_evidence.gyro_bias_valid=gyro.allFinite() && gyro_norm<=max_gyro_bias_;
+            health_evidence.accel_bias_valid=accel.allFinite() && accel_norm<=max_accel_bias_;
           }
           inertial_valid = gravity_valid && bias_valid;
         }
@@ -459,6 +539,9 @@ private:
             std::max(i < 3 ? 0.0025 : 0.01, 2.0 * message.pose.covariance[i * 7] / (velocity_dt * velocity_dt));
         }
         if ((get_clock()->now().nanoseconds() - frame_stamp) > max_age_ns_) {
+          diagnostic("stale_estimate_no_output","{\"age_ns\":"+
+            std::to_string(get_clock()->now().nanoseconds()-frame_stamp)+
+            ",\"max_age_ns\":"+std::to_string(max_age_ns_)+"}");
           status("stale_estimate_no_output"); continue;
         }
         pub_->publish(message);
@@ -472,8 +555,30 @@ private:
           tf.transform.rotation = message.pose.pose.orientation;
           broadcaster_->sendTransform(tf);
         }
+        const double gate_stamp_s=estimate.timestamp_ns * 1e-9;
+        const double gate_dt_s=last_gate_stamp_s_<0 ? -1 : gate_stamp_s-last_gate_stamp_s_;
+        const bool gate_stamp_gap=last_gate_stamp_s_>=0 && (gate_dt_s<=0 || gate_dt_s>0.2);
         const bool ready = initialization_gate_.update(inertial_valid && velocity_valid,
-          estimate.timestamp_ns * 1e-9, initialization_stable_s_);
+          gate_stamp_s, initialization_stable_s_);
+        last_gate_stamp_s_=gate_stamp_s;
+        const auto health_reason=health_evidence.reason(ready);
+        std::ostringstream health_details;health_details<<std::setprecision(12)
+          <<"{\"ready\":"<<(ready ? "true" : "false")
+          <<",\"gravity_available\":"<<(health_evidence.gravity_available ? "true" : "false")
+          <<",\"gravity_valid\":"<<(health_evidence.gravity_valid ? "true" : "false")
+          <<",\"gravity_norm\":"<<gravity_norm
+          <<",\"imu_state_available\":"<<(health_evidence.imu_available ? "true" : "false")
+          <<",\"gyro_bias_valid\":"<<(health_evidence.gyro_bias_valid ? "true" : "false")
+          <<",\"accel_bias_valid\":"<<(health_evidence.accel_bias_valid ? "true" : "false")
+          <<",\"gyro_bias_norm\":"<<gyro_norm<<",\"accel_bias_norm\":"<<accel_norm
+          <<",\"max_gyro_bias\":"<<max_gyro_bias_<<",\"max_accel_bias\":"<<max_accel_bias_
+          <<",\"velocity_valid\":"<<(velocity_valid ? "true" : "false")
+          <<",\"velocity_dt_s\":"<<velocity_dt
+          <<",\"gate_stamp_dt_s\":"<<gate_dt_s
+          <<",\"gate_stamp_gap\":"<<(gate_stamp_gap ? "true" : "false")
+          <<",\"required_stable_s\":"<<initialization_stable_s_
+          <<",\"estimate_age_ms\":"<<(get_clock()->now().nanoseconds()-frame_stamp)*1e-6<<"}";
+        diagnostic(health_reason,health_details.str());
         // False during initialization, loss, invalid bias, gaps and stale frames.
         std_msgs::msg::Bool health;
         health.data = ready;
@@ -520,6 +625,9 @@ private:
     std::ofstream out(temporary);
     if (!out) {throw std::runtime_error("cannot open cuVSLAM statistics: " + temporary);}
     out << std::setprecision(9) << "{\n"
+      << "  \"health_diagnostics_path\": "<<jsonString(diagnostics_path_)<<",\n"
+      << "  \"last_health_reason\": "<<jsonString(last_diagnostic_reason_)<<",\n"
+      << "  \"health_diagnostic_events\": "<<diagnostic_events_<<",\n"
       << "  \"validation_only\": false,\n  \"calibration_provisional\": true,\n"
       << "  \"mode\": \"" << (use_imu_ ? "Inertial" : "Multicamera") << "\",\n"
       << "  \"inertial_initialized\": " << (gravity_frames_ > 0 ? "true" : "false") << ",\n"
@@ -575,6 +683,12 @@ private:
   Eigen::Quaterniond previous_rotation_{Eigen::Quaterniond::Identity()};
   std::atomic<bool> stopped_{false};
   std::string base_, camera_link_, odom_, expected_imu_frame_, statistics_path_, fault_;
+  std::string diagnostics_path_,last_diagnostic_reason_;
+  std::chrono::steady_clock::time_point last_diagnostic_time_{};
+  size_t diagnostic_events_{};
+  double last_gate_stamp_s_{-1};
+  int64_t last_observations_{-1};
+  bool last_warming_up_{false};
   double frequency_{}, gyro_noise_{}, gyro_walk_{}, accel_noise_{}, accel_walk_{}, max_displacement_{};
   int depth_{}, image_decimation_{};
   size_t paired_frames_{}, decimated_frames_{};
