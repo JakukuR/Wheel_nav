@@ -6,6 +6,7 @@
 #include <condition_variable>
 #include <deque>
 #include <fstream>
+#include <filesystem>
 #include <iomanip>
 #include <memory>
 #include <mutex>
@@ -16,6 +17,8 @@
 #include <vector>
 #include <Eigen/Geometry>
 #include "cuvslam2.h"
+#include "cuvslam2_internal.h"
+#include "initialization_sampling.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/image.hpp"
 #include "sensor_msgs/msg/camera_info.hpp"
@@ -74,6 +77,9 @@ public:
     async_sba_ = declare_parameter<bool>("async_sba", false);
     publish_tf_ = declare_parameter<bool>("publish_tf", true);
     initialization_stable_s_ = declare_parameter<double>("initialization_stable_s", 2.0);
+    initialization_diagnostics_ = declare_parameter<bool>("initialization_diagnostics", false);
+    initialization_sampling_ = std::make_unique<wla_vio::InitializationSampling>(
+      declare_parameter<double>("initialization_keyframe_period_s", 0.0));
     twist_filter_tau_s_ = declare_parameter<double>("twist_filter_tau_s", 0.08);
     max_gyro_bias_ = declare_parameter<double>("max_gyro_bias_radps", 0.25);
     max_accel_bias_ = declare_parameter<double>("max_accel_bias_mps2", 3.0);
@@ -259,6 +265,7 @@ private:
     config.use_gpu = true;
     config.rectified_stereo_camera = true;
     config.async_sba = async_sba_;
+    config.enable_observations_export = initialization_diagnostics_;
     cuvslam::WarmUpGPU();
     tracker_ = std::make_unique<cuvslam::Odometry>(rig, config);
     RCLCPP_INFO(get_logger(), "cuVSLAM %s initialized: mode=%s baseline=%.6fm IMU=%.2fHz; mount=[%.5f %.5f %.5f]",
@@ -347,12 +354,25 @@ private:
           images.push_back(image);
         }
         const auto start = std::chrono::steady_clock::now();
-        const auto estimate = tracker_->Track(images);
+        cuvslam::internal::Internals frame_options;
+        const bool force_keyframe = initialization_sampling_->request(frame_stamp, gravity_frames_ > 0);
+        if (force_keyframe) {frame_options.kf_override_frame_selection = true; ++requested_init_keyframes_;}
+        const auto estimate = tracker_->Track(images, {}, {}, force_keyframe ? &frame_options : nullptr);
         const auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
         if (tracked_frames_ == 0) { first_track_time_ = start; }
         last_track_time_ = std::chrono::steady_clock::now();
         last_call_stamp_ = frame_stamp;
         ++tracked_frames_;
+        if (initialization_diagnostics_) {
+          cuvslam::Odometry::State sdk_state;
+          tracker_->GetState(sdk_state);
+          if (sdk_state.keyframe && estimate.world_from_rig) {
+            ++keyframes_; keyframe_stamps_.push_back(frame_stamp);
+          }
+          while (!keyframe_stamps_.empty() && frame_stamp - keyframe_stamps_.front() > 25000000000LL) {
+            keyframe_stamps_.pop_front();
+          }
+        }
         track_ms_.push_back(elapsed);
         if (track_ms_.size() > 4096) track_ms_.erase(track_ms_.begin(), track_ms_.begin() + 2048);
         if (!estimate.world_from_rig) { ++lost_frames_; status("tracking_lost_no_output"); continue; }
@@ -469,8 +489,9 @@ private:
         max_displacement_ = std::max(max_displacement_, (position - first_position_).norm());
         final_position_ = position;
         if (published_frames_ % 30 == 0) {
-          RCLCPP_INFO(get_logger(), "frames=%zu lost=%zu track=%.2fms age=%.2fms IMU=%zu gravity=%zu imu_state=%zu displacement=%.4fm",
-            published_frames_, lost_frames_, elapsed, latency_ms_.back(), registered_imu_, gravity_frames_, imu_state_frames_, max_displacement_);
+          RCLCPP_INFO(get_logger(), "frames=%zu lost=%zu track=%.2fms age=%.2fms IMU=%zu gravity=%zu imu_state=%zu keyframes=%zu recent_keyframes=%zu displacement=%.4fm",
+            published_frames_, lost_frames_, elapsed, latency_ms_.back(), registered_imu_, gravity_frames_, imu_state_frames_, keyframes_, keyframe_stamps_.size(), max_displacement_);
+          write_statistics();
         }
       }
     } catch (const std::exception & ex) {
@@ -489,15 +510,23 @@ private:
     return values[static_cast<size_t>((values.size() - 1) * fraction)];
   }
 
-  void write_statistics()
+  void write_statistics() noexcept
   {
+    try {
     std::lock_guard<std::mutex> lock(mutex_);
-    std::ofstream out(statistics_path_);
+    const auto path = std::filesystem::path(statistics_path_);
+    if (!path.parent_path().empty()) std::filesystem::create_directories(path.parent_path());
+    const auto temporary = statistics_path_ + ".tmp";
+    std::ofstream out(temporary);
+    if (!out) {throw std::runtime_error("cannot open cuVSLAM statistics: " + temporary);}
     out << std::setprecision(9) << "{\n"
       << "  \"validation_only\": false,\n  \"calibration_provisional\": true,\n"
       << "  \"mode\": \"" << (use_imu_ ? "Inertial" : "Multicamera") << "\",\n"
       << "  \"inertial_initialized\": " << (gravity_frames_ > 0 ? "true" : "false") << ",\n"
       << "  \"inertial_ready_frames\": " << ready_frames_ << ",\n"
+      << "  \"keyframes\": " << keyframes_ << ",\n"
+      << "  \"recent_keyframes\": " << keyframe_stamps_.size() << ",\n"
+      << "  \"requested_initialization_keyframes\": " << requested_init_keyframes_ << ",\n"
       << "  \"image_decimation\": " << image_decimation_ << ",\n"
       << "  \"decimated_frames\": " << decimated_frames_ << ",\n"
       << "  \"faulted\": " << (fault_.empty() ? "false" : "true") << ",\n"
@@ -521,6 +550,12 @@ private:
       << "  \"last_gyro_bias\": [" << last_gyro_bias_[0] << ", " << last_gyro_bias_[1] << ", " << last_gyro_bias_[2] << "],\n"
       << "  \"last_accel_bias\": [" << last_accel_bias_[0] << ", " << last_accel_bias_[1] << ", " << last_accel_bias_[2] << "],\n"
       << "  \"final_position\": [" << final_position_.x() << ", " << final_position_.y() << ", " << final_position_.z() << "]\n}\n";
+    out.close();
+    if (!out) {throw std::runtime_error("cannot write cuVSLAM statistics: " + temporary);}
+    std::filesystem::rename(temporary, path);
+    } catch (const std::exception & ex) {
+      RCLCPP_ERROR(get_logger(), "cannot save frontend statistics: %s", ex.what());
+    }
   }
 
   bool use_imu_{}, async_sba_{}, have_first_pose_{}, have_previous_pose_{};
@@ -528,6 +563,10 @@ private:
   double initialization_stable_s_{}, twist_filter_tau_s_{}, max_gyro_bias_{}, max_accel_bias_{};
   Eigen::Vector3d filtered_linear_{Eigen::Vector3d::Zero()}, filtered_angular_{Eigen::Vector3d::Zero()};
   wla_vio::InitializationGate initialization_gate_;
+  bool initialization_diagnostics_{false};
+  std::unique_ptr<wla_vio::InitializationSampling> initialization_sampling_;
+  size_t keyframes_{0}, requested_init_keyframes_{0};
+  std::deque<int64_t> keyframe_stamps_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> broadcaster_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr health_pub_;
   double max_pose_speed_{}, max_pose_angular_speed_{};
