@@ -38,6 +38,11 @@ cuvslam_odometry:
     image_decimation: 1
     # Include SDK inertia initialization state in the validation log.
     verbosity: 3
+    # Record SDK keyframes during commissioning; thresholds are not changed.
+    initialization_diagnostics: true
+    # Genuine image keyframes during startup; revert to automatic selection once SDK gravity exists.
+    # 0 disables this trial policy. SDK's 20-keyframe/2s initialization checks remain unchanged.
+    initialization_keyframe_period_s: 0.25
     statistics_path: /tmp/cuvslam_navigation_statistics.json
     publish_tf: true
     # Engineering trial thresholds, not a substitute for extrinsic/noise calibration.

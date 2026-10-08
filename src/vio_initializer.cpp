@@ -253,6 +253,8 @@ private:
         << ",\n  \"requested_motion\": " << (ever_moved_ ? "true" : "false")
         << ",\n  \"wheel_travel_m\": " << travel_ << ",\n  \"radius_m\": " << radius_
         << ",\n  \"depth_valid_ratio\": " << depth_ratio_ << ",\n  \"imu_rate_hz\": " << imu_rate_
+        << ",\n  \"inertial_ready\": " << (last_inputs_.inertial ? "true" : "false")
+        << ",\n  \"mapping_or_localization_ready\": " << (last_inputs_.localized ? "true" : "false")
         << std::boolalpha << ",\n  \"gates\": {\n"
         << "    \"sensors_ready\": " << last_inputs_.sensors
         << ",\n    \"safety_lifecycle_active\": " << last_inputs_.services

@@ -134,6 +134,7 @@ def generate_launch_description():
         respawn=True, respawn_delay=2.0, condition=IfCondition(cuvslam_enabled),
         parameters=[RewrittenYaml(
             source_file=LaunchConfiguration('cuvslam_params_file'),
+            root_key='d455_vio',
             param_rewrites={
                 'imu_topic': chassis_imu_topic, 'wheel_odom_topic': chassis_odom_topic,
                 'statistics_path': LaunchConfiguration('cuvslam_statistics_path'),

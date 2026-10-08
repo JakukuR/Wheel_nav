@@ -18,7 +18,8 @@ def init_diagnostics(run_dir):
     try:
         data = json.loads((run_dir/'vio_init.json').read_text())
         return {key: data[key] for key in ['reason', 'input_blocker', 'blocking_point_count',
-                'blocking_cloud_fresh', 'first_blocking_point_xyz'] if key in data}
+                'blocking_cloud_fresh', 'first_blocking_point_xyz', 'inertial_ready',
+                'mapping_or_localization_ready'] if key in data}
     except (OSError, ValueError, TypeError):
         return {}
 
@@ -96,6 +97,7 @@ def main():
     finally:
         result.update(ready=state['reason'] == 'ready', reason=state['reason'],
                       initialization=state['init'], map_received=state['map'])
+        if args.auto_init: result['initialization_diagnostics'] = init_diagnostics(args.run_dir)
         (args.run_dir/'mapping_readiness.json').write_text(json.dumps(result, indent=2)+'\n')
         node.destroy_node(); rclpy.shutdown()
 

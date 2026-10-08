@@ -42,7 +42,9 @@ public:
     if (started_ < 0) started_ = now;
     if (state_ == State::Failed || state_ == State::Succeeded) return {};
     if (activation_ < 0 && now - started_ >= config_.startup_timeout) fail("startup_inputs_timeout");
-    if (activation_ >= 0 && now - activation_ >= config_.init_timeout) fail("inertial_or_localization_timeout");
+    if (activation_ >= 0 && now - activation_ >= config_.init_timeout) {
+      fail(in.inertial ? "mapping_or_localization_timeout" : "inertial_initialization_timeout");
+    }
     if (activation_ >= 0) {
       if (!in.sensors || !in.services) fail("input_or_safety_lifecycle_lost");
       if (!std::isfinite(in.radius + in.travel + in.yaw + in.speed + in.angular_speed)) fail("nonfinite_motion");

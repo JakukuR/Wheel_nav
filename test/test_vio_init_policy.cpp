@@ -43,6 +43,10 @@ int main() {
   }
   wla::InitPolicy timeout; i = healthy(); start(timeout, i); timeout.tick(22, i);
   require(timeout.state() == wla::InitPolicy::State::Failed);
+  require(timeout.reason() == "inertial_initialization_timeout");
+  wla::InitPolicy localization_timeout; i = healthy(); start(localization_timeout, i);
+  i.inertial = true; localization_timeout.tick(22, i);
+  require(localization_timeout.reason() == "mapping_or_localization_timeout");
   wla::InitPolicy budget; i = healthy(); start(budget, i); i.travel = 0.16;
   require(budget.tick(1.2, i).linear == 0);
   require(budget.state() == wla::InitPolicy::State::Stopping);
