@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Isolated synthetic closed-loop bootstrap test. Hardware output ALWAYS false."""
 import math
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -78,7 +79,7 @@ def run(case):
                 if state['fault_at'] is None:
                     state['fault_at'] = current
                     if case == 'node_exit': processes[0].terminate()
-            fault = state['fault_at'] is not None
+            fault = state['fault_at'] is not None or case == 'startup_obstacle'
             if case == 'cancel' and fault:
                 publishers['/r680_nav/vio_init_cancel'].publish(Bool(data=True))
             preview = state['preview']
@@ -117,7 +118,7 @@ def run(case):
                 cloud = PointCloud2(); cloud.header.stamp = stamp; cloud.header.frame_id = 'r680_mapping_floor'
                 cloud.height = 1; cloud.point_step = 12
                 cloud.fields = [PointField(name=n, offset=i*4, datatype=PointField.FLOAT32, count=1) for i,n in enumerate(['x','y','z'])]
-                if case == 'obstacle' and fault:
+                if case in ['obstacle', 'startup_obstacle'] and fault:
                     cloud.width = 1; cloud.row_step = 12; cloud.data = struct.pack('fff', 0.40, 0.0, 0.20)
                 if case == 'cloud_malformed' and fault:
                     cloud.width = 1; cloud.row_step = 12; cloud.data = b'\0' # Incomplete point buffer.
@@ -130,7 +131,16 @@ def run(case):
                 if current-held_failure > 0.6: break
             time.sleep(max(0, 0.007-(time.monotonic()-current)))
         assert state['raw'] == 0, 'hardware-disabled test published chassis commands'
-        assert bootstrap_values and any(v > 0 for v,w in bootstrap_values), 'bootstrap never moved in synthetic test'
+        if case == 'startup_obstacle':
+            assert not bootstrap_values, 'blocked startup issued a motion request'
+            diagnostics = json.loads(result.read_text())
+            assert diagnostics['reason'] == 'startup_inputs_timeout', diagnostics
+            assert diagnostics['input_blocker'] == 'near_field_obstacle', diagnostics
+            assert diagnostics['blocking_point_count'] == 1 and diagnostics['blocking_cloud_fresh'], diagnostics
+            assert len(diagnostics['first_blocking_point_xyz']) == 3, diagnostics
+            assert abs(diagnostics['first_blocking_point_xyz'][0] - 0.4) < 1e-6, diagnostics
+        else:
+            assert bootstrap_values and any(v > 0 for v,w in bootstrap_values), 'bootstrap never moved in synthetic test'
         assert all(0 <= v <= 0.060001 and abs(w) <= 0.200001 for v,w in bootstrap_values)
         if case == 'success':
             assert state['name'] == 'succeeded', states
@@ -179,6 +189,6 @@ if __name__ == '__main__':
     assert os.environ.get('ROS_DOMAIN_ID') == '74', 'Synthetic tests require isolated ROS_DOMAIN_ID=74'
     rclpy.init()
     try:
-        for case in ['success', 'obstacle', 'imu_gap', 'pose_jump', 'depth_unknown', 'cloud_malformed', 'lifecycle', 'timeout', 'node_exit', 'cancel']: run(case)
+        for case in ['success', 'obstacle', 'startup_obstacle', 'imu_gap', 'pose_jump', 'depth_unknown', 'cloud_malformed', 'lifecycle', 'timeout', 'node_exit', 'cancel']: run(case)
         legacy_guard()
     finally: rclpy.shutdown()

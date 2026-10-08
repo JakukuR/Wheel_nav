@@ -95,15 +95,21 @@ public:
           points_seen_ = {}; reject("invalid_safety_cloud"); return;
         }
         bool blocked = false;
+        size_t blocking_points = 0;
+        std::vector<double> first_blocking_point;
         try {
           sensor_msgs::PointCloud2ConstIterator<float> x(*m, "x"), y(*m, "y"), z(*m, "z");
           for (; x != x.end(); ++x, ++y, ++z) {
             if (!std::isfinite(*x + *y + *z)) {points_seen_ = {}; reject("invalid_safety_point"); return;}
             if (*x > 0.20 && *x < obstacle_forward_ && std::abs(*y) < obstacle_width_ &&
-              *z >= 0.04 && *z <= 0.50) blocked = true;
+              *z >= 0.04 && *z <= 0.50) {
+              blocked = true; ++blocking_points;
+              if (first_blocking_point.empty()) first_blocking_point = {*x, *y, *z};
+            }
           }
         } catch (const std::exception &) {points_seen_ = {}; reject("malformed_safety_cloud"); return;}
-        blocked_ = blocked; points_seen_ = Clock::now();
+        blocked_ = blocked; blocking_points_ = blocking_points;
+        first_blocking_point_ = first_blocking_point; points_seen_ = Clock::now();
       });
     vio_status_sub_ = create_subscription<std_msgs::msg::String>(
       "/r680_nav/vio_status", 1, [this](std_msgs::msg::String::ConstSharedPtr m) {
@@ -219,6 +225,14 @@ private:
         });
     }
   }
+  std::string inputBlocker() const {
+    if (!last_inputs_.sensors) return "sensor_missing_stale_or_invalid";
+    if (!last_inputs_.services) return "safety_lifecycle_not_active";
+    if (blocked_) return "near_field_obstacle";
+    if (depth_ratio_ < min_valid_) return "insufficient_valid_depth";
+    if (!last_inputs_.stopped) return "wheel_not_stationary";
+    return "";
+  }
   void writeResult() {
     try {
       const auto path = std::filesystem::path(result_);
@@ -227,6 +241,15 @@ private:
       std::ofstream out(temporary);
       out << std::setprecision(9) << "{\n  \"state\": " << std::quoted(policy_->name())
         << ",\n  \"reason\": " << std::quoted(policy_->reason())
+        << ",\n  \"input_blocker\": " << std::quoted(inputBlocker())
+        << ",\n  \"blocking_point_count\": " << blocking_points_
+        << ",\n  \"blocking_cloud_fresh\": " << (fresh(points_seen_) ? "true" : "false")
+        << ",\n  \"first_blocking_point_xyz\": [";
+      for (size_t i = 0; i < first_blocking_point_.size(); ++i) {
+        if (i) {out << ", ";}
+        out << first_blocking_point_[i];
+      }
+      out << "]"
         << ",\n  \"requested_motion\": " << (ever_moved_ ? "true" : "false")
         << ",\n  \"wheel_travel_m\": " << travel_ << ",\n  \"radius_m\": " << radius_
         << ",\n  \"depth_valid_ratio\": " << depth_ratio_ << ",\n  \"imu_rate_hz\": " << imu_rate_
@@ -273,7 +296,8 @@ private:
     }
     if (policy_->state() != previous) {
       nav_seen_ = {}; // Never replay a command buffered during initialization.
-      RCLCPP_WARN(get_logger(), "VIO init state: %s %s", policy_->name(), policy_->reason().c_str());
+      RCLCPP_WARN(get_logger(), "VIO init state: %s %s; input blocker=%s, near-field points=%zu",
+        policy_->name(), policy_->reason().c_str(), inputBlocker().c_str(), blocking_points_);
     }
     geometry_msgs::msg::Twist output;
     output.linear.x = command.linear; output.angular.z = command.angular;
@@ -298,7 +322,8 @@ private:
   double freshness_{}, min_rate_{}, min_valid_{}, obstacle_forward_{}, obstacle_width_{}, stopped_linear_{}, stopped_angular_{};
   double imu_rate_{}, depth_ratio_{}, radius_{}, travel_{}, wheel_v_{}, wheel_w_{};
   bool blocked_{true}, inertial_{false}, localized_{false}, anchored_{false}, ever_moved_{false};
-  size_t ticks_{}; Pose vo_, wheel_, anchor_vo_, anchor_wheel_;
+  size_t ticks_{}, blocking_points_{}; Pose vo_, wheel_, anchor_vo_, anchor_wheel_;
+  std::vector<double> first_blocking_point_;
   std::deque<double> imu_stamps_;
   geometry_msgs::msg::Twist nav_;
   std::vector<rclcpp::Client<lifecycle_msgs::srv::GetState>::SharedPtr> clients_;

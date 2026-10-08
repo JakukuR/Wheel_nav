@@ -14,6 +14,15 @@ from std_msgs.msg import Bool, String
 from tf2_ros import Buffer, TransformListener
 
 
+def init_diagnostics(run_dir):
+    try:
+        data = json.loads((run_dir/'vio_init.json').read_text())
+        return {key: data[key] for key in ['reason', 'input_blocker', 'blocking_point_count',
+                'blocking_cloud_fresh', 'first_blocking_point_xyz'] if key in data}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--frontend', choices=['rgbd', 'cuvslam'], required=True)
@@ -53,7 +62,9 @@ def main():
                 try: os.kill(args.bringup_pid, 0)
                 except ProcessLookupError: raise RuntimeError('建图主进程已退出')
             if args.auto_init and state['init'] == 'failed':
-                raise RuntimeError('自动初始化失败，检查 vio_init.json；不会开放手柄')
+                diagnostics = init_diagnostics(args.run_dir)
+                raise RuntimeError('自动初始化失败；不会开放手柄：' + json.dumps(diagnostics, ensure_ascii=False)
+                                   + '；详情见 vio_init.json')
             for name, future in list(futures.items()):
                 if future.done():
                     states[name] = future.result().current_state.id if future.result() else 0
@@ -69,6 +80,7 @@ def main():
                           vio_ready=valid('vio'), mapping_odom_ready=valid('gate'),
                           initialization=state['init'], map_received=state['map'],
                           map_to_base=bool(tf_ok), lifecycle=dict(states))
+            if args.auto_init: result['initialization_diagnostics'] = init_diagnostics(args.run_dir)
             ready = (valid('interface') and state['map'] and tf_ok and init_ok
                      and all(states[n] == 3 and now-seen[n] < 2 for n in clients)
                      and (args.frontend == 'rgbd' or (valid('vio') and valid('gate'))))
