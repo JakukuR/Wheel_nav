@@ -199,6 +199,7 @@ READONLY_INPUTS_ACTIVE=false
 stop_group() {
   local pid="${1:-}"
   [[ -n "$pid" ]] || return 0
+  kill -TERM "$pid" 2>/dev/null || true
   # The setsid leader may exit before its ROS children. Check the process group,
   # otherwise an orphaned lifecycle manager can break the next bringup.
   kill -INT -- "-$pid" 2>/dev/null || true
@@ -217,6 +218,7 @@ stop_group() {
 cleanup() {
   local status=$?
   trap - EXIT INT TERM HUP
+  trap '' INT TERM HUP
   set +e
   echo
   echo '[R680 NAV] 正在撤销运动授权并停止导航节点……'

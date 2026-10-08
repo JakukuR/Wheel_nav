@@ -94,6 +94,9 @@ READONLY_INPUTS_ACTIVE=false
 stop_group() {
   local pid="${1:-}"
   [[ -n "$pid" ]] || return 0
+  # Stop the launch owner first: an ignored background SIGINT otherwise lets
+  # respawn recreate children while the group is being shut down.
+  kill -TERM "$pid" 2>/dev/null || true
   kill -INT -- "-$pid" 2>/dev/null || true
   for _ in {1..50}; do kill -0 -- "-$pid" 2>/dev/null || return 0; sleep 0.1; done
   kill -TERM -- "-$pid" 2>/dev/null || true
@@ -104,6 +107,7 @@ stop_group() {
 cleanup() {
   local status=$?
   trap - EXIT INT TERM HUP
+  trap '' INT TERM HUP
   set +e
   echo
   echo "[R680] 正在停止手柄并撤销运动授权……"

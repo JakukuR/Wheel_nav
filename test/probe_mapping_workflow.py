@@ -83,8 +83,12 @@ try:
 finally:
     node.destroy_node(); rclpy.shutdown()
     if process.poll() is None:
-        os.killpg(process.pid,signal.SIGINT)
-        try: process.wait(timeout=65)
+        # Do not interrupt the wrapper a second time while it is already saving
+        # or cleaning up after a startup failure.
+        log.flush()
+        cleaning = args.frontend=='cuvslam' and '正在停止手柄并撤销运动授权' in (root/'workflow.log').read_text(errors='replace')
+        if not cleaning: os.killpg(process.pid,signal.SIGINT)
+        try: process.wait(timeout=110)
         except subprocess.TimeoutExpired:
             os.killpg(process.pid,signal.SIGTERM); process.wait(timeout=10)
     log.close()

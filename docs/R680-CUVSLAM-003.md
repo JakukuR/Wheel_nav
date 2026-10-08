@@ -113,6 +113,7 @@ VIO 在建图过程中失效或断流时，建图里程计门控会锁定，同�
 - 原初始化测试加入取消分支后通过；原 RGB-D 与 cuVSLAM 看门狗回归通过。
 - 实际 cuVSLAM 建图入口 `--dry-run`：`/home/orin/ros2_ws/.runtime/mapping_cuvslam_validation/20261008-111529/`。IMU 200.03 Hz、里程计 29.69 Hz；近场安全云触发障碍门控，45 秒后锁定。惯性尚未就绪，因此 `/r680_nav/mapping_odom`、建图地图和底盘速度消息均为 0。退出保留工作库及日志，没有发布无效地图。
 - 原 RGB-D 前端实际输入建图、RTAB backup 和地图归档：`/home/orin/ros2_ws/.runtime/mapping_cuvslam_validation/20261008-111726/`。IMU 200.01 Hz、里程计 29.23 Hz，底盘速度消息为 0；测试地图成功保存为该测试目录下的 `maps/map-2026-10-08-1`，包含地图、数据库和导航索引，未写入用户正式 `maps/`。
+- 首次预览发现重复中断可能打断退出清理，使 launch 重新拉起 cuVSLAM。已修正建图及导航脚本：退出期间屏蔽重复中断，清理时先停止 launch 主进程，再清理本次进程组。复测记录为 `/home/orin/ros2_ws/.runtime/mapping_cuvslam_validation/20261008-112610/`，IMU 200.00 Hz、里程计 29.66 Hz、底盘速度消息为 0；退出后检查确认本次 launch、cuVSLAM、底盘及门控节点无残留。
 
 本轮没有执行电机运动，也没有验证真实 cuVSLAM 惯性初始化成功或移动建图精度。当前实际设备检查未找到 `/dev/input/js0`；真实手柄建图前需要接上手柄。
 
