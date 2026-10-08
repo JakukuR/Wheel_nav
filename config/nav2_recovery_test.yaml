@@ -28,7 +28,9 @@ controller_server:
       required_movement_angle: 0.15
       movement_time_allowance: 10.0
     goal_checker:
-      plugin: nav2_controller::SimpleGoalChecker
+      plugin: nav2_controller::StoppedGoalChecker
+      trans_stopped_velocity: 0.025
+      rot_stopped_velocity: 0.04
       stateful: true
       xy_goal_tolerance: 0.2
       yaw_goal_tolerance: 0.18
@@ -56,6 +58,15 @@ controller_server:
       final_align_enter_distance: 0.2
       final_align_exit_distance: 0.28
       final_align_wz_max: 0.22
+      # Terminal: confirm stopping, independent yaw braking, latch zero in tolerance.
+      final_align_velocity_topic: /d455_slam/odom
+      final_align_velocity_timeout_s: 0.20
+      final_align_stopped_linear_velocity: 0.025
+      final_align_stopped_angular_velocity: 0.04
+      final_align_stop_stable_s: 0.35
+      final_align_angular_deceleration: 0.40
+      final_align_reaction_time: 0.70
+      final_align_yaw_gain: 1.0
       turn_time_constant: 0.65
       obstacle_braking_deceleration: 0.4
       obstacle_reaction_time: 0.7
