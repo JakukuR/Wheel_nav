@@ -124,6 +124,13 @@ public:
     status_pub_ = create_publisher<std_msgs::msg::String>(
       declare_parameter<std::string>("status_topic", "/r680_nav/vio_status"), 10);
     health_pub_ = create_publisher<std_msgs::msg::Bool>("/r680_nav/vio_tracking_healthy", 10);
+    // Current-frame evidence, separate from the two-second initialization gate.
+    // The navigation continuity node may use this only after a trusted startup.
+    inertial_pub_ = create_publisher<std_msgs::msg::Bool>("/r680_nav/vio_inertial_valid", 10);
+    visual_pub_ = create_publisher<std_msgs::msg::Bool>("/r680_nav/vio_visual_observed", 10);
+    health_reason_pub_ = create_publisher<std_msgs::msg::String>("/r680_nav/vio_health_reason", 10);
+    minimum_visual_observations_ = declare_parameter<int>("minimum_visual_observations", 20);
+    if(minimum_visual_observations_<1) throw std::invalid_argument("invalid visual evidence threshold");
     if (publish_tf_) broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
     for (size_t i = 0; i < 2; ++i) {
       const std::string side = i == 0 ? "left" : "right";
@@ -257,6 +264,10 @@ private:
     std_msgs::msg::Bool health;
     health.data = state == "tracking_inertial_ready";
     health_pub_->publish(health);
+    std_msgs::msg::Bool invalid_inertial;
+    invalid_inertial.data = false;
+    inertial_pub_->publish(invalid_inertial);
+    visual_pub_->publish(invalid_inertial);
     if (!health.data) {
       last_gate_stamp_s_=get_clock()->now().seconds();
       initialization_gate_.update(false,last_gate_stamp_s_,initialization_stable_s_);
@@ -264,6 +275,7 @@ private:
     std_msgs::msg::String msg;
     msg.data = state;
     status_pub_->publish(msg);
+    health_reason_pub_->publish(msg);
   }
 
   bool initialize(const std::array<Info::ConstSharedPtr, 2> & infos)
@@ -315,7 +327,7 @@ private:
     config.use_gpu = true;
     config.rectified_stereo_camera = true;
     config.async_sba = async_sba_;
-    config.enable_observations_export = initialization_diagnostics_;
+    config.enable_observations_export = true;
     cuvslam::WarmUpGPU();
     tracker_ = std::make_unique<cuvslam::Odometry>(rig, config);
     RCLCPP_INFO(get_logger(), "cuVSLAM %s initialized: mode=%s baseline=%.6fm IMU=%.2fHz; mount=[%.5f %.5f %.5f]",
@@ -419,11 +431,11 @@ private:
         last_track_time_ = std::chrono::steady_clock::now();
         last_call_stamp_ = frame_stamp;
         ++tracked_frames_;
+        cuvslam::Odometry::State sdk_state;
+        tracker_->GetState(sdk_state);
+        last_observations_=static_cast<int64_t>(sdk_state.observations.size());
+        last_warming_up_=sdk_state.warming_up;
         if (initialization_diagnostics_) {
-          cuvslam::Odometry::State sdk_state;
-          tracker_->GetState(sdk_state);
-          last_observations_=static_cast<int64_t>(sdk_state.observations.size());
-          last_warming_up_=sdk_state.warming_up;
           if (sdk_state.keyframe && estimate.world_from_rig) {
             ++keyframes_; keyframe_stamps_.push_back(frame_stamp);
           }
@@ -554,6 +566,13 @@ private:
             ",\"max_age_ns\":"+std::to_string(max_age_ns_)+"}");
           status("stale_estimate_no_output"); continue;
         }
+        std_msgs::msg::Bool current_inertial;
+        current_inertial.data = inertial_valid && velocity_valid;
+        inertial_pub_->publish(current_inertial);
+        std_msgs::msg::Bool current_visual;
+        current_visual.data = !sdk_state.warming_up && sdk_state.timestamp_ns == estimate.timestamp_ns &&
+          last_observations_ >= minimum_visual_observations_;
+        visual_pub_->publish(current_visual);
         pub_->publish(message);
         if (broadcaster_) {
           geometry_msgs::msg::TransformStamped tf;
@@ -572,6 +591,9 @@ private:
           gate_stamp_s, initialization_stable_s_);
         last_gate_stamp_s_=gate_stamp_s;
         const auto health_reason=health_evidence.reason(ready);
+        std_msgs::msg::String reason_message;
+        reason_message.data=health_reason;
+        health_reason_pub_->publish(reason_message);
         std::ostringstream health_details;health_details<<std::setprecision(12)
           <<"{\"ready\":"<<(ready ? "true" : "false")
           <<",\"gravity_available\":"<<(health_evidence.gravity_available ? "true" : "false")
@@ -687,6 +709,10 @@ private:
   std::deque<int64_t> keyframe_stamps_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> broadcaster_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr health_pub_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr inertial_pub_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr visual_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr health_reason_pub_;
+  int minimum_visual_observations_{};
   int64_t previous_pose_stamp_{};
   Eigen::Vector3d previous_position_{Eigen::Vector3d::Zero()};
   Eigen::Quaterniond previous_rotation_{Eigen::Quaterniond::Identity()};
