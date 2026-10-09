@@ -169,6 +169,7 @@ def generate_launch_description():
                 'output_topic': PythonExpression(["'/r680_nav/vio_raw_odom' if ", continuity_enabled,
                                                   " else '/d455_slam/odom'"]),
                 'publish_tf': ParameterValue(PythonExpression(["not (", continuity_enabled, ")"]), value_type=bool),
+                'publish_visual_only': ParameterValue(continuity_enabled, value_type=bool),
             }])
     continuous_odom = Node(
         package='wla_r680_navigation', executable='degraded_odometry',

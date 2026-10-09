@@ -19,8 +19,11 @@ from std_msgs.msg import Bool, String
 from tf2_ros import TransformBroadcaster
 
 assert os.environ.get('ROS_DOMAIN_ID') == '174', 'Use isolated ROS_DOMAIN_ID=174'
-root=Path('/home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation')
-config=Path('/home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/degraded_odometry.yaml')
+from ament_index_python.packages import get_package_prefix
+prefix=Path(get_package_prefix('wla_r680_navigation'))
+root=prefix/'lib/wla_r680_navigation'
+config=prefix/'share/wla_r680_navigation/config/degraded_odometry.yaml'
+print('Navigation test runtime prefix:',prefix,flush=True)
 logs=Path('/tmp/wla-degraded-odom-tests');logs.mkdir(exist_ok=True)
 
 def run_case(case):
@@ -36,6 +39,8 @@ def run_case(case):
          '-p','degraded_mode_enabled:=true'],
     ]
     if case=='disabled':commands[0].extend(['-p','enabled:=false'])
+    if case=='position_budget':commands[0].extend(['-p','max_position_sigma_m:=0.03'])
+    if case=='yaw_budget':commands[0].extend(['-p','max_yaw_sigma_rad:=0.03'])
     files=[open(logs/f'{case}-{i}.log','w') for i in range(len(commands))]
     processes=[subprocess.Popen(cmd,stdout=f,stderr=subprocess.STDOUT) for cmd,f in zip(commands,files)]
     rclpy.init();node=rclpy.create_node('degraded_odom_regression_'+case)
@@ -93,14 +98,14 @@ def run_case(case):
                     send(p,'/d455_slam/localization_pose',True)
                     inf=Info();inf.header.stamp=stamp;inf.loop_closure_id=10;send(inf,'/d455_slam/info',True)
             if iteration%7==0:
-                healthy=mode in ('visual','inertial_only','late','invalid_pose','future_pose')
-                evidence=mode in ('visual','return','mismatch','duplicate','inertial_only','late','invalid_pose','future_pose')
+                healthy=mode in ('visual','inertial_only','inertial_poison','weak_visual','late','invalid_pose','invalid_covariance','future_pose')
+                evidence=mode in ('visual','return','mismatch','duplicate','inertial_only','inertial_poison','weak_visual','late','invalid_pose','invalid_covariance','future_pose')
                 status='tracking_inertial_ready' if healthy else (
                     'tracking_lost_no_output' if mode=='lost' else 'invalid_pose_no_output' if mode=='fatal'
                     else 'waiting_for_stable_inertial_initialization')
                 send(Bool(data=healthy),'/r680_nav/vio_tracking_healthy')
                 send(Bool(data=evidence),'/r680_nav/vio_inertial_valid')
-                send(Bool(data=evidence and mode!='inertial_only'),'/r680_nav/vio_visual_observed')
+                send(Bool(data=evidence and mode not in ('inertial_only','inertial_poison')),'/r680_nav/vio_visual_observed')
                 send(String(data=status),'/r680_nav/vio_status')
                 if mode not in ('lost','fatal'):
                     m=Odometry();m.header.stamp=stamp;m.header.frame_id='d455_floor_odom';m.child_frame_id='r680_mapping_floor'
@@ -116,6 +121,13 @@ def run_case(case):
                     if mode=='invalid_pose':m.pose.pose.orientation.w=2.0
                     m.twist.twist.linear.x=v;m.twist.twist.angular.z=w
                     for i in range(6):m.pose.covariance[7*i]=0.02 if case=='high_uncertainty' else 0.0001
+                    if case=='high_yaw_uncertainty':m.pose.covariance[35]=0.04
+                    if mode in ('inertial_poison','weak_visual'):
+                        # Fresh finite IMU-propagated poses can look precise or very uncertain.
+                        # Neither may update the trusted visual anchor or satisfy return checks.
+                        m.pose.pose.position.x=x+5.0
+                        m.pose.covariance[0]=m.pose.covariance[7]=m.pose.covariance[35]=1.0
+                    if mode=='invalid_covariance':m.pose.covariance[0]=-1.0
                     send(m,'/r680_nav/vio_raw_odom',True)
             # Drain observations; one spin per IMU sample backlogs the 100 Hz TF/health stream.
             for _ in range(12):rclpy.spin_once(node,timeout_sec=0)
@@ -131,6 +143,12 @@ def run_case(case):
         assert observed['poses'], 'warming TF/odom missing: initialization/costmap deadlock'
         assert abs(observed['command'].linear.x)<1e-8, 'startup bypass'
         mode='visual';pump(1.0)
+        if case in ('high_uncertainty','high_yaw_uncertainty'):
+            assert not observed['health'] and not observed['degraded'],observed['state']
+            assert 'waiting for visual pose within uncertainty envelope' in observed['state'],observed['state']
+            assert abs(observed['command'].linear.x)+abs(observed['command'].angular.z)<1e-8
+            print('PASS',case,'untrusted initial covariance cannot authorize motion')
+            return
         assert observed['health'],observed['state']
         if case=='no_anchor':
             assert not observed['watchdog'] and abs(observed['command'].linear.x)<1e-8
@@ -142,17 +160,24 @@ def run_case(case):
             assert abs(observed['command'].linear.x)+abs(observed['command'].angular.z)<1e-8
             print('PASS bridge_exit stale degradation heartbeat stops preview while new requests continue')
             return
-        if case in ('fatal','disabled','no_anchor','no_bias','high_uncertainty','invalid_pose','future_pose'):
-            mode=case if case in ('invalid_pose','future_pose') else 'fatal' if case=='fatal' else 'lost';pump(0.25)
+        if case in ('fatal','disabled','no_anchor','no_bias','position_budget','yaw_budget','invalid_pose','invalid_covariance','future_pose'):
+            mode=case if case in ('invalid_pose','invalid_covariance','future_pose') else 'fatal' if case=='fatal' else 'lost'
+            pump(0.7 if case in ('position_budget','yaw_budget') else 0.25)
         else:
-            mode='late' if case in ('late_return','late_timeout') else 'inertial_only' if case=='inertial_only' else 'lost'
+            mode='late' if case in ('late_return','late_timeout') else 'weak_visual' if case in ('weak_visual','weak_visual_timeout') else 'inertial_poison' if case=='inertial_poison' else 'inertial_only' if case=='inertial_only' else 'lost'
             motion=(0.10,0.20);fresh_map=False;pump(0.4)
             assert observed['degraded'] and observed['health'] and observed['watchdog'] and observed['ready'],observed['state']
             assert 0<observed['command'].linear.x<=0.15001
             assert abs(observed['command'].angular.z)<=0.30001
             assert observed['poses'][-1].pose.pose.position.x>0.02, 'wheel integration did not move'
             assert observed['poses'][-1].pose.covariance[0]>0.0001, 'fallback reduced covariance'
-            if case in ('return','late_return'):
+            if case in ('return','late_return','inertial_poison','weak_visual'):
+                if case=='inertial_poison':
+                    assert 'nonvisual_frames=' in observed['state'] and 'nonvisual_frames=0' not in observed['state'],observed['state']
+                    assert abs(observed['poses'][-1].pose.pose.position.x-x)<0.03,'IMU-only pose poisoned anchor'
+                if case=='weak_visual':
+                    assert 'weak_visual_frames=' in observed['state'] and 'weak_visual_frames=0' not in observed['state'],observed['state']
+                    assert abs(observed['poses'][-1].pose.pose.position.x-x)<0.03,'weak visual pose poisoned anchor'
                 if case=='late_return':
                     assert 'late_visual_frames=0' not in observed['state'], 'late frames not exercised'
                     assert 'late_visual_frames=' in observed['state'], observed['state']
@@ -179,7 +204,15 @@ def run_case(case):
         if case=='late_timeout':
             assert 'budget exhausted' in observed['state'], 'late frames reset budget or caused hard fault'
         if case=='invalid_pose':assert 'invalid visual pose' in observed['state']
+        if case=='invalid_covariance':assert 'invalid visual pose' in observed['state']
         if case=='future_pose':assert 'visual timestamp in the future' in observed['state']
+        if case=='position_budget':
+            assert 'position uncertainty budget exhausted' in observed['state'],observed['state']
+            assert 'position_sigma=' in observed['state'] and 'yaw_sigma=' in observed['state']
+        if case=='yaw_budget':assert 'yaw uncertainty budget exhausted' in observed['state'],observed['state']
+        if case=='weak_visual_timeout':assert 'time budget exhausted' in observed['state'],observed['state']
+        if case=='distance':assert 'distance budget exhausted' in observed['state'],observed['state']
+        if case=='turn':assert 'angle budget exhausted' in observed['state'],observed['state']
         assert abs(observed['command'].linear.x)+abs(observed['command'].angular.z)<1e-8,'fault command nonzero'
         print('PASS',case,observed['state'])
         if case=='timeout':
@@ -199,5 +232,6 @@ if __name__=='__main__':
     import sys
     for name in sys.argv[1:] or ['return','timeout','imu_stale','wheel_stale','mismatch','duplicate','distance','turn','fatal',
                                'inertial_only','sdk_imu_fault','disabled','no_anchor','no_bias','high_uncertainty','bridge_exit',
-                               'late_return','late_timeout','invalid_pose','future_pose']:
+                               'late_return','late_timeout','invalid_pose','future_pose','inertial_poison','high_yaw_uncertainty',
+                               'weak_visual','weak_visual_timeout','position_budget','yaw_budget','invalid_covariance']:
         run_case(name)

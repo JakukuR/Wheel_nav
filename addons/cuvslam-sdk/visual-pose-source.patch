@@ -1,0 +1,137 @@
+--- a/libs/pipelines/track_online_inertial.h
++++ b/libs/pipelines/track_online_inertial.h
+@@ -77,6 +77,7 @@
+     Vector3T acc_bias;
+   };
+   std::optional<ImuState> GetImuState() const;
++  bool IsLastPoseInertialOnly() const { return integrated; }
+ 
+ private:
+   imu::ImuMeasurementStorage imu_storage_;
+@@ -118,7 +119,7 @@
+   sba_imu::IMUPreintegration last_kf_preint;
+ 
+   sba_imu::IMUPreintegration last_frame_preint_;  // since last frame for next frame
+-  bool integrated;
++  bool integrated = false;
+ 
+   std::vector<camera::Observation> obs_vector_;
+   map::Map<TrackId, Vector3T> recent_landmarks_;
+--- a/libs/odometry/stereo_inertial_odometry.h
++++ b/libs/odometry/stereo_inertial_odometry.h
+@@ -45,6 +45,7 @@
+ 
+   std::optional<Vector3T> get_gravity() const;
+   std::optional<pipelines::SolverSfMInertial::ImuState> GetImuState() const;
++  bool IsLastPoseInertialOnly() const { return solver_.IsLastPoseInertialOnly(); }
+ 
+ private:
+   imu::ImuCalibration calib_;
+--- a/libs/cuvslam/cuvslam2.h
++++ b/libs/cuvslam/cuvslam2.h
+@@ -663,6 +663,14 @@
+   std::optional<ImuState> GetImuState() const;
+ 
+   /**
++   * @brief Whether the last successful Track() used IMU propagation without a visual pose solution.
++   * Call immediately after a successful Track(), serialized with other odometry calls.
++   * Reports the solver's actual propagation branch in Inertial mode; false in other modes.
++   * A false result alone is not a tracking-health certificate: also check the returned pose and State.
++   */
++  bool IsLastPoseInertialOnly() const;
++
++  /**
+    * @brief Get tracker state
+    *
+    * Only available if data export is enabled in Config.
+--- a/libs/cuvslam/cuvslam2.cpp
++++ b/libs/cuvslam/cuvslam2.cpp
+@@ -838,6 +838,13 @@
+ #else
+   return std::nullopt;
+ #endif
++}
++
++bool Odometry::IsLastPoseInertialOnly() const {
++  if (impl->odometry_mode != OdometryMode::Inertial) {
++    return false;
++  }
++  return static_cast<const odom::StereoInertialOdometry*>(impl->visual_odometry.get())->IsLastPoseInertialOnly();
+ }
+ 
+ void Odometry::GetState(Odometry::State& state) const {
+--- a/python/cuvslam2.cpp
++++ b/python/cuvslam2.cpp
+@@ -735,6 +735,10 @@
+           "Landmarks are 3D points in the odometry start frame.\n"
+           "Requires `enable_final_landmarks_export=True` in :class:`Odometry.Config`.")
+       .def(
++          "is_last_pose_inertial_only", &Odometry::IsLastPoseInertialOnly,
++          "Whether the last successful Track used IMU propagation without a visual pose solution. "
++          "Only available for Inertial mode; call immediately after tracking.")
++      .def(
+           "get_state",
+           [](const Odometry& self) -> Odometry::State {
+             Odometry::State state;
+--- a/libs/cuvslam/CMakeLists.txt
++++ b/libs/cuvslam/CMakeLists.txt
+@@ -96,3 +96,5 @@
+ # interface target for projects that link cuvslam libraries but not cuvslam top-level target
+ add_library(cuvslam_libs INTERFACE)
+ target_link_libraries(cuvslam_libs INTERFACE ${LIBS})
++
++add_subdirectory(test)
+--- /dev/null
++++ b/libs/cuvslam/test/CMakeLists.txt
+@@ -0,0 +1,5 @@
++setup_test_project(
++    MODULE_NAME cuvslam_pose_source
++    SOURCES last_pose_source_test.cpp
++    LIBRARIES cuvslam testing
++)
+--- /dev/null
++++ b/libs/cuvslam/test/last_pose_source_test.cpp
+@@ -0,0 +1,43 @@
++#include "common/include_gtest.h"
++#include "cuvslam/cuvslam2.h"
++
++namespace {
++cuvslam::Rig stereoRig(bool imu) {
++  cuvslam::Rig rig;
++  cuvslam::Camera camera{};
++  camera.size = {640, 480};
++  camera.principal = {320.f, 240.f};
++  camera.focal = {500.f, 500.f};
++  camera.rig_from_camera.rotation = {0.f, 0.f, 0.f, 1.f};
++  rig.cameras.push_back(camera);
++  camera.rig_from_camera.translation[0] = 0.05f;
++  rig.cameras.push_back(camera);
++  if (imu) {
++    cuvslam::ImuCalibration calibration{};
++    calibration.rig_from_imu.rotation = {0.f, 0.f, 0.f, 1.f};
++    calibration.gyroscope_noise_density = 0.000079f;
++    calibration.gyroscope_random_walk = 0.00002f;
++    calibration.accelerometer_noise_density = 0.0012f;
++    calibration.accelerometer_random_walk = 0.003f;
++    calibration.frequency = 200.f;
++    rig.imus.push_back(calibration);
++  }
++  return rig;
++}
++}
++
++TEST(LastPoseSource, InertialSourceIsInitializedBeforeFirstTrack) {
++  auto cfg = cuvslam::Odometry::GetDefaultConfig();
++  cfg.use_gpu = true;
++  cfg.odometry_mode = cuvslam::Odometry::OdometryMode::Inertial;
++  cuvslam::Odometry tracker(stereoRig(true), cfg);
++  EXPECT_FALSE(tracker.IsLastPoseInertialOnly());
++}
++
++TEST(LastPoseSource, VisualModeDoesNotReadAnInertialSolver) {
++  auto cfg = cuvslam::Odometry::GetDefaultConfig();
++  cfg.use_gpu = true;
++  cfg.odometry_mode = cuvslam::Odometry::OdometryMode::Multicamera;
++  cuvslam::Odometry tracker(stereoRig(false), cfg);
++  EXPECT_FALSE(tracker.IsLastPoseInertialOnly());
++}

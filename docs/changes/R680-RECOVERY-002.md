@@ -11,7 +11,7 @@
     → 3 m 扩大空间匹配（12 s）
     → RTAB-Map 原生 BoW 全局地点检索（30 s）
     → RGB-D 局部特征 3D→3D 几何配准通过
-    → 至少 3 个不同时间戳图像的匹配位姿一致
+    → 单次有效地图重定位匹配
     → 恢复原 RTAB 参数，连续稳定 2 s → 解锁
 ```
 
@@ -19,17 +19,17 @@
 
 空间阶段把 `Rtabmap/LoopThr` 和 `RGBD/AggressiveLoopThr` 暂设为 1，优先空间配准，并在看门狗中检查结果落在当前搜索半径内。RTAB 的 BoW 计算仍存在，这不是关闭检索计算。全局阶段恢复原词袋接受阈值、关闭空间匹配，使用数据库中的视觉词检索候选。没有新增 HF-Net、云端模型或额外相机订阅。
 
-恢复期间暂用 `Reg/Strategy=0`、`Vis/EstimationType=0`，即深度三维特征配准；保留原最小内点数、内点距离和图优化拒绝条件。候选的后验分数不算匹配证据，只有 RTAB 发布的已接受 loop/proximity 匹配与同期有效 localization_pose 才计数。匹配、位姿时间戳差不超过 0.25 s，同一时间戳不重复计数；停车时连续结果变化不超过 0.08 m、0.10 rad。地图 TF、协方差、轮速及前端新鲜度检查继续生效。
+恢复期间暂用 `Reg/Strategy=0`、`Vis/EstimationType=0`，即深度三维特征配准；保留原最小内点数、内点距离和图优化拒绝条件。候选的后验分数不算匹配证据，RTAB 发布的一次已接受 loop/proximity 匹配与同期有效 localization_pose 就能建立恢复证据。匹配、位姿时间戳差不超过 0.25 s。地图 TF、协方差、轮速及前端新鲜度检查继续生效。2026-10-09 按用户要求删除原来的三帧计数和相邻匹配位姿稳定性门槛：RTAB 在同一位置完成一次重定位后，不一定继续发布新的匹配事件。
 
-全局阶段允许经重复几何验证的地图位姿修正超过旧的 0.40 m 锚点一致性门槛，否则 VPR 即使找对地点也永远无法解锁；它仍要求故障期间的轮式位移在 0.50 m、0.80 rad 短时范围内且车辆停稳。扩大范围不是仅靠增加初值协方差，也不是直接把候选位置当真实定位。
+全局阶段允许经单次几何验证的地图位姿修正超过旧的 0.40 m 锚点一致性门槛，否则 VPR 即使找对地点也永远无法解锁；它仍要求故障期间的轮式位移在 0.50 m、0.80 rad 短时范围内且车辆停稳。扩大范围不是仅靠增加初值协方差，也不是直接把候选位置当真实定位。
 
-阶段切换清除旧匹配证据；参数服务失败、地图结果不稳定或搜索超时保持停车。所有阶段失败后恢复原参数并要求人工定位，在锚点有效、轮式位移仍满足短时上限时，可向 `/d455_slam/initialpose` 给初值重新尝试验证；没有有效锚点或车辆已被搬动时需要重新启动导航并人工定位。结果验证后原参数恢复成功才允许解锁。进程识别额外检查 ROS_DOMAIN_ID，隔离测试不会给另一 ROS 域的前端发送信号。
+阶段切换及新的故障清除旧匹配证据；参数服务失败、地图位姿与 TF 不一致或搜索超时保持停车。单次匹配通过后记录本次恢复证据，停止等待更多匹配并恢复原参数；后续跟踪、位姿和 TF 的健康检查不要求重复地图匹配。所有阶段失败后恢复原参数并要求人工定位，在锚点有效、轮式位移仍满足短时上限时，可向 `/d455_slam/initialpose` 给初值重新尝试验证；没有有效锚点或车辆已被搬动时需要重新启动导航并人工定位。结果验证后原参数恢复成功才允许解锁。进程识别额外检查 ROS_DOMAIN_ID，隔离测试不会给另一 ROS 域的前端发送信号。
 
 ## 配置与查看
 
-源码：`src/vo_watchdog.cpp`；计数与稳定判定：`include/wla_r680_navigation/recovery_evidence.hpp`。
+源码：`src/vo_watchdog.cpp`；单次匹配证据：`include/wla_r680_navigation/recovery_evidence.hpp`。
 参数：`config/vo_watchdog.yaml`，新增 `staged_relocalization_enabled`、`recovery_*`。
-诊断：`/r680_nav/relocalization_status`，日志关键字 `relocalization stage`、`VPR candidates`、`geometric match`、`verified_frames`、`motion health restored`。
+诊断：`/r680_nav/relocalization_status`，日志关键字 `relocalization stage`、`VPR candidates`、`single relocalization match verified`、`map_match_verified`、`motion health restored`。
 
 启动命令不变，需退出旧导航后重新启动才能加载更新的看门狗。例如：
 

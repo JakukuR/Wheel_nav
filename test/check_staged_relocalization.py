@@ -44,7 +44,9 @@ def main():
             'info': node.create_publisher(Info, '/d455_slam/info', 10),
             'pose': node.create_publisher(PoseWithCovarianceStamped, '/d455_slam/localization_pose', 10)}
         tf = TransformBroadcaster(node)
-        state = {'health': False, 'prior': [], 'fault': False, 'matched': True, 'moving': False, 'stage': '', 'fixed_stamp': None, 'jitter': False, 'frame': 0}
+        state = {'health': False, 'prior': [], 'fault': False, 'matched': True, 'moving': False,
+                 'stage': '', 'fixed_stamp': None, 'pose_mismatch': False, 'geometry_only': False,
+                 'one_shot': False, 'valid_recovery_matches': 0, 'matched_map_x': 3.0, 'frame': 0}
         node.create_subscription(Bool, '/r680_nav/vo_watchdog_healthy',
                                  lambda msg: state.update(health=msg.data), 10)
         node.create_subscription(PoseWithCovarianceStamped, '/d455_slam/initialpose',
@@ -54,10 +56,10 @@ def main():
         watchdog = subprocess.Popen([str(Path(get_package_prefix('wla_r680_navigation'))/
             'lib/wla_r680_navigation/vo_watchdog'),
             '--ros-args', '-p', 'frontend:=cuvslam', '-p', 'staged_relocalization_enabled:=true',
-            '-p', 'recovery_near_timeout_s:=2.0', '-p', 'recovery_expanded_timeout_s:=2.0',
+            '-p', 'recovery_near_timeout_s:=3.0', '-p', 'recovery_expanded_timeout_s:=3.0',
             '-p', 'recovery_vpr_timeout_s:=15.0', '-p', 'startup_grace_s:=5.0',
             '-p', 'vo_topic:=/d455_slam/odom',
-            '-p', 'recovery_stable_s:=0.5', '-p', 'prior_stop_stable_s:=0.2',
+            '-p', 'prior_stop_stable_s:=0.2',
             '-p', 'prior_tracking_stable_s:=0.2'], stdout=subprocess.DEVNULL)
         def tick():
             stamp = state['fixed_stamp'] or node.get_clock().now().to_msg()
@@ -70,8 +72,9 @@ def main():
             w.twist.twist.linear.x = 0.1 if state['moving'] else 0.0
             pubs['wheel'].publish(w); pubs['health'].publish(Bool(data=True))
             t = TransformStamped(); t.header.frame_id = 'map'; t.header.stamp = stamp
-            t.child_frame_id = 'r680_mapping_floor'; t.transform.translation.x = 5.0 if state['stage'] in ('vpr', 'verified') else 3.0
-            if state['jitter']: t.transform.translation.x += 0.15 if int(time.monotonic()*5)%2 else 0.0
+            t.child_frame_id = 'r680_mapping_floor'
+            t.transform.translation.x = (state['matched_map_x'] if state['stage'] == 'verified'
+                                         else 5.0 if state['stage'] == 'vpr' else 3.0)
             t.transform.translation.y = 4.1 if state['fault'] else 4.0
             t.transform.rotation.z = math.sin(math.pi/4); t.transform.rotation.w = math.cos(math.pi/4)
             tf.sendTransform(t)
@@ -80,11 +83,15 @@ def main():
             info.ref_id = state['frame']; state['frame'] += 1
             info.posterior_keys = [1, 2]; info.posterior_values = [0.8, 0.1]
             pubs['info'].publish(info)
-            if state['matched']:
+            if state['matched'] and not state['geometry_only']:
                 pose = PoseWithCovarianceStamped(); pose.header.frame_id = 'map'; pose.header.stamp = stamp
-                pose.pose.pose.position.x = t.transform.translation.x
+                pose.pose.pose.position.x = t.transform.translation.x + (1.0 if state['pose_mismatch'] else 0.0)
                 pose.pose.pose.position.y = t.transform.translation.y
                 pose.pose.pose.orientation = t.transform.rotation; pubs['pose'].publish(pose)
+                if state['fault'] and not state['pose_mismatch']:
+                    state['valid_recovery_matches'] += 1
+                    state['matched_map_x'] = t.transform.translation.x
+            if state['one_shot']: state['matched'] = False
             rclpy.spin_once(backend, timeout_sec=0.001)
             rclpy.spin_once(node, timeout_sec=0.01)
             time.sleep(0.02)
@@ -109,10 +116,13 @@ def main():
             state['moving'] = False
             until(lambda: state['stage'] == 'near', 6)
             assert not state['health'], 'near stage unlocked without geometry'
-            until(lambda: state['stage'] == 'expanded', 6)
-            assert backend.get_parameter('RGBD/LocalRadius').value == '3.000000'
-            until(lambda: state['stage'] == 'vpr', 6)
-            assert backend.get_parameter('Rtabmap/LoopThr').value == '0.11'
+            target_stage = 'near' if '--near' in sys.argv else 'expanded' if '--expanded' in sys.argv else 'vpr'
+            if target_stage != 'near':
+                until(lambda: state['stage'] == 'expanded', 6)
+                assert backend.get_parameter('RGBD/LocalRadius').value == '3.000000'
+            if target_stage == 'vpr':
+                until(lambda: state['stage'] == 'vpr', 6)
+                assert backend.get_parameter('Rtabmap/LoopThr').value == '0.11'
             assert backend.get_parameter('Vis/EstimationType').value == '0'
             assert not state['health'], 'VPR candidate scores unlocked without a verified match'
             if '--timeout' in sys.argv:
@@ -132,15 +142,23 @@ def main():
             else:
                 end = time.monotonic()+1.2
                 while time.monotonic()<end: tick()
-                state['matched'] = True; state['jitter'] = True
-                end = time.monotonic()+2.0
+                state['matched'] = True; state['geometry_only'] = True
+                end = time.monotonic()+0.25
                 while time.monotonic()<end: tick()
-                assert not state['health'], 'unstable map poses unlocked motion'
-                state['jitter'] = False
-                until(lambda: state['health'], 5)
+                assert not state['health'], 'match info without a localization pose unlocked motion'
+                state['geometry_only'] = False; state['pose_mismatch'] = True
+                end = time.monotonic()+0.25
+                while time.monotonic()<end: tick()
+                assert state['stage'] == target_stage and not state['health'], 'pose/TF disagreement accepted'
+                state['pose_mismatch'] = False; state['one_shot'] = True
+                # Exactly one Info match and one matching localization pose.
+                # Subsequent ticks publish live odom/TF but no more map matches or poses.
+                tick()
+                until(lambda: state['health'], 2.8)
+                assert state['valid_recovery_matches'] == 1, 'test published additional valid matches'
                 for key, value in baseline.items():
                     assert backend.get_parameter(key).value == value, key + ' was not restored'
-                print('PASS: near -> expanded -> VPR, candidate-only lock, unstable-pose lock, repeated geometry, stable unlock, parameter restoration')
+                print('PASS: ' + target_stage + ', candidate-only lock, unpaired match lock, pose/TF disagreement lock, one valid match unlock with default 2s health stability, parameter restoration')
         finally:
             watchdog.terminate()
             try: watchdog.wait(timeout=4)

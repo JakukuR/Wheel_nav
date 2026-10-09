@@ -42,6 +42,4 @@ r680_vo_watchdog:
     recovery_near_timeout_s: 8.0
     recovery_expanded_timeout_s: 12.0
     recovery_vpr_timeout_s: 30.0
-    recovery_min_verified_frames: 3
-    recovery_pose_stability_m: 0.08
-    recovery_pose_stability_rad: 0.10
+    # One geometrically verified RTAB-Map relocalization is sufficient.

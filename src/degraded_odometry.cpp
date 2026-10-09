@@ -61,7 +61,12 @@ public:
         if(freshStamp(m->header.stamp,wheel_timeout_) && std::isfinite(t.linear.x+t.angular.z) &&
           std::abs(t.linear.x)<=max_v_ && std::abs(t.angular.z)<=max_w_) {
           v_=t.linear.x; wheel_w_=t.angular.z; wheel_seen_=Clock::now();
-        }else wheel_seen_={};
+          wheel_input_reason_.clear();
+        }else {
+          wheel_input_reason_=!freshStamp(m->header.stamp,wheel_timeout_) ? "timestamp" :
+            !std::isfinite(t.linear.x+t.angular.z) ? "non-finite velocity" : "velocity range";
+          wheel_seen_={};
+        }
       });
     imu_sub_=create_subscription<sensor_msgs::msg::Imu>(declare_parameter<std::string>("imu_topic","/wheel/imu/data_raw"),qos,
       [this](sensor_msgs::msg::Imu::ConstSharedPtr m){onImu(*m);});
@@ -111,8 +116,31 @@ private:
   bool rawReady() const {return age(health_seen_)<=raw_timeout_ && raw_ready_;}
   bool visualObserved() const {return visual_observed_ && age(visual_seen_)<=raw_timeout_;}
   bool rawFresh() const {return age(raw_seen_)<=raw_timeout_ && freshStamp(raw_.header.stamp,raw_timeout_);}
+  static double xyVariance(const std::array<double,36> &covariance) {
+    const double xx=covariance[0],yy=covariance[7];
+    const double xy=0.5*(covariance[1]+covariance[6]);
+    return std::max(0.0,0.5*(xx+yy)+std::hypot(0.5*(xx-yy),xy));
+  }
+  bool covarianceTrusted(const Odom &m) const {
+    // The visual anchor must already fit the unchanged fallback envelope,
+    // including the model's initial wheel/gyro uncertainty. Larger covariance
+    // is weak evidence, not a malformed pose; keep the previous trusted anchor.
+    const wla::DegradedBudget initial;
+    return std::sqrt(xyVariance(m.pose.covariance)+std::pow(initial.positionSigma(),2))<=sigma_xy_ &&
+      std::sqrt(m.pose.covariance[35]+std::pow(initial.yawSigma(),2))<=sigma_yaw_;
+  }
   bool rawUsable() const {return rawFresh() &&
     (!enabled_ || visualObserved()) && (rawReady() || (provisional_return_ && inertialReady()));}
+  std::string entryDetails() const {
+    return " enabled="+std::to_string(enabled_)+" bias_ready="+std::to_string(bias_ready_)+
+      " wheel_age_s="+std::to_string(age(wheel_seen_))+" wheel_rejection="+wheel_input_reason_+
+      " imu_age_s="+std::to_string(age(imu_seen_))+" imu_rejection="+imu_input_reason_+
+      " watchdog_ready="+std::to_string(watchdog_ready_)+" watchdog_age_s="+std::to_string(age(watchdog_seen_))+
+      " raw_fresh="+std::to_string(rawFresh())+" raw_ready="+std::to_string(rawReady())+
+      " raw_source_age_s="+std::to_string((get_clock()->now()-rclcpp::Time(raw_.header.stamp)).seconds())+
+      " visual_observed="+std::to_string(visualObserved())+
+      " visual_age_s="+std::to_string(age(visual_seen_))+" raw_status="+raw_status_;
+  }
   void onImu(const sensor_msgs::msg::Imu &m) {
     const auto &g=m.angular_velocity; const auto &a=m.linear_acceleration;
     const double acceleration=std::sqrt(a.x*a.x+a.y*a.y+a.z*a.z);
@@ -120,8 +148,14 @@ private:
     if(m.header.frame_id!=imu_frame_ || !freshStamp(m.header.stamp,imu_timeout_) || stamp<=imu_stamp_ ||
       !std::isfinite(g.x+g.y+g.z+acceleration) || acceleration<6 || acceleration>13 ||
       m.angular_velocity_covariance[0]<0 || std::sqrt(g.x*g.x+g.y*g.y+g.z*g.z)>max_w_) {
+      imu_input_reason_=m.header.frame_id!=imu_frame_ ? "frame" :
+        !freshStamp(m.header.stamp,imu_timeout_) ? "timestamp" : stamp<=imu_stamp_ ? "stamp order" :
+        !std::isfinite(g.x+g.y+g.z+acceleration) ? "non-finite sample" :
+        acceleration<6 || acceleration>13 ? "acceleration range" :
+        m.angular_velocity_covariance[0]<0 ? "invalid angular covariance" : "gyro range";
       imu_seen_={}; return;
     }
+    imu_input_reason_.clear();
     imu_stamp_=stamp; imu_seen_=Clock::now();
     gyro_z_=(imu_rotation_*tf2::Vector3(g.x,g.y,g.z)).z();
     if(!bias_ready_) {
@@ -169,6 +203,19 @@ private:
       RCLCPP_WARN_THROTTLE(get_logger(),*get_clock(),2000,
         "late visual frame dropped: age=%.1fms limit=%.1fms; bounded wheel/IMU policy unchanged",
         frame_age*1000,raw_timeout_*1000);
+      return;
+    }
+    if(initialized_ && enabled_ && !visualObserved()) {
+      // A fresh SDK pose is not necessarily a visual solution. Do not let
+      // IMU-only frames overwrite the last trusted visual anchor/covariance.
+      ++nonvisual_frames_;return_count_=0;return;
+    }
+    if(initialized_ && enabled_ && !covarianceTrusted(m)) {
+      ++weak_visual_frames_;return_count_=0;
+      RCLCPP_WARN_THROTTLE(get_logger(),*get_clock(),2000,
+        "weak visual pose ignored: position_sigma=%.6f/%.6f yaw_sigma=%.6f/%.6f; preserving trusted anchor",
+        std::sqrt(xyVariance(m.pose.covariance)+std::pow(wla::DegradedBudget{}.positionSigma(),2)),sigma_xy_,
+        std::sqrt(m.pose.covariance[35]+std::pow(wla::DegradedBudget{}.yawSigma(),2)),sigma_yaw_);
       return;
     }
     raw_stamp_=stamp; raw_seen_=Clock::now(); raw_=m;
@@ -240,8 +287,10 @@ private:
       // restricted initialization supervisor do not wait on each other.
       // This raw passthrough never asserts localization/normal-motion health.
       if(rawFresh()) {estimate_=pose(raw_);publish(raw_,false);}
-      if(rawReady() && (!enabled_ || visualObserved()) && rawFresh())
-        {state_=State::Normal;initialized_=true;estimate_=pose(raw_);offset_={};}
+      if(rawReady() && (!enabled_ || (visualObserved() && covarianceTrusted(raw_))) && rawFresh())
+        {state_=State::Normal;initialized_=true;estimate_=pose(raw_);offset_={};reason_.clear();}
+      else if(enabled_ && rawReady() && visualObserved() && rawFresh() && !covarianceTrusted(raw_))
+        reason_="waiting for visual pose within uncertainty envelope";
     }
     if(state_==State::Normal) {
       if(rawUsable()) {
@@ -253,9 +302,7 @@ private:
              raw_status_=="waiting_for_stable_inertial_initialization")) {
           state_=State::Degraded;budget_={};return_count_=0;entry_stamp_=raw_stamp_;
           entry_covariance_=output_.pose.covariance;
-          const double xx=entry_covariance_[0],yy=entry_covariance_[7];
-          const double xy=0.5*(entry_covariance_[1]+entry_covariance_[6]);
-          entry_xy_variance_=std::max(0.0,0.5*(xx+yy)+std::hypot(0.5*(xx-yy),xy));
+          entry_xy_variance_=xyVariance(entry_covariance_);
           entry_yaw_variance_=entry_covariance_[35];
           // Include the gap since the last trusted image, not just time after
           // detection. The current timer step below supplies the final dt.
@@ -269,26 +316,40 @@ private:
             }
           }
           reason_.clear();RCLCPP_WARN(get_logger(),"visual degeneration: bounded wheel/IMU odom, max %.2fs %.2fm %.2frad",seconds_,distance_,turn_);
-        }else block("no valid visual pose or no trusted wheel/IMU/map anchor");
+        }else block("no valid visual pose or no trusted wheel/IMU/map anchor"+entryDetails());
       }
     }
     if(state_==State::Degraded) {
       if(!sensorReady() || !watchdog_ready_ || age(watchdog_seen_)>=0.25 || dt<=0 || dt>0.1)
-        block("wheel/IMU/watchdog stale or scheduling gap");
-      else if(!budget_.advance(v_,gyro_z_-bias_,dt,seconds_,distance_,turn_) ||
-          std::sqrt(entry_xy_variance_+std::pow(budget_.positionSigma(),2))>sigma_xy_ ||
-          std::sqrt(entry_yaw_variance_+std::pow(budget_.yawSigma(),2))>sigma_yaw_)
-        block("degraded odom time/distance/angle/uncertainty budget exhausted");
+        block("wheel/IMU/watchdog stale or scheduling gap dt="+std::to_string(dt)+entryDetails());
       else {
-        estimate_=wla::integrateWheelGyro(estimate_,v_,gyro_z_-bias_,dt);
-        auto m=output_;m.header.stamp=get_clock()->now();publish(m,true);
+        const bool within_motion_budget=budget_.advance(v_,gyro_z_-bias_,dt,seconds_,distance_,turn_);
+        const double xy_sigma=std::sqrt(entry_xy_variance_+std::pow(budget_.positionSigma(),2));
+        const double yaw_sigma=std::sqrt(entry_yaw_variance_+std::pow(budget_.yawSigma(),2));
+        const char *exhausted=nullptr;
+        if(!within_motion_budget) {
+          exhausted=budget_.elapsed>=seconds_ ? "time" : budget_.travel>=distance_ ? "distance" :
+            budget_.turn>=turn_ ? "angle" : "non-finite motion";
+        }else if(xy_sigma>sigma_xy_) exhausted="position uncertainty";
+        else if(yaw_sigma>sigma_yaw_) exhausted="yaw uncertainty";
+        if(exhausted) {
+          block(std::string("degraded odom ")+exhausted+" budget exhausted"+
+            " elapsed="+std::to_string(budget_.elapsed)+"/"+std::to_string(seconds_)+
+            " travel="+std::to_string(budget_.travel)+"/"+std::to_string(distance_)+
+            " turn="+std::to_string(budget_.turn)+"/"+std::to_string(turn_)+
+            " position_sigma="+std::to_string(xy_sigma)+"/"+std::to_string(sigma_xy_)+
+            " yaw_sigma="+std::to_string(yaw_sigma)+"/"+std::to_string(sigma_yaw_));
+        }else {
+          estimate_=wla::integrateWheelGyro(estimate_,v_,gyro_z_-bias_,dt);
+          auto m=output_;m.header.stamp=get_clock()->now();publish(m,true);
+        }
       }
     }
     if(state_==State::Blocked) {
       // This only resumes odom for the existing stopped/map-verified watchdog recovery.
       // It never clears that watchdog's motion latch or replays a command.
       const bool stopped=age(wheel_seen_)<=wheel_timeout_ && std::abs(v_)<0.02 && std::abs(wheel_w_)<0.04;
-      if(rawReady() && (!enabled_ || visualObserved()) && rawFresh() && stopped) {
+      if(rawReady() && (!enabled_ || (visualObserved() && covarianceTrusted(raw_))) && rawFresh() && stopped) {
         if(recovery_since_.time_since_epoch().count()==0) recovery_since_=current;
         if(age(recovery_since_)>=2.0) {
           state_=State::Normal;estimate_=pose(raw_);offset_={};reason_.clear();
@@ -306,7 +367,12 @@ private:
         " turn="+std::to_string(budget_.turn)+" bias_ready="+std::to_string(bias_ready_)+
         " raw_ready="+std::to_string(rawReady())+" visual_observed="+std::to_string(visualObserved())+
         " inertial_valid="+std::to_string(inertialReady())+
-        " late_visual_frames="+std::to_string(late_visual_frames_)+" reason="+reason_;
+        " late_visual_frames="+std::to_string(late_visual_frames_)+
+        " nonvisual_frames="+std::to_string(nonvisual_frames_)+
+        " weak_visual_frames="+std::to_string(weak_visual_frames_)+
+        " position_sigma="+std::to_string(std::sqrt(entry_xy_variance_+std::pow(budget_.positionSigma(),2)))+
+        " yaw_sigma="+std::to_string(std::sqrt(entry_yaw_variance_+std::pow(budget_.yawSigma(),2)))+
+        " reason="+reason_;
       state_pub_->publish(s);
     }
   }
@@ -318,9 +384,10 @@ private:
   double entry_xy_variance_{},entry_yaw_variance_{};
   std::array<double,36> entry_covariance_{};
   int return_frames_{},return_count_{},bias_count_{},ticks_{};
-  uint64_t late_visual_frames_{};
+  uint64_t late_visual_frames_{},nonvisual_frames_{},weak_visual_frames_{};
   int64_t raw_stamp_{},imu_stamp_{},published_stamp_{},entry_stamp_{};
   std::string odom_frame_,base_frame_,imu_frame_,raw_status_,reason_;
+  std::string wheel_input_reason_{"not_received"},imu_input_reason_{"not_received"};
   Clock::time_point raw_seen_{},wheel_seen_{},imu_seen_{},health_seen_{},inertial_seen_{},watchdog_seen_{},last_tick_{},bias_start_{},recovery_since_{};
   tf2::Matrix3x3 imu_rotation_;wla::PlanarPose estimate_{},offset_;wla::DegradedBudget budget_;
   Odom raw_,output_;

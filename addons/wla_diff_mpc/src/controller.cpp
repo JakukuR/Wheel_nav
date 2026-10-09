@@ -1,8 +1,11 @@
 #include "wla_diff_mpc/qp.hpp"
 #include "wla_diff_mpc/reference.hpp"
 #include "wla_diff_mpc/solver.hpp"
+#include "wla_diff_mpc/obstacle_braking.hpp"
+#include "wla_diff_mpc/terminal_alignment.hpp"
 
 #include <nav2_core/controller.hpp>
+#include <nav2_core/goal_checker.hpp>
 #if __has_include(<nav2_core/controller_exceptions.hpp>)
 #include <nav2_core/controller_exceptions.hpp>
 #else
@@ -12,6 +15,7 @@
 #include <nav2_costmap_2d/costmap_filters/filter_values.hpp>
 #include <nav2_costmap_2d/footprint_collision_checker.hpp>
 #include <nav2_util/node_utils.hpp>
+#include <nav_msgs/msg/odometry.hpp>
 #include <pluginlib/class_list_macros.hpp>
 #include <tf2/utils.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
@@ -80,7 +84,37 @@ public:
     final_align_enter_ = number("final_align_enter_distance", 0.20);
     final_align_exit_ = number("final_align_exit_distance", 0.28);
     final_align_wz_max_ = number("final_align_wz_max", 0.22);
+    TerminalSettings terminal_settings;
+    terminal_settings.enter_distance=final_align_enter_;
+    terminal_settings.exit_distance=final_align_exit_;
+    terminal_settings.max_w=final_align_wz_max_;
+    terminal_settings.stopped_v=number("final_align_stopped_linear_velocity",0.025);
+    terminal_settings.stopped_w=number("final_align_stopped_angular_velocity",0.04);
+    terminal_settings.stopped_duration=number("final_align_stop_stable_s",0.35);
+    terminal_settings.angular_deceleration=number("final_align_angular_deceleration",0.4);
+    terminal_settings.reaction_time=number("final_align_reaction_time",0.7);
+    terminal_settings.yaw_gain=number("final_align_yaw_gain",1.0);
+    terminal_=TerminalAlignment(terminal_settings);
+    terminal_settings_=terminal_settings;
+    velocity_timeout_=number("final_align_velocity_timeout_s",0.20);
+    if (!std::isfinite(velocity_timeout_) || velocity_timeout_<=0)
+      throw ControlError("invalid terminal velocity timeout");
+    nav2_util::declare_parameter_if_not_declared(node_,name_+".final_align_velocity_topic",
+      rclcpp::ParameterValue(std::string("/d455_slam/odom")));
+    velocity_sub_=node_->create_subscription<nav_msgs::msg::Odometry>(
+      node_->get_parameter(name_+".final_align_velocity_topic").as_string(),rclcpp::SensorDataQoS(),
+      [this](nav_msgs::msg::Odometry::ConstSharedPtr msg) {
+        std::lock_guard<std::mutex> lock(velocity_mutex_); velocity_=*msg;
+        velocity_seen_=std::chrono::steady_clock::now();
+      });
     turn_time_constant_ = number("turn_time_constant", 0.65);
+    braking_deceleration_ = number("obstacle_braking_deceleration", 0.4);
+    reaction_time_ = number("obstacle_reaction_time", 0.7);
+    stop_margin_ = number("obstacle_stop_margin", 0.10);
+    retry_scale_ = number("collision_retry_speed_scale", 0.5);
+    if (!std::isfinite(braking_deceleration_+reaction_time_+stop_margin_+retry_scale_) ||
+        braking_deceleration_<=0 || reaction_time_<0 || stop_margin_<0 || retry_scale_<=0 || retry_scale_>=1)
+      throw ControlError("invalid obstacle braking configuration");
     if (settings_.horizon < 2 || settings_.horizon > 80 || settings_.dt <= 0.0 ||
         settings_.dt > 0.5 || settings_.u_max[0] <= 0.0 || settings_.u_min[0] >= settings_.u_max[0] ||
         settings_.u_max[1] <= 0.0 || solve_limit_ <= 0.0 ||
@@ -94,22 +128,28 @@ public:
   }
 
   void cleanup() override {
-    predicted_pub_.reset(); node_.reset(); plan_.poses.clear(); final_alignment_ = false;
+    velocity_sub_.reset(); predicted_pub_.reset(); node_.reset(); plan_.poses.clear(); terminal_.reset();
   }
   void activate() override { predicted_pub_->on_activate(); }
   void deactivate() override {
     predicted_pub_->on_deactivate();
     previous_command_.setZero();
-    final_alignment_ = false;
+    terminal_.reset();
   }
   void setPlan(const nav_msgs::msg::Path & path) override {
     std::lock_guard<std::mutex> lock(plan_mutex_);
+    // Replans of the same target must not reset terminal stopping/hold states.
+    if (!path.poses.empty() && (plan_.poses.empty() || path.header.frame_id!=plan_.header.frame_id ||
+        std::hypot(path.poses.back().pose.position.x-plan_.poses.back().pose.position.x,
+                   path.poses.back().pose.position.y-plan_.poses.back().pose.position.y)>0.05 ||
+        std::abs(std::remainder(tf2::getYaw(path.poses.back().pose.orientation)-
+          tf2::getYaw(plan_.poses.back().pose.orientation),2*M_PI))>0.05)) goal_changed_=true;
     plan_ = path;
   }
 
   geometry_msgs::msg::TwistStamped computeVelocityCommands(
     const geometry_msgs::msg::PoseStamped & pose, const geometry_msgs::msg::Twist &,
-    nav2_core::GoalChecker *) override {
+    nav2_core::GoalChecker * goal_checker) override {
     if (!node_ || pose.header.frame_id != costmap_ros_->getGlobalFrameID()) {
       throw ControlError("MPC pose and costmap frames differ");
     }
@@ -117,6 +157,7 @@ public:
     {
       std::lock_guard<std::mutex> lock(plan_mutex_);
       plan = plan_;
+      if (goal_changed_) {terminal_.reset();previous_command_.setZero();goal_changed_=false;}
     }
     if (plan.poses.empty()) throw ControlError("MPC plan is empty");
     const std::string source_frame = plan.header.frame_id.empty() ?
@@ -125,10 +166,14 @@ public:
     nav_msgs::msg::Path local_plan;
     local_plan.header = pose.header;
     local_plan.poses.reserve(plan.poses.size());
+    geometry_msgs::msg::TransformStamped plan_transform;
+    plan_transform.transform.rotation.w=1.0;
+    bool transformed_plan=false;
     if (source_frame == pose.header.frame_id) local_plan.poses = plan.poses;
     else {
       const auto transform = tf_->lookupTransform(pose.header.frame_id,
         source_frame, tf2::TimePointZero);
+      plan_transform=transform;transformed_plan=true;
       for (auto point : plan.poses) {
         point.header.frame_id = source_frame;
         geometry_msgs::msg::PoseStamped transformed;
@@ -142,24 +187,132 @@ public:
     const auto & goal = local_plan.poses.back().pose;
     const double goal_distance = std::hypot(goal.position.x - current[0],
       goal.position.y - current[1]);
-    final_alignment_ = finalAlignmentMode(final_alignment_, goal_distance,
-      final_align_enter_, final_align_exit_);
+    double xy_tolerance=final_align_enter_,yaw_tolerance=0.18;
+    geometry_msgs::msg::Pose pose_tolerance;
+    geometry_msgs::msg::Twist velocity_tolerance;
+    if (goal_checker && goal_checker->getTolerances(pose_tolerance,velocity_tolerance)) {
+      if (std::isfinite(pose_tolerance.position.x) && pose_tolerance.position.x>0)
+        xy_tolerance=pose_tolerance.position.x;
+      const auto & q=pose_tolerance.orientation;
+      const double norm=q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w;
+      if (std::isfinite(norm) && std::abs(norm-1)<0.01) {
+        const double yaw=std::abs(tf2::getYaw(q)); if (yaw>0) yaw_tolerance=yaw;
+      }
+    }
+    double measured_v=0,measured_w=0;
+    bool fresh_velocity=false;
+    {
+      std::lock_guard<std::mutex> lock(velocity_mutex_);
+      const double age=(node_->now()-rclcpp::Time(velocity_.header.stamp)).seconds();
+      const auto & v=velocity_.twist.twist;
+      measured_v=std::hypot(v.linear.x,v.linear.y);measured_w=v.angular.z;
+      fresh_velocity=velocity_seen_.time_since_epoch().count()!=0 &&
+        std::chrono::duration<double>(std::chrono::steady_clock::now()-velocity_seen_).count()<velocity_timeout_ &&
+        age>=-0.10 && age<velocity_timeout_ && std::isfinite(measured_v+measured_w) &&
+        velocity_.child_frame_id==costmap_ros_->getBaseFrameID() &&
+        std::isfinite(velocity_.twist.covariance[0]+velocity_.twist.covariance[35]) &&
+        velocity_.twist.covariance[0]<1e6 && velocity_.twist.covariance[35]<1e6;
+    }
+    const auto old_phase=terminal_.phase(); double terminal_w=0;
+    const double yaw_error=std::remainder(tf2::getYaw(goal.orientation)-current[2],2*M_PI);
+    const bool terminal_engaged=terminal_.update(goal_distance,yaw_error,measured_v,measured_w,
+      fresh_velocity,std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(),
+      xy_tolerance,yaw_tolerance,terminal_w);
+    if (terminal_engaged) {
+      if (old_phase!=terminal_.phase()) RCLCPP_INFO(node_->get_logger(),
+        "MPC terminal %s -> %s distance=%.3f yaw_error=%.3f measured_v=%.3f measured_w=%.3f cmd_w=%.3f "
+        "robot_local=(%.3f,%.3f,%.3f) goal_local=(%.3f,%.3f,%.3f) "
+        "plan_tf=(%.3f,%.3f,%.3f) plan_tf_valid=%d source=%s control=%s",
+        TerminalAlignment::name(old_phase),TerminalAlignment::name(terminal_.phase()),
+        goal_distance,yaw_error,measured_v,measured_w,terminal_w,current[0],current[1],current[2],
+        goal.position.x,goal.position.y,tf2::getYaw(goal.orientation),
+        plan_transform.transform.translation.x,plan_transform.transform.translation.y,
+        tf2::getYaw(plan_transform.transform.rotation),transformed_plan,
+        source_frame.c_str(),pose.header.frame_id.c_str());
+      RCLCPP_INFO_THROTTLE(node_->get_logger(),*node_->get_clock(),1000,
+        "MPC terminal phase=%s distance=%.3f yaw_error=%.3f measured_v=%.3f measured_w=%.3f fresh=%d cmd_w=%.3f "
+        "robot_local=(%.3f,%.3f,%.3f) goal_local=(%.3f,%.3f,%.3f) "
+        "plan_tf=(%.3f,%.3f,%.3f) plan_tf_valid=%d source=%s control=%s",
+        TerminalAlignment::name(terminal_.phase()),goal_distance,yaw_error,measured_v,measured_w,fresh_velocity,terminal_w,
+        current[0],current[1],current[2],goal.position.x,goal.position.y,tf2::getYaw(goal.orientation),
+        plan_transform.transform.translation.x,plan_transform.transform.translation.y,
+        tf2::getYaw(plan_transform.transform.rotation),transformed_plan,
+        source_frame.c_str(),pose.header.frame_id.c_str());
+      if (terminal_w==0) return publishCommand(pose,{current},Input::Zero());
+    }
 
     Settings active = settings_;
     Reference reference;
-    if (final_alignment_) {
-      active.u_min[0] = std::max(active.u_min[0], -0.03);
-      active.u_max[0] = std::min(active.u_max[0], 0.03);
-      active.u_max[1] = std::min(active.u_max[1], final_align_wz_max_);
-      active.u_min[1] = -active.u_max[1];
-      reference = makeRotationReference(current, tf2::getYaw(goal.orientation),
-        active.horizon, active.dt, active.u_max[1], turn_time_constant_);
-    } else {
+    if (!terminal_engaged) {
+      // Slow the approach before the terminal stop, aiming inside XY tolerance.
+      const double cap=brakingSpeed(goal_distance,braking_deceleration_,reaction_time_,0.5*xy_tolerance);
+      active.u_max[0]=std::min(active.u_max[0],std::max(0.01,cap));
+      active.u_min[0]=std::max(active.u_min[0],-active.u_max[0]);
       reference = samplePath(local_plan, current, active.horizon, active.dt,
         active.u_max[0], active.u_max[1], turn_time_constant_);
     }
-    const auto problem = makeProblem(active, current, previous_command_, reference);
-    const auto result = solve(problem, reference, solve_limit_);
+    std::unique_lock<nav2_costmap_2d::Costmap2D::mutex_t> map_lock(*costmap_->getMutex());
+    nav2_costmap_2d::FootprintCollisionChecker<nav2_costmap_2d::Costmap2D *> checker(costmap_);
+    const auto footprint = costmap_ros_->getRobotFootprint();
+    auto blocked=[&](const State & s) {
+      const double cost=checker.footprintCostAtPose(s[0],s[1],s[2],footprint);
+      if (cost<0 || cost>=nav2_costmap_2d::LETHAL_OBSTACLE) return true;
+      // Also test interior cell centers: the Nav2 checker primarily samples edges.
+      std::vector<std::pair<double,double>> polygon;
+      double minx=1e9,miny=1e9,maxx=-1e9,maxy=-1e9;
+      for (const auto & p:footprint) {
+        const double x=s[0]+std::cos(s[2])*p.x-std::sin(s[2])*p.y;
+        const double y=s[1]+std::sin(s[2])*p.x+std::cos(s[2])*p.y;
+        polygon.emplace_back(x,y);minx=std::min(minx,x);maxx=std::max(maxx,x);
+        miny=std::min(miny,y);maxy=std::max(maxy,y);
+      }
+      unsigned int x0,y0,x1,y1;
+      if (polygon.size()<3 || !costmap_->worldToMap(minx,miny,x0,y0) ||
+          !costmap_->worldToMap(maxx,maxy,x1,y1)) return true;
+      for (unsigned int y=y0;y<=y1;++y) for (unsigned int x=x0;x<=x1;++x) {
+        if (costmap_->getCost(x,y)<nav2_costmap_2d::LETHAL_OBSTACLE) continue;
+        double wx,wy;costmap_->mapToWorld(x,y,wx,wy);bool inside=false;
+        for (size_t i=0,j=polygon.size()-1;i<polygon.size();j=i++) {
+          const auto & a=polygon[i];const auto & b=polygon[j];
+          if ((a.second>wy)!=(b.second>wy) && wx<(b.first-a.first)*(wy-a.second)/(b.second-a.second)+a.first)
+            inside=!inside;
+        }
+        if (inside) return true;
+      }
+      return false;
+    };
+    if (terminal_engaged) {
+      // Independent yaw controller, with the existing swept-footprint guard.
+      // Include residual measured rotation and a conservative command delay.
+      std::vector<State> prediction{current};double rate=measured_w;
+      for (int k=0;k<active.horizon;++k) {
+        if ((k+1)*active.dt>terminal_settings_.reaction_time)
+          rate+=std::clamp(terminal_w-rate,-terminal_settings_.angular_deceleration*active.dt,
+            terminal_settings_.angular_deceleration*active.dt);
+        State next=prediction.back();next[2]+=rate*active.dt;prediction.push_back(next);
+      }
+      if (std::isfinite(collisionDistance(prediction,costmap_->getResolution(),blocked))) {
+        previous_command_.setZero();
+        throw RetryableControlError("MPC terminal rotation footprint blocked; holding zero");
+      }
+      map_lock.unlock();return publishCommand(pose,prediction,Input(0,terminal_w));
+    }
+    const double obstacle_distance=collisionDistance(reference.states,costmap_->getResolution(),blocked);
+    if (std::isfinite(obstacle_distance)) {
+      const double cap=brakingSpeed(obstacle_distance,braking_deceleration_,reaction_time_,stop_margin_);
+      if (cap<0.01) {
+        previous_command_.setZero();
+        throw RetryableControlError("MPC reference blocked inside stopping margin; waiting for global replan");
+      }
+      if (cap<active.u_max[0]) {
+        active.u_max[0]=cap; active.u_min[0]=std::max(active.u_min[0],-cap);
+        reference=samplePath(local_plan,current,active.horizon,active.dt,cap,active.u_max[1],turn_time_constant_);
+        RCLCPP_WARN_THROTTLE(node_->get_logger(),*node_->get_clock(),2000,
+          "MPC obstacle braking: collision distance=%.3fm speed cap=%.3fm/s",obstacle_distance,cap);
+      }
+    }
+    auto problem = makeProblem(active, current, previous_command_, reference);
+    auto result = solve(problem, reference, solve_limit_);
     if (!result.valid || result.solve_seconds > solve_limit_) {
       const double previous_v = previous_command_[0];
       previous_command_.setZero();  // Nav2 publishes zero for NoValidControl.
@@ -174,46 +327,42 @@ public:
       previous_command_.setZero();
       throw RetryableControlError("MPC matrix build and solve exceeded cycle budget");
     }
-    nav_msgs::msg::Path prediction;
-    prediction.header = pose.header;
-    for (int k = 0; k <= active.horizon; ++k) {
-      const State predicted = reference.states[k] +
-        result.decision.segment<3>(problem.stateIndex(k));
-      if (!predicted.allFinite()) throw ControlError("MPC nonfinite prediction");
-      geometry_msgs::msg::PoseStamped point;
-      point.header = prediction.header;
-      point.pose.position.x = predicted[0];
-      point.pose.position.y = predicted[1];
-      tf2::Quaternion q;
-      q.setRPY(0.0, 0.0, predicted[2]);
-      point.pose.orientation = tf2::toMsg(q);
-      prediction.poses.push_back(point);
+    auto predicted=nonlinearPrediction(current,reference,problem,result.decision,active.dt);
+    auto safe=[&](){return !std::isfinite(collisionDistance(predicted,costmap_->getResolution(),blocked));};
+    if (!safe()) {
+      const double remaining=cycle_limit_-std::chrono::duration<double>(std::chrono::steady_clock::now()-cycle_start).count()-0.003;
+      if (remaining>0.003) {
+        active.u_max[0]*=retry_scale_; active.u_min[0]=std::max(active.u_min[0],-active.u_max[0]);
+        reference=samplePath(local_plan,current,active.horizon,active.dt,active.u_max[0],active.u_max[1],turn_time_constant_);
+        problem=makeProblem(active,current,previous_command_,reference);
+        result=solve(problem,reference,std::min(solve_limit_,remaining));
+        if (result.valid) predicted=nonlinearPrediction(current,reference,problem,result.decision,active.dt);
+      } else result.valid=false;
     }
-    // This QP tracks a collision-free reference; it does not optimize obstacle
-    // constraints. Reject any predicted footprint that enters lethal/unknown space.
-    {
-      std::unique_lock<nav2_costmap_2d::Costmap2D::mutex_t> lock(*costmap_->getMutex());
-      nav2_costmap_2d::FootprintCollisionChecker<nav2_costmap_2d::Costmap2D *> checker(costmap_);
-      const auto footprint = costmap_ros_->getRobotFootprint();
-      for (size_t k = 1; k < prediction.poses.size(); ++k) {
-        const auto & p = prediction.poses[k].pose;
-        const double cost = checker.footprintCostAtPose(p.position.x, p.position.y,
-          tf2::getYaw(p.orientation), footprint);
-        if (cost < 0.0 || cost >= nav2_costmap_2d::LETHAL_OBSTACLE) {
-          previous_command_.setZero();
-          throw RetryableControlError("MPC predicted footprint is blocked: step=" +
-            std::to_string(k) + ", x=" + std::to_string(p.position.x) +
-            ", y=" + std::to_string(p.position.y) +
-            ", cost=" + std::to_string(cost));
-        }
-      }
+    if (!result.valid || !safe() ||
+        std::chrono::duration<double>(std::chrono::steady_clock::now()-cycle_start).count()>cycle_limit_) {
+      previous_command_.setZero();
+      throw RetryableControlError("MPC collision/budget rejection after bounded braking retry; waiting for global replan");
+    }
+    map_lock.unlock();
+    return publishCommand(pose,predicted,result.command);
+  }
+
+  geometry_msgs::msg::TwistStamped publishCommand(const geometry_msgs::msg::PoseStamped & pose,
+    const std::vector<State> & predicted,const Input & input) {
+    nav_msgs::msg::Path prediction; prediction.header=pose.header;
+    for (const auto & p:predicted) {
+      geometry_msgs::msg::PoseStamped point;point.header=pose.header;
+      point.pose.position.x=p[0];point.pose.position.y=p[1];
+      tf2::Quaternion q;q.setRPY(0,0,p[2]);point.pose.orientation=tf2::toMsg(q);
+      prediction.poses.push_back(point);
     }
     geometry_msgs::msg::TwistStamped command;
     command.header.stamp = node_->now();
     command.header.frame_id = costmap_ros_->getBaseFrameID();
-    command.twist.linear.x = result.command[0];
-    command.twist.angular.z = result.command[1];
-    previous_command_ = result.command;
+    command.twist.linear.x = input[0];
+    command.twist.angular.z = input[1];
+    previous_command_ = input;
     predicted_pub_->publish(prediction);
     return command;
   }
@@ -242,7 +391,15 @@ private:
   double final_align_exit_ = 0.28;
   double final_align_wz_max_ = 0.22;
   double turn_time_constant_ = 0.65;
-  bool final_alignment_ = false;
+  double braking_deceleration_{0.4},reaction_time_{0.7},stop_margin_{0.1},retry_scale_{0.5};
+  TerminalAlignment terminal_;
+  TerminalSettings terminal_settings_;
+  double velocity_timeout_{0.2};
+  std::mutex velocity_mutex_;
+  nav_msgs::msg::Odometry velocity_;
+  std::chrono::steady_clock::time_point velocity_seen_{};
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr velocity_sub_;
+  bool goal_changed_{false};
   std::string name_;
 };
 
