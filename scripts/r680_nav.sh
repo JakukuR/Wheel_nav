@@ -10,6 +10,7 @@ usage() {
   --initial-pose "X Y Z R P Y"  给 RTAB-Map 提供出生点初值（米、弧度）
   --enable-motion        显式开放真实底盘导航输出（默认仅定位、规划和预览）
   --cuvslam              使用 cuVSLAM 双目 + 车身 IMU（试验前端，初始化前禁止运动）
+  --no-degraded-odom      禁用短时轮速+IMU降级，恢复视觉失效即停车的行为
   --auto-vio-init        cuVSLAM 启动受限运动初始化（仅已确认空旷的起步区；无 --enable-motion 则仅预览）
   --rgbd                 使用原 RGB-D VO + EKF（默认，回退入口）
   --mpc                  显式使用 MPC（当前默认）
@@ -37,6 +38,7 @@ ENABLE_MOTION=false
 USE_MPC=true
 ODOM_SOURCE=rgbd
 AUTO_VIO_INIT=false
+DISABLE_DEGRADED_ODOM=false
 SCAN_OBSTACLES=false
 TEST_SCAN_ONLY=false
 TEST_RECOVERY=false
@@ -55,6 +57,7 @@ while [[ $# -gt 0 ]]; do
     --enable-motion) ENABLE_MOTION=true; shift ;;
     --auto-vio-init) AUTO_VIO_INIT=true; shift ;;
     --cuvslam) ODOM_SOURCE=cuvslam; shift ;;
+    --no-degraded-odom) DISABLE_DEGRADED_ODOM=true; shift ;;
     --rgbd) ODOM_SOURCE=rgbd; shift ;;
     --mpc) USE_MPC=true; shift ;;
     --mppi) USE_MPC=false; shift ;;
@@ -312,6 +315,26 @@ cp "$NAV2_PARAMS_FILE" "$NAV_RUN_DIR/nav2.yaml"
 echo "[R680 NAV] 里程计前端：$ODOM_SOURCE"
 if [[ "$ODOM_SOURCE" == cuvslam ]]; then
   cp "$CONFIG_DIR/cuvslam.yaml" "$NAV_RUN_DIR/cuvslam.yaml"
+  cp "$CONFIG_DIR/degraded_odometry.yaml" "$NAV_RUN_DIR/degraded_odometry.yaml"
+  if [[ "${DISABLE_DEGRADED_ODOM:-false}" == true ]]; then
+    python3 - "$NAV_RUN_DIR/degraded_odometry.yaml" <<'PY'
+import sys, yaml
+path = sys.argv[1]
+with open(path) as stream:
+    config = yaml.safe_load(stream)
+config['r680_degraded_odometry']['ros__parameters']['enabled'] = False
+with open(path, 'w') as stream:
+    yaml.safe_dump(config, stream, sort_keys=False)
+PY
+  fi
+  python3 - "$NAV_RUN_DIR/degraded_odometry.yaml" <<'PY'
+import sys, yaml
+with open(sys.argv[1]) as stream:
+    p = yaml.safe_load(stream)['r680_degraded_odometry']['ros__parameters']
+print(f"[R680 NAV] 短时降级：{'启用' if p['enabled'] else '禁用'}；"
+      f"预算 {p['max_degraded_s']}s / {p['max_degraded_travel_m']}m / "
+      f"{p['max_degraded_turn_rad']}rad；配置：{sys.argv[1]}")
+PY
   if [[ "$AUTO_VIO_INIT" == true ]]; then
     cp "$CONFIG_DIR/vio_initializer.yaml" "$NAV_RUN_DIR/vio_initializer.yaml"
     echo "[R680 NAV] 自动初始化：最大请求 0.06m/s、0.20rad/s，路径预算 0.25m；真实输出=$ENABLE_MOTION"
@@ -336,6 +359,9 @@ LAUNCH_ARGS=(
   start_semantics:=false semantic_output:="$MAP_DIR/semantic.geojson"
   semantic_map_id:="$(basename "$MAP_DIR")" semantic_mark_home:=false
 )
+if [[ "$ODOM_SOURCE" == cuvslam ]]; then
+  LAUNCH_ARGS+=(degraded_odom_params_file:="$NAV_RUN_DIR/degraded_odometry.yaml")
+fi
 if [[ -n "$INITIAL_POSE" ]]; then
   LAUNCH_ARGS+=(initial_pose:="$INITIAL_POSE")
 fi

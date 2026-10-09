@@ -35,6 +35,14 @@ public:
   VoWatchdog() : Node("r680_vo_watchdog"), started_(Clock::now())
   {
     frontend_ = declare_parameter<std::string>("frontend", "rgbd");
+    bounded_degraded_ = declare_parameter<bool>("allow_bounded_degraded", false);
+    degraded_map_grace_ = declare_parameter<double>("degraded_map_grace_s", 2.0);
+    if(!std::isfinite(degraded_map_grace_) || degraded_map_grace_<0 || degraded_map_grace_>3)
+      throw std::invalid_argument("invalid degraded map grace");
+    if(bounded_degraded_) degraded_sub_=create_subscription<std_msgs::msg::Bool>(
+      "/r680_nav/odom_degraded",10,[this](std_msgs::msg::Bool::ConstSharedPtr msg) {
+        degraded_active_=msg->data;degraded_seen_=Clock::now();
+      });
     if (frontend_ != "rgbd" && frontend_ != "cuvslam") throw std::invalid_argument("unknown frontend");
     startup_grace_s_ = declare_parameter<double>("startup_grace_s", 12.0);
     stale_s_ = declare_parameter<double>("stale_s", 1.5);
@@ -122,7 +130,7 @@ public:
         [this](rtabmap_msgs::msg::OdomInfo::ConstSharedPtr msg) {onInfo(*msg);});
     } else {
       frontend_health_sub_ = create_subscription<std_msgs::msg::Bool>(
-        "/r680_nav/vio_tracking_healthy", 10,
+        declare_parameter<std::string>("frontend_health_topic", "/r680_nav/vio_tracking_healthy"), 10,
         [this](std_msgs::msg::Bool::ConstSharedPtr msg) {
           if (fault_latched_ && respawn_seen_.time_since_epoch().count() == 0) return;
           info_seen_ = Clock::now();
@@ -418,7 +426,7 @@ private:
 
   void tick()
   {
-    if (!fault_latched_ && (frontend_ == "rgbd" || frontend_ready_) && age(vo_seen_) <= stale_s_ &&
+    if (!fault_latched_ && !degradedActive() && (frontend_ == "rgbd" || frontend_ready_) && age(vo_seen_) <= stale_s_ &&
       age(info_seen_) <= stale_s_ && age(wheel_seen_) < 0.30 &&
       (frontend_=="rgbd" || (initial_map_matched_ && age(initial_localization_seen_)<=localization_stale_s_))) {
       const auto map_pose = currentMapPose();
@@ -521,7 +529,8 @@ private:
     const bool healthy = !fault_latched_ && age(vo_seen_) <= stale_s_ &&
       age(info_seen_) <= stale_s_ && lost_count_ == 0 &&
       (frontend_ == "rgbd" || (frontend_ready_ && initial_map_matched_ &&
-      age(initial_localization_seen_) <= localization_stale_s_ && currentMapPose().has_value()));
+      age(initial_localization_seen_) <= localization_stale_s_ +
+        (degradedActive() ? degraded_map_grace_ : 0.0) && currentMapPose().has_value()));
     std_msgs::msg::Bool health;
     health.data = healthy;
     health_pub_->publish(health);
@@ -670,6 +679,10 @@ private:
   }
 
   double startup_grace_s_{}, stale_s_{}, jump_linear_mps_{}, jump_angular_rps_{};
+  bool degradedActive() const {return bounded_degraded_ && degraded_active_ && age(degraded_seen_)<0.20;}
+  bool bounded_degraded_{false},degraded_active_{false};double degraded_map_grace_{};
+  Clock::time_point degraded_seen_{};
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr degraded_sub_;
   double wheel_window_s_{}, wheel_translation_error_m_{}, wheel_yaw_error_rad_{};
   double recovery_stable_s_{}, localization_stale_s_{};
   double localization_translation_error_m_{}, localization_yaw_change_rad_{};

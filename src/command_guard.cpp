@@ -11,6 +11,7 @@
 #include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "wla_r680_navigation/vio_init_policy.hpp"
+#include "wla_r680_navigation/degraded_odometry.hpp"
 
 using namespace std::chrono_literals;
 
@@ -28,6 +29,15 @@ public:
     hardware_output_enabled_ = declare_parameter<bool>("hardware_output_enabled", false);
     require_mission_permission_ = declare_parameter<bool>("require_mission_permission", true);
     init_mode_enabled_ = declare_parameter<bool>("initialization_mode_enabled", false);
+    degraded_enabled_ = declare_parameter<bool>("degraded_mode_enabled", false);
+    degraded_v_ = declare_parameter<double>("degraded_linear_max", 0.15);
+    degraded_w_ = declare_parameter<double>("degraded_angular_max", 0.30);
+    if(!std::isfinite(degraded_v_+degraded_w_) || degraded_v_<=0 || degraded_v_>0.2 ||
+      degraded_w_<=0 || degraded_w_>0.4) throw std::invalid_argument("invalid degraded motion envelope");
+    if(degraded_enabled_) degraded_sub_=create_subscription<std_msgs::msg::Bool>(
+      "/r680_nav/odom_degraded", 1, [this](std_msgs::msg::Bool::ConstSharedPtr msg) {
+        degraded_=msg->data;degraded_seen_=std::chrono::steady_clock::now();
+      });
     const auto input_topic = declare_parameter<std::string>(
       "input_topic", "/r680_nav/cmd_vel_collision_checked");
     const auto health_topic = declare_parameter<std::string>(
@@ -117,6 +127,15 @@ private:
           command_.angular.z, init_request_.twist.angular.z, 0.20);
       }
     }
+    if(degraded_enabled_) {
+      if(std::chrono::duration<double>(now-degraded_seen_).count()>0.20) output=geometry_msgs::msg::Twist();
+      else if(degraded_) {
+        // Preserve requested curvature; only reduce the collision-checked command.
+        const double scale=wla_r680_navigation::degradedCommandScale(
+          output.linear.x,output.angular.z,degraded_v_,degraded_w_);
+        output.linear.x*=scale;output.angular.z*=scale;
+      }
+    }
     preview_pub_->publish(output);
     if (hardware_output_enabled_) {
       raw_pub_->publish(output);
@@ -129,6 +148,9 @@ private:
   double reverse_max_{};
   double angular_max_{};
   bool hardware_output_enabled_{false};
+  bool degraded_enabled_{false},degraded_{false};double degraded_v_{},degraded_w_{};
+  std::chrono::steady_clock::time_point degraded_seen_{};
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr degraded_sub_;
   bool init_mode_enabled_{false}, init_permitted_{false};
   std::string init_state_;
   geometry_msgs::msg::TwistStamped init_request_;

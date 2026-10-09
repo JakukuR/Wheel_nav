@@ -26,6 +26,10 @@ pluginlib_export_plugin_description_file(nav2_costmap_2d costmap_plugins.xml)
 install(TARGETS wla_timed_obstacle_layer LIBRARY DESTINATION lib)
 
 add_executable(command_guard src/command_guard.cpp)
+add_executable(degraded_odometry src/degraded_odometry.cpp)
+target_include_directories(degraded_odometry PRIVATE include)
+target_compile_features(degraded_odometry PRIVATE cxx_std_17)
+ament_target_dependencies(degraded_odometry geometry_msgs nav_msgs rclcpp sensor_msgs std_msgs tf2 tf2_ros)
 target_include_directories(command_guard PRIVATE include)
 ament_target_dependencies(command_guard geometry_msgs rclcpp std_msgs)
 add_executable(vio_initializer src/vio_initializer.cpp)
@@ -56,7 +60,7 @@ ament_target_dependencies(interface_monitor nav_msgs rclcpp sensor_msgs std_msgs
 ament_target_dependencies(depth_to_points geometry_msgs rclcpp sensor_msgs tf2 tf2_ros)
 ament_target_dependencies(point_to_scan rclcpp sensor_msgs)
 
-install(TARGETS command_guard vio_initializer mapping_odom_gate imu_conditioner path_speed_profile goal_approach_limiter dynamic_obstacle_memory vo_watchdog interface_monitor depth_to_points point_to_scan DESTINATION lib/${PROJECT_NAME})
+install(TARGETS degraded_odometry command_guard vio_initializer mapping_odom_gate imu_conditioner path_speed_profile goal_approach_limiter dynamic_obstacle_memory vo_watchdog interface_monitor depth_to_points point_to_scan DESTINATION lib/${PROJECT_NAME})
 ament_python_install_package(wla_r680_navigation_py)
 install(PROGRAMS scripts/navigation_goal_bridge scripts/web_gateway scripts/furniture_semantic.py
   DESTINATION lib/${PROJECT_NAME})
@@ -69,6 +73,11 @@ install(DIRECTORY config launch docs web DESTINATION share/${PROJECT_NAME}
 install(FILES README.md DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
+  add_executable(test_degraded_odometry test/test_degraded_odometry.cpp)
+  target_include_directories(test_degraded_odometry PRIVATE include)
+  # assertions must stay active in Release builds
+  target_compile_options(test_degraded_odometry PRIVATE -UNDEBUG)
+  add_test(NAME degraded_odometry COMMAND test_degraded_odometry)
   find_package(ament_cmake_pytest REQUIRED)
   add_executable(test_recovery_evidence test/test_recovery_evidence.cpp)
   target_include_directories(test_recovery_evidence PRIVATE include)

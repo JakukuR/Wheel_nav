@@ -1,0 +1,26 @@
+r680_degraded_odometry:
+  ros__parameters:
+    # Navigation/cuVSLAM only; false restores immediate-stop behaviour.
+    enabled: true
+    raw_odom_topic: /r680_nav/vio_raw_odom
+    output_topic: /d455_slam/odom
+    wheel_topic: /wheel/odom
+    imu_topic: /wheel/imu/data_raw
+    odom_frame: d455_floor_odom
+    base_frame: r680_mapping_floor
+    expected_imu_frame: gyro_link
+    # Same provisional chassis-centre IMU mounting assumption as cuvslam.yaml.
+    base_from_imu_rotation: [0.0, 0.0, 0.0, 1.0]
+    raw_timeout_s: 0.15
+    imu_timeout_s: 0.10
+    wheel_timeout_s: 0.15
+    max_degraded_s: 2.0
+    max_degraded_travel_m: 0.30
+    max_degraded_turn_rad: 0.80
+    max_position_sigma_m: 0.10
+    max_yaw_sigma_rad: 0.15
+    visual_return_translation_m: 0.12
+    visual_return_yaw_rad: 0.15
+    visual_return_frames: 3
+    max_measured_linear_mps: 1.50
+    max_measured_angular_radps: 2.50

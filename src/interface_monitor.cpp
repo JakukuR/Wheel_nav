@@ -64,7 +64,8 @@ public:
         vo_watchdog_seen_ = now_steady();
       });
     vio_health_sub_ = create_subscription<std_msgs::msg::Bool>(
-      "/r680_nav/vio_tracking_healthy", 1, [this](std_msgs::msg::Bool::ConstSharedPtr msg) {
+      declare_parameter<std::string>("vio_health_topic", "/r680_nav/vio_tracking_healthy"),
+      1, [this](std_msgs::msg::Bool::ConstSharedPtr msg) {
         vio_healthy_ = msg->data; vio_seen_ = now_steady();
       });
     mapping_health_sub_ = create_subscription<std_msgs::msg::Bool>(
