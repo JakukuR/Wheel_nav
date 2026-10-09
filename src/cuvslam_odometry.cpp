@@ -31,6 +31,7 @@
 #include "tf2_ros/transform_broadcaster.h"
 #include "odometry_contract.hpp"
 #include "health_evidence.hpp"
+#include "visual_pose_evidence.hpp"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
 
@@ -128,6 +129,7 @@ public:
     // The navigation continuity node may use this only after a trusted startup.
     inertial_pub_ = create_publisher<std_msgs::msg::Bool>("/r680_nav/vio_inertial_valid", 10);
     visual_pub_ = create_publisher<std_msgs::msg::Bool>("/r680_nav/vio_visual_observed", 10);
+    publish_visual_only_ = declare_parameter<bool>("publish_visual_only", false);
     health_reason_pub_ = create_publisher<std_msgs::msg::String>("/r680_nav/vio_health_reason", 10);
     minimum_visual_observations_ = declare_parameter<int>("minimum_visual_observations", 20);
     if(minimum_visual_observations_<1) throw std::invalid_argument("invalid visual evidence threshold");
@@ -570,11 +572,18 @@ private:
         current_inertial.data = inertial_valid && velocity_valid;
         inertial_pub_->publish(current_inertial);
         std_msgs::msg::Bool current_visual;
-        current_visual.data = !sdk_state.warming_up && sdk_state.timestamp_ns == estimate.timestamp_ns &&
-          last_observations_ >= minimum_visual_observations_;
+        const bool inertial_only = tracker_->IsLastPoseInertialOnly();
+        if (inertial_only) ++inertial_only_frames_;
+        current_visual.data = wla_vio::visualPoseObserved(inertial_only, sdk_state.warming_up,
+          sdk_state.timestamp_ns, estimate.timestamp_ns, last_observations_, minimum_visual_observations_);
         visual_pub_->publish(current_visual);
-        pub_->publish(message);
-        if (broadcaster_) {
+        // Navigation keeps its last verified visual anchor while the SDK propagates IMU.
+        // Suppress the pose on this path, but continue publishing current inertial/health evidence.
+        // Startup passthrough supplies TF to the stationary initialization/costmap
+        // path. It cannot authorize normal motion before a verified visual anchor.
+        const bool output_pose = !publish_visual_only_ || !visual_anchor_ready_ || current_visual.data;
+        if (output_pose) {pub_->publish(message); ++published_frames_;}
+        if (broadcaster_ && output_pose) {
           geometry_msgs::msg::TransformStamped tf;
           tf.header = message.header;
           tf.child_frame_id = base_;
@@ -589,6 +598,7 @@ private:
         const bool gate_stamp_gap=last_gate_stamp_s_>=0 && (gate_dt_s<=0 || gate_dt_s>0.2);
         const bool ready = initialization_gate_.update(inertial_valid && velocity_valid,
           gate_stamp_s, initialization_stable_s_);
+        if (ready && current_visual.data) visual_anchor_ready_=true;
         last_gate_stamp_s_=gate_stamp_s;
         const auto health_reason=health_evidence.reason(ready);
         std_msgs::msg::String reason_message;
@@ -608,9 +618,13 @@ private:
           <<",\"velocity_dt_s\":"<<velocity_dt
           <<",\"gate_stamp_dt_s\":"<<gate_dt_s
           <<",\"gate_stamp_gap\":"<<(gate_stamp_gap ? "true" : "false")
+          <<",\"visual_pose_valid\":"<<(current_visual.data ? "true" : "false")
+          <<",\"inertial_only_pose\":"<<(inertial_only ? "true" : "false")
+          <<",\"output_pose\":"<<(output_pose ? "true" : "false")
           <<",\"required_stable_s\":"<<initialization_stable_s_
           <<",\"estimate_age_ms\":"<<(get_clock()->now().nanoseconds()-frame_stamp)*1e-6<<"}";
-        diagnostic(health_reason,health_details.str());
+        diagnostic(health_reason,health_details.str(), inertial_only != last_inertial_only_);
+        last_inertial_only_=inertial_only;
         // False during initialization, loss, invalid bias, gaps and stale frames.
         std_msgs::msg::Bool health;
         health.data = ready;
@@ -619,13 +633,12 @@ private:
         std_msgs::msg::String state;
         state.data = ready ? "tracking_inertial_ready" : "waiting_for_stable_inertial_initialization";
         status_pub_->publish(state);
-        ++published_frames_;
         latency_ms_.push_back((get_clock()->now().nanoseconds() - frame_stamp) * 1e-6);
         if (latency_ms_.size() > 4096) latency_ms_.erase(latency_ms_.begin(), latency_ms_.begin() + 2048);
         if (!have_first_pose_) { first_position_ = position; have_first_pose_ = true; }
         max_displacement_ = std::max(max_displacement_, (position - first_position_).norm());
         final_position_ = position;
-        if (published_frames_ % 30 == 0) {
+        if (tracked_frames_ % 30 == 0) {
           RCLCPP_INFO(get_logger(), "frames=%zu lost=%zu track=%.2fms age=%.2fms IMU=%zu gravity=%zu imu_state=%zu keyframes=%zu recent_keyframes=%zu displacement=%.4fm",
             published_frames_, lost_frames_, elapsed, latency_ms_.back(), registered_imu_, gravity_frames_, imu_state_frames_, keyframes_, keyframe_stamps_.size(), max_displacement_);
           write_statistics();
@@ -664,6 +677,8 @@ private:
       << "  \"mode\": \"" << (use_imu_ ? "Inertial" : "Multicamera") << "\",\n"
       << "  \"inertial_initialized\": " << (gravity_frames_ > 0 ? "true" : "false") << ",\n"
       << "  \"inertial_ready_frames\": " << ready_frames_ << ",\n"
+      << "  \"inertial_only_frames\": " << inertial_only_frames_ << ",\n"
+      << "  \"publish_visual_only\": " << (publish_visual_only_ ? "true" : "false") << ",\n"
       << "  \"keyframes\": " << keyframes_ << ",\n"
       << "  \"recent_keyframes\": " << keyframe_stamps_.size() << ",\n"
       << "  \"requested_initialization_keyframes\": " << requested_init_keyframes_ << ",\n"
@@ -699,7 +714,8 @@ private:
   }
 
   bool use_imu_{}, async_sba_{}, have_first_pose_{}, have_previous_pose_{};
-  bool publish_tf_{};
+  bool publish_tf_{}, publish_visual_only_{},visual_anchor_ready_{},last_inertial_only_{};
+  size_t inertial_only_frames_{};
   double initialization_stable_s_{}, twist_filter_tau_s_{}, max_gyro_bias_{}, max_accel_bias_{};
   Eigen::Vector3d filtered_linear_{Eigen::Vector3d::Zero()}, filtered_angular_{Eigen::Vector3d::Zero()};
   wla_vio::InitializationGate initialization_gate_;
