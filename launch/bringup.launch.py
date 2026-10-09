@@ -2,14 +2,28 @@ from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, TimerAction
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, OpaqueFunction, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
+from launch.substitutions import AllSubstitution, EqualsSubstitution, IfElseSubstitution, LaunchConfiguration, NotEqualsSubstitution, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 from nav2_common.launch import RewrittenYaml
+
+
+def validate_navigation_map(context):
+    navigation = all(LaunchConfiguration(name).perform(context) == value for name, value in (
+        ('mode', 'localization'), ('start_nav2', 'true'), ('start_navigation_servers', 'true')))
+    if navigation:
+        selected = LaunchConfiguration('navigation_map_yaml').perform(context)
+        if selected:
+            if not Path(selected).is_file():
+                raise ValueError(f'Navigation static map does not exist: {selected}')
+        elif LaunchConfiguration('start_state_estimation').perform(context) == 'true':
+            raise ValueError('Navigation requires navigation_map_yaml:=/path/to/map.yaml; '
+                             'the RTAB-Map database is used for localization, not the static navigation map.')
+    return []
 
 
 def generate_launch_description():
@@ -42,6 +56,7 @@ def generate_launch_description():
     web_host = LaunchConfiguration('web_host')
     web_port = LaunchConfiguration('web_port')
     web_map_yaml = LaunchConfiguration('web_map_yaml')
+    navigation_map_yaml = LaunchConfiguration('navigation_map_yaml')
     use_imu = LaunchConfiguration('use_d455_imu')
     use_chassis_imu = LaunchConfiguration('use_chassis_imu')
     enable_motion = LaunchConfiguration('enable_hardware_output')
@@ -51,6 +66,12 @@ def generate_launch_description():
     localization = PythonExpression(["'true' if '", mode, "' == 'localization' else 'false'"])
     full_navigation = PythonExpression(["'", start_nav2, "' == 'true' and '",
                                         start_navigation_servers, "' == 'true'"])
+    edited_map_enabled = AllSubstitution(container=[
+        EqualsSubstitution(mode, 'localization'), full_navigation,
+        NotEqualsSubstitution(navigation_map_yaml, '')])
+    rtabmap_map_topic = IfElseSubstitution(
+        edited_map_enabled, '/d455_slam/localization_map', '/r680/d455/map')
+    displayed_map_yaml = IfElseSubstitution(edited_map_enabled, navigation_map_yaml, web_map_yaml)
     safety_only = PythonExpression(["'", start_nav2, "' == 'true' and '",
                                     start_navigation_servers, "' == 'false'"])
     dynamic_obstacles_enabled = PythonExpression(["'", start_nav2, "' == 'true' and '",
@@ -187,7 +208,7 @@ def generate_launch_description():
             'namespace': 'd455_slam',
             'frame_id': 'r680_mapping_floor',
             'map_frame_id': 'map',
-            'map_topic': '/r680/d455/map',
+            'map_topic': rtabmap_map_topic,
             'visual_odometry': 'false',
             'icp_odometry': 'false',
             'odom_topic': mapping_odom_topic,
@@ -259,6 +280,20 @@ def generate_launch_description():
         parameters=[str(config / 'dynamic_obstacles.yaml')])
 
     nav_params = LaunchConfiguration('nav_params_file')
+    # Only the selected 2D map owns the navigation map topic. RTAB-Map keeps
+    # its database-derived grid on a separate topic for localization/debugging.
+    static_map_server = Node(
+        package='nav2_map_server', executable='map_server', name='map_server',
+        output='screen', condition=IfCondition(edited_map_enabled), parameters=[{
+            'yaml_filename': ParameterValue(navigation_map_yaml, value_type=str),
+            'frame_id': 'map', 'topic_name': '/r680/d455/map', 'use_sim_time': False,
+        }])
+    static_map_lifecycle = Node(
+        package='nav2_lifecycle_manager', executable='lifecycle_manager',
+        name='lifecycle_manager_static_map', output='screen',
+        condition=IfCondition(edited_map_enabled), parameters=[{
+            'autostart': True, 'node_names': ['map_server'], 'use_sim_time': False,
+        }])
     nav2_nodes = [
         Node(package='nav2_controller', executable='controller_server',
              name='controller_server', output='screen', condition=IfCondition(full_navigation),
@@ -349,7 +384,7 @@ def generate_launch_description():
         parameters=[str(config / 'web_gateway.yaml'), {
             'host': ParameterValue(web_host, value_type=str),
             'port': ParameterValue(web_port, value_type=int),
-            'map_yaml': ParameterValue(web_map_yaml, value_type=str),
+            'map_yaml': ParameterValue(displayed_map_yaml, value_type=str),
             'semantic_path': ParameterValue(LaunchConfiguration('semantic_output'), value_type=str),
         }])
 
@@ -385,6 +420,9 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'web_map_yaml', default_value='',
             description='Optional map.yaml pinned in the Web view; empty uses live OccupancyGrid.'),
+        DeclareLaunchArgument(
+            'navigation_map_yaml', default_value=web_map_yaml,
+            description='Edited 2D map.yaml for navigation; defaults to web_map_yaml for compatibility.'),
         DeclareLaunchArgument('use_d455_imu', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('use_chassis_imu', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('enable_hardware_output', default_value='false', choices=['true', 'false']),
@@ -394,6 +432,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'initial_pose', default_value='',
             description='Optional RTAB-Map initial pose: x y z roll pitch yaw.'),
+        OpaqueFunction(function=validate_navigation_map),
+        static_map_server, static_map_lifecycle,
         realsense, mount_tf, chassis_imu_tf, imu_filter, chassis_imu_conditioner,
         chassis_imu_filter, vo, cuvslam, mapping_gate, vo_watchdog, ekf, rtabmap,
         chassis, depth_points, scan_converter, dynamic_obstacles, semantic_collector,

@@ -179,6 +179,9 @@ cat > "$NAV_RUN_DIR/navigation.json" <<EOF
 {
   "selected_map": "$MAP_DIR",
   "map_yaml": "$MAP_YAML",
+  "static_map_source": "map_server",
+  "static_map_topic": "/r680/d455/map",
+  "rtabmap_debug_map_topic": "/d455_slam/localization_map",
   "source_database": "$SOURCE_DB_PATH",
   "working_database": "$DB_PATH",
   "initial_pose": "$INITIAL_POSE",
@@ -321,7 +324,7 @@ else
 fi
 
 LAUNCH_ARGS=(
-  mode:=localization database_path:="$DB_PATH" web_map_yaml:="$MAP_YAML"
+  mode:=localization database_path:="$DB_PATH" navigation_map_yaml:="$MAP_YAML" web_map_yaml:="$MAP_YAML"
   nav_params_file:="$NAV2_PARAMS_FILE"
   obstacle_scan:="$SCAN_OBSTACLES"
   start_dynamic_obstacles:="$(if [[ "$TEST_SCAN_ONLY" == true || "$TEST_RECOVERY" == true ]]; then echo false; else echo true; fi)"
