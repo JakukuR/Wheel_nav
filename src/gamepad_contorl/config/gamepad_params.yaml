@@ -1,0 +1,62 @@
+# ════════════════════════════════════════════════════════════
+# Gamepad Teleop 配置文件
+# Flydigi Dune Fox 手柄 + 差速驱动大质量高重心机器人
+# ════════════════════════════════════════════════════════════
+
+gamepad_teleop:
+  ros__parameters:
+    # ── 设备设置 ──
+    device: "/dev/input/js0"
+    cmd_vel_topic: "cmd_vel"
+    publish_rate: 50.0    # Hz 控制频率
+
+    # ── 速度限制 ──
+    max_linear_speed: 1.0     # m/s  最大前进速度（根据你的底盘调整）
+    max_angular_speed: 1.5    # rad/s 最大转弯角速度
+    min_linear_speed: 0.05    # m/s  最小有效线速度（低于此值归零）
+
+    # ── 加速度限制（高重心车辆要设小一些）──
+    max_linear_accel: 0.5     # m/s²   加速时的最大加速度
+    max_linear_decel: 1.0     # m/s²   减速/刹车时的最大减速度
+    max_angular_accel: 1.5    # rad/s² 转弯加速度
+    max_angular_decel: 3.0    # rad/s² 转弯减速度
+
+    # ── 响应曲线 ──
+    expo_linear: 2.0          # 指数响应幂次（越大低速越精细）
+    expo_angular: 1.8
+    deadzone: 0.08            # 摇杆死区 (0~1)
+
+    # ── 滤波 ──
+    filter_alpha: 0.3         # 低通滤波系数 (0~1，越小越平滑但延迟越大)
+
+    # ── 转弯安全 ──
+    steering_speed_factor: 0.6  # 高速转弯时角速度缩减到此比例
+
+    # ── 速度档位 ──
+    speed_profile_low: 0.3    # 低速档 (30%)
+    speed_profile_mid: 0.6    # 中速档 (60%)
+    speed_profile_high: 1.0   # 高速档 (100%)
+
+    # ── 原地旋转 ──
+    spin_angular_speed: 0.8   # rad/s
+
+    # ── 功能开关 ──
+    deadman_enabled: false     # 是否启用死人开关（LT必须按住才能动）
+                              # false = 禁用，摇杆直接控制（调试/室内用）
+    single_stick_mode: false  # 单摇杆模式：左摇杆同时控制前后和转弯
+                              # true = 左手一根杆控制全部，手感更直觉
+                              # false = 左杆前后 + 右杆转弯（精度更高）
+
+    # ── 轴映射 (Flydigi Dune Fox DInput) ──
+    axis_linear: 1            # 左摇杆 Y 轴
+    axis_angular: 3           # 右摇杆 X 轴（Xbox 轴3）
+    axis_lt: 2                # LT 扳机（Xbox 轴2）
+    axis_rt: 5                # RT 扳机（Xbox 轴5）
+
+    # ── 按钮映射 ──
+    btn_estop: 0              # A 按钮 -> 紧急停止
+    btn_speed_low: 2          # X 按钮 -> 低速档
+    btn_speed_mid: 3          # Y 按钮 -> 中速档
+    btn_speed_high: 1         # B 按钮 -> 高速档
+    btn_spin_left: 4          # LB -> 原地左转
+    btn_spin_right: 5         # RB -> 原地右转

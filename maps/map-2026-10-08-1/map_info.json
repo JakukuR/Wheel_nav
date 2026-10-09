@@ -1,0 +1,18 @@
+{
+  "schema": "wla-navigation-map-v1",
+  "map_id": "map-2026-10-08-1",
+  "created_at": "2026-10-08T12:57:16.663181+08:00",
+  "source_run_id": "run-20261008-124720",
+  "frame_id": "map",
+  "resolution": 0.05000000074505806,
+  "width": 275,
+  "height": 299,
+  "origin": [
+    -5.335779190063477,
+    -5.546727657318115,
+    0.0
+  ],
+  "occupancy_map": "map.yaml",
+  "localization_database": "rtabmap.db",
+  "semantic_layer": "semantic.geojson"
+}

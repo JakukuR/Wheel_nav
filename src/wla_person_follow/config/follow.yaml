@@ -1,0 +1,28 @@
+person_follow:
+  ros__parameters:
+    rgb_topic: /r680/d455/color/image_raw
+    depth_topic: /r680/d455/aligned_depth_to_color/image_raw
+    camera_info_topic: /r680/d455/color/camera_info
+    odom_topic: /wheel/odom
+    base_frame: r680_mapping_floor
+    output_topic: /r680/person_follow/cmd_vel_candidate
+    model_path: /home/orin/Wheel_Legged_Agent/models/yolo11n.pt
+    confidence: 0.35
+    image_size: 640
+    camera_sync_tolerance_s: 0.035
+    max_sensor_age_s: 0.30
+    max_odom_age_s: 0.30
+    target_distance_m: 1.40
+    max_linear_mps: 0.20
+    max_angular_rps: 0.45
+    prediction_horizon_s: 1.20
+    prediction_linear_mps: 0.08
+    obstacle_height_min_m: 0.10
+    obstacle_height_max_m: 1.50
+    obstacle_inflation_m: 0.45
+    emergency_distance_m: 0.60
+    camera_min_valid_fraction: 0.25
+    camera_front_min_valid_fraction: 0.35
+    depth_min_m: 0.25
+    depth_max_m: 5.0
+    enable_motion: false

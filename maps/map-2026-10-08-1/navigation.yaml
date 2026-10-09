@@ -1,0 +1,8 @@
+schema: wla-navigation-startup-v1
+map_id: map-2026-10-08-1
+frame_id: map
+occupancy_map: map.yaml
+localization_database: rtabmap.db
+map_metadata: map_info.json
+semantic_layer: semantic.geojson
+default_initial_pose: null

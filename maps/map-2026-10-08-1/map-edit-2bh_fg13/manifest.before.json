@@ -1,0 +1,12 @@
+{
+  "schema": "wla-navigation-map-manifest-v1",
+  "map_id": "map-2026-10-08-1",
+  "frame_id": "map",
+  "files": {
+    "map.pgm": "3dc4a4ae6c13349a589de7bcc1d68c7373f598b67f06bfe70cc1849366fabea5",
+    "map.yaml": "58ad3ab9c38dd214a565f5aefbd34fc4ff71309b6082ddf6e72df198300cd32f",
+    "rtabmap.db": "86f2ced0eecdcef07462cc300843b12c25a11894f2c9cca6d66d1c457fd26d6d",
+    "map_info.json": "acd69cabead844f25532675f156a2133881739b194d2e767c661a3d659f8193c",
+    "navigation.yaml": "6d639a4acb47b359cf5ffdd393f8383aa4895fd059038a9b7058ef8e16e996a8"
+  }
+}

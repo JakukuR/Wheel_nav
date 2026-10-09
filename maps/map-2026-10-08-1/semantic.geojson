@@ -1,0 +1,1739 @@
+{
+  "type": "FeatureCollection",
+  "schema": "wla-semantic-map-v1",
+  "map_id": "map-2026-10-08-1",
+  "revision": 279,
+  "features": [
+    {
+      "type": "Feature",
+      "id": "home",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          0.0456107035279274,
+          -0.0005753041477873921,
+          0.002397865056991577
+        ]
+      },
+      "properties": {
+        "role": "home",
+        "label": "\u51fa\u751f\u70b9",
+        "yaw_rad": 0.0009336819196943678,
+        "frame_id": "map",
+        "source": "mapping_start_tf",
+        "recorded_at": "2026-10-08T04:47:32.003448+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0002",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          1.7369988371889433,
+          1.0339884060523663,
+          0.4460085970848619
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.9343951344490051,
+        "observations": 21,
+        "viewpoints_xy": [
+          [
+            0.22766321929288824,
+            0.0013942383921099876
+          ],
+          [
+            0.6262308951064518,
+            -0.005213841008708002
+          ],
+          [
+            1.5477016059307145,
+            0.25266595564824146
+          ],
+          [
+            5.568434987644335,
+            0.9723614495311272
+          ],
+          [
+            5.09995145220708,
+            0.5906493213553778
+          ],
+          [
+            3.6090776108394413,
+            0.5353035683879265
+          ],
+          [
+            2.1895998742385308,
+            0.26693405958347294
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:53:35.221609+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0003",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          2.698148580198786,
+          -1.6829838529328036,
+          0.48531845823839115
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.8931231498718262,
+        "observations": 48,
+        "viewpoints_xy": [
+          [
+            0.22766321929288824,
+            0.0013942383921099876
+          ],
+          [
+            0.6262308951064518,
+            -0.005213841008708002
+          ],
+          [
+            1.8566834078818006,
+            -0.06639944921238587
+          ],
+          [
+            1.6215747167398624,
+            -0.1570915474837951
+          ],
+          [
+            4.447606996461269,
+            0.1618823967472145
+          ],
+          [
+            5.509789012810255,
+            0.7320750394853226
+          ],
+          [
+            4.026423807063911,
+            -0.004689907638317005
+          ],
+          [
+            -0.03093429277599219,
+            1.6372987796500549
+          ],
+          [
+            0.06238889657766446,
+            1.2598414076970355
+          ],
+          [
+            0.12043703081189094,
+            0.9897833141340789
+          ],
+          [
+            0.040903492536062375,
+            -1.0042666391678399
+          ],
+          [
+            -0.11834229911352978,
+            -0.8071930680791835
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:56:52.824375+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0004",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          1.4541214861291807,
+          -1.9709889208880846,
+          0.5605111737521762
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.9108630418777466,
+        "observations": 40,
+        "viewpoints_xy": [
+          [
+            1.7227850309420114,
+            -0.1451089583390242
+          ],
+          [
+            5.602517171158875,
+            0.6248661621710666
+          ],
+          [
+            5.09995145220708,
+            0.5906493213553778
+          ],
+          [
+            4.70313049600088,
+            0.39651380885508564
+          ],
+          [
+            4.144628906581993,
+            0.05730398625758884
+          ],
+          [
+            3.3571284112000592,
+            0.7580525583060962
+          ],
+          [
+            2.6902077350105627,
+            0.17323022033927662
+          ],
+          [
+            -0.03093429277599219,
+            1.6372987796500549
+          ],
+          [
+            0.06238889657766446,
+            1.2598414076970355
+          ],
+          [
+            0.12043703081189094,
+            0.9897833141340789
+          ],
+          [
+            -0.21431931034253626,
+            -0.27755179035451755
+          ],
+          [
+            -0.1272965808633887,
+            -0.6769127891922523
+          ],
+          [
+            0.0583347122490008,
+            -1.0495393685139378
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:56:52.822819+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0005",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          2.169517212604693,
+          -1.7311733356770385,
+          0.463338844464076
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "dining table",
+        "confidence": 0.5481898188591003,
+        "observations": 9,
+        "viewpoints_xy": [
+          [
+            1.7227850309420114,
+            -0.1451089583390242
+          ],
+          [
+            0.15560478828704877,
+            -1.1367474581495463
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:56:40.636524+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0006",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          0.3955338847178981,
+          -1.9435806670039322,
+          0.45942184822388504
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.692225992679596,
+        "observations": 15,
+        "viewpoints_xy": [
+          [
+            1.6215747167398624,
+            -0.1570915474837951
+          ],
+          [
+            3.293192143236734,
+            0.6260695361384105
+          ],
+          [
+            2.9842711007142224,
+            0.41854747298275
+          ],
+          [
+            2.6902077350105627,
+            0.17323022033927662
+          ],
+          [
+            -0.03093429277599219,
+            1.6372987796500549
+          ],
+          [
+            0.0583347122490008,
+            -1.0495393685139378
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:56:43.231420+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0007",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          0.7638276005239244,
+          -2.116731101317302,
+          0.45974956126355404
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "dining table",
+        "confidence": 0.4902356266975403,
+        "observations": 2,
+        "viewpoints_xy": [
+          [
+            1.5050149239793662,
+            -0.11022365305785473
+          ],
+          [
+            -0.06042463239739601,
+            -0.8993927234032165
+          ]
+        ],
+        "status": "tentative",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:56:43.232722+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0008",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -1.5922834740598222,
+          1.2600951249690011,
+          0.4988700924969966
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.7950222492218018,
+        "observations": 18,
+        "viewpoints_xy": [
+          [
+            1.4729677079313397,
+            -0.012009561264107613
+          ],
+          [
+            2.6902077350105627,
+            0.17323022033927662
+          ],
+          [
+            1.6350576733023732,
+            0.3771763102967424
+          ],
+          [
+            1.2698396827817493,
+            0.4186067896104148
+          ],
+          [
+            -0.019159944794541806,
+            -0.30278890948566267
+          ],
+          [
+            -0.08919577081638236,
+            1.0058079856290654
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:56:20.520885+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0009",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -1.370010998764612,
+          -0.8099558531859895,
+          0.427678234733309
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.8862236142158508,
+        "observations": 8,
+        "viewpoints_xy": [
+          [
+            1.45511127414742,
+            0.10674727006171696
+          ],
+          [
+            2.1895998742385308,
+            0.26693405958347294
+          ],
+          [
+            1.2698396827817493,
+            0.4186067896104148
+          ],
+          [
+            -0.3058647157748718,
+            -1.338871609168768
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:53:58.630430+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0010",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          1.0288251549090612,
+          1.108031471696102,
+          0.4553286418269325
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.9056565761566162,
+        "observations": 6,
+        "viewpoints_xy": [
+          [
+            1.4767683980092274,
+            0.17875500157459273
+          ],
+          [
+            -0.34968496929986287,
+            2.4343006554125637
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:55:55.831157+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0011",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          0.581697912009962,
+          2.375729119205184,
+          0.03529203314890944
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.4402286112308502,
+        "observations": 2,
+        "viewpoints_xy": [
+          [
+            1.661930680935509,
+            0.2539186861283224
+          ]
+        ],
+        "status": "tentative",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:48:16.034301+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0012",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          5.298967931575579,
+          2.031609266261234,
+          0.6079029420132801
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.9058233499526978,
+        "observations": 18,
+        "viewpoints_xy": [
+          [
+            1.7007163411873225,
+            0.21456376213802847
+          ],
+          [
+            3.2774119080109565,
+            -0.2316072676432907
+          ],
+          [
+            4.656720671004259,
+            0.40381906437935566
+          ],
+          [
+            5.6290206740706745,
+            0.9706498630281795
+          ],
+          [
+            4.290149743165366,
+            0.1182811155889375
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:50:38.630723+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0013",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          5.106695359550936,
+          1.8983277872120397,
+          0.6712462875817209
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.8633915781974792,
+        "observations": 8,
+        "viewpoints_xy": [
+          [
+            1.7365329832786651,
+            0.18401791738589113
+          ],
+          [
+            3.7787913589701194,
+            -0.023579660562754706
+          ],
+          [
+            4.380246478873388,
+            0.2525601843968438
+          ],
+          [
+            4.52853393120621,
+            0.589235134205164
+          ],
+          [
+            5.688347951772146,
+            0.9822441817060161
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:49:38.734339+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0014",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          1.566420793436515,
+          -0.9969194680848428,
+          0.47972237518164496
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.6442251205444336,
+        "observations": 1,
+        "viewpoints_xy": [
+          [
+            1.6293237289930829,
+            -0.10565953449840171
+          ]
+        ],
+        "status": "tentative",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:48:32.229467+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0015",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          6.477049130322544,
+          2.04145425978773,
+          0.4929734538980962
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.9313377141952515,
+        "observations": 43,
+        "viewpoints_xy": [
+          [
+            2.9533341951068186,
+            -0.3413245267829753
+          ],
+          [
+            3.2774119080109565,
+            -0.2316072676432907
+          ],
+          [
+            3.7787913589701194,
+            -0.023579660562754706
+          ],
+          [
+            4.380246478873388,
+            0.2525601843968438
+          ],
+          [
+            4.656720671004259,
+            0.40381906437935566
+          ],
+          [
+            5.455650836662916,
+            0.3443172681988712
+          ],
+          [
+            5.727231363940165,
+            0.7826126566482192
+          ],
+          [
+            5.727362946777251,
+            1.039429922523924
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:50:38.629774+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0016",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          2.943086185357685,
+          -2.147776787698876,
+          0.4799436955927263
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "couch",
+        "confidence": 0.35756751894950867,
+        "observations": 1,
+        "viewpoints_xy": [
+          [
+            4.495867180764448,
+            0.1423368087770041
+          ]
+        ],
+        "status": "tentative",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:48:57.921947+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0017",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          1.7574885265960623,
+          -2.5374283883952518,
+          0.6579856436483605
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.4287116527557373,
+        "observations": 3,
+        "viewpoints_xy": [
+          [
+            4.402281992648058,
+            0.17831756267845889
+          ],
+          [
+            5.640357706162648,
+            0.6144147307416006
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:49:51.520359+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0018",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          4.096027941427408,
+          1.5115244015754765,
+          0.21041413349392124
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "couch",
+        "confidence": 0.4311051070690155,
+        "observations": 1,
+        "viewpoints_xy": [
+          [
+            4.391494731772683,
+            0.5150008472880243
+          ]
+        ],
+        "status": "tentative",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:49:08.124301+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0019",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          2.330181938297758,
+          1.5158819035221112,
+          0.4533125140764883
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.36116471886634827,
+        "observations": 1,
+        "viewpoints_xy": [
+          [
+            4.429258505016471,
+            0.5527119398778542
+          ]
+        ],
+        "status": "tentative",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:49:09.234517+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0020",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          4.83025103794529,
+          3.1033134854054225,
+          0.30701531525850045
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.5660185217857361,
+        "observations": 1,
+        "viewpoints_xy": [
+          [
+            5.742061182753003,
+            0.9741239690566459
+          ]
+        ],
+        "status": "tentative",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:49:37.624757+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0021",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          6.421243053329622,
+          2.7295879499248668,
+          0.30695682554211623
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.5669777989387512,
+        "observations": 2,
+        "viewpoints_xy": [
+          [
+            5.688347951772146,
+            0.9822441817060161
+          ]
+        ],
+        "status": "tentative",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:50:06.934629+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0022",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          4.399987685076958,
+          -0.9963102220720592,
+          0.3382075226267838
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.39233678579330444,
+        "observations": 1,
+        "viewpoints_xy": [
+          [
+            5.509789012810255,
+            0.7320750394853226
+          ]
+        ],
+        "status": "tentative",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:49:46.522200+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0023",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          6.23865353471952,
+          -0.3799411128777595,
+          0.4342303782467336
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.46976348757743835,
+        "observations": 1,
+        "viewpoints_xy": [
+          [
+            4.243973037952915,
+            -0.09199849107598929
+          ]
+        ],
+        "status": "tentative",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:50:30.828641+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0024",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          4.796515189986048,
+          -0.9152189155242998,
+          0.2591135045171281
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "couch",
+        "confidence": 0.5097643733024597,
+        "observations": 1,
+        "viewpoints_xy": [
+          [
+            4.256121342724496,
+            -0.04827568872489202
+          ]
+        ],
+        "status": "tentative",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:50:31.933153+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0025",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          4.27129175362445,
+          1.4170672382751883,
+          0.3432590031090541
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.5727227926254272,
+        "observations": 3,
+        "viewpoints_xy": [
+          [
+            4.095025386992202,
+            0.29164721644328157
+          ]
+        ],
+        "status": "tentative",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:50:41.035719+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0026",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          1.8162732211528676,
+          3.2361695586184624,
+          0.4559590181106157
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.8207569718360901,
+        "observations": 24,
+        "viewpoints_xy": [
+          [
+            3.531132178624113,
+            1.6618267939992488
+          ],
+          [
+            3.363996593900329,
+            2.0614691207093867
+          ],
+          [
+            3.095552410033487,
+            4.161619506218395
+          ],
+          [
+            2.736339667834643,
+            4.251142889861094
+          ],
+          [
+            2.487235156111985,
+            4.156081455408579
+          ],
+          [
+            -0.05983498483282301,
+            -1.0620710077693634
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:54:03.020790+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0027",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          4.972288341584379,
+          4.805525470536112,
+          0.44733772061386895
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.6884684562683105,
+        "observations": 22,
+        "viewpoints_xy": [
+          [
+            3.316434444036419,
+            3.390410303560682
+          ],
+          [
+            3.5534022109267385,
+            4.150514652912887
+          ],
+          [
+            3.8425038380157455,
+            4.269243419826441
+          ],
+          [
+            3.562233377815978,
+            4.861547479012971
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:52:23.732491+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0028",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          1.8355676962699725,
+          6.227401028769383,
+          0.5120893113604575
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.7829945087432861,
+        "observations": 8,
+        "viewpoints_xy": [
+          [
+            3.3649377033368295,
+            4.131865931331253
+          ],
+          [
+            3.3024886721602558,
+            4.398786971005627
+          ],
+          [
+            3.562976554196674,
+            4.4942990216364525
+          ],
+          [
+            3.4032458736142552,
+            4.78578612408284
+          ],
+          [
+            3.2273750340586904,
+            5.175621571335555
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:52:12.640283+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0029",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          1.47690453410974,
+          4.613560386027834,
+          0.46612316340071025
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.8656789064407349,
+        "observations": 9,
+        "viewpoints_xy": [
+          [
+            3.1392328201198865,
+            4.341434132497882
+          ],
+          [
+            2.5893265758296002,
+            4.199742713299175
+          ],
+          [
+            2.831671040374049,
+            4.297147026890435
+          ],
+          [
+            -0.28718753123625956,
+            3.722012359275484
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:54:54.925405+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0030",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          0.20919403124633895,
+          5.2973115662693715,
+          0.6058060209858448
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.6610482335090637,
+        "observations": 1,
+        "viewpoints_xy": [
+          [
+            3.0942507447953402,
+            4.223948954833618
+          ]
+        ],
+        "status": "tentative",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:51:21.631130+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0031",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          4.437612905926923,
+          3.8313421332337008,
+          0.5839443239473505
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.6610482335090637,
+        "observations": 7,
+        "viewpoints_xy": [
+          [
+            3.489386429239152,
+            4.01371750131989
+          ],
+          [
+            3.8327496104576144,
+            4.161131722696008
+          ],
+          [
+            3.534002404360895,
+            4.810957601236588
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:52:26.923558+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0032",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          5.814506269862482,
+          3.900834484897604,
+          0.675813984758468
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.7386690378189087,
+        "observations": 7,
+        "viewpoints_xy": [
+          [
+            3.5263990539615904,
+            4.214836339781115
+          ],
+          [
+            3.8425038380157455,
+            4.269243419826441
+          ],
+          [
+            3.5721037414165298,
+            4.930692416643691
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:52:25.829889+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0033",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          5.51442182055497,
+          5.295899023259645,
+          0.3192366880526166
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.45519864559173584,
+        "observations": 1,
+        "viewpoints_xy": [
+          [
+            3.727767049780602,
+            4.450047313345069
+          ]
+        ],
+        "status": "tentative",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:52:02.823100+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0034",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          1.5828742297511706,
+          6.777160464881547,
+          0.5738263204011346
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.6736212372779846,
+        "observations": 1,
+        "viewpoints_xy": [
+          [
+            3.304095451583269,
+            5.211183162399258
+          ]
+        ],
+        "status": "tentative",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:52:13.824568+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0035",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          6.230126103118084,
+          4.512110280742352,
+          0.2305064932454537
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.5655386447906494,
+        "observations": 2,
+        "viewpoints_xy": [
+          [
+            3.5721037414165298,
+            4.930692416643691
+          ]
+        ],
+        "status": "tentative",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:52:24.824004+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0036",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          0.6943283223531362,
+          4.244504254465352,
+          0.379865553565009
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.6791787147521973,
+        "observations": 12,
+        "viewpoints_xy": [
+          [
+            3.070257840403069,
+            4.258622992613225
+          ],
+          [
+            2.267431421393136,
+            4.068711996172487
+          ],
+          [
+            -0.4313304320880586,
+            3.671491060015615
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:54:25.627462+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0037",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          1.767668487539226,
+          4.51626614643138,
+          0.5445876377225268
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.5903069972991943,
+        "observations": 2,
+        "viewpoints_xy": [
+          [
+            3.0378295963701984,
+            4.324981998946393
+          ],
+          [
+            2.736339667834643,
+            4.251142889861094
+          ]
+        ],
+        "status": "tentative",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:52:45.222548+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0038",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          2.8348406263095267,
+          1.1817235566828819,
+          0.5231935475797072
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "bed",
+        "confidence": 0.4073334038257599,
+        "observations": 1,
+        "viewpoints_xy": [
+          [
+            3.3942268954051302,
+            3.4628730365355933
+          ]
+        ],
+        "status": "tentative",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:53:11.431687+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0039",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          2.8716550276902577,
+          -0.7925203419011575,
+          0.59586135061926
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.4378235340118408,
+        "observations": 1,
+        "viewpoints_xy": [
+          [
+            3.439112742999239,
+            1.0266565424906362
+          ]
+        ],
+        "status": "tentative",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:53:23.635104+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0040",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -2.1023276935484954,
+          -1.2519010438249651,
+          0.4183545170884623
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.4649015963077545,
+        "observations": 2,
+        "viewpoints_xy": [
+          [
+            1.6350576733023732,
+            0.3771763102967424
+          ],
+          [
+            1.111302132217195,
+            0.3574765336922762
+          ]
+        ],
+        "status": "tentative",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:53:39.526052+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0041",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -2.859020701290075,
+          1.1114740987685554,
+          0.49055589912679637
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.8397339582443237,
+        "observations": 13,
+        "viewpoints_xy": [
+          [
+            1.111302132217195,
+            0.3574765336922762
+          ],
+          [
+            -0.07761399909747285,
+            0.9609222391438341
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:56:25.031814+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0042",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -1.009082475313091,
+          0.4492873601913693,
+          0.42632168430890083
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.40827676653862,
+        "observations": 1,
+        "viewpoints_xy": [
+          [
+            0.9393236979422795,
+            0.21577970397432744
+          ]
+        ],
+        "status": "tentative",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:53:40.641697+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0043",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -1.1043451999158902,
+          -3.0536804397423154,
+          0.4099235151006994
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "bed",
+        "confidence": 0.6206216216087341,
+        "observations": 14,
+        "viewpoints_xy": [
+          [
+            0.3779447980863206,
+            -0.35698674356164045
+          ],
+          [
+            0.16563414812003713,
+            -0.7734818100488885
+          ],
+          [
+            0.12043703081189094,
+            0.9897833141340789
+          ],
+          [
+            -0.0309921956834647,
+            0.6878945435488153
+          ],
+          [
+            -0.3117804057133254,
+            0.16801853874094572
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:56:30.624997+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0044",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          0.3344582028831125,
+          3.264753950109725,
+          0.5057529849594722
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.6544531583786011,
+        "observations": 5,
+        "viewpoints_xy": [
+          [
+            -0.2991609530245167,
+            3.4685264813155916
+          ]
+        ],
+        "status": "tentative",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:54:58.022480+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0045",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -2.93357688432605,
+          3.230639400751545,
+          0.10440253147910217
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.798501193523407,
+        "observations": 10,
+        "viewpoints_xy": [
+          [
+            -0.7877621497712888,
+            3.497376924089736
+          ],
+          [
+            -0.9907981302206079,
+            3.714590777796348
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:55:38.823385+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0046",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -1.8297595758790806,
+          3.3917327118914913,
+          0.4248751833848944
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.8241791129112244,
+        "observations": 19,
+        "viewpoints_xy": [
+          [
+            -0.7563435618134052,
+            3.660539832504689
+          ],
+          [
+            -1.2423087627942624,
+            3.7062564029875475
+          ],
+          [
+            -0.48213528329839483,
+            3.654838527303732
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:55:41.027119+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0047",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -3.552731825804646,
+          3.601166499359716,
+          0.35666266549420444
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.6076632142066956,
+        "observations": 12,
+        "viewpoints_xy": [
+          [
+            -0.7237220811875558,
+            3.7088549198538825
+          ],
+          [
+            -1.2423087627942624,
+            3.7062564029875475
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:55:33.322259+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0048",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -3.5351632847319903,
+          2.7033923331332907,
+          0.05712380520895269
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.8325091600418091,
+        "observations": 4,
+        "viewpoints_xy": [
+          [
+            -1.2130941180341168,
+            3.7056674799698555
+          ],
+          [
+            -0.9503660748436178,
+            3.7183787066549043
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:55:35.521204+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0049",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          0.4692218630660421,
+          -2.702722042655383,
+          0.5464137624656392
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.8080672025680542,
+        "observations": 9,
+        "viewpoints_xy": [
+          [
+            0.06238889657766446,
+            1.2598414076970355
+          ],
+          [
+            0.12043703081189094,
+            0.9897833141340789
+          ],
+          [
+            -0.21431931034253626,
+            -0.27755179035451755
+          ],
+          [
+            -0.1272965808633887,
+            -0.6769127891922523
+          ]
+        ],
+        "status": "confirmed",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:56:32.831232+00:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "furniture-0050",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -1.8474140561459227,
+          0.5058909152937002,
+          0.5368063631162235
+        ]
+      },
+      "properties": {
+        "role": "furniture",
+        "label": "chair",
+        "confidence": 0.8283842206001282,
+        "observations": 9,
+        "viewpoints_xy": [
+          [
+            -0.05606754411363951,
+            0.9130294699694838
+          ]
+        ],
+        "status": "tentative",
+        "position_method": "rgbd_bbox_surface_sample",
+        "last_seen": "2026-10-08T04:56:26.126410+00:00"
+      }
+    }
+  ]
+}

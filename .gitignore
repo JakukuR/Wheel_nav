@@ -1,3 +1,27 @@
+# Generated workspace files and local runtimes.
+build/
+install/
+log/
+logs/
+.runtime/
 __pycache__/
-*.pyc
 .pytest_cache/
+.cache/
+.venv/
+venv/
+node_modules/
+*.pyc
+*.pyo
+*.log
+*.swp
+*.swo
+.DS_Store
+
+# Only one example map belongs in this repository.
+/maps/*
+!/maps/map-2026-10-08-1/
+
+# Local gateway source backups.
+/.gateway-backup-*/
+
+/maps/.publish.lock
