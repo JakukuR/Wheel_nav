@@ -27,7 +27,7 @@ public:
         s.angular_deceleration<=0 || s.reaction_time<0 || s.yaw_gain<=0)
       throw std::invalid_argument("invalid terminal alignment settings");
   }
-  void reset() {phase_=Phase::Track; stopped_since_=nan();direction_=0;}
+  void reset() {phase_=Phase::Track; stopped_since_=nan();direction_=0;alignment_started_=false;}
   Phase phase() const {return phase_;}
   static const char * name(Phase p) {
     switch(p) {
@@ -45,6 +45,7 @@ public:
     yaw_rate=0;
     error=std::remainder(error,2*3.14159265358979323846);
     const double enter=std::min(settings_.enter_distance,xy_tolerance);
+    const double exit=settings_.exit_distance;
     if (!std::isfinite(distance+error+now+xy_tolerance+yaw_tolerance) ||
         distance<0 || xy_tolerance<=0 || yaw_tolerance<=0) {
       phase_=Phase::Stopping; stopped_since_=nan(); return true;
@@ -62,13 +63,18 @@ public:
     if (!stopped) stopped_since_=nan();
     else if (!std::isfinite(stopped_since_)) stopped_since_=now;
     const bool settled=stopped && now-stopped_since_>=settings_.stopped_duration;
-    if (distance>settings_.exit_distance && phase_!=Phase::Stopping) {
+    if (distance>exit && phase_!=Phase::Stopping) {
       phase_=Phase::Stopping; stopped_since_=nan(); return true;
     }
     if (phase_==Phase::Stopping) {
       if (!settled) return true;
-      if (distance>xy_tolerance) {reset();return true;}
+      // Before alignment starts, braking must finish inside the actual XY
+      // tolerance. Once aligning, retain the existing exit-distance hysteresis
+      // through intermediate stops instead of switching back to path tracking
+      // for small pose/map corrections across the entry tolerance.
+      if (distance>(alignment_started_ ? exit : xy_tolerance)) {reset();return true;}
       direction_=0;
+      alignment_started_=true;
       phase_=std::abs(error)<=yaw_tolerance ? Phase::Hold : Phase::Align;
       return true; // Keep zero on the transition tick, after confirmed stopping.
     }
@@ -111,6 +117,7 @@ private:
   TerminalSettings settings_;
   Phase phase_{Phase::Track};
   int direction_{0};
+  bool alignment_started_{false};
   double stopped_since_{nan()};
 };
 } // namespace wla_diff_mpc

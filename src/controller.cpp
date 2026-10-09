@@ -166,10 +166,14 @@ public:
     nav_msgs::msg::Path local_plan;
     local_plan.header = pose.header;
     local_plan.poses.reserve(plan.poses.size());
+    geometry_msgs::msg::TransformStamped plan_transform;
+    plan_transform.transform.rotation.w=1.0;
+    bool transformed_plan=false;
     if (source_frame == pose.header.frame_id) local_plan.poses = plan.poses;
     else {
       const auto transform = tf_->lookupTransform(pose.header.frame_id,
         source_frame, tf2::TimePointZero);
+      plan_transform=transform;transformed_plan=true;
       for (auto point : plan.poses) {
         point.header.frame_id = source_frame;
         geometry_msgs::msg::PoseStamped transformed;
@@ -216,10 +220,24 @@ public:
       xy_tolerance,yaw_tolerance,terminal_w);
     if (terminal_engaged) {
       if (old_phase!=terminal_.phase()) RCLCPP_INFO(node_->get_logger(),
-        "MPC terminal %s -> %s",TerminalAlignment::name(old_phase),TerminalAlignment::name(terminal_.phase()));
+        "MPC terminal %s -> %s distance=%.3f yaw_error=%.3f measured_v=%.3f measured_w=%.3f cmd_w=%.3f "
+        "robot_local=(%.3f,%.3f,%.3f) goal_local=(%.3f,%.3f,%.3f) "
+        "plan_tf=(%.3f,%.3f,%.3f) plan_tf_valid=%d source=%s control=%s",
+        TerminalAlignment::name(old_phase),TerminalAlignment::name(terminal_.phase()),
+        goal_distance,yaw_error,measured_v,measured_w,terminal_w,current[0],current[1],current[2],
+        goal.position.x,goal.position.y,tf2::getYaw(goal.orientation),
+        plan_transform.transform.translation.x,plan_transform.transform.translation.y,
+        tf2::getYaw(plan_transform.transform.rotation),transformed_plan,
+        source_frame.c_str(),pose.header.frame_id.c_str());
       RCLCPP_INFO_THROTTLE(node_->get_logger(),*node_->get_clock(),1000,
-        "MPC terminal phase=%s distance=%.3f yaw_error=%.3f measured_v=%.3f measured_w=%.3f fresh=%d cmd_w=%.3f",
-        TerminalAlignment::name(terminal_.phase()),goal_distance,yaw_error,measured_v,measured_w,fresh_velocity,terminal_w);
+        "MPC terminal phase=%s distance=%.3f yaw_error=%.3f measured_v=%.3f measured_w=%.3f fresh=%d cmd_w=%.3f "
+        "robot_local=(%.3f,%.3f,%.3f) goal_local=(%.3f,%.3f,%.3f) "
+        "plan_tf=(%.3f,%.3f,%.3f) plan_tf_valid=%d source=%s control=%s",
+        TerminalAlignment::name(terminal_.phase()),goal_distance,yaw_error,measured_v,measured_w,fresh_velocity,terminal_w,
+        current[0],current[1],current[2],goal.position.x,goal.position.y,tf2::getYaw(goal.orientation),
+        plan_transform.transform.translation.x,plan_transform.transform.translation.y,
+        tf2::getYaw(plan_transform.transform.rotation),transformed_plan,
+        source_frame.c_str(),pose.header.frame_id.c_str());
       if (terminal_w==0) return publishCommand(pose,{current},Input::Zero());
     }
 

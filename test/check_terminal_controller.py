@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import time
 import math
+import sys
 
 import rclpy
 import yaml
@@ -22,11 +23,13 @@ from tf2_ros import TransformBroadcaster
 
 def main():
     assert os.environ.get('ROS_DOMAIN_ID') == '74', 'isolated domain required'
+    map_correction_mode='--map-correction' in sys.argv
     rclpy.init(); node=rclpy.create_node('terminal_controller_regression')
     tf=TransformBroadcaster(node)
     odom_pub=node.create_publisher(Odometry,'/d455_slam/odom',10)
     outputs=[]; latest=Twist(); x=0.0; yaw=0.0; v=0.08; w=0.30
     queue=[]; last_tick=time.monotonic(); first_yaw_motion=None
+    correction_started=None;map_offset=0.0;goal_count=0
     children=[]; streams=[]
     def received(msg):
         nonlocal latest,first_yaw_motion
@@ -53,8 +56,10 @@ def main():
                '-r','__node:=terminal_test_lifecycle','-p','autostart:=true',
                '-p','node_names:=[controller_server]'],'lifecycle')
         def tick():
-            nonlocal last_tick,x,yaw,v,w
+            nonlocal last_tick,x,yaw,v,w,correction_started,map_offset
             now=time.monotonic();dt=min(.1,now-last_tick);last_tick=now
+            if map_correction_mode and first_yaw_motion is not None and correction_started is None:
+                correction_started=now;map_offset=-.13
             queue.append((now+.40,latest.linear.x,latest.angular.z))
             desired=(0.0,0.0)
             # Preserve the most recent arrived command across ticks.
@@ -70,10 +75,19 @@ def main():
             transform.transform.translation.x=x
             transform.transform.rotation.z=math.sin(yaw/2);transform.transform.rotation.w=math.cos(yaw/2)
             tf.sendTransform(transform)
+            if map_correction_mode:
+                global_transform=TransformStamped();global_transform.header.stamp=stamp
+                global_transform.header.frame_id='map';global_transform.child_frame_id='d455_floor_odom'
+                global_transform.transform.translation.x=map_offset
+                global_transform.transform.rotation.w=1.0;tf.sendTransform(global_transform)
             odom=Odometry();odom.header.stamp=stamp;odom.header.frame_id='d455_floor_odom'
             odom.child_frame_id='r680_mapping_floor';odom.pose.pose.position.x=x
             odom.pose.pose.orientation=transform.transform.rotation
             odom.twist.twist.linear.x=v;odom.twist.twist.angular.z=w
+            # A short visual-twist disturbance while the body remains stopped
+            # reproduces the intermediate stopping phase from the recorded run.
+            if correction_started is not None and now-correction_started<.2:
+                odom.twist.twist.linear.x=.04
             odom.twist.covariance[0]=.001;odom.twist.covariance[35]=.001
             odom_pub.publish(odom)
             rclpy.spin_once(node,timeout_sec=.01);time.sleep(.01)
@@ -85,8 +99,11 @@ def main():
             assert future.done(),'action timed out'
             return future.result()
         def goal(angle):
-            path=RosPath();path.header.frame_id='d455_floor_odom'
-            for xx in [x,.05]:
+            nonlocal goal_count
+            goal_count+=1
+            path=RosPath();path.header.frame_id='map' if map_correction_mode else 'd455_floor_odom'
+            target=.17 if map_correction_mode and goal_count==1 else x+map_offset+.05 if map_correction_mode else .05
+            for xx in [x+map_offset,target]:
                 p=PoseStamped();p.header=path.header;p.pose.position.x=xx
                 p.pose.orientation.z=math.sin(angle/2);p.pose.orientation.w=math.cos(angle/2)
                 path.poses.append(p)
@@ -114,9 +131,16 @@ def main():
             goal(.9)
             assert first_yaw_motion is not None
             assert abs(first_yaw_motion[0])<=.025 and abs(first_yaw_motion[1])<=.04,'rotated before stopping'
+            if map_correction_mode:
+                assert correction_started is not None,'map correction was not injected'
+                assert .2<abs(.17-map_offset-x)<.28,'correction did not cross XY tolerance inside exit distance'
             goal(-.8) # A new target must reset the terminal latch.
             assert all(abs(vv)<1e-6 for _,vv,_ in outputs),'terminal translated'
-            print('PASS: real controller and StoppedGoalChecker, delayed chassis, stop-before-align, two goals, zero hold')
+            for name,stream in streams:
+                stream.flush();stream.seek(0)
+                Path('/tmp/wla-terminal-'+('map-correction-' if map_correction_mode else 'baseline-')+name+'.log').write_text(stream.read())
+            print('PASS: real controller and StoppedGoalChecker, delayed chassis, stop-before-align, two goals, zero hold'+
+                  (', map correction across 0.20m retained alignment without translation' if map_correction_mode else ''))
         except BaseException:
             for name,stream in streams:
                 stream.flush();stream.seek(0);print(name,stream.read()[-6500:])

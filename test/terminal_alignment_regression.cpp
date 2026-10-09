@@ -30,6 +30,25 @@ int main() {
   s.reset();tick(0,.5,0,0);tick(.4,.5,0,0);tick(.5,.5,0,0);
   tick(.6,.5,0,.1,false);check(w==0,"alignment continued with stale velocity");
   tick(.65,.5,0,0);tick(.8,.5,0,0);check(w==0,"resumed without stopping dwell after feedback gap");
+  // Recorded terminal cycle: align inside 0.20m, a small map/pose correction
+  // moves the apparent distance to 0.216m while yaw is still about 0.6rad off.
+  // A stop must not re-enable tracking and its opposite-direction steering.
+  for(double direction:{-1.0,1.0}) {
+    s.reset();tick(0,direction*.9,0,0,true,.18);tick(.4,direction*.9,0,0,true,.18);
+    tick(.45,direction*.9,0,0,true,.18);check(w*direction>0,"alignment did not start");
+    tick(.5,direction*.6,.04,direction*.1,true,.216);
+    check(s.phase()==TerminalAlignment::Phase::Stopping && w==0,"motion must still request stopping");
+    tick(.6,direction*.6,0,0,true,.216);tick(1,direction*.6,0,0,true,.216);
+    check(s.phase()==TerminalAlignment::Phase::Align,"small correction reset alignment to tracking");
+    for(int k=0;k<20;++k) {
+      tick(1.05+k*.05,direction*.6,0,0,true,k%2 ? .19 : .216);
+      check(s.phase()==TerminalAlignment::Phase::Align && w*direction>0,
+        "distance jitter reversed alignment or selected tracking");
+    }
+    tick(2.1,direction*.6,0,0,true,.29);tick(2.2,direction*.6,0,0,true,.29);
+    tick(2.6,direction*.6,0,0,true,.29);
+    check(s.phase()==TerminalAlignment::Phase::Track && w==0,"large correction must stop before reacquiring position");
+  }
   // A delayed first-order chassis: output arrives 0.4s later, body response
   // takes another 0.5s. Verify convergence and zero holds for both yaw signs.
   for(double initial:{.65,-.65,3.12,-3.12}) {
