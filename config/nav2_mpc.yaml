@@ -182,42 +182,13 @@ global_costmap:
       track_unknown_space: true
       footprint: '[[0.20, 0.20], [0.20, -0.20], [-0.20, -0.20], [-0.20, 0.20]]'
       footprint_padding: 0.0
-      plugins: [static_layer, obstacle_layer, inflation_layer]
+      # Default MPC: saved navigation map only; live obstacles stay local.
+      plugins: [static_layer, inflation_layer]
       static_layer:
         plugin: nav2_costmap_2d::StaticLayer
         map_topic: /r680/d455/map
         map_subscribe_transient_local: true
         subscribe_to_updates: true
-      obstacle_layer:
-        plugin: nav2_costmap_2d::ObstacleLayer
-        enabled: true
-        footprint_clearing_enabled: true
-        # The local costmap reacts to raw points immediately. The global map
-        # only accepts multi-frame confirmed voxels, but retains them when the
-        # forward camera turns away.
-        observation_sources: d455_confirmed d455_clearing
-        d455_confirmed:
-          topic: /r680_nav/d455/points_confirmed
-          data_type: PointCloud2
-          clearing: false
-          marking: true
-          min_obstacle_height: -0.08
-          max_obstacle_height: 0.50
-          obstacle_min_range: 0.15
-          obstacle_max_range: 4.5
-          expected_update_rate: 0.30
-          observation_persistence: 0.3
-        d455_clearing:
-          topic: /r680_nav/d455/clearing_points
-          data_type: PointCloud2
-          clearing: true
-          marking: false
-          min_obstacle_height: -0.08
-          max_obstacle_height: 0.50
-          raytrace_min_range: 0.15
-          raytrace_max_range: 5.0
-          expected_update_rate: 0.20
-          observation_persistence: 0.0
       inflation_layer:
         plugin: nav2_costmap_2d::InflationLayer
         inflation_radius: 0.45

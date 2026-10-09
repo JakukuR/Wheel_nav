@@ -13,7 +13,7 @@ usage() {
   --no-degraded-odom      禁用短时轮速+IMU降级，恢复视觉失效即停车的行为
   --auto-vio-init        cuVSLAM 启动受限运动初始化（仅已确认空旷的起步区；无 --enable-motion 则仅预览）
   --rgbd                 使用原 RGB-D VO + EKF（默认，回退入口）
-  --mpc                  显式使用 MPC（当前默认）
+  --mpc                  显式使用 MPC（当前默认；全局静态地图，局部点云避障）
   --mppi                 切回 nav2.yaml/MPPI
   --scan-obstacles       局部代价地图试用 D455 点云生成的 LaserScan（默认仍用点云）
   --test-scan-only       使用独立 nav2_test.yaml：MPC + 局部 Scan，关闭全局 D455 动态层
@@ -174,6 +174,23 @@ with open(sys.argv[2], 'w', encoding='utf-8') as stream:
 PY
   NAV2_PARAMS_FILE="$NAV_RUN_DIR/nav2_scan.yaml"
 fi
+# Derive metadata and memory-node ownership from the selected costmap file.
+# Recovery tests use an in-costmap timed layer, without points_confirmed.
+GLOBAL_OBSTACLE_MODE=$(python3 - "$NAV2_PARAMS_FILE" <<'PYGLOBAL'
+import sys
+import yaml
+with open(sys.argv[1], encoding='utf-8') as stream:
+    params = yaml.safe_load(stream)['global_costmap']['global_costmap']['ros__parameters']
+layers = [params[name] for name in params['plugins']
+          if params[name].get('enabled', True) and params[name].get('plugin') in (
+              'nav2_costmap_2d::ObstacleLayer', 'nav2_costmap_2d::VoxelLayer',
+              'wla_r680_navigation::TimedObstacleLayer')]
+memory = any(layer.get(source, {}).get('topic') == '/r680_nav/d455/points_confirmed'
+             for layer in layers for source in layer.get('observation_sources', '').split())
+print(str(bool(layers)).lower(), str(memory).lower())
+PYGLOBAL
+)
+read -r GLOBAL_DYNAMIC_OBSTACLES_ENABLED START_DYNAMIC_OBSTACLES <<<"$GLOBAL_OBSTACLE_MODE"
 SOURCE_DB_PATH="$DB_PATH"
 DB_PATH="$NAV_RUN_DIR/rtabmap.db"
 cp --reflink=auto "$SOURCE_DB_PATH" "$DB_PATH"
@@ -192,7 +209,7 @@ cat > "$NAV_RUN_DIR/navigation.json" <<EOF
   "auto_vio_init": $AUTO_VIO_INIT,
   "hardware_output_enabled": $ENABLE_MOTION,
   "local_obstacle_input": "$(if [[ "$SCAN_OBSTACLES" == true ]]; then echo scan; else echo pointcloud; fi)",
-  "global_dynamic_obstacles_enabled": $(if [[ "$TEST_SCAN_ONLY" == true ]]; then echo false; else echo true; fi),
+  "global_dynamic_obstacles_enabled": $GLOBAL_DYNAMIC_OBSTACLES_ENABLED,
   "recovery_test": $TEST_RECOVERY,
   "started_at": "$(date --iso-8601=seconds)"
 }
@@ -310,6 +327,7 @@ echo "[R680 NAV] RTAB-Map 只读源库：$SOURCE_DB_PATH"
 echo "[R680 NAV] RTAB-Map 本次工作副本：$DB_PATH"
 echo "[R680 NAV] 本次日志：$NAV_RUN_DIR"
 echo "[R680 NAV] Nav2 参数：$NAV2_PARAMS_FILE"
+echo "[R680 NAV] 全局动态障碍：$GLOBAL_DYNAMIC_OBSTACLES_ENABLED；局部避障保持开启"
 echo "[R680 NAV] 局部障碍标记：$(if [[ "$SCAN_OBSTACLES" == true ]]; then echo '/r680_nav/d455/scan'; else echo '/r680_nav/d455/points'; fi)"
 cp "$NAV2_PARAMS_FILE" "$NAV_RUN_DIR/nav2.yaml"
 echo "[R680 NAV] 里程计前端：$ODOM_SOURCE"
@@ -350,7 +368,7 @@ LAUNCH_ARGS=(
   mode:=localization database_path:="$DB_PATH" navigation_map_yaml:="$MAP_YAML" web_map_yaml:="$MAP_YAML"
   nav_params_file:="$NAV2_PARAMS_FILE"
   obstacle_scan:="$SCAN_OBSTACLES"
-  start_dynamic_obstacles:="$(if [[ "$TEST_SCAN_ONLY" == true || "$TEST_RECOVERY" == true ]]; then echo false; else echo true; fi)"
+  start_dynamic_obstacles:="$START_DYNAMIC_OBSTACLES"
   start_d455:="$(if [[ "$ODOM_SOURCE" == cuvslam ]]; then echo true; else echo false; fi)" start_chassis:=true start_nav2:=true start_navigation_servers:=true
   start_state_estimation:=true use_d455_imu:=false use_chassis_imu:=true
   odom_source:="$ODOM_SOURCE" cuvslam_statistics_path:="$NAV_RUN_DIR/cuvslam_statistics.json"
