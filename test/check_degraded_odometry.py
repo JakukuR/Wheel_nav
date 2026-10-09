@@ -9,6 +9,7 @@ import subprocess
 import time
 
 import rclpy
+from rclpy.time import Time
 from geometry_msgs.msg import PoseWithCovarianceStamped, TransformStamped, Twist
 from nav_msgs.msg import Odometry
 from rclpy.qos import qos_profile_sensor_data
@@ -92,8 +93,8 @@ def run_case(case):
                     send(p,'/d455_slam/localization_pose',True)
                     inf=Info();inf.header.stamp=stamp;inf.loop_closure_id=10;send(inf,'/d455_slam/info',True)
             if iteration%7==0:
-                healthy=mode in ('visual','inertial_only')
-                evidence=mode in ('visual','return','mismatch','duplicate','inertial_only')
+                healthy=mode in ('visual','inertial_only','late','invalid_pose','future_pose')
+                evidence=mode in ('visual','return','mismatch','duplicate','inertial_only','late','invalid_pose','future_pose')
                 status='tracking_inertial_ready' if healthy else (
                     'tracking_lost_no_output' if mode=='lost' else 'invalid_pose_no_output' if mode=='fatal'
                     else 'waiting_for_stable_inertial_initialization')
@@ -103,11 +104,16 @@ def run_case(case):
                 send(String(data=status),'/r680_nav/vio_status')
                 if mode not in ('lost','fatal'):
                     m=Odometry();m.header.stamp=stamp;m.header.frame_id='d455_floor_odom';m.child_frame_id='r680_mapping_floor'
+                    if mode=='late':
+                        m.header.stamp=Time(nanoseconds=node.get_clock().now().nanoseconds-192_000_000).to_msg()
+                    if mode=='future_pose':
+                        m.header.stamp=Time(nanoseconds=node.get_clock().now().nanoseconds+100_000_000).to_msg()
                     if mode=='duplicate':
                         if held_raw_stamp is None:held_raw_stamp=stamp
                         m.header.stamp=held_raw_stamp
                     m.pose.pose.position.x=x+(1 if mode=='mismatch' else 0);m.pose.pose.position.y=y
                     m.pose.pose.orientation.z=math.sin(heading/2);m.pose.pose.orientation.w=math.cos(heading/2)
+                    if mode=='invalid_pose':m.pose.pose.orientation.w=2.0
                     m.twist.twist.linear.x=v;m.twist.twist.angular.z=w
                     for i in range(6):m.pose.covariance[7*i]=0.02 if case=='high_uncertainty' else 0.0001
                     send(m,'/r680_nav/vio_raw_odom',True)
@@ -136,17 +142,20 @@ def run_case(case):
             assert abs(observed['command'].linear.x)+abs(observed['command'].angular.z)<1e-8
             print('PASS bridge_exit stale degradation heartbeat stops preview while new requests continue')
             return
-        if case in ('fatal','disabled','no_anchor','no_bias','high_uncertainty'):
-            mode='fatal' if case=='fatal' else 'lost';pump(0.25)
+        if case in ('fatal','disabled','no_anchor','no_bias','high_uncertainty','invalid_pose','future_pose'):
+            mode=case if case in ('invalid_pose','future_pose') else 'fatal' if case=='fatal' else 'lost';pump(0.25)
         else:
-            mode='inertial_only' if case=='inertial_only' else 'lost'
+            mode='late' if case in ('late_return','late_timeout') else 'inertial_only' if case=='inertial_only' else 'lost'
             motion=(0.10,0.20);fresh_map=False;pump(0.4)
             assert observed['degraded'] and observed['health'] and observed['watchdog'] and observed['ready'],observed['state']
             assert 0<observed['command'].linear.x<=0.15001
             assert abs(observed['command'].angular.z)<=0.30001
             assert observed['poses'][-1].pose.pose.position.x>0.02, 'wheel integration did not move'
             assert observed['poses'][-1].pose.covariance[0]>0.0001, 'fallback reduced covariance'
-            if case=='return':
+            if case in ('return','late_return'):
+                if case=='late_return':
+                    assert 'late_visual_frames=0' not in observed['state'], 'late frames not exercised'
+                    assert 'late_visual_frames=' in observed['state'], observed['state']
                 collision=True;pump(0.10);assert abs(observed['command'].linear.x)<1e-8,'collision zero bypassed'
                 collision=False;mode='return';pump(0.35)
                 assert observed['health'] and observed['watchdog'] and not observed['degraded'],observed['state']
@@ -167,6 +176,10 @@ def run_case(case):
             elif case=='turn':motion=(0.0,2.0);pump(0.5)
             else:pump(2.0)
         assert not observed['health'] and not observed['watchdog'],observed['state']
+        if case=='late_timeout':
+            assert 'budget exhausted' in observed['state'], 'late frames reset budget or caused hard fault'
+        if case=='invalid_pose':assert 'invalid visual pose' in observed['state']
+        if case=='future_pose':assert 'visual timestamp in the future' in observed['state']
         assert abs(observed['command'].linear.x)+abs(observed['command'].angular.z)<1e-8,'fault command nonzero'
         print('PASS',case,observed['state'])
         if case=='timeout':
@@ -185,5 +198,6 @@ def run_case(case):
 if __name__=='__main__':
     import sys
     for name in sys.argv[1:] or ['return','timeout','imu_stale','wheel_stale','mismatch','duplicate','distance','turn','fatal',
-                               'inertial_only','sdk_imu_fault','disabled','no_anchor','no_bias','high_uncertainty','bridge_exit']:
+                               'inertial_only','sdk_imu_fault','disabled','no_anchor','no_bias','high_uncertainty','bridge_exit',
+                               'late_return','late_timeout','invalid_pose','future_pose']:
         run_case(name)

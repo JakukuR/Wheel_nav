@@ -2,6 +2,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -109,7 +110,8 @@ private:
   bool inertialReady() const {return inertial_valid_ && age(inertial_seen_)<=raw_timeout_;}
   bool rawReady() const {return age(health_seen_)<=raw_timeout_ && raw_ready_;}
   bool visualObserved() const {return visual_observed_ && age(visual_seen_)<=raw_timeout_;}
-  bool rawUsable() const {return age(raw_seen_)<=raw_timeout_ &&
+  bool rawFresh() const {return age(raw_seen_)<=raw_timeout_ && freshStamp(raw_.header.stamp,raw_timeout_);}
+  bool rawUsable() const {return rawFresh() &&
     (!enabled_ || visualObserved()) && (rawReady() || (provisional_return_ && inertialReady()));}
   void onImu(const sensor_msgs::msg::Imu &m) {
     const auto &g=m.angular_velocity; const auto &a=m.linear_acceleration;
@@ -145,15 +147,30 @@ private:
     const double norm=q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w;
     const int64_t stamp=rclcpp::Time(m.header.stamp).nanoseconds();
     if(m.header.frame_id!=odom_frame_ || m.child_frame_id!=base_frame_ ||
-      !freshStamp(m.header.stamp,raw_timeout_) || !std::isfinite(p.position.x+p.position.y+p.position.z+norm) ||
+      !std::isfinite(p.position.x+p.position.y+p.position.z+norm) ||
       std::abs(norm-1)>0.02 || !std::isfinite(m.twist.twist.linear.x+m.twist.twist.angular.z) ||
       !std::all_of(m.pose.covariance.begin(),m.pose.covariance.end(),[](double c){return std::isfinite(c);}) ||
       m.pose.covariance[0]<0 || m.pose.covariance[7]<0 || m.pose.covariance[35]<0) {
-      if(initialized_) block("invalid or stale visual pose");
+      if(initialized_) block("invalid visual pose");
       return;
     }
     // Old/duplicate poses cannot build recovery evidence or refresh freshness.
     if(stamp<=raw_stamp_) return;
+    const double frame_age=(get_clock()->now()-rclcpp::Time(m.header.stamp)).seconds();
+    if(frame_age < -0.02) {
+      if(initialized_) block("visual timestamp in the future");
+      return;
+    }
+    if(frame_age > raw_timeout_) {
+      // Delivery delay is missing visual evidence, not a corrupt estimate.
+      // Keep the last trusted pose and existing wheel/IMU budget; do not let
+      // stale frames refresh freshness, count toward recovery, or restart it.
+      ++late_visual_frames_;return_count_=0;
+      RCLCPP_WARN_THROTTLE(get_logger(),*get_clock(),2000,
+        "late visual frame dropped: age=%.1fms limit=%.1fms; bounded wheel/IMU policy unchanged",
+        frame_age*1000,raw_timeout_*1000);
+      return;
+    }
     raw_stamp_=stamp; raw_seen_=Clock::now(); raw_=m;
     if(state_==State::Degraded) {
       // Only count frames produced after entering degradation, with SDK gravity/bias/velocity evidence.
@@ -222,8 +239,8 @@ private:
       // Preserve the existing warming-up TF so costmap activation and the
       // restricted initialization supervisor do not wait on each other.
       // This raw passthrough never asserts localization/normal-motion health.
-      if(age(raw_seen_)<=raw_timeout_) {estimate_=pose(raw_);publish(raw_,false);}
-      if(rawReady() && (!enabled_ || visualObserved()) && age(raw_seen_)<=raw_timeout_)
+      if(rawFresh()) {estimate_=pose(raw_);publish(raw_,false);}
+      if(rawReady() && (!enabled_ || visualObserved()) && rawFresh())
         {state_=State::Normal;initialized_=true;estimate_=pose(raw_);offset_={};}
     }
     if(state_==State::Normal) {
@@ -271,7 +288,7 @@ private:
       // This only resumes odom for the existing stopped/map-verified watchdog recovery.
       // It never clears that watchdog's motion latch or replays a command.
       const bool stopped=age(wheel_seen_)<=wheel_timeout_ && std::abs(v_)<0.02 && std::abs(wheel_w_)<0.04;
-      if(rawReady() && (!enabled_ || visualObserved()) && age(raw_seen_)<=raw_timeout_ && stopped) {
+      if(rawReady() && (!enabled_ || visualObserved()) && rawFresh() && stopped) {
         if(recovery_since_.time_since_epoch().count()==0) recovery_since_=current;
         if(age(recovery_since_)>=2.0) {
           state_=State::Normal;estimate_=pose(raw_);offset_={};reason_.clear();
@@ -288,7 +305,8 @@ private:
         " elapsed="+std::to_string(budget_.elapsed)+" travel="+std::to_string(budget_.travel)+
         " turn="+std::to_string(budget_.turn)+" bias_ready="+std::to_string(bias_ready_)+
         " raw_ready="+std::to_string(rawReady())+" visual_observed="+std::to_string(visualObserved())+
-        " inertial_valid="+std::to_string(inertialReady())+" reason="+reason_;
+        " inertial_valid="+std::to_string(inertialReady())+
+        " late_visual_frames="+std::to_string(late_visual_frames_)+" reason="+reason_;
       state_pub_->publish(s);
     }
   }
@@ -300,6 +318,7 @@ private:
   double entry_xy_variance_{},entry_yaw_variance_{};
   std::array<double,36> entry_covariance_{};
   int return_frames_{},return_count_{},bias_count_{},ticks_{};
+  uint64_t late_visual_frames_{};
   int64_t raw_stamp_{},imu_stamp_{},published_stamp_{},entry_stamp_{};
   std::string odom_frame_,base_frame_,imu_frame_,raw_status_,reason_;
   Clock::time_point raw_seen_{},wheel_seen_{},imu_seen_{},health_seen_{},inertial_seen_{},watchdog_seen_{},last_tick_{},bias_start_{},recovery_since_{};
