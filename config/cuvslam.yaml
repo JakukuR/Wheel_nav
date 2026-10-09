@@ -16,9 +16,6 @@ cuvslam_odometry:
     use_imu: true
     # Synchronous SBA during diagnostics, per the upstream troubleshooting guide.
     async_sba: false
-    # Halt implausible pose before publication; keep existing physical speed bounds.
-    max_pose_speed_mps: 2.0
-    max_pose_angular_speed_radps: 4.0
     # Measured serial feedback rate, NOT the internal MPU6050 sampling rate.
     imu_frequency: 200.0
     # Starting estimates for a smoke test. Full Allan/extrinsic calibration is pending.
