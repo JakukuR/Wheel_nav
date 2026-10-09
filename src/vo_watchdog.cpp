@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cmath>
 #include <csignal>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -14,6 +15,7 @@
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "rclcpp/parameter_client.hpp"
 #include "rtabmap_msgs/msg/info.hpp"
 #include "rtabmap_msgs/msg/odom_info.hpp"
 #include "std_msgs/msg/bool.hpp"
@@ -22,6 +24,7 @@
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
 #include "wla_r680_navigation/relocalization_prior.hpp"
+#include "wla_r680_navigation/recovery_evidence.hpp"
 
 using namespace std::chrono_literals;
 namespace fs = std::filesystem;
@@ -56,6 +59,22 @@ public:
     prior_stop_time_ = declare_parameter<double>("prior_stop_stable_s", 0.50);
     prior_wait_time_ = declare_parameter<double>("prior_tracking_stable_s", 1.0);
     prior_max_wait_ = declare_parameter<double>("prior_max_wait_s", 20.0);
+    staged_search_ = declare_parameter<bool>("staged_relocalization_enabled", false);
+    near_radius_ = declare_parameter<double>("recovery_near_radius_m", 1.0);
+    expanded_radius_ = declare_parameter<double>("recovery_expanded_radius_m", 3.0);
+    near_time_ = declare_parameter<double>("recovery_near_timeout_s", 8.0);
+    expanded_time_ = declare_parameter<double>("recovery_expanded_timeout_s", 12.0);
+    vpr_time_ = declare_parameter<double>("recovery_vpr_timeout_s", 30.0);
+    search_matches_ = declare_parameter<int>("recovery_min_verified_frames", 3);
+    stable_translation_ = declare_parameter<double>("recovery_pose_stability_m", 0.08);
+    stable_yaw_ = declare_parameter<double>("recovery_pose_stability_rad", 0.10);
+    if (!std::isfinite(near_radius_+expanded_radius_+near_time_+expanded_time_+vpr_time_+
+        stable_translation_+stable_yaw_) || near_radius_<=0 || expanded_radius_<=near_radius_ ||
+        near_time_<2 || expanded_time_<2 || vpr_time_<2 || search_matches_<3 ||
+        stable_translation_<=0 || stable_yaw_<=0)
+      throw std::invalid_argument("invalid staged relocalization parameters");
+    if (staged_search_) search_client_=std::make_shared<rclcpp::AsyncParametersClient>(
+      this, declare_parameter<std::string>("rtabmap_node", "/d455_slam/rtabmap"));
     const auto initial_pose_topic = declare_parameter<std::string>(
       "initial_pose_topic", "/d455_slam/initialpose");
     if (!std::isfinite(prior_max_travel_+prior_max_yaw_+prior_stop_time_+
@@ -81,7 +100,19 @@ public:
 
     health_pub_ = create_publisher<std_msgs::msg::Bool>("/r680_nav/vo_watchdog_healthy", 10);
     status_pub_ = create_publisher<std_msgs::msg::String>("/r680_nav/vo_watchdog_status", 10);
+    search_status_pub_=create_publisher<std_msgs::msg::String>("/r680_nav/relocalization_status",10);
     prior_pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(initial_pose_topic, 1);
+    manual_prior_sub_=create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+      initial_pose_topic,10,[this](geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr msg) {
+        if(staged_search_ && fault_latched_ && search_stage_==4 && !search_pending_ &&
+            !search_original_.empty() && search_client_->service_is_ready() &&
+            msg->header.frame_id=="map" && finitePose(msg->pose.pose) &&
+            (get_clock()->now()-rclcpp::Time(msg->header.stamp)).seconds()>=-0.2 &&
+            (get_clock()->now()-rclcpp::Time(msg->header.stamp)).seconds()<1.0) {
+          RCLCPP_WARN(get_logger(),"manual initial pose received; retrying geometric verification while motion remains locked");
+          requestSearchStage(3);
+        }
+      });
     vo_sub_ = create_subscription<nav_msgs::msg::Odometry>(
       vo_topic, rclcpp::SensorDataQoS(),
       [this](nav_msgs::msg::Odometry::ConstSharedPtr msg) {onVo(*msg);});
@@ -123,6 +154,24 @@ public:
     map_info_sub_ = create_subscription<rtabmap_msgs::msg::Info>(
       map_info_topic, rclcpp::SensorDataQoS(),
       [this](rtabmap_msgs::msg::Info::ConstSharedPtr msg) {
+        if(fault_latched_ && search_stage_==3 && !search_pending_) {
+          std::vector<std::pair<float,int>> candidates;
+          for(size_t i=0;i<std::min(msg->posterior_keys.size(),msg->posterior_values.size());++i)
+            if(msg->posterior_keys[i]>0) candidates.emplace_back(msg->posterior_values[i],msg->posterior_keys[i]);
+          std::sort(candidates.rbegin(),candidates.rend());
+          std::string summary;
+          for(size_t i=0;i<std::min(size_t(3),candidates.size());++i)
+            summary+=std::to_string(candidates[i].second)+":"+std::to_string(candidates[i].first)+" ";
+          RCLCPP_INFO_THROTTLE(get_logger(),*get_clock(),5000,"VPR candidates (not verification): %s",summary.c_str());
+        }
+        if (fault_latched_ && search_stage_>=1 && search_stage_!=4 && !search_pending_ &&
+            rclcpp::Time(msg->header.stamp)>search_ros_stamp_ &&
+            (msg->loop_closure_id>0 || msg->proximity_detection_id>0)) {
+          search_match_stamp_=rclcpp::Time(msg->header.stamp).nanoseconds();
+          RCLCPP_INFO_THROTTLE(get_logger(),*get_clock(),2000,
+            "relocalization geometric match: stage=%s node=%d frame=%d",
+            searchName(),msg->loop_closure_id>0 ? msg->loop_closure_id : msg->proximity_detection_id,msg->ref_id);
+        }
         if (msg->loop_closure_id > 0 || msg->proximity_detection_id > 0 || msg->landmark_id > 0) {
           initial_map_matched_ = true;
         }
@@ -223,6 +272,7 @@ private:
         rclcpp::Time(msg.header.stamp) > respawn_ros_stamp_) {
         recovery_map_pose_ = poseOf(msg.pose.pose);
         recovery_map_seen_ = Clock::now();
+        search_map_stamp_=rclcpp::Time(msg.header.stamp).nanoseconds();
       }
     }
   }
@@ -304,6 +354,16 @@ private:
       const auto ns = frontend_ == "cuvslam" ? "__ns:=/d455_vio" : "__ns:=/d455_vo";
       const auto node = frontend_ == "cuvslam" ? "__node:=cuvslam_odometry" : "__node:=rgbd_odometry";
       if (args.find(ns) != std::string::npos && args.find(node) != std::string::npos) {
+        // Never signal a frontend in another ROS domain (including isolated tests).
+        std::ifstream environment(entry.path()/"environ",std::ios::binary);
+          const std::string env((std::istreambuf_iterator<char>(environment)),std::istreambuf_iterator<char>());
+        const auto domain=[](const std::string & values) {
+          const auto pos=values.find("ROS_DOMAIN_ID=");
+          if(pos==std::string::npos) return std::string("0");
+          const auto begin=pos+14;return values.substr(begin,values.find('\0',begin)-begin);
+        };
+        const char * own=std::getenv("ROS_DOMAIN_ID");
+        if(domain(env)!=(own ? own : "0")) continue;
         result.push_back(static_cast<pid_t>(std::stoi(name)));
       }
     }
@@ -323,6 +383,8 @@ private:
     recovery_map_pose_.reset();
     recovery_stable_since_ = {};
     prior_sent_ = false;
+    ++search_generation_;search_stage_=0;search_pending_=false;search_restored_=false;
+    search_evidence_.reset();search_match_stamp_=0;search_map_stamp_=0;
     prior_stopped_since_ = {};
     prior_tracking_since_ = {};
     vo_seen_ = {};
@@ -357,7 +419,8 @@ private:
   void tick()
   {
     if (!fault_latched_ && (frontend_ == "rgbd" || frontend_ready_) && age(vo_seen_) <= stale_s_ &&
-      age(info_seen_) <= stale_s_ && age(wheel_seen_) < 0.30) {
+      age(info_seen_) <= stale_s_ && age(wheel_seen_) < 0.30 &&
+      (frontend_=="rgbd" || (initial_map_matched_ && age(initial_localization_seen_)<=localization_stale_s_))) {
       const auto map_pose = currentMapPose();
       if (map_pose) {
         anchor_map_pose_ = map_pose;
@@ -418,7 +481,8 @@ private:
           }
         }
         const auto map_tf_pose = currentMapPose();
-        const bool localized = anchor_valid_at_fault_ && recovery_map_pose_ &&
+        const bool localized = staged_search_ ? stagedLocalized(tracking,stopped,map_tf_pose) :
+          anchor_valid_at_fault_ && recovery_map_pose_ &&
           map_tf_pose &&
           age(recovery_map_seen_) <= localization_stale_s_ &&
           map_matched_after_respawn_ &&
@@ -469,6 +533,140 @@ private:
       (healthy ? "healthy" : frontend_ == "cuvslam" ?
         (frontend_ready_ ? "waiting_for_map_relocalization" : "waiting_for_inertial_initialization") : "waiting_for_vo");
     status_pub_->publish(status);
+    if (staged_search_ && fault_latched_) {
+      std_msgs::msg::String search;
+      search.data=std::string(searchName())+" verified_frames="+std::to_string(search_evidence_.count())+
+        " parameter_pending="+(search_pending_ ? "true" : "false");
+      search_status_pub_->publish(search);
+    }
+  }
+
+  const char * searchName() const {
+    switch(search_stage_) {case 1:return "near";case 2:return "expanded";case 3:return "vpr";
+      case 4:return "manual_required";case 5:return "verified";default:return "waiting_tracking";}
+  }
+
+  std::optional<wla_r680_navigation::PlanarPose> searchPrior() const {
+    if (!anchor_valid_at_fault_ || !anchor_map_pose_ || age(wheel_seen_)>=0.30) return {};
+    return wla_r680_navigation::stoppedRelocalizationPrior(
+      {anchor_map_pose_->x,anchor_map_pose_->y,anchor_map_pose_->yaw},
+      {anchor_wheel_pose_.x,anchor_wheel_pose_.y,anchor_wheel_pose_.yaw},
+      {wheel_.x,wheel_.y,wheel_.yaw},prior_max_travel_,prior_max_yaw_);
+  }
+
+  void sendSearchPrior() {
+    const auto p=searchPrior();if(!p) return;
+    geometry_msgs::msg::PoseWithCovarianceStamped msg;
+    msg.header.frame_id="map";msg.header.stamp=get_clock()->now();
+    msg.pose.pose.position.x=p->x;msg.pose.pose.position.y=p->y;
+    msg.pose.pose.orientation.z=std::sin(p->yaw/2);msg.pose.pose.orientation.w=std::cos(p->yaw/2);
+    msg.pose.covariance[0]=msg.pose.covariance[7]=0.04;msg.pose.covariance[35]=0.04;
+    prior_pub_->publish(msg);prior_sent_=true;
+  }
+
+  void restoreSearchParameters() {
+    if(search_pending_ || search_original_.empty()) return;
+    search_pending_=true;search_request_seen_=Clock::now();const auto generation=search_generation_;
+    search_client_->set_parameters(search_original_,[this,generation](auto future) {
+      if(generation!=search_generation_) return;
+      search_pending_=false;
+      try {
+        const auto results=future.get();
+        search_restored_=results.size()==search_original_.size() &&
+          std::all_of(results.begin(),results.end(),[](const auto & r){return r.successful;});
+      } catch(const std::exception & e) {RCLCPP_ERROR(get_logger(),"restore RTAB parameters: %s",e.what());}
+      if(!search_restored_) {search_stage_=4;RCLCPP_ERROR(get_logger(),"RTAB parameter restoration failed; motion remains locked");}
+      else RCLCPP_INFO(get_logger(),"RTAB original search/registration parameters restored");
+    });
+  }
+
+  void requestSearchStage(int stage) {
+    search_stage_=stage;search_pending_=true;search_restored_=false;
+    search_request_seen_=Clock::now();search_evidence_.reset();search_match_stamp_=0;
+    recovery_stable_since_={};map_matched_after_respawn_=false;recovery_map_seen_={};recovery_map_pose_.reset();
+    auto parameters=search_original_;
+    const auto set=[&](const std::string & key,const std::string & value) {
+      for(auto & p:parameters) if(p.get_name()==key) {p=rclcpp::Parameter(key,value);return;}
+    };
+    set("RGBD/ProximityBySpace",stage<3 ? "true" : "false");
+    if(stage<3) set("RGBD/LocalRadius",std::to_string(stage==1 ? near_radius_ : expanded_radius_));
+    set("RGBD/ProximityAngle",stage==1 ? "90" : "180");
+    set("RGBD/ProximityMaxPaths",stage==1 ? "3" : "5");
+    // Keep BoW retrieval available but suppress global acceptance in spatial stages.
+    if(stage<3) {set("Rtabmap/LoopThr","1");set("RGBD/AggressiveLoopThr","1");}
+    set("Reg/Strategy","0");set("Vis/EstimationType","0"); // RGB-D 3D-to-3D RANSAC
+    const auto generation=search_generation_;
+    search_client_->set_parameters(parameters,[this,generation,stage](auto future) {
+      if(generation!=search_generation_ || stage!=search_stage_) return;
+      search_pending_=false;bool success=false;
+      try {const auto r=future.get();success=r.size()==search_original_.size() &&
+        std::all_of(r.begin(),r.end(),[](const auto & x){return x.successful;});}
+      catch(const std::exception & e) {RCLCPP_ERROR(get_logger(),"RTAB stage parameters: %s",e.what());}
+      if(!success) {search_stage_=4;RCLCPP_ERROR(get_logger(),"RTAB stage change failed; motion remains locked");restoreSearchParameters();return;}
+      search_stage_seen_=Clock::now();search_ros_stamp_=get_clock()->now()+rclcpp::Duration::from_seconds(1.0);
+      if(stage<3) sendSearchPrior();
+      RCLCPP_WARN(get_logger(),"relocalization stage=%s spatial_radius=%.2fm; RGB-D geometry verification required",
+        searchName(),stage==3 ? 0.0 : stage==1 ? near_radius_ : expanded_radius_);
+    });
+  }
+
+  bool stagedLocalized(bool tracking,bool stopped,const std::optional<Pose> & map_tf) {
+    if(search_pending_) {
+      if(age(search_request_seen_)>5.0) {++search_generation_;search_pending_=false;search_stage_=4;
+        RCLCPP_ERROR(get_logger(),"RTAB parameter service timed out; manual relocalization required");}
+      return false;
+    }
+    if(search_stage_==4) return false;
+    const auto prior=searchPrior();
+    if(!tracking || !stopped || !prior) {search_evidence_.reset();return false;}
+    if(search_stage_==0) {
+      if(age(prior_stopped_since_)<prior_stop_time_ || age(prior_tracking_since_)<prior_wait_time_) return false;
+      if(!search_client_->service_is_ready()) return false;
+      if(search_original_.empty()) {
+        search_pending_=true;search_request_seen_=Clock::now();const auto generation=search_generation_;
+        const std::vector<std::string> keys={"RGBD/ProximityBySpace","RGBD/LocalRadius","RGBD/ProximityAngle",
+          "RGBD/ProximityMaxPaths","Rtabmap/LoopThr","RGBD/AggressiveLoopThr","Reg/Strategy","Vis/EstimationType"};
+        search_client_->get_parameters(keys,[this,generation,keys](auto future) {
+          if(generation!=search_generation_) return;
+          search_pending_=false;
+          try {
+            auto values=future.get();
+            if(values.size()!=keys.size() || std::any_of(values.begin(),values.end(),[](const auto & p){
+                return p.get_type()!=rclcpp::ParameterType::PARAMETER_STRING;}))
+              throw std::runtime_error("RTAB recovery parameters must exist and be strings");
+            search_original_=std::move(values);requestSearchStage(1);
+          } catch(const std::exception & e) {search_stage_=4;RCLCPP_ERROR(get_logger(),"RTAB recovery unavailable: %s",e.what());}
+        });
+      } else requestSearchStage(1);
+      return false;
+    }
+    const bool map_consistent=age(recovery_map_seen_)<=localization_stale_s_ && recovery_map_pose_ && map_tf &&
+      distance(*map_tf,*recovery_map_pose_)<=localization_translation_error_m_ &&
+      std::abs(angleDifference(map_tf->yaw,recovery_map_pose_->yaw))<=localization_yaw_change_rad_;
+    const bool paired=map_consistent && search_match_stamp_>search_ros_stamp_.nanoseconds() &&
+      std::abs(search_map_stamp_-search_match_stamp_)<250000000LL;
+    if(paired) {
+      const auto & p=*recovery_map_pose_;
+      const double from_prior=std::hypot(p.x-prior->x,p.y-prior->y);
+      const bool in_region=search_stage_>=3 || from_prior<=(search_stage_==1 ? near_radius_ : expanded_radius_);
+      if(in_region) {
+        if(search_evidence_.add(search_match_stamp_,{p.x,p.y,p.yaw},stable_translation_,stable_yaw_))
+          RCLCPP_INFO(get_logger(),"relocalization evidence stage=%s verified_frames=%d map=(%.3f,%.3f,%.3f)",
+            searchName(),search_evidence_.count(),p.x,p.y,p.yaw);
+      }
+      else search_evidence_.reset();
+    } else if(age(recovery_map_seen_)>localization_stale_s_) search_evidence_.reset();
+    if(search_stage_==5) return search_restored_ && map_consistent && search_evidence_.count()>=search_matches_;
+    if(paired && search_evidence_.count()>=search_matches_) {
+      if(search_stage_!=5) {search_stage_=5;restoreSearchParameters();return false;}
+      return search_restored_;
+    }
+    const double limit=search_stage_==1 ? near_time_ : search_stage_==2 ? expanded_time_ : vpr_time_;
+    if(age(search_stage_seen_)>limit) {
+      if(search_stage_<3) requestSearchStage(search_stage_+1);
+      else {search_stage_=4;RCLCPP_ERROR(get_logger(),"VPR recovery timed out; manual initial pose required");restoreSearchParameters();}
+    }
+    return false;
   }
 
   double startup_grace_s_{}, stale_s_{}, jump_linear_mps_{}, jump_angular_rps_{};
@@ -478,6 +676,18 @@ private:
   bool prior_enabled_{true}, prior_sent_{false};
   double prior_max_travel_{}, prior_max_yaw_{}, prior_stop_time_{}, prior_wait_time_{}, prior_max_wait_{};
   double wheel_linear_{0}, wheel_angular_{0};
+  bool staged_search_{false},search_pending_{false},search_restored_{false};
+  int search_stage_{0},search_generation_{0},search_matches_{3};
+  double near_radius_{},expanded_radius_{},near_time_{},expanded_time_{},vpr_time_{};
+  double stable_translation_{},stable_yaw_{};
+  int64_t search_match_stamp_{0},search_map_stamp_{0};
+  rclcpp::Time search_ros_stamp_{0,0,RCL_ROS_TIME};
+  Clock::time_point search_request_seen_{},search_stage_seen_{};
+  wla_r680_navigation::RecoveryEvidence search_evidence_;
+  std::vector<rclcpp::Parameter> search_original_;
+  std::shared_ptr<rclcpp::AsyncParametersClient> search_client_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr search_status_pub_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr manual_prior_sub_;
   Clock::time_point prior_stopped_since_{}, prior_tracking_since_{};
   int lost_limit_{}, wheel_mismatch_limit_{}, lost_count_{0}, mismatch_count_{0};
   bool compare_wheel_yaw_{false}, restart_enabled_{true}, fault_latched_{false};

@@ -34,3 +34,14 @@ r680_vo_watchdog:
     prior_stop_stable_s: 0.50
     prior_tracking_stable_s: 1.0
     prior_max_wait_s: 20.0
+    # Recovery: 1 m spatial matching -> 3 m -> RTAB BoW VPR + RGB-D geometry.
+    staged_relocalization_enabled: true
+    rtabmap_node: /d455_slam/rtabmap
+    recovery_near_radius_m: 1.0
+    recovery_expanded_radius_m: 3.0
+    recovery_near_timeout_s: 8.0
+    recovery_expanded_timeout_s: 12.0
+    recovery_vpr_timeout_s: 30.0
+    recovery_min_verified_frames: 3
+    recovery_pose_stability_m: 0.08
+    recovery_pose_stability_rad: 0.10
