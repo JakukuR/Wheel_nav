@@ -447,10 +447,29 @@ private:
           result.pose.rotation[1], result.pose.rotation[2]);
         if (std::abs(rotation.norm() - 1.0) > 0.01) throw std::runtime_error("invalid SDK quaternion");
         rotation.normalize();
-        if (!std::all_of(result.covariance_xyz_rpy.begin(), result.covariance_xyz_rpy.end(),
-          [](float v) {return std::isfinite(v);})) throw std::runtime_error("non-finite SDK covariance");
+        const bool finite_covariance = std::all_of(result.covariance_xyz_rpy.begin(),
+          result.covariance_xyz_rpy.end(), [](float v) {return std::isfinite(v);});
+        bool negative_diagonal = false;
         for (size_t i = 0; i < 6; ++i) {
-          if (result.covariance_xyz_rpy[i * 7] < 0) throw std::runtime_error("negative SDK covariance");
+          negative_diagonal = negative_diagonal || result.covariance_xyz_rpy[i * 7] < 0;
+        }
+        if (!finite_covariance || negative_diagonal) {
+          // Preserve the rejected matrix before the watchdog respawns us. Keep
+          // the existing rejection rules; non-finite JSON entries become null.
+          std::ostringstream evidence;
+          evidence << std::setprecision(12) << "{\"finite\":"
+            << (finite_covariance ? "true" : "false")
+            << ",\"negative_diagonal\":" << (negative_diagonal ? "true" : "false")
+            << ",\"covariance_xyz_rpy\":[";
+          for (size_t i = 0; i < result.covariance_xyz_rpy.size(); ++i) {
+            if (i) evidence << ',';
+            const auto value = result.covariance_xyz_rpy[i];
+            if (std::isfinite(value)) evidence << value; else evidence << "null";
+          }
+          evidence << "],\"position\":[" << position.x() << ',' << position.y()
+            << ',' << position.z() << "]}";
+          diagnostic("invalid_sdk_covariance", evidence.str(), true);
+          throw std::runtime_error(finite_covariance ? "negative SDK covariance" : "non-finite SDK covariance");
         }
         double velocity_dt = 0;
         bool velocity_valid = false;
