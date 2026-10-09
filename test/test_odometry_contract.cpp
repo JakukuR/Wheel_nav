@@ -12,6 +12,17 @@ int main()
   v = wla_vio::bodyVelocity(Eigen::Vector3d::Zero(), Eigen::Quaterniond::Identity(),
     Eigen::Vector3d::Zero(), rotated, 0.1);
   require(std::abs(v.angular.z() - 0.2) < 1e-9);
+  // Regression: the reported 10.35 cm height correction at 30 Hz is a
+  // finite SDK pose delta, not a frontend motion-amplitude rejection.
+  const double frame_dt = 0.033375976;
+  v = wla_vio::bodyVelocity(Eigen::Vector3d::Zero(), Eigen::Quaterniond::Identity(),
+    Eigen::Vector3d(0.003037989, 0.016106911, -0.103578695),
+    Eigen::Quaterniond::Identity(), frame_dt);
+  require(v.linear.allFinite() && v.linear.norm() > 2.0);
+  const Eigen::Quaterniond large_rotation(Eigen::AngleAxisd(0.20, Eigen::Vector3d::UnitZ()));
+  v = wla_vio::bodyVelocity(Eigen::Vector3d::Zero(), Eigen::Quaterniond::Identity(),
+    Eigen::Vector3d::Zero(), large_rotation, frame_dt);
+  require(v.angular.allFinite() && v.angular.norm() > 4.0);
   bool rejected = false;
   try {wla_vio::bodyVelocity(Eigen::Vector3d::Zero(), q, Eigen::Vector3d::Zero(), q, 0);}
   catch (const std::invalid_argument &) {rejected = true;}

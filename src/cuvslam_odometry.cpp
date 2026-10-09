@@ -92,8 +92,6 @@ public:
       max_gyro_bias_ <= 0 || max_accel_bias_ <= 0) {
       throw std::invalid_argument("navigation frontend requires IMU and valid health thresholds");
     }
-    max_pose_speed_ = declare_parameter<double>("max_pose_speed_mps", 2.0);
-    max_pose_angular_speed_ = declare_parameter<double>("max_pose_angular_speed_radps", 4.0);
     base_ = declare_parameter<std::string>("base_frame", "r680_mapping_floor");
     camera_link_ = declare_parameter<std::string>("camera_link_frame", "d455_link");
     camera_mount_ = from_array(declare_parameter<std::vector<double>>("base_from_camera_link",
@@ -118,9 +116,7 @@ public:
     imu_pose_ = from_array(declare_parameter<std::vector<double>>("base_from_imu", {0, 0, 0, 0, 0, 0, 1}));
     cuvslam::SetVerbosity(declare_parameter<int>("verbosity", 0));
     if (frequency_ <= 0 || depth_ < 2 || depth_ > 100 || tolerance_ns_ < 0 ||
-      max_age_ns_ <= 0 || max_imu_gap_ns_ <= 0 || image_decimation_ < 1 || image_decimation_ > 6 ||
-      !std::isfinite(max_pose_speed_) || max_pose_speed_ <= 0 ||
-      !std::isfinite(max_pose_angular_speed_) || max_pose_angular_speed_ <= 0) {
+      max_age_ns_ <= 0 || max_imu_gap_ns_ <= 0 || image_decimation_ < 1 || image_decimation_ > 6) {
       throw std::invalid_argument("invalid timing or queue parameters");
     }
     pub_ = create_publisher<nav_msgs::msg::Odometry>(
@@ -475,18 +471,13 @@ private:
         bool velocity_valid = false;
         if (have_previous_pose_) {
           const double dt = (estimate.timestamp_ns - previous_pose_stamp_) * 1e-9;
-          if (dt <= 0 || (position - previous_position_).norm() > max_pose_speed_ * dt ||
-              previous_rotation_.angularDistance(rotation) > max_pose_angular_speed_ * dt) {
+          // Do not reject finite SDK poses by translation/rotation magnitude.
+          // The external VO watchdog retains motion supervision and recovery.
+          if (dt <= 0) {
             ++invalid_poses_;
-            std::ostringstream evidence; evidence<<std::setprecision(12)
-              <<"{\"dt_s\":"<<dt<<",\"translation_m\":"<<(position-previous_position_).norm()
-              <<",\"rotation_rad\":"<<previous_rotation_.angularDistance(rotation)
-              <<",\"max_linear_mps\":"<<max_pose_speed_<<",\"max_angular_radps\":"<<max_pose_angular_speed_
-              <<",\"previous_position\":["<<previous_position_.x()<<','<<previous_position_.y()<<','<<previous_position_.z()
-              <<"],\"position\":["<<position.x()<<','<<position.y()<<','<<position.z()<<"]}";
-            diagnostic("pose_motion_bounds",evidence.str(),true);
-            status("implausible_pose_halted_no_output");
-            throw std::runtime_error("estimated pose exceeds navigation motion bounds");
+            diagnostic("invalid_pose_timestamp",
+              "{\"dt_s\":" + std::to_string(dt) + "}", true);
+            throw std::runtime_error("non-increasing SDK pose timestamp");
           }
           if (dt <= 0.2) {
             const auto velocity = wla_vio::bodyVelocity(previous_position_, previous_rotation_, position, rotation, dt);
@@ -696,7 +687,6 @@ private:
   std::deque<int64_t> keyframe_stamps_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> broadcaster_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr health_pub_;
-  double max_pose_speed_{}, max_pose_angular_speed_{};
   int64_t previous_pose_stamp_{};
   Eigen::Vector3d previous_position_{Eigen::Vector3d::Zero()};
   Eigen::Quaterniond previous_rotation_{Eigen::Quaterniond::Identity()};
