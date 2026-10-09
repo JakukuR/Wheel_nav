@@ -33,8 +33,9 @@ solve or blocked predicted footprint raises `NoValidControl`: Nav2 sends a
 zero command and retries for its configured `failure_tolerance` before
 aborting. Error messages include the OSQP status or the blocked pose.
 
-`config/mpc_example.yaml` is an optional controller parameter block. The
-vehicle's active `nav2.yaml` continues to select MPPI. This controller also
+`config/mpc_example.yaml` is an optional controller parameter block. The R680 navigation script now selects `config/nav2_mpc.yaml` by default;
+`--mppi` selects the separate `nav2.yaml` configuration. The actual controller
+plugin must be checked in the loaded YAML. This controller also
 checks the predicted footprint against the local costmap, but obstacle
 avoidance itself remains the responsibility of the global path and Nav2
 costmap; it is not a collision-constrained optimizer. It refuses a blocked
@@ -43,9 +44,11 @@ published at `FollowPath/predicted_path` when the plugin name is `FollowPath`.
 
 The path-following reference keeps the last path tangent through its terminal
 point. Within `final_align_enter_distance`, the controller latches into a
-separate, low-speed yaw alignment using the goal orientation. It leaves that
-mode only beyond `final_align_exit_distance`, avoiding mode chatter from pose
-noise. `final_align_wz_max` and `turn_time_constant` limit and taper the final
+separate, low-speed yaw alignment using the goal orientation. After alignment has started, intermediate stops retain
+`final_align_exit_distance` as the exit threshold, avoiding a switch back to path
+tracking when a small pose/map correction crosses the entry tolerance. Initial
+braking must still finish inside the goal XY tolerance, and final goal acceptance
+retains the configured position, yaw, and stopped-feedback checks. `final_align_wz_max` and `turn_time_constant` limit and taper the final
 angular command; the reference keeps position fixed during alignment.
 
 The current formulation assumes the commanded `(v,wz)` is achieved within a
@@ -59,3 +62,11 @@ Build dependencies: Eigen3, OSQP, OsqpEigen, and the ROS 2 packages listed in
 prefix, then that prefix supplied to CMake via `CMAKE_PREFIX_PATH` and to the
 runtime linker via `LD_LIBRARY_PATH`. `qp_regression` is an offline test that
 does not publish any robot motion command.
+
+
+The October 9 terminal fix is covered by C++ regression and an isolated real Nav2
+controller test with delayed synthetic chassis feedback and a map translation
+correction. Terminal logs include `robot_local`, `goal_local`, and `plan_tf` to
+separate local odometry changes from map correction. These software tests do not
+establish physical motion acceptance or identify the historical map correction
+as the cause of every reversal.
