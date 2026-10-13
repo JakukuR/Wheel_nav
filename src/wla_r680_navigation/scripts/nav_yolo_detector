@@ -242,7 +242,7 @@ def main():
     p.add_argument('--tracker', required=True)
     p.add_argument('--device', default='0')
     p.add_argument('--imgsz', type=int, default=416)
-    p.add_argument('--hz', type=float, default=5.)
+    p.add_argument('--hz', type=float, default=30.)
     p.add_argument('--base-frame', choices=['r680_mapping_floor', 'base_link'], default='r680_mapping_floor')
     p.add_argument('--check-dependencies', action='store_true')
     args = p.parse_args()

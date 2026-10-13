@@ -1,5 +1,5 @@
 # Shared nav detector BoT-SORT configuration; validated with Ultralytics 8.3.203.
-# Candidate tuning for 5 Hz perception, to be validated on R680 recordings.
+# Candidate tracker parameters; revalidate ID stability at the 30 FPS target rate.
 tracker_type: botsort
 track_high_thresh: 0.4
 track_low_thresh: 0.1
