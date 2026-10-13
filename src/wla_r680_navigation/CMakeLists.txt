@@ -66,7 +66,7 @@ ament_python_install_package(wla_r680_navigation_py)
 install(PROGRAMS scripts/navigation_goal_bridge scripts/web_gateway scripts/furniture_semantic.py scripts/nav_yolo_detector scripts/nav_perception_bringup
   DESTINATION lib/${PROJECT_NAME})
 install(PROGRAMS scripts/mapping_mission scripts/prepare_mapping_run scripts/save_manual_map
-  scripts/r680_nav.sh scripts/wait_mapping_ready scripts/openvins_nav_startup.py
+  scripts/r680_nav.sh scripts/wait_mapping_ready scripts/openvins_nav_startup.py scripts/openvins_motion_init.py
   scripts/resolve_navigation_map scripts/accept_navigation_map_edit
   scripts/r680_mapping.sh scripts/r680_teleop.sh scripts/r680_mode_lock.sh DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY config launch docs web DESTINATION share/${PROJECT_NAME}
@@ -79,6 +79,11 @@ if(BUILD_TESTING)
   target_compile_options(test_map_localization_evidence PRIVATE -UNDEBUG)
   add_test(NAME map_localization_evidence COMMAND test_map_localization_evidence)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_test(NAME openvins_motion_init COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_openvins_motion_init.py)
+  set_tests_properties(openvins_motion_init PROPERTIES
+    ENVIRONMENT "ROS_DOMAIN_ID=198;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST"
+    RUN_SERIAL TRUE TIMEOUT 120)
   add_test(NAME openvins_control COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/test/test_openvins_control.py)
   set_tests_properties(openvins_control PROPERTIES

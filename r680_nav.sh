@@ -11,6 +11,7 @@ usage() {
   --agent-control        Agent task gateway owns navigation; RViz/Web goal bridge disabled
   --enable-motion        显式开放真实底盘导航输出（默认仅定位、规划和预览）
   --openvins             OpenVINS 双目 VIO，默认 D455 内置 IMU 标定候选
+  --openvins-motion-init 无需手柄的一次实车初始化：静置 5 秒，0.2m/s + 0.5rad/s 最多 1 秒，停稳回 MANUAL；不开放 Nav2 输出
   --openvins-imu d455|wheel  选择成套 IMU 标定（默认 d455）
   --openvins-config PATH  使用指定的完整 OpenVINS 配置目录
   --cuvslam              使用 cuVSLAM 双目 + 车身 IMU（试验前端，初始化前禁止运动）
@@ -46,6 +47,7 @@ OPENVINS_IMU=d455
 OPENVINS_ALLOW_COMMISSIONING=false
 USE_D455_IMU=false
 AUTO_VIO_INIT=false
+OPENVINS_MOTION_INIT=false
 DISABLE_DEGRADED_ODOM=false
 SCAN_OBSTACLES=false
 TEST_SCAN_ONLY=false
@@ -67,6 +69,7 @@ while [[ $# -gt 0 ]]; do
     --enable-motion) ENABLE_MOTION=true; shift ;;
     --auto-vio-init) AUTO_VIO_INIT=true; shift ;;
     --openvins) ODOM_SOURCE=openvins; shift ;;
+    --openvins-motion-init) OPENVINS_MOTION_INIT=true; shift ;;
     --openvins-config)
       [[ $# -ge 2 && -n "$2" && "$2" != --* ]] || { echo '--openvins-config requires a directory' >&2; exit 2; }
       OPENVINS_CONFIG="$2"; shift 2 ;;
@@ -95,6 +98,12 @@ if [[ "$AUTO_VIO_INIT" == true && "$ODOM_SOURCE" != cuvslam && "$ODOM_SOURCE" !=
 fi
 if [[ -n "$OPENVINS_CONFIG" && "$ODOM_SOURCE" != openvins ]]; then
   echo '--openvins-config requires --openvins' >&2; exit 2
+fi
+if [[ "$OPENVINS_MOTION_INIT" == true ]]; then
+  if [[ "$ODOM_SOURCE" != openvins || "$ENABLE_MOTION" == true || "$AUTO_VIO_INIT" == true || "$AGENT_CONTROL" == true ]]; then
+    echo '--openvins-motion-init requires --openvins and cannot combine with --enable-motion, --auto-vio-init or --agent-control' >&2; exit 2
+  fi
+  systemctl is-active --quiet r680-manual-base.service || { echo 'One-shot initialization requires the independent manual-base service' >&2; exit 2; }
 fi
 WORKSPACE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source /opt/ros/jazzy/setup.bash
@@ -259,6 +268,7 @@ cat > "$NAV_RUN_DIR/navigation.json" <<EOF
   "initial_pose": "$INITIAL_POSE",
   "odom_source": "$ODOM_SOURCE",
   "auto_vio_init": $AUTO_VIO_INIT,
+  "openvins_motion_init": $OPENVINS_MOTION_INIT,
   "openvins_config_dir": "$OPENVINS_CONFIG",
   "hardware_output_enabled": $ENABLE_MOTION,
   "local_obstacle_input": "$(if [[ "$SCAN_OBSTACLES" == true ]]; then echo scan; else echo pointcloud; fi)",
@@ -280,7 +290,7 @@ PAUSE_UNITS=(
   r680-d455-dynamic-map-p0.service
 )
 PAUSED_UNITS=()
-BRINGUP_PID=""; PERMISSION_PID=""; RVIZ_PID=""; STARTED=false
+BRINGUP_PID=""; PERMISSION_PID=""; RVIZ_PID=""; INIT_MOTION_PID=""; STARTED=false
 READONLY_INPUTS_ACTIVE=false
 
 stop_group() {
@@ -312,6 +322,7 @@ cleanup() {
   if [[ "$AUTO_VIO_INIT" == true && "$STARTED" == true ]]; then
     timeout 2 ros2 topic pub --once /r680_nav/vio_init_cancel std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true
   fi
+  stop_group "$INIT_MOTION_PID"
   stop_group "$PERMISSION_PID"
   timeout 2 ros2 topic pub --once /r680_nav/mission_motion_allowed \
     std_msgs/msg/Bool '{data: false}' >/dev/null 2>&1 || true
@@ -414,7 +425,13 @@ PY
     echo '[R680 NAV] cuVSLAM 初始化前运动锁定；需纹理场景和适量真实运动激励，预览时可手推。'
   fi
 elif [[ "$ODOM_SOURCE" == openvins ]]; then
-  echo '[R680 NAV] OpenVINS：先静置至少 3 秒，再给出运动激励；未初始化时不发布 odom。'
+  if [[ "$OPENVINS_MOTION_INIT" == true ]]; then
+    echo '[R680 NAV] 一次性实车初始化已显式开启：请保持静止，程序等待有效输入后静置 5 秒，再前进左转最多 1 秒。'
+    echo '[R680 NAV] 目标 0.2m/s、0.5rad/s；估算前进约 0.18m、转向约 0.45rad。此实验由操作者确认地面和空间，无接地/障碍检测。'
+    echo '[R680 NAV] 手柄输入/急停、传感器失效、1秒时限或轮速里程越界均结束本次尝试；失败不自动再走。'
+  else
+    echo '[R680 NAV] OpenVINS：先静置至少 3 秒，再给出运动激励；未初始化时不发布 odom。'
+  fi
   echo '[R680 NAV] 当前成套标定为联调候选，导航输出关闭，独立手柄不受影响。'
   if [[ "$AUTO_VIO_INIT" == true ]]; then
     cp "$CONFIG_DIR/vio_initializer.yaml" "$NAV_RUN_DIR/vio_initializer.yaml"
@@ -448,6 +465,11 @@ setsid ros2 launch wla_r680_navigation bringup.launch.py "${LAUNCH_ARGS[@]}" \
   >"$NAV_RUN_DIR/logs/bringup.log" 2>&1 </dev/null &
 BRINGUP_PID=$!
 STARTED=true
+if [[ "$OPENVINS_MOTION_INIT" == true ]]; then
+  setsid ros2 run wla_r680_navigation openvins_motion_init.py --execute \
+    --result "$NAV_RUN_DIR/init_motion.json" >"$NAV_RUN_DIR/logs/init_motion.log" 2>&1 </dev/null &
+  INIT_MOTION_PID=$!
+fi
 WEB_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 echo "[R680 NAV] Web： http://${WEB_IP:-127.0.0.1}:8080"
 
@@ -463,7 +485,8 @@ if [[ "$START_RVIZ" == true ]]; then
   fi
 fi
 
-WLA_BRINGUP_LOG="$NAV_RUN_DIR/logs/bringup.log" WLA_REQUIRE_SCAN="$SCAN_OBSTACLES" WLA_ODOM_SOURCE="$ODOM_SOURCE" WLA_AUTO_VIO_INIT="$AUTO_VIO_INIT" python3 - <<'PY'
+WLA_INIT_MOTION_RESULT="$NAV_RUN_DIR/init_motion.json" WLA_OPENVINS_MOTION_INIT="$OPENVINS_MOTION_INIT" WLA_BRINGUP_LOG="$NAV_RUN_DIR/logs/bringup.log" WLA_REQUIRE_SCAN="$SCAN_OBSTACLES" WLA_ODOM_SOURCE="$ODOM_SOURCE" WLA_AUTO_VIO_INIT="$AUTO_VIO_INIT" python3 - <<'PY'
+import json
 import math
 import os
 import time
@@ -486,6 +509,8 @@ require_scan = os.environ['WLA_REQUIRE_SCAN'] == 'true'
 last_scan = 0.0
 init_state = 'waiting_inputs'
 auto_init = os.environ['WLA_AUTO_VIO_INIT'] == 'true'
+motion_init = os.environ['WLA_OPENVINS_MOTION_INIT'] == 'true'
+estimator_state = '等待前端状态'
 frontend_status = '等待传感器' if os.environ['WLA_ODOM_SOURCE'] in ('cuvslam', 'openvins') else 'rgbd'
 
 def init_cb(msg):
@@ -511,7 +536,14 @@ def scan_cb(msg):
 
 node.create_subscription(Bool, '/r680_nav/localization_ready', ready_cb, 10)
 if os.environ['WLA_ODOM_SOURCE'] == 'openvins':
+    from wla_openvins_navigation.msg import EstimatorStatus
+    def estimator_cb(msg):
+        global estimator_state
+        estimator_state = f'initialized={msg.initialized},mode={msg.mode},reason={msg.reason}'
+    node.create_subscription(EstimatorStatus, '/openvins/estimator_status', estimator_cb, 10)
     node.create_subscription(String, '/openvins/gate_status', frontend_cb, 10)
+if motion_init:
+    node.create_subscription(String, '/r680_nav/init_motion_state', init_cb, 10)
 if os.environ['WLA_ODOM_SOURCE'] == 'cuvslam':
     node.create_subscription(String, '/r680_nav/vo_watchdog_status', frontend_cb, 10)
 if auto_init:
@@ -561,13 +593,25 @@ while time.monotonic() < deadline:
     tf_ok = tf_buffer.can_transform('map', 'r680_mapping_floor', rclpy.time.Time(),
                                     timeout=Duration(seconds=0.05))
     scan_ok = not require_scan or time.monotonic() - last_scan < 0.6
-    if ready_count >= 5 and map_ok and tf_ok and scan_ok and (not auto_init or init_state == 'succeeded') and all(v == 3 for v in states.values()):
+    motion_ok = not motion_init
+    if motion_init:
+        result_path = Path(os.environ['WLA_INIT_MOTION_RESULT'])
+        if result_path.exists():
+            try:
+                motion_result = json.loads(result_path.read_text())
+            except (OSError, ValueError):
+                motion_result = {}
+            if motion_result.get('state') == 'failed':
+                raise SystemExit('一次性初始化已停止: ' + motion_result.get('reason', 'unknown') + '; 查看 logs/init_motion.log')
+            motion_ok = motion_result.get('state') in ('succeeded', 'already_initialized')
+    if motion_ok and ready_count >= 5 and map_ok and tf_ok and scan_ok and (not auto_init or init_state == 'succeeded') and all(v == 3 for v in states.values()):
         node.destroy_node()
         rclpy.shutdown()
         raise SystemExit(0)
     if time.monotonic() - last_report > 10.0:
         print('[R680 NAV] 等待就绪:', f'接口={ready_count >= 5}', f'地图={map_ok}',
-              f'TF={tf_ok}', f'Scan={scan_ok}', f'前端={frontend_status}', f'初始化={init_state if auto_init else 'disabled'}',
+              f'TF={tf_ok}', f'Scan={scan_ok}', f'前端={frontend_status}', f'自动运动初始化={init_state if auto_init or motion_init else "关闭，需手柄激励"}',
+              f'估计器={estimator_state}',
               '生命周期=' + ','.join(f'{k}:{v}' for k, v in states.items()),
               flush=True)
         last_report = time.monotonic()
