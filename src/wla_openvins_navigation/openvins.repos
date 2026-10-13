@@ -1,0 +1,5 @@
+repositories:
+  open_vins:
+    type: git
+    url: https://github.com/rpng/open_vins.git
+    version: 69488123ed9362dd44b6f28e7f4680abbff1442b

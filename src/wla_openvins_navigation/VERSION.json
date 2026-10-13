@@ -1,0 +1,12 @@
+{
+  "integration_version": "0.1.0",
+  "stage": "shadow_and_hardware_disabled_integration",
+  "wheel_nav_base": "bea956fb00af27483b394a5c60999771828af71f",
+  "openvins_commit": "69488123ed9362dd44b6f28e7f4680abbff1442b",
+  "ros_distribution": "jazzy",
+  "target_architecture": "aarch64",
+  "requires_openvins_patch": true,
+  "real_sensor_calibration_supplied": false,
+  "real_robot_carry_acceptance": false,
+  "hfnet_included": false
+}

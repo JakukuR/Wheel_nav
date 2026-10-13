@@ -1,0 +1,6 @@
+{
+  "kind": "synthetic",
+  "calibration_validated": true,
+  "provenance": "Synthetic unit-test geometry; NEVER use on robot",
+  "source_sha256": "e23e33d95ba4b7008274d9233c623de90152bad71c1b9a7800634ee2f71ef336"
+}

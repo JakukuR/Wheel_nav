@@ -1,0 +1,30 @@
+%YAML:1.0
+---
+cam0:
+  T_imu_cam:
+    - [1.0, 0.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0, 0.0]
+    - [0.0, 0.0, 1.0, 0.0]
+    - [0.0, 0.0, 0.0, 1.0]
+  cam_overlaps: [1]
+  camera_model: pinhole
+  distortion_model: radtan
+  distortion_coeffs: [0.0, 0.0, 0.0, 0.0]
+  intrinsics: [400.0, 400.0, 320.0, 240.0]
+  resolution: [640, 480]
+  rostopic: /r680/d455/infra1/image_rect_raw
+  timeshift_cam_imu: 0.007
+cam1:
+  T_imu_cam:
+    - [1.0, 0.0, 0.0, 0.095]
+    - [0.0, 1.0, 0.0, 0.0]
+    - [0.0, 0.0, 1.0, 0.0]
+    - [0.0, 0.0, 0.0, 1.0]
+  cam_overlaps: [0]
+  camera_model: pinhole
+  distortion_model: radtan
+  distortion_coeffs: [0.0, 0.0, 0.0, 0.0]
+  intrinsics: [400.0, 400.0, 320.0, 240.0]
+  resolution: [640, 480]
+  rostopic: /r680/d455/infra2/image_rect_raw
+  timeshift_cam_imu: 0.007

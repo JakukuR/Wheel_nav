@@ -1,0 +1,18 @@
+/**:
+  ros__parameters:
+    config_path: estimator_config.yaml
+    imu_topic: /wheel/imu/data_raw
+    imu_frame: gyro_link
+    left_topic: /r680/d455/infra1/image_rect_raw
+    right_topic: /r680/d455/infra2/image_rect_raw
+    left_frame: d455_infra1_optical_frame
+    right_frame: d455_infra2_optical_frame
+    p_base_in_imu:
+    - 0.0
+    - 0.0
+    - 0.0
+    q_base_to_imu_xyzw:
+    - 0.0
+    - 0.0
+    - 0.0
+    - 1.0

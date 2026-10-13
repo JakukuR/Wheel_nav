@@ -1,0 +1,298 @@
+diff --git a/ov_core/cmake/ROS2.cmake b/ov_core/cmake/ROS2.cmake
+index b4ed9b7..832bf40 100644
+--- a/ov_core/cmake/ROS2.cmake
++++ b/ov_core/cmake/ROS2.cmake
+@@ -3,7 +3,10 @@ cmake_minimum_required(VERSION 3.3)
+ # Find ros dependencies
+ find_package(ament_cmake REQUIRED)
+ find_package(rclcpp REQUIRED)
+-find_package(cv_bridge REQUIRED)
++option(OV_BUILD_ROS_VISUALIZER "Build upstream ROS visualization executables" ON)
++if(OV_BUILD_ROS_VISUALIZER)
++  find_package(cv_bridge REQUIRED)
++endif()
+ 
+ # Describe ROS project
+ option(ENABLE_ROS "Enable or disable building with ROS (if it is found)" ON)
+@@ -47,7 +50,10 @@ list(APPEND LIBRARY_SOURCES
+ )
+ file(GLOB_RECURSE LIBRARY_HEADERS "src/*.h")
+ add_library(ov_core_lib SHARED ${LIBRARY_SOURCES} ${LIBRARY_HEADERS})
+-ament_target_dependencies(ov_core_lib rclcpp cv_bridge)
++ament_target_dependencies(ov_core_lib rclcpp)
++if(OV_BUILD_ROS_VISUALIZER)
++  ament_target_dependencies(ov_core_lib cv_bridge)
++endif()
+ target_link_libraries(ov_core_lib ${thirdparty_libraries})
+ target_include_directories(ov_core_lib PUBLIC src/)
+ install(TARGETS ov_core_lib
+@@ -72,6 +78,7 @@ ament_export_libraries(ov_core_lib)
+ #    target_link_libraries(test_tracking ov_core_lib ${thirdparty_libraries})
+ #endif ()
+ 
++if(OV_BUILD_ROS_VISUALIZER)
+ add_executable(test_webcam src/test_webcam.cpp)
+ ament_target_dependencies(test_webcam rclcpp cv_bridge)
+ target_link_libraries(test_webcam ov_core_lib ${thirdparty_libraries})
+@@ -82,5 +89,7 @@ ament_target_dependencies(test_profile rclcpp cv_bridge)
+ target_link_libraries(test_profile ov_core_lib ${thirdparty_libraries})
+ install(TARGETS test_profile DESTINATION lib/${PROJECT_NAME})
+ 
++endif()
++
+ # finally define this as the package
+ ament_package()
+\ No newline at end of file
+diff --git a/ov_init/cmake/ROS2.cmake b/ov_init/cmake/ROS2.cmake
+index 0d1634f..72711df 100644
+--- a/ov_init/cmake/ROS2.cmake
++++ b/ov_init/cmake/ROS2.cmake
+@@ -3,7 +3,10 @@ cmake_minimum_required(VERSION 3.3)
+ # Find ros dependencies
+ find_package(ament_cmake REQUIRED)
+ find_package(rclcpp REQUIRED)
+-find_package(cv_bridge REQUIRED)
++option(OV_BUILD_ROS_VISUALIZER "Build upstream ROS visualization executables" ON)
++if(OV_BUILD_ROS_VISUALIZER)
++  find_package(cv_bridge REQUIRED)
++endif()
+ find_package(ov_core REQUIRED)
+ 
+ # Describe ROS project
+@@ -45,7 +48,10 @@ list(APPEND LIBRARY_SOURCES
+ )
+ file(GLOB_RECURSE LIBRARY_HEADERS "src/*.h")
+ add_library(ov_init_lib SHARED ${LIBRARY_SOURCES} ${LIBRARY_HEADERS})
+-ament_target_dependencies(ov_init_lib rclcpp ov_core cv_bridge)
++ament_target_dependencies(ov_init_lib rclcpp ov_core)
++if(OV_BUILD_ROS_VISUALIZER)
++  ament_target_dependencies(ov_init_lib cv_bridge)
++endif()
+ target_link_libraries(ov_init_lib ${thirdparty_libraries})
+ target_include_directories(ov_init_lib PUBLIC src/)
+ install(TARGETS ov_init_lib
+diff --git a/ov_msckf/cmake/ROS2.cmake b/ov_msckf/cmake/ROS2.cmake
+index eacffbb..41783b2 100644
+--- a/ov_msckf/cmake/ROS2.cmake
++++ b/ov_msckf/cmake/ROS2.cmake
+@@ -9,7 +9,10 @@ find_package(std_msgs REQUIRED)
+ find_package(geometry_msgs REQUIRED)
+ find_package(sensor_msgs REQUIRED)
+ find_package(nav_msgs REQUIRED)
+-find_package(cv_bridge REQUIRED)
++option(OV_BUILD_ROS_VISUALIZER "Build upstream ROS visualization executables" ON)
++if(OV_BUILD_ROS_VISUALIZER)
++  find_package(cv_bridge REQUIRED)
++endif()
+ find_package(image_transport REQUIRED)
+ find_package(ov_core REQUIRED)
+ find_package(ov_init REQUIRED)
+@@ -43,7 +46,6 @@ list(APPEND ament_libraries
+         geometry_msgs
+         sensor_msgs
+         nav_msgs
+-        cv_bridge
+         image_transport
+         ov_core
+         ov_init
+@@ -66,7 +68,10 @@ list(APPEND LIBRARY_SOURCES
+         src/update/UpdaterSLAM.cpp
+         src/update/UpdaterZeroVelocity.cpp
+ )
+-list(APPEND LIBRARY_SOURCES src/ros/ROS2Visualizer.cpp src/ros/ROSVisualizerHelper.cpp)
++if(OV_BUILD_ROS_VISUALIZER)
++  list(APPEND ament_libraries cv_bridge)
++  list(APPEND LIBRARY_SOURCES src/ros/ROS2Visualizer.cpp src/ros/ROSVisualizerHelper.cpp)
++endif()
+ file(GLOB_RECURSE LIBRARY_HEADERS "src/*.h")
+ add_library(ov_msckf_lib SHARED ${LIBRARY_SOURCES} ${LIBRARY_HEADERS})
+ ament_target_dependencies(ov_msckf_lib ${ament_libraries})
+@@ -88,6 +93,7 @@ ament_export_libraries(ov_msckf_lib)
+ # Make binary files!
+ ##################################################
+ 
++if(OV_BUILD_ROS_VISUALIZER)
+ add_executable(run_subscribe_msckf src/run_subscribe_msckf.cpp)
+ ament_target_dependencies(run_subscribe_msckf ${ament_libraries})
+ target_link_libraries(run_subscribe_msckf ov_msckf_lib ${thirdparty_libraries})
+@@ -108,6 +114,8 @@ ament_target_dependencies(test_sim_repeat ${ament_libraries})
+ target_link_libraries(test_sim_repeat ov_msckf_lib ${thirdparty_libraries})
+ install(TARGETS test_sim_repeat DESTINATION lib/${PROJECT_NAME})
+ 
++endif()
++
+ # Install launch and config directories
+ install(DIRECTORY launch/ DESTINATION share/${PROJECT_NAME}/launch/)
+ install(DIRECTORY ../config/ DESTINATION share/${PROJECT_NAME}/config/)
+diff --git a/ov_msckf/src/core/VioManager.cpp b/ov_msckf/src/core/VioManager.cpp
+index 6a0d7b9..46b67d1 100644
+--- a/ov_msckf/src/core/VioManager.cpp
++++ b/ov_msckf/src/core/VioManager.cpp
+@@ -163,6 +163,26 @@ VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false),
+   }
+ }
+ 
++size_t VioManager::msckf_update_sequence() const { return updaterMSCKF->update_sequence(); }
++
++size_t VioManager::last_msckf_update_count() const {
++  return updaterMSCKF->last_update_count();
++}
++
++void VioManager::propagate_without_camera(double camera_time) {
++  // Same filter and covariance, no invented image or measurement update.
++  // Caller serializes all estimator access and supplies bracketed IMU history.
++  if (!is_initialized_vio || camera_time <= state->_timestamp) return;
++  propagator->propagate_and_clone(state, camera_time);
++  propagator->invalidate_cache();
++  updaterSLAM->change_anchors(state);
++  if ((int)state->_clones_IMU.size() > state->_options.max_clone_size) {
++    trackFEATS->get_feature_database()->cleanup_measurements(state->margtimestep());
++    if (trackARUCO) trackARUCO->get_feature_database()->cleanup_measurements(state->margtimestep());
++  }
++  StateHelper::marginalize_old_clone(state);
++}
++
+ void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
+ 
+   // The oldest time we need IMU with is the last clone
+@@ -174,6 +194,7 @@ void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
+   if (!is_initialized_vio) {
+     oldest_time = message.timestamp - params.init_options.init_window_time + state->_calib_dt_CAMtoIMU->value()(0) - 0.10;
+   }
++  if (is_initialized_vio && oldest_time >= 0) oldest_time += state->_calib_dt_CAMtoIMU->value()(0);
+   propagator->feed_imu(message, oldest_time);
+ 
+   // Push back to our initializer
+diff --git a/ov_msckf/src/core/VioManager.h b/ov_msckf/src/core/VioManager.h
+index 3fd7089..fccf68d 100644
+--- a/ov_msckf/src/core/VioManager.h
++++ b/ov_msckf/src/core/VioManager.h
+@@ -136,6 +136,11 @@ public:
+     feat_tracks_uvd = active_tracks_uvd;
+   }
+ 
++  // Instrument actual MSCKF updates; supported by the fixed-calibration, MSCKF-only adapter.
++  size_t last_msckf_update_count() const;
++  size_t msckf_update_sequence() const;
++  void propagate_without_camera(double camera_time);
++
+ protected:
+   /**
+    * @brief Given a new set of camera images, this will track them.
+diff --git a/ov_msckf/src/ros/ROS2Visualizer.h b/ov_msckf/src/ros/ROS2Visualizer.h
+index a737f80..f04c614 100644
+--- a/ov_msckf/src/ros/ROS2Visualizer.h
++++ b/ov_msckf/src/ros/ROS2Visualizer.h
+@@ -25,7 +25,7 @@
+ #include <geometry_msgs/msg/pose_stamped.hpp>
+ #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
+ #include <geometry_msgs/msg/transform_stamped.hpp>
+-#include <image_transport/image_transport.h>
++#include <image_transport/image_transport.hpp>
+ #include <message_filters/subscriber.h>
+ #include <message_filters/sync_policies/approximate_time.h>
+ #include <message_filters/time_synchronizer.h>
+@@ -42,7 +42,7 @@
+ #include <std_msgs/msg/float64.hpp>
+ #include <tf2/LinearMath/Quaternion.h>
+ #include <tf2/transform_datatypes.h>
+-#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
++#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+ #include <tf2_ros/transform_broadcaster.h>
+ 
+ #include <atomic>
+@@ -53,7 +53,7 @@
+ #include <Eigen/Eigen>
+ #include <boost/date_time/posix_time/posix_time.hpp>
+ #include <boost/filesystem.hpp>
+-#include <cv_bridge/cv_bridge.h>
++#include <cv_bridge/cv_bridge.hpp>
+ 
+ namespace ov_core {
+ class YamlParser;
+diff --git a/ov_msckf/src/ros/ROSVisualizerHelper.h b/ov_msckf/src/ros/ROSVisualizerHelper.h
+index 14c1514..4dff304 100644
+--- a/ov_msckf/src/ros/ROSVisualizerHelper.h
++++ b/ov_msckf/src/ros/ROSVisualizerHelper.h
+@@ -34,7 +34,7 @@
+ #include <sensor_msgs/msg/point_cloud2.hpp>
+ #include <sensor_msgs/point_cloud2_iterator.hpp>
+ #include <tf2/transform_datatypes.h>
+-#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
++#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+ #endif
+ 
+ namespace ov_type {
+diff --git a/ov_msckf/src/state/Propagator.cpp b/ov_msckf/src/state/Propagator.cpp
+index 47879ec..b95ff47 100644
+--- a/ov_msckf/src/state/Propagator.cpp
++++ b/ov_msckf/src/state/Propagator.cpp
+@@ -151,7 +151,8 @@ bool Propagator::fast_state_propagate(std::shared_ptr<State> state, double times
+ 
+   // First lets construct an IMU vector of measurements we need
+   double time0 = cache_state_time + cache_t_off;
+-  double time1 = timestamp + cache_t_off;
++  // The request is already in the IMU clock, including on cache initialization.
++  double time1 = timestamp;
+   std::vector<ov_core::ImuData> prop_data;
+   {
+     std::lock_guard<std::mutex> lck(imu_data_mtx);
+@@ -259,6 +260,7 @@ bool Propagator::fast_state_propagate(std::shared_ptr<State> state, double times
+   covariance.setZero();
+   Eigen::Matrix<double, 15, 15> Phi = Eigen::Matrix<double, 15, 15>::Identity();
+   Phi.block(6, 6, 3, 3) = quat_2_Rot(q_Gtoi);
++  Phi.block(6, 0, 3, 3) = skew_x(quat_2_Rot(q_Gtoi) * v_iinG);
+   Eigen::MatrixXd covariance_tmp = Phi * cache_state_covariance * Phi.transpose();
+   covariance.block(0, 0, 9, 9) = covariance_tmp.block(0, 0, 9, 9);
+   double dt = prop_data.at(prop_data.size() - 1).timestamp - prop_data.at(prop_data.size() - 2).timestamp;
+diff --git a/ov_msckf/src/state/Propagator.h b/ov_msckf/src/state/Propagator.h
+index 26b4af3..936f882 100644
+--- a/ov_msckf/src/state/Propagator.h
++++ b/ov_msckf/src/state/Propagator.h
+@@ -95,6 +95,8 @@ public:
+    */
+   void invalidate_cache() { cache_imu_valid = false; }
+ 
++  size_t buffered_imu_count() { std::lock_guard<std::mutex> lock(imu_data_mtx); return imu_data.size(); }
++
+   /**
+    * @brief Propagate state up to given timestamp and then clone
+    *
+diff --git a/ov_msckf/src/update/UpdaterMSCKF.cpp b/ov_msckf/src/update/UpdaterMSCKF.cpp
+index 9a00ade..1304ee6 100644
+--- a/ov_msckf/src/update/UpdaterMSCKF.cpp
++++ b/ov_msckf/src/update/UpdaterMSCKF.cpp
+@@ -56,6 +56,7 @@ UpdaterMSCKF::UpdaterMSCKF(UpdaterOptions &options, ov_core::FeatureInitializerO
+ }
+ 
+ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_ptr<Feature>> &feature_vec) {
++  accepted_features_ = 0;
+ 
+   // Return if no features
+   if (feature_vec.empty())
+@@ -283,6 +284,8 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
+ 
+   // 6. With all good features update the state
+   StateHelper::EKFUpdate(state, Hx_order_big, Hx_big, res_big, R_big);
++  accepted_features_ = feature_vec.size();
++  ++update_sequence_;
+   rT5 = boost::posix_time::microsec_clock::local_time();
+ 
+   // Debug print timing information
+diff --git a/ov_msckf/src/update/UpdaterMSCKF.h b/ov_msckf/src/update/UpdaterMSCKF.h
+index 149ea45..3c82863 100644
+--- a/ov_msckf/src/update/UpdaterMSCKF.h
++++ b/ov_msckf/src/update/UpdaterMSCKF.h
+@@ -67,7 +67,12 @@ public:
+    */
+   void update(std::shared_ptr<State> state, std::vector<std::shared_ptr<ov_core::Feature>> &feature_vec);
+ 
++  size_t last_update_count() const { return accepted_features_; }
++  size_t update_sequence() const { return update_sequence_; }
++
+ protected:
++  size_t accepted_features_ = 0;
++  size_t update_sequence_ = 0;
+   /// Options used during update
+   UpdaterOptions _options;
+ 
