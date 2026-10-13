@@ -1,0 +1,20 @@
+uint64 request_id
+# Planar, base-frame path captured now. Every nonempty pose frame must agree.
+# A response is a candidate only; the caller must check its age, target epoch,
+# current observed free space and complete measured-motion stopping envelope.
+nav_msgs/Path path
+float64 measured_linear
+float64 measured_angular
+# Newly lowered command limits take precedence over command slew. The chassis
+# cannot realize that change instantly; measured velocity is never clipped in
+# the caller's braking check. This server does not certify collision clearance.
+float64 max_linear
+float64 max_angular
+float64 control_period
+---
+uint64 request_id
+bool success
+string reason
+geometry_msgs/Twist command
+nav_msgs/Path prediction
+float64 solve_seconds
