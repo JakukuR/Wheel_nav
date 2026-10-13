@@ -4,7 +4,7 @@
   <description>Independent chassis ownership and latched manual takeover.</description>
   <maintainer email="maintainer@example.com">Wheel Nav</maintainer><license>Apache-2.0</license>
   <buildtool_depend>ament_cmake</buildtool_depend>
-  <exec_depend>rclpy</exec_depend><exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>rclpy</exec_depend><exec_depend>wla_behavior_interfaces</exec_depend><exec_depend>geometry_msgs</exec_depend>
   <exec_depend>nav_msgs</exec_depend><exec_depend>std_msgs</exec_depend>
   <exec_depend>std_srvs</exec_depend><exec_depend>action_msgs</exec_depend>
   <exec_depend>launch_ros</exec_depend><exec_depend>gamepad_control</exec_depend>

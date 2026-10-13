@@ -5,11 +5,13 @@ import uuid
 
 import rclpy
 from rclpy.node import Node
+from rclpy.signals import SignalHandlerOptions
 from rclpy.qos import qos_profile_sensor_data
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from std_msgs.msg import String
 from std_srvs.srv import SetBool
+from wla_behavior_interfaces.srv import ObjectControl
 from action_msgs.srv import CancelGoal
 from control_policy import Policy
 
@@ -33,6 +35,7 @@ class Mux(Node):
         self.create_service(SetBool, '/r680_base/set_automatic', self.mode)
         self.create_service(SetBool, '/r680_base/set_person_source', self.source)
         self.create_service(SetBool, '/r680_base/set_object_source', self.object_source)
+        self.create_service(ObjectControl, '/r680_base/object_control', self.object_control)
         self.create_service(SetBool, '/r680_base/set_estop', self.estop)
         self.cancel = [self.create_client(CancelGoal, '/' + action + '/_action/cancel_goal')
                        for action in ('navigate_to_pose', 'navigate_through_poses')]
@@ -73,6 +76,21 @@ class Mux(Node):
 
     def object_status(self,msg):
         self.p.object_status_input(self.decode(msg),time.monotonic(),self.get_clock().now().nanoseconds)
+
+    def object_control(self,req,res):
+        now_ns=self.get_clock().now().nanoseconds
+        if req.control_session!=self.control_session or not 0<=now_ns-req.stamp_ns<=200_000_000:
+            res.success,res.reason=False,'object_control_session_or_stamp_invalid'
+        else:
+            res.success,res.reason=self.p.object_control(req.command,req.source_generation,
+                req.object_revoke_generation,req.request_id,req.follow_session,time.monotonic(),now_ns)
+            if res.success:
+                if req.command=='select':self.cancel_navigation()
+                self.last_report=0.
+        res.control_session=self.control_session
+        res.source_generation=self.p.source_generation
+        res.object_revoke_generation=self.p.object_channel.person_revoke_generation
+        return res
 
     def object_source(self,req,res):
         previous=self.p.automatic_source
@@ -150,7 +168,9 @@ class Mux(Node):
 
 
 def main():
-    rclpy.init(); node = Mux()
+    # Keep the context alive until the final zero publication and node cleanup.
+    # Default rclpy SIGINT teardown can invalidate it between ok() and publish().
+    rclpy.init(signal_handler_options=SignalHandlerOptions.NO); node = Mux()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

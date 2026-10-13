@@ -1,0 +1,15 @@
+# Conditional mux handoff. Select preserves an existing AUTO authorization only.
+# command: select / activate / release. All mutations match the current generation.
+string command
+string control_session
+int64 source_generation
+int64 object_revoke_generation
+int64 stamp_ns
+string request_id
+string follow_session
+---
+bool success
+string reason
+string control_session
+int64 source_generation
+int64 object_revoke_generation

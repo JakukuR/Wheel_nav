@@ -231,6 +231,35 @@ class Policy:
         self.auto = (0., 0.); self.auto_at = -1e9; self.clear_person(); self.object_channel.clear_person()
         return True, 'automatic_source_' + source.lower() + '; MANUAL; explicit AUTO required'
 
+    def object_control(self, command, source_generation, revoke_generation, request_id, follow_session, t, now_ns):
+        channel=self.object_channel
+        if source_generation!=self.source_generation or revoke_generation!=channel.person_revoke_generation:
+            return False,'object_control_generation_changed'
+        if command=='select':
+            if self.mode!='AUTO' or self.estop_latched or self.manual_requested(t):
+                return False,'existing_auto_authorization_required'
+            if not self.stopped(t):return False,'chassis_not_stopped'
+            if self.automatic_source=='OBJECT':
+                if channel.person_enabled:
+                    return False,'object_task_already_active'
+                # Even same-source selection goes through a zero-output handshake.
+                self.set_manual()
+                self.source_generation+=1;self.source_after=t;self.source_ros_ns=now_ns
+                return True,'object_selected; explicit_bound_activation_required'
+            return self.set_object_source(True,t,now_ns)
+        if self.automatic_source!='OBJECT':return False,'object_source_not_owned'
+        if command=='activate':
+            if self.mode!='MANUAL':return False,'object_not_waiting_for_activation'
+            if not request_id or (request_id,follow_session)!=(channel.person_request_id,channel.person_session):
+                return False,'object_task_identity_mismatch'
+            return self.set_auto(t,now_ns)
+        if command=='release':
+            if channel.person_enabled and (request_id,follow_session)!=(channel.person_request_id,channel.person_session):
+                return False,'object_task_identity_mismatch'
+            self.set_manual()
+            return True,'object_authority_released'
+        return False,'invalid_object_control_command'
+
     def set_auto(self, t, now_ns=0):
         if self.estop_latched:
             return False, 'estop_latched'
