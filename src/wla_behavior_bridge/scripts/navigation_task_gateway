@@ -1,0 +1,470 @@
+#!/usr/bin/env python3
+"""ROS transport for the tested task core; never publishes velocity or run permission."""
+import math
+import time
+import uuid
+from pathlib import Path
+
+import rclpy
+from rclpy.node import Node
+from rclpy.action import ActionClient, ActionServer, GoalResponse, CancelResponse
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.task import Future
+from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
+from action_msgs.msg import GoalInfo, GoalStatus, GoalStatusArray
+from action_msgs.srv import CancelGoal
+from std_srvs.srv import Trigger
+from nav2_msgs.action import NavigateToPose, ComputePathToPose
+from nav_msgs.msg import Odometry, OccupancyGrid
+from tf2_ros import Buffer, TransformListener
+from std_msgs.msg import Bool
+from wla_behavior_interfaces.action import BehaviorTask
+from wla_behavior_interfaces.srv import ResolveTarget
+from wla_behavior_interfaces.msg import TaskLease
+from wla_sim.behavior_bridge.semantic import SemanticMap, read_json, reviewed_approach, finite
+from wla_sim.behavior_bridge.tasks import TaskGateway, TaskRequest
+from wla_sim.behavior_bridge.grid import Grid
+
+
+class Gateway(Node):
+    def __init__(self):
+        super().__init__('wla_navigation_task_gateway')
+        self.map_dir = self.declare_parameter('map_directory', '').value
+        self.annotation_path = self.declare_parameter('annotations', '').value
+        self.config_path = self.declare_parameter('policy_file', '').value
+        self.selected_map_record = self.declare_parameter('selected_map_record', '').value
+        self.policy = read_json(self.config_path)
+        self.core = TaskGateway(time.monotonic)
+        self.map = None
+        self.map_revisions = {}
+        self.last_odom_stamp = None
+        self.handles = {}
+        # Register client-chosen UUIDs before sending: status can arrive before
+        # the asynchronous goal-acceptance callback stores a handle.
+        self.goal_ids = {}
+        self.waiters = {}
+        self.executor_lease = None
+        self.agent_leases = {}
+        self.foreign_active = True  # wait for a fresh Nav2 status inventory
+        self.foreign_generation = 0
+        self.reconciled = False
+        self.claiming = False
+        self.status_seen = -math.inf
+        self.nav = ActionClient(self, NavigateToPose, '/navigate_to_pose')
+        self.cancel_all = self.create_client(CancelGoal, '/navigate_to_pose/_action/cancel_goal')
+        self.planner = ActionClient(self, ComputePathToPose, '/compute_path_to_pose')
+        self.tf = Buffer(); self.tf_listener = TransformListener(self.tf, self)
+        self.grid = None; self.grid_at = -math.inf; self.resolved = {}
+        self.plan_waits = []
+        self.resolving = False
+        self.lease_pub = self.create_publisher(TaskLease, '/wla_behavior/gateway_lease', 10)
+        group = ReentrantCallbackGroup()
+        self.server = ActionServer(self, BehaviorTask, '/r680_nav/execute_navigation_task',
+            self.execute, goal_callback=self.goal, cancel_callback=self.cancel,
+            callback_group=group)
+        self.create_service(ResolveTarget, '/r680_nav/resolve_target', self.resolve, callback_group=group)
+        self.create_service(Trigger, '/r680_nav/claim_behavior_control', self.claim_control, callback_group=group)
+        self.create_subscription(OccupancyGrid, '/global_costmap/costmap', self.grid_cb,
+            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                       reliability=ReliabilityPolicy.RELIABLE))
+        self.create_subscription(Bool, '/r680_nav/localization_ready',
+                                 lambda m: self.core.health(m.data), 10)
+        self.create_subscription(Odometry, '/wheel/odom', self.odom, 10)
+        self.create_subscription(TaskLease, '/wla_behavior/agent_lease', self.agent_lease, 10)
+        self.create_subscription(TaskLease, '/wla_behavior/executor_lease', self.bt_lease, 10)
+        self.create_subscription(GoalStatusArray, '/navigate_to_pose/_action/status', self.status,
+            QoSProfile(depth=10, durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                       reliability=ReliabilityPolicy.RELIABLE))
+        self.reload()
+        self.create_timer(1., self.reload)
+        self.create_timer(.05, self.tick)
+
+    def reload(self):
+        try:
+            current = SemanticMap.load(self.map_dir, self.annotation_path or None)
+            selected = read_json(self.selected_map_record)
+            if (selected.get('map_id') != current.map_id
+                    or Path(selected.get('directory', '')).resolve() != Path(self.map_dir).resolve()):
+                raise ValueError('active_navigation_map_mismatch')
+            # Keep high-water marks independently of the currently usable map:
+            # a failed read or temporary map switch must not permit a rollback.
+            if current.revision < self.map_revisions.get(current.map_revision, -1):
+                raise ValueError('semantic_revision_regressed')
+            self.map_revisions[current.map_revision] = current.revision
+            self.map = current
+        except Exception as exc:
+            self.map = None
+            self.get_logger().error('Map unavailable: ' + str(exc))
+
+    def grid_cb(self, msg):
+        try:
+            if msg.header.frame_id != 'map': raise ValueError('grid_frame')
+            age = (self.get_clock().now().nanoseconds -
+                   (msg.header.stamp.sec * 10**9 + msg.header.stamp.nanosec)) / 1e9
+            if not 0 <= age <= 2.: raise ValueError('grid_stale')
+            p = msg.info.origin; q = p.orientation
+            yaw = math.atan2(2 * (q.w*q.z + q.x*q.y), 1 - 2*(q.y*q.y + q.z*q.z))
+            self.grid = Grid(msg.info.width, msg.info.height, msg.info.resolution,
+                             p.position.x, p.position.y, yaw, tuple(msg.data))
+            self.grid_at = time.monotonic() - age
+        except ValueError:
+            self.grid = None
+
+    def pose_message(self, pose):
+        from geometry_msgs.msg import PoseStamped
+        msg = PoseStamped(); msg.header.frame_id = 'map'
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.pose.position.x = pose.x; msg.pose.position.y = pose.y
+        msg.pose.orientation.z = math.sin(pose.yaw / 2); msg.pose.orientation.w = math.cos(pose.yaw / 2)
+        return msg
+
+    async def dynamic_approach(self, target, reviewed_pose=None):
+        policy = self.policy.get('dynamic_approach' if reviewed_pose is None else 'goal_safety', {})
+        if (not policy.get('evidence')
+                or (reviewed_pose is None and policy.get('enabled') is not True)):
+            raise ValueError('NO_VALID_APPROACH_POSE')
+        if self.grid is None or time.monotonic() - self.grid_at > 2. or not self.planner.server_is_ready():
+            raise ValueError('dynamic_geometry_unavailable')
+        transform = self.tf.lookup_transform('map', 'r680_mapping_floor', rclpy.time.Time())
+        age = (self.get_clock().now().nanoseconds -
+               (transform.header.stamp.sec * 10**9 + transform.header.stamp.nanosec)) / 1e9
+        if not 0 <= age <= .5: raise ValueError('robot_tf_stale')
+        tr = transform.transform.translation
+        radius = finite(policy['robot_radius_m'])
+        if radius <= 0: raise ValueError('positive_robot_radius_required')
+        poses = ([reviewed_pose] if reviewed_pose is not None else
+                 self.grid.ring(target, finite(policy['approach_radius_m']), radius, (tr.x, tr.y)))
+        for pose in poses[:4]:
+            if not self.grid.footprint_clear(pose, radius):
+                continue
+            # Each planner job has a bounded wait; late accepts are canceled too.
+            completed = Future(); job = {'future': completed, 'handle': None, 'deadline': time.monotonic() + 2.}
+            self.plan_waits.append(job)
+            goal = ComputePathToPose.Goal(); goal.goal = self.pose_message(pose)
+            goal.planner_id = 'GridBased'; goal.use_start = False
+            def result_done(f, j=job):
+                if j['future'].done(): return
+                try:
+                    r = f.result()
+                    j['future'].set_result(r.status == GoalStatus.STATUS_SUCCEEDED and bool(r.result.path.poses))
+                except Exception: j['future'].set_result(False)
+            def accepted(f, j=job):
+                try:
+                    h = f.result(); j['handle'] = h
+                    if not h.accepted:
+                        if not j['future'].done(): j['future'].set_result(False)
+                    elif j['future'].done(): h.cancel_goal_async()
+                    else: h.get_result_async().add_done_callback(lambda f: result_done(f, j))
+                except Exception:
+                    if not j['future'].done(): j['future'].set_result(False)
+            self.planner.send_goal_async(goal).add_done_callback(accepted)
+            if await completed:
+                if (self.grid is not None and time.monotonic() - self.grid_at <= 2.
+                        and self.grid.footprint_clear(pose, radius)):
+                    self.resolved[target.feature_id] = (target.fingerprint, pose, time.monotonic())
+                    return pose
+        raise ValueError('NO_VALID_APPROACH_POSE')
+
+    def odom(self, msg):
+        try:
+            stamp = msg.header.stamp.sec * 10**9 + msg.header.stamp.nanosec
+            age = (self.get_clock().now().nanoseconds - stamp) / 1e9
+            if not 0 <= age <= .25:
+                raise ValueError('stale_odom')
+            if self.last_odom_stamp is not None and stamp <= self.last_odom_stamp:
+                raise ValueError('non_increasing_odom')
+            # Convert the measured ROS age to the core's monotonic clock domain.
+            # Do not grant delayed samples a fresh lifetime on delivery.
+            self.core.motion(msg.twist.twist.linear.x, msg.twist.twist.angular.z,
+                             sampled_at=self.core.clock() - age)
+            self.last_odom_stamp = stamp
+        except ValueError:
+            self.core.stopped_since = None
+
+    def status(self, msg):
+        owned = set(self.goal_ids.values())
+        self.foreign_active = any(s.status in (1, 2, 3) and bytes(s.goal_info.goal_id.uuid) not in owned
+                                  for s in msg.status_list)
+        self.status_seen = time.monotonic()
+        if self.foreign_active:
+            self.foreign_generation += 1
+            self.reconciled = False
+            if self.core.active:
+                q = self.core.records[self.core.active]['request']
+                # Only the owned handle is canceled by tick(); never cancel the
+                # foreign action. Keep ownership until terminal + measured stop.
+                self.core.cancel(q.request_id, q.owner, 'foreign_navigation_active')
+            # Revoke in this callback rather than waiting for the next timer.
+            self.lease_pub.publish(TaskLease(allowed=False))
+
+    async def claim_control(self, req, res):
+        # Explicit operator reconciliation, never a normal task's cancel path.
+        # A new action server may not yet have published an empty status array.
+        # Requiring that array would otherwise deadlock first-use admission.
+        if self.claiming or self.core.active or not self.core.stopped() or not self.cancel_all.service_is_ready():
+            res.success = False; res.message = 'not_stopped_or_task_active'; return res
+        # Reserve before the first await; revoke old admission during cancel-all.
+        self.claiming = True
+        self.reconciled = False
+        foreign_generation = self.foreign_generation
+        reply = Future()
+        self.plan_waits.append({'future': reply, 'handle': None, 'deadline': time.monotonic() + 5.})
+        def completed(f):
+            if reply.done(): return
+            try: reply.set_result(f.result())
+            except Exception: reply.set_result(False)
+        try:
+            self.cancel_all.call_async(CancelGoal.Request()).add_done_callback(completed)
+        except Exception as exc:
+            res.success = False; res.message = 'claim_outcome_unknown:' + str(exc); return res
+        result = await reply
+        if result is False:
+            # A delayed cancel-all may still execute. Do not admit or allow retries
+            # to reopen the gate; restart/reconcile the ROS services explicitly.
+            res.success = False; res.message = 'claim_outcome_unknown; restart_and_reconcile'; return res
+        self.claiming = False
+        if (result.return_code != 0 or result.goals_canceling or not self.core.stopped()
+                or self.foreign_generation != foreign_generation):
+            res.success = False; res.message = 'cancellation_pending_or_stop_unconfirmed; retry_when_stopped'
+        else:
+            self.reconciled = True; self.foreign_active = False
+            res.success = True; res.message = 'exclusive_behavior_control_claimed'
+        return res
+
+    @staticmethod
+    def key(msg):
+        return (msg.request_id, msg.owner, msg.generation)
+
+    def agent_lease(self, msg):
+        key = self.key(msg)
+        # Do not retain unbounded unrelated client messages.
+        self.agent_leases = {key: (time.monotonic(), msg.allowed)}
+        if msg.allowed:
+            self.core.heartbeat(*key)
+        elif self.core.active == msg.request_id:
+            self.core.cancel(msg.request_id, msg.owner, 'user_cancel')
+
+    def bt_lease(self, msg):
+        self.executor_lease = (self.key(msg), time.monotonic(), msg.allowed)
+
+    async def resolve(self, req, res):
+        if self.resolving:
+            res.success = False; res.reason = 'resolver_busy'; return res
+        self.resolving = True
+        try:
+            if self.map is None or req.map_id != self.map.map_id:
+                raise ValueError('map_unavailable_or_mismatch')
+            target = self.map.resolve(feature_id=req.feature_id, label=req.label, room=req.room)
+            if self.policy.get('map_revision') != target.map_revision:
+                raise ValueError('policy_map_mismatch')
+            if target.feature_id in self.policy.get('targets', {}):
+                pose = await self.dynamic_approach(target, reviewed_approach(target, self.policy))
+            else:
+                pose = await self.dynamic_approach(target)
+            if (self.map is None or target.feature_id not in self.map.targets
+                    or self.map.targets[target.feature_id].fingerprint != target.fingerprint):
+                raise ValueError('target_changed_during_resolution')
+            res.success = True
+            res.feature_id = target.feature_id; res.semantic_id = target.semantic_id
+            res.map_revision = target.map_revision; res.semantic_revision = target.semantic_revision
+            res.target_fingerprint = target.fingerprint
+            res.approach_pose.header.frame_id = 'map'
+            res.approach_pose.header.stamp = self.get_clock().now().to_msg()
+            res.approach_pose.pose.position.x = pose.x; res.approach_pose.pose.position.y = pose.y
+            res.approach_pose.pose.orientation.z = math.sin(pose.yaw / 2)
+            res.approach_pose.pose.orientation.w = math.cos(pose.yaw / 2)
+        except Exception as exc:
+            res.success = False; res.reason = str(exc)
+        finally:
+            self.resolving = False
+        return res
+
+    def binding(self, g):
+        if self.map is None or g.map_id != self.map.map_id:
+            raise ValueError('map_mismatch')
+        t = self.map.resolve(feature_id=g.feature_id)
+        if self.policy.get('map_revision') != t.map_revision:
+            raise ValueError('policy_map_mismatch')
+        if t.map_revision != g.map_revision or t.fingerprint != g.target_fingerprint:
+            raise ValueError('target_binding_changed')
+        fields = ('owner', 'action_id', 'package_version', 'phase', 'target_key', 'feature_id')
+        if not any(all(row.get(k) == getattr(g, k) for k in fields)
+                   for row in self.policy.get('routes', [])):
+            raise ValueError('route_not_installed')
+        if t.feature_id in self.policy.get('targets', {}):
+            pose = reviewed_approach(t, self.policy)
+            radius = finite(self.policy.get('goal_safety', {}).get('robot_radius_m', 0))
+        else:
+            radius = finite(self.policy.get('dynamic_approach', {}).get('robot_radius_m', 0))
+            pose = None
+        cached = self.resolved.get(t.feature_id)
+        if (not cached or cached[0] != t.fingerprint or time.monotonic() - cached[2] > 2.
+                or (pose is not None and pose != cached[1])
+                or self.grid is None or time.monotonic() - self.grid_at > 2.
+                or not self.grid.footprint_clear(cached[1], radius)):
+            raise ValueError('approach_pose_expired_or_blocked')
+        pose = cached[1]
+        return t, pose
+
+    def dispatch_clear(self, request):
+        section = ('goal_safety' if request.feature_id in self.policy.get('targets', {})
+                   else 'dynamic_approach')
+        radius = finite(self.policy.get(section, {}).get('robot_radius_m', 0))
+        cached = self.resolved.get(request.feature_id)
+        return bool(cached and cached[0] == request.target_fingerprint
+                    and cached[1] == request.pose and time.monotonic()-cached[2] <= 2.
+                    and self.grid is not None and time.monotonic()-self.grid_at <= 2.
+                    and self.grid.footprint_clear(request.pose, radius))
+
+    def goal(self, g):
+        try:
+            if g.request_id in self.core.records:
+                raise ValueError('duplicate_action_request')
+            seen, allowed = self.agent_leases.get(self.key(g), (-math.inf, False))
+            if not allowed or time.monotonic() - seen > .5:
+                raise ValueError('agent_lease_missing')
+            if (self.claiming or self.foreign_active or not self.reconciled
+                    or not self.nav.server_is_ready()):
+                raise ValueError('navigation_busy_or_unavailable')
+            t, pose = self.binding(g)
+            self.core.submit(TaskRequest(g.request_id, g.instance_id, g.generation, g.owner,
+                g.map_revision, g.feature_id, g.target_fingerprint, pose))
+            return GoalResponse.ACCEPT
+        except Exception as exc:
+            self.get_logger().warning('Task rejected: ' + str(exc))
+            return GoalResponse.REJECT
+
+    async def execute(self, handle):
+        future = Future()
+        self.waiters[handle.request.request_id] = (handle, future)
+        return await future
+
+    def cancel(self, handle):
+        g = handle.request
+        return CancelResponse.ACCEPT if self.core.cancel(g.request_id, g.owner) else CancelResponse.REJECT
+
+    def nav_accepted(self, future, token):
+        try:
+            h = future.result()
+            if h.accepted:
+                self.handles[token] = h
+            # Commit acceptance before registering a callback which may run
+            # immediately or throw. Failure must cancel the known accepted goal.
+            self.core.accepted(token, h.accepted)
+            if h.accepted:
+                h.get_result_async().add_done_callback(lambda f: self.nav_result(f, token))
+        except Exception as exc:
+            r = self.core._by_token(token)
+            if r:
+                self.core.cancel(r['request'].request_id, r['request'].owner,
+                                 'acceptance_unknown:' + str(exc))
+
+    def nav_result(self, future, token):
+        try:
+            wrapped = future.result()
+            state = {GoalStatus.STATUS_SUCCEEDED: 'succeeded',
+                     GoalStatus.STATUS_CANCELED: 'canceled',
+                     GoalStatus.STATUS_ABORTED: 'failed'}.get(wrapped.status)
+            if state is None:
+                raise ValueError('invalid_navigation_result_status')
+            self.core.result(token, state, str(getattr(wrapped.result, 'error_msg', '')))
+        except Exception as exc:
+            r = self.core._by_token(token)
+            if r:
+                self.core.cancel(r['request'].request_id, r['request'].owner,
+                                 'result_unknown:' + str(exc))
+
+    def request_cancel(self, handle):
+        try:
+            handle.cancel_goal_async()
+        except Exception as exc:
+            # Cancel failure is not a terminal. Keep the navigation owner latched.
+            self.get_logger().warning('Cancel outcome unknown: ' + str(exc))
+
+    def tick(self):
+        for job in self.plan_waits[:]:
+            if not job['future'].done() and time.monotonic() >= job['deadline']:
+                job['future'].set_result(False)
+                if job['handle'] and job['handle'].accepted: self.request_cancel(job['handle'])
+            if job['future'].done(): self.plan_waits.remove(job)
+        valid = True
+        if self.core.active:
+            r = self.core.records[self.core.active]
+            q = r['request']; lease = self.executor_lease
+            valid = bool(self.map and self.map.map_revision == q.map_revision
+                         and q.feature_id in self.map.targets
+                         and self.map.targets[q.feature_id].fingerprint == q.target_fingerprint)
+            if not (lease and lease[0] == (q.request_id, q.owner, q.generation)
+                    and lease[2] and time.monotonic() - lease[1] <= .5):
+                self.core.cancel(q.request_id, q.owner, 'executor_lease_expired')
+        self.core.tick(target_valid=valid)
+        effects, self.core.effects = self.core.effects, []
+        for kind, token, value in effects:
+            if kind == 'send':
+                record = self.core._by_token(token)
+                if record['cancel']:
+                    self.core.result(token, 'canceled', 'canceled_before_dispatch')
+                    continue
+                try:
+                    clear = self.dispatch_clear(record['request'])
+                except (ValueError, KeyError):
+                    clear = False
+                if not clear:
+                    self.core.result(token, 'failed', 'approach_blocked_before_dispatch')
+                    continue
+                goal = NavigateToPose.Goal()
+                goal.pose.header.frame_id = 'map'; goal.pose.header.stamp = self.get_clock().now().to_msg()
+                goal.pose.pose.position.x = value.x; goal.pose.pose.position.y = value.y
+                goal.pose.pose.orientation.z = math.sin(value.yaw / 2)
+                goal.pose.pose.orientation.w = math.cos(value.yaw / 2)
+                try:
+                    goal_id = GoalInfo().goal_id
+                    goal_id.uuid = list(uuid.uuid4().bytes)
+                    self.goal_ids[token] = bytes(goal_id.uuid)
+                    self.nav.send_goal_async(goal,
+                        goal_uuid=goal_id,
+                        feedback_callback=lambda f, t=token: self.core.feedback(t, f.feedback.distance_remaining)
+                    ).add_done_callback(lambda f, t=token: self.nav_accepted(f, t))
+                except Exception as exc:
+                    # The remote side may already have received the request.
+                    # Never retry or synthesize a navigation terminal.
+                    q = record['request']
+                    self.core.cancel(q.request_id, q.owner, 'send_unknown:' + str(exc))
+            elif kind == 'cancel' and token in self.handles:
+                self.request_cancel(self.handles[token])
+        lease = TaskLease()
+        if self.core.active:
+            q = self.core.records[self.core.active]['request']
+            lease.request_id, lease.owner, lease.generation = q.request_id, q.owner, q.generation
+            lease.allowed = self.reconciled and not self.foreign_active and self.core.permit()
+        self.lease_pub.publish(lease)
+        for rid, (h, future) in list(self.waiters.items()):
+            snapshot = self.core.snapshot(rid)
+            if snapshot['state'] in self.core.TERMINAL:
+                result = BehaviorTask.Result(request_id=rid, generation=snapshot['generation'],
+                                             state=snapshot['state'], reason=snapshot['reason'])
+                if h.is_cancel_requested:
+                    result.state = 'canceled'; h.canceled()
+                elif result.state == 'succeeded': h.succeed()
+                else: h.abort()
+                future.set_result(result); del self.waiters[rid]
+                self.handles.pop(snapshot['token'], None)
+                self.goal_ids.pop(snapshot['token'], None)
+            else:
+                h.publish_feedback(BehaviorTask.Feedback(request_id=rid, generation=snapshot['generation'],
+                    state=snapshot['state'], reason=snapshot['reason'],
+                    distance_remaining=float(snapshot['distance_remaining'])
+                    if snapshot['distance_remaining'] is not None else -1.))
+
+
+def main():
+    from wla_sim.behavior_bridge.ros_lifecycle import run_ros_node
+    def stop(node):
+        node.lease_pub.publish(TaskLease(allowed=False))
+        for handle in list(node.handles.values()):
+            node.request_cancel(handle)
+        node.lease_pub.wait_for_all_acked(rclpy.duration.Duration(seconds=.2))
+    run_ros_node(Gateway, stop)
+
+
+if __name__ == '__main__': main()

@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+"""Typed Agent facade for relative person tasks; perception runs independently."""
+import fcntl
+import os
+from pathlib import Path
+import threading
+
+import rclpy
+from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
+from rclpy.node import Node
+from wla_behavior_interfaces.srv import PersonCommand
+from wla_sim.behavior_bridge.person_transport import command_values
+
+
+class AgentPersonAPI(Node):
+    def __init__(self):
+        super().__init__('wla_agent_person_api')
+        self.group = ReentrantCallbackGroup()
+        self.person_group = MutuallyExclusiveCallbackGroup()
+        self.slots = threading.BoundedSemaphore(2)
+        self.person_client = self.create_client(PersonCommand, '/r680/person_follow/command', callback_group=self.group)
+        self.create_service(PersonCommand, '/wla_agent/person_command', self.person, callback_group=self.person_group)
+
+    def forward(self, client, request):
+        if not client.service_is_ready():
+            raise RuntimeError('backend_unavailable')
+        if not self.slots.acquire(blocking=False):
+            raise RuntimeError('facade_busy')
+        try:
+            done = threading.Event()
+            future = client.call_async(request)
+            future.add_done_callback(lambda _: done.set())
+            if not done.wait(1.):
+                # A timeout is not a negative execution acknowledgement. A late
+                # accepted task is bounded by its own lease, never renewed here.
+                raise TimeoutError('backend_result_unknown')
+            return future.result()
+        finally:
+            self.slots.release()
+
+    def person(self, request, response):
+        response.request_id = request.request_id
+        response.state = 'rejected'
+        try:
+            command_values(request.command, request.request_id, request.mode,
+                           request.target_id, request.lease_duration_s)
+            result = self.forward(self.person_client, request)
+            for field in response.get_fields_and_field_types():
+                setattr(response, field, getattr(result, field))
+        except (ValueError, RuntimeError, TimeoutError) as exc:
+            response.accepted = False
+            response.reason = str(exc)
+            if isinstance(exc, TimeoutError):
+                response.state = 'unknown'
+                if request.command in {'start', 'heartbeat'} and request.request_id:
+                    # Establish the named cancellation tombstone even if the
+                    # corresponding start is still in transport/execution.
+                    try:
+                        self.person_client.call_async(PersonCommand.Request(
+                            command='stop', request_id=request.request_id, lease_duration_s=.5))
+                    except Exception:
+                        pass  # Backend lease still bounds an unobserved start.
+        return response
+
+def main():
+    runtime = Path(os.environ.get('WLA_ROS_WS', str(Path.home()/'ros2_ws')))/'.runtime'
+    runtime.mkdir(exist_ok=True)
+    lock = (runtime/('agent-person-api-'+os.environ.get('ROS_DOMAIN_ID','73')+'.lock')).open('w')
+    fcntl.flock(lock, fcntl.LOCK_EX|fcntl.LOCK_NB)
+    rclpy.init()
+    node = AgentPersonAPI()
+    executor = MultiThreadedExecutor(num_threads=4)
+    executor.add_node(node)
+    try:
+        executor.spin()
+    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
+        pass
+    finally:
+        executor.shutdown(timeout_sec=2.)
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+        lock.close()
+
+
+if __name__ == '__main__':
+    main()

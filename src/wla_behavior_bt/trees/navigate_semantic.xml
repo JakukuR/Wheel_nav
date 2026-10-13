@@ -1,0 +1,8 @@
+<root BTCPP_format="4" main_tree_to_execute="NavigateSemantic">
+  <BehaviorTree ID="NavigateSemantic">
+    <Sequence>
+      <ResolveBoundTarget/>
+      <NavigateOwnedTask/>
+    </Sequence>
+  </BehaviorTree>
+</root>

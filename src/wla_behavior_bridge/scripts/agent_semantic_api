@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""Single-executor Agent API. Queries never publish goals or obstacle layers."""
+import json
+from pathlib import Path
+
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+from wla_behavior_interfaces.srv import AgentSemanticCommand
+from wla_sim.behavior_bridge.agent_semantics import (
+    SemanticIntentAPI, load_whitelist, map_objects, visible_objects)
+from wla_sim.behavior_bridge.configuration import configured_adapter
+from wla_sim.behavior_bridge.ros_transport import RosBehaviorTransport
+from wla_sim.behavior_bridge.semantic import SemanticMap
+
+
+class AgentAPI(Node):
+    def __init__(self):
+        super().__init__('wla_agent_semantic_api')
+        self.map_dir = self.declare_parameter('map_directory', '').value
+        self.policy = self.declare_parameter('policy_file', '').value
+        self.annotations = self.declare_parameter('annotations', '').value or None
+        whitelist = self.declare_parameter('realtime_whitelist', '').value
+        self.classes = load_whitelist(whitelist, 'realtime')
+        enabled = self.declare_parameter('execution_enabled', False).value
+        transport = RosBehaviorTransport(self)
+        adapter, _ = configured_adapter(transport, self.map_dir, self.policy, annotations=self.annotations)
+        semantic = SemanticMap.load(self.map_dir, self.annotations)
+        self.api = SemanticIntentAPI(semantic, adapter.routes.values(), transport, execute=enabled)
+        self.high_water = {semantic.map_revision: semantic.revision}
+        self.map_error = ''
+        self.snapshot = {}
+        self.create_subscription(String, '/r680/perception/observations', self.observe, 1)
+        self.map_pub = self.create_publisher(String, '/wla_agent/map_objects', 1)
+        self.create_service(AgentSemanticCommand, '/wla_agent/semantic_command', self.command)
+        self.create_timer(.05, self.api.tick)
+        self.create_timer(.2, self.publish)
+        self.create_timer(1., self.reload)
+
+    def reload(self):
+        try:
+            semantic = SemanticMap.load(self.map_dir, self.annotations)
+            if semantic.revision < self.high_water.get(semantic.map_revision, -1):
+                raise ValueError('semantic_revision_regressed')
+            if semantic.map_revision != self.api.semantic.map_revision:
+                raise ValueError('map_changed_restart_with_matching_policy')
+            self.high_water[semantic.map_revision] = semantic.revision
+            self.api.semantic = semantic
+            self.map_error = ''
+        except Exception as exc:
+            self.map_error = str(exc)
+            self.api.close()
+
+    def observe(self, msg):
+        try:
+            if len(msg.data) > 2_000_000:
+                raise ValueError('observation_too_large')
+            value = json.loads(msg.data)
+            if not isinstance(value, dict):
+                raise ValueError('invalid_observation')
+            self.snapshot = value
+        except (ValueError, TypeError):
+            self.snapshot = {}
+
+    def visible(self):
+        return visible_objects(self.snapshot, self.classes, self.api.semantic,
+                               ros_now=self.get_clock().now().nanoseconds/1e9)
+
+    def command(self, req, res):
+        try:
+            if len(req.request_json) > 16384:
+                raise ValueError('request_too_large')
+            value = json.loads(req.request_json)
+            if not isinstance(value, dict):
+                raise ValueError('invalid_request')
+            if self.map_error and value.get('op') not in ('cancel', 'status', 'list_visible'):
+                raise ValueError('map_unavailable:'+self.map_error)
+            result = self.visible() if value.get('op') == 'list_visible' else self.api.command(value)
+            res.response_json = json.dumps(result, ensure_ascii=False, allow_nan=False)
+            res.success = True
+        except (ValueError, TypeError, KeyError) as exc:
+            res.success = False
+            res.response_json = json.dumps({'error': str(exc)})
+        return res
+
+    def publish(self):
+        if self.map_error:
+            value = {'objects': [], 'error': self.map_error}
+            self.map_pub.publish(String(data=json.dumps(value)))
+            return
+        self.map_pub.publish(String(data=json.dumps(self.api.command({'op': 'list_map'}), ensure_ascii=False)))
+
+
+def main():
+    from wla_sim.behavior_bridge.ros_lifecycle import run_ros_node
+    def stop(node):
+        node.api.close()
+        node.api.transport.pub.wait_for_all_acked(rclpy.duration.Duration(seconds=.2))
+    run_ros_node(AgentAPI, stop)
+
+
+if __name__ == '__main__':
+    main()

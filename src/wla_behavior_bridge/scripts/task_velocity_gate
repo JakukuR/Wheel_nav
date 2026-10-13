@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+"""Final task gate AFTER existing command_guard, BEFORE chassis; defaults preview."""
+import math
+import time
+import rclpy
+from rclpy.node import Node
+from geometry_msgs.msg import Twist
+from std_msgs.msg import String
+from wla_behavior_interfaces.msg import TaskLease
+from wla_sim.behavior_bridge.tasks import LeaseGate
+
+
+class Gate(Node):
+    def __init__(self):
+        super().__init__('wla_task_velocity_gate')
+        self.gate = LeaseGate(time.monotonic)
+        self.input_topic = self.declare_parameter('input_topic', '/r680_nav/task_guard_input').value
+        output = self.declare_parameter('output_topic', '/r680_nav/task_safe_preview').value
+        if self.input_topic == output:
+            raise ValueError('gate_input_output_must_differ')
+        self.allow_init = self.declare_parameter('allow_guarded_initialization', False).value
+        self.init = ('', -math.inf)
+        self.command = Twist(); self.seen = -math.inf
+        self.pub = self.create_publisher(Twist, output, 1)
+        self.create_subscription(Twist, self.input_topic, self.command_cb, 1)
+        for channel in ('agent', 'gateway'):
+            self.create_subscription(TaskLease, '/wla_behavior/' + channel + '_lease',
+                lambda m, c=channel: self.gate.update(c, (m.request_id, m.owner, m.generation), m.allowed), 10)
+        self.create_subscription(String, '/r680_nav/vio_init_state', self.init_cb, 1)
+        self.create_timer(.02, self.tick)
+
+    def init_cb(self, msg):
+        self.init = (msg.data, time.monotonic())
+
+    def command_cb(self, msg):
+        if all(math.isfinite(v) for v in (msg.linear.x, msg.angular.z)):
+            self.command = msg; self.seen = time.monotonic()
+        else:
+            self.seen = -math.inf
+
+    def tick(self):
+        # Input MUST be the already-checked output of command_guard. Init branch
+        # can only preserve that upstream gate's dedicated initialization bounds.
+        init = self.allow_init and self.init[0] == 'moving' and time.monotonic() - self.init[1] <= .2
+        out = Twist()
+        if (self.gate.allowed() or init) and time.monotonic() - self.seen <= .2:
+            out.linear.x = self.command.linear.x; out.angular.z = self.command.angular.z
+        self.pub.publish(out)
+
+
+def main():
+    from wla_sim.behavior_bridge.ros_lifecycle import run_ros_node
+    def stop(node):
+        node.pub.publish(Twist())
+        node.pub.wait_for_all_acked(rclpy.duration.Duration(seconds=.2))
+    run_ros_node(Gate, stop)
+
+
+if __name__ == '__main__': main()

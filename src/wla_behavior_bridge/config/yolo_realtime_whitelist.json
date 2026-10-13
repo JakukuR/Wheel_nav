@@ -1,0 +1,5 @@
+{
+  "schema": "wla-yolo-whitelist/v1",
+  "purpose": "realtime",
+  "classes": ["person", "cat", "dog", "umbrella", "chair", "dining table", "couch", "bed", "potted plant", "tv", "refrigerator", "microwave", "oven", "sink", "toilet", "bottle", "cup"]
+}

@@ -1,0 +1,11 @@
+{
+  "op": "navigate_near",
+  "request_id": "preview-table-0005",
+  "map_revision": "nav-6ba3db8494e0e2f85cbcc70c97632392",
+  "permitted": true,
+  "action_id": "investigate",
+  "package_version": "builtin-1",
+  "phase": "接近调查",
+  "target_key": "nav:e22002c2dcae42d27d997f53d9283b76ffa29823264c89fb1d0bbd424ca440c4",
+  "feature_id": "furniture-0005"
+}

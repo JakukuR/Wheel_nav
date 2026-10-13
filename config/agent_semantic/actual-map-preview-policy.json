@@ -1,0 +1,228 @@
+{
+  "map_revision": "nav-6ba3db8494e0e2f85cbcc70c97632392",
+  "targets": {},
+  "routes": [
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:4cf08c5dbe4b68d9f4fc7f3d20a00ae15cc1f72f3dc80afccfe74de55cbbede3",
+      "feature_id": "home"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:60e32e45e2cf73e3d55f7503e22c74df219ce183228a2a8b322be68cdf39eefd",
+      "feature_id": "furniture-0002"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:6a3afb49f1ef3f0e44f112888f410ecdda465c90d28186264609b9e65de58d7f",
+      "feature_id": "furniture-0003"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:7ddaf8de17ce6e7e2fbe2b5a5c814fd168cdf00487d9072d0039caa1a89cfadd",
+      "feature_id": "furniture-0004"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:e22002c2dcae42d27d997f53d9283b76ffa29823264c89fb1d0bbd424ca440c4",
+      "feature_id": "furniture-0005"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:28bc41749da159d37421f18a8463414811c59ff5035d30a18e3fc1680ca3097e",
+      "feature_id": "furniture-0006"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:97dfe097425ed775414754f29d7d4959bf226d02789333320ea26f9d6d24dd3a",
+      "feature_id": "furniture-0008"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:e39362e5f25ae3105baecb107777ce5597854410bd09113590a53b39356937d0",
+      "feature_id": "furniture-0009"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:847e440ea4d0d2f13d56ed2c611c91147729aa0ab230f3b49bdc4dea87db23f6",
+      "feature_id": "furniture-0010"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:1edf9150e58fb6d2254e44b23cda3c531a4a9605efac78ec4a4ed8bc862db659",
+      "feature_id": "furniture-0012"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:a3a94966524b652d1031067bf9ad08be274d121a96bc40f26a8e9f9287e7facb",
+      "feature_id": "furniture-0013"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:5d9235dd8d22d97109e65a93c94625c79e93c4e65fba76d488c7e05af9064747",
+      "feature_id": "furniture-0015"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:96ac6ec4d4051914164bf133dff20143f44314766755f4d3baba9678dc6cbd93",
+      "feature_id": "furniture-0017"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:e74b0f00e84bedfbc08dc505419875a057f068c3241581612743a76a3b5db4b3",
+      "feature_id": "furniture-0026"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:e31021ad053f8496d396ddf84ed8e9b654b58fb6002a9972331b2e47a8499d2d",
+      "feature_id": "furniture-0027"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:3d157e5276d26aa62e72ee4b33f05f157dde8bef3c0a28c7d280818458fbb818",
+      "feature_id": "furniture-0028"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:015100f39f27f46af27971967da91c02489b7da2d4e8c6d2e95ff1c6bcc7f6ff",
+      "feature_id": "furniture-0029"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:bc1d2bacf25ccb0b464c5a82cf91b16594f70d6b6e117f6267820502acee66cf",
+      "feature_id": "furniture-0031"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:4638fa1ca825a6b2bcc5751f9834d11a13f4febccc7f4db13f891dd8550c427f",
+      "feature_id": "furniture-0032"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:9c8be363090f6550dbcd3b48960afb5bda1d3ba80e0cd06d7321d23800a45a35",
+      "feature_id": "furniture-0036"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:020ebc750edd9ecf4362e65c04867a503ce85dfe1709c0028b17bc75023d057e",
+      "feature_id": "furniture-0041"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:2c63b11cb6c19009866aa6c78d399ef4f7e182fa622aa99dcc4fc30af9515ff0",
+      "feature_id": "furniture-0043"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:fb134a26f8b436ed6671dbd84056b9cd803ee0061689d068cc5ef7e3318d601f",
+      "feature_id": "furniture-0045"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:962b9136803d2acfb903b602d00af90e80f707ad51c331e2184a87e51fcdd2b3",
+      "feature_id": "furniture-0046"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:63f0bff9fa5bb19fc0787e52bd7984d0187a22e6b871a116fbb7430743e9c284",
+      "feature_id": "furniture-0047"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:ae94f94637eff0f14a7a28e1020b7030a17870f6a256be53b9213e4888ab6dd2",
+      "feature_id": "furniture-0048"
+    },
+    {
+      "owner": "agent",
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:0ae5f92ad6318d47151a96e8673c8f0cc7bfc868d7635d3a9ea1d1d583ac46ce",
+      "feature_id": "furniture-0049"
+    }
+  ],
+  "dynamic_approach": {
+    "enabled": true,
+    "robot_radius_m": 0.29,
+    "approach_radius_m": 0.9,
+    "evidence": "Preview configuration: 0.29 m encloses current configured 0.40 m square footprint; 0.9 m approach is a trial value, not physical acceptance."
+  }
+}

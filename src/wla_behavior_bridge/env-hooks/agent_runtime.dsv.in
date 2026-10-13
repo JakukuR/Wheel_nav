@@ -1,0 +1,3 @@
+prepend-non-duplicate;PYTHONPATH;@WLA_AGENT_SOURCE_DIR@/src
+set;WLA_AGENT_SOURCE_DIR;@WLA_AGENT_SOURCE_DIR@
+set;WLA_REALTIME_WHITELIST;@CMAKE_INSTALL_PREFIX@/share/wla_behavior_bridge/config/yolo_realtime_whitelist.json
