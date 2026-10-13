@@ -432,7 +432,7 @@ private:
   {
     if (!fault_latched_ && !degradedActive() && (frontend_ == "rgbd" || frontend_ready_) && age(vo_seen_) <= stale_s_ &&
       age(info_seen_) <= stale_s_ && age(wheel_seen_) < 0.30 &&
-      (frontend_=="rgbd" || (initial_map_matched_ && age(initial_localization_seen_)<=localization_stale_s_))) {
+      initial_map_matched_ && age(initial_localization_seen_)<=localization_stale_s_) {
       const auto map_pose = currentMapPose();
       if (map_pose) {
         anchor_map_pose_ = map_pose;
@@ -530,11 +530,15 @@ private:
       (age(vo_seen_) > stale_s_ || age(info_seen_) > stale_s_)) {
       fault("VO odometry or tracking status timed out");
     }
+    // Local RGB-D tracking only establishes odometry, not a pose in the saved
+    // map. Both frontends need RTAB-Map match/pose evidence before admitting
+    // navigation. This watchdog is launched only in localization mode; first
+    // mapping does not depend on a match against an existing map.
     const bool healthy = !fault_latched_ && age(vo_seen_) <= stale_s_ &&
       age(info_seen_) <= stale_s_ && lost_count_ == 0 &&
-      (frontend_ == "rgbd" || (frontend_ready_ && initial_map_matched_ &&
+      (frontend_ == "rgbd" || frontend_ready_) && initial_map_matched_ &&
       age(initial_localization_seen_) <= localization_stale_s_ +
-        (degradedActive() ? degraded_map_grace_ : 0.0) && currentMapPose().has_value()));
+        (degradedActive() ? degraded_map_grace_ : 0.0) && currentMapPose().has_value();
     std_msgs::msg::Bool health;
     health.data = healthy;
     health_pub_->publish(health);
@@ -543,8 +547,10 @@ private:
       (!anchor_valid_at_fault_ ? "manual_relocalization_required: " :
       respawn_seen_.time_since_epoch().count() == 0 ? "restarting_vo: " :
       "waiting_for_map_relocalization: ") + reason_ :
-      (healthy ? "healthy" : frontend_ == "cuvslam" ?
-        (frontend_ready_ ? "waiting_for_map_relocalization" : "waiting_for_inertial_initialization") : "waiting_for_vo");
+      (healthy ? "healthy" : frontend_ == "cuvslam" && !frontend_ready_ ?
+        "waiting_for_inertial_initialization" :
+        age(vo_seen_) > stale_s_ || age(info_seen_) > stale_s_ ?
+        "waiting_for_vo" : "waiting_for_map_relocalization");
     status_pub_->publish(status);
     if (staged_search_ && fault_latched_) {
       std_msgs::msg::String search;
