@@ -34,6 +34,7 @@ class Fixture(Node):
         self.create_service(CancelGoal, '/navigate_to_pose/_action/cancel_goal', self.cancel)
         self.automatic = self.create_client(SetBool, '/r680_base/set_automatic')
         self.source = self.create_client(SetBool, '/r680_base/set_person_source')
+        self.estop = self.create_client(SetBool, '/r680_base/set_estop')
         self.request_id = 'integration-task-a'; self.follow_session = 'integration-process-a'
         self.task_enabled = True; self.preview = False; self.task_fault = False
 
@@ -49,7 +50,8 @@ class Fixture(Node):
                 command = Twist(); command.linear.x = manual; self.manual.publish(command)
             if send_nav:
                 command = Twist(); command.linear.x = nav; self.nav.publish(command)
-            self.gamepad.publish(String(data='[' + gamepad + '] fixture'))
+            if gamepad is not None:
+                self.gamepad.publish(String(data='[' + gamepad + '] fixture'))
             wheel = Odometry(); wheel.header.stamp = self.get_clock().now().to_msg(); self.wheel.publish(wheel)
             stamp = self.get_clock().now().nanoseconds
             state = self.states[-1] if self.states else {}
@@ -90,21 +92,38 @@ def main():
         process = subprocess.Popen(['ros2', 'run', 'wla_manual_control', 'command_mux.py'],
                                    stdout=log, stderr=log, start_new_session=True)
         try:
-            fixture.feed(2., manual=.2)
-            assert fixture.outputs and all(v == (0., 0.) for v in fixture.outputs), 'boot safety'
-            fixture.feed(1.1); assert fixture.states[-1]['armed']
+            no_gamepad = dict(gamepad=None, send_manual=False)
+            fixture.feed(2., nav=.2, **no_gamepad)
+            assert fixture.outputs and all(v == (0., 0.) for v in fixture.outputs), 'no implicit AUTO at boot'
+            fixture.feed(.3, **no_gamepad)
+            fixture.call(fixture.automatic, True, **no_gamepad)
+            fixture.feed(.4, nav=.18, **no_gamepad)
+            assert abs(fixture.outputs[-1][0] - .18) < 1e-6, 'NAV works without any joystick messages'
+            assert fixture.states[-1]['automatic_authorized'] and not fixture.states[-1]['manual_ready']
+            fixture.call(fixture.estop, True, **no_gamepad)
+            fixture.feed(.3, nav=.18, **no_gamepad)
+            assert fixture.outputs[-1] == (0., 0.) and fixture.states[-1]['estop_latched']
+            fixture.call(fixture.automatic, True, expected=False, **no_gamepad)
+            fixture.call(fixture.estop, False, **no_gamepad)
+            fixture.feed(.3, nav=.18, **no_gamepad)
+            assert fixture.outputs[-1] == (0., 0.) and fixture.states[-1]['mode'] == 'MANUAL'
+            fixture.feed(.4, manual=.2, gamepad='ARMING')
+            assert fixture.outputs[-1] == (0., 0.), 'unqualified manual input cannot drive'
+            fixture.feed(.5); assert fixture.states[-1]['manual_ready']
             fixture.feed(.1, manual=.1)
             fixture.call(fixture.source, True, expected=False, manual=.1)
-            fixture.feed(.3)
-            fixture.call(fixture.source, True)
-            fixture.feed(.4, nav=.25)
+            disconnected = dict(gamepad='DISCONNECTED', send_manual=False)
+            fixture.feed(.3, **disconnected)
+            fixture.call(fixture.source, True, **disconnected)
+            fixture.feed(.4, nav=.25, **disconnected)
             assert fixture.states[-1]['mode'] == 'MANUAL'
             assert fixture.states[-1]['automatic_source'] == 'PERSON'
             assert fixture.cancellations > 0, 'source switch must cancel Nav2'
             assert fixture.outputs[-1] == (0., 0.)
-            fixture.call(fixture.automatic, True)
-            fixture.feed(.5, nav=.25)
+            fixture.call(fixture.automatic, True, **disconnected)
+            fixture.feed(.5, nav=.25, **disconnected)
             assert abs(fixture.outputs[-1][0] - .12) < 1e-6, 'exclusive PERSON source'
+            assert not fixture.states[-1]['manual_ready'], 'PERSON does not require a joystick'
             fixture.feed(.3, nav=.25, wrong_session=True)
             assert fixture.outputs[-1] == (0., 0.), 'old process session rejection'
             fixture.feed(.3)
@@ -128,10 +147,12 @@ def main():
             assert fixture.outputs[-1] == (0., 0.) and fixture.states[-1]['mode'] == 'MANUAL'
             fixture.request_id = 'integration-task-d'; fixture.feed(.3)
             fixture.call(fixture.automatic, True); fixture.feed(.4)
+            generation = fixture.states[-1]['person_revoke_generation']
             fixture.feed(.4, gamepad='DISCONNECTED')
-            assert fixture.outputs[-1] == (0., 0.) and not fixture.states[-1]['armed']
-            fixture.feed(.4, manual=.2)
-            assert fixture.outputs[-1] == (0., 0.), 'reconnect requires neutral'
+            assert abs(fixture.outputs[-1][0] - .12) < 1e-6 and not fixture.states[-1]['manual_ready']
+            assert fixture.states[-1]['person_revoke_generation'] == generation
+            fixture.feed(.4, manual=.2, gamepad='ARMING')
+            assert abs(fixture.outputs[-1][0] - .12) < 1e-6, 'insertion before neutral must not take over'
             fixture.feed(1.1)
             fixture.call(fixture.source, False); fixture.feed(.3)
             assert fixture.states[-1]['automatic_source'] == 'NAV'
@@ -142,11 +163,18 @@ def main():
             assert fixture.outputs[-1] == (0., 0.), 'stale NAV must stop'
             fixture.feed(.3, nav=.21)
             assert abs(fixture.outputs[-1][0] - .21) < 1e-6
+            fixture.feed(.7, nav=.21, **no_gamepad)
+            assert abs(fixture.outputs[-1][0] - .21) < 1e-6 and not fixture.states[-1]['manual_ready']
             fixture.feed(.3, manual=.2, gamepad='ESTOP')
             assert fixture.outputs[-1] == (0., 0.) and not fixture.states[-1]['armed']
+            fixture.call(fixture.estop, False, expected=False, gamepad='ESTOP')
+            fixture.feed(.3, gamepad='DISCONNECTED')
+            fixture.call(fixture.estop, False, expected=False, gamepad='DISCONNECTED')
             fixture.feed(.5, manual=.2)
-            assert fixture.outputs[-1] == (0., 0.), 'estop release still requires neutral'
+            assert fixture.outputs[-1] == (0., 0.), 'estop stays latched across reconnect'
+            fixture.call(fixture.estop, False, expected=False, manual=.2)
             fixture.feed(1.1)
+            fixture.call(fixture.estop, False)
             fixture.feed(.3, manual=3.)
             assert abs(fixture.outputs[-1][0] - 1.0) < 1e-6, 'current forward clamp'
             fixture.feed(.3, manual=-3.)
@@ -158,7 +186,7 @@ def main():
             assert not any('wheeltec_robot' in name for name in fixture.get_node_names())
             print('PASS: source exclusivity, explicit AUTO, session binding, stale candidate/status, '
                   'idle-to-new-task, manual revoke, hotplug, Nav2 cancel, stale NAV/manual, '
-                  'estop rearm, forward/reverse limits; isolated sole mux publisher')
+                  'headless NAV/PERSON, latched estop/reset, forward/reverse limits; isolated sole mux publisher')
         finally:
             os.killpg(process.pid, signal.SIGINT)
             process.wait(timeout=10)

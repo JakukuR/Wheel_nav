@@ -255,6 +255,8 @@ class GamepadTeleop(Node):
         # 设备连接状态
         self.js_fd = None
         self.connected = False
+        self.manual_ready = False
+        self.neutral_since = None
         self.input_lock = threading.RLock()
         self.stop_event = threading.Event()
         self.last_wait_log = -float("inf")
@@ -308,6 +310,25 @@ class GamepadTeleop(Node):
         self.spin_left = self.spin_right = False
         self.filtered_linear = self.filtered_angular = 0.0
         self.current_linear = self.current_angular = 0.0
+        self.manual_ready = False
+        self.neutral_since = None
+
+    def update_manual_ready(self, now):
+        """Raw neutral input, not filtered zero velocity, qualifies manual takeover."""
+        if not self.connected or self.estop_active:
+            self.manual_ready = False; self.neutral_since = None
+        elif not self.manual_ready:
+            neutral = (self.axis_linear in self.axes and self.axis_angular in self.axes
+                       and abs(self.axes[self.axis_linear]) <= self.deadzone
+                       and abs(self.axes[self.axis_angular]) <= self.deadzone
+                       and not self.spin_left and not self.spin_right)
+            if not neutral:
+                self.neutral_since = None
+            elif self.neutral_since is None:
+                self.neutral_since = now
+            else:
+                self.manual_ready = now - self.neutral_since >= .3
+        return self.manual_ready
 
     def disconnect_device(self):
         with self.input_lock:
@@ -476,6 +497,7 @@ class GamepadTeleop(Node):
         dt = max(0.001, min(dt, 0.1))
 
         msg = Twist()
+        self.update_manual_ready(time.monotonic())
 
         # ───────────────────────────────────────────────
         # 1. 紧急停止检查
@@ -496,6 +518,13 @@ class GamepadTeleop(Node):
             self.reset_input()
             self.cmd_pub.publish(msg)
             self.publish_status("DISCONNECTED")
+            return
+
+        if not self.manual_ready:
+            self.current_linear = self.current_angular = 0.0
+            self.filtered_linear = self.filtered_angular = 0.0
+            self.cmd_pub.publish(msg)
+            self.publish_status('ARMING')
             return
 
         # ───────────────────────────────────────────────
@@ -641,7 +670,8 @@ class GamepadTeleop(Node):
             self._status_counter = 0
         self._status_counter += 1
 
-        if self._status_counter % 10 == 0:
+        if state != getattr(self, '_last_status', None) or self._status_counter % 10 == 0:
+            self._last_status = state
             status_msg = String()
             profile_pct = self.speed_profiles[self.current_profile] * 100
             status_msg.data = (

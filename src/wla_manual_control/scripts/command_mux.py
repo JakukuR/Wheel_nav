@@ -30,6 +30,7 @@ class Mux(Node):
         self.create_subscription(Odometry, '/wheel/odom', self.wheel, qos_profile_sensor_data)
         self.create_service(SetBool, '/r680_base/set_automatic', self.mode)
         self.create_service(SetBool, '/r680_base/set_person_source', self.source)
+        self.create_service(SetBool, '/r680_base/set_estop', self.estop)
         self.cancel = [self.create_client(CancelGoal, '/' + action + '/_action/cancel_goal')
                        for action in ('navigate_to_pose', 'navigate_through_poses')]
         self.create_timer(.02, self.tick)
@@ -41,8 +42,11 @@ class Mux(Node):
                 client.call_async(CancelGoal.Request())
 
     def manual(self, msg):
-        if self.p.manual_input((msg.linear.x, msg.angular.z), time.monotonic()):
+        previous = self.p.mode
+        takeover = self.p.manual_input((msg.linear.x, msg.angular.z), time.monotonic())
+        if previous == 'AUTO' and self.p.mode != 'AUTO':
             self.cancel_navigation(); self.last_report = 0.
+        if takeover:
             self.get_logger().warn('Manual takeover latched; autonomous task revocation requested')
 
     def auto(self, msg):
@@ -63,12 +67,20 @@ class Mux(Node):
 
     def status(self, msg):
         previous = self.p.mode
-        self.p.status = msg.data.split(']', 1)[0].lstrip('[')
-        self.p.status_at = time.monotonic()
-        if self.p.status not in ('ACTIVE', 'SPIN', 'STANDBY'):
-            self.p.disarm()
-            if previous == 'AUTO':
-                self.cancel_navigation(); self.last_report = 0.
+        previous_status = self.p.status
+        status = msg.data.split(']', 1)[0].lstrip('[')
+        self.p.gamepad_status_input(status, time.monotonic())
+        if previous == 'AUTO' and self.p.mode != 'AUTO':
+            self.cancel_navigation()
+        if previous_status != status or previous != self.p.mode:
+            self.last_report = 0.
+
+    def estop(self, req, res):
+        res.success, res.message = self.p.set_estop(req.data, time.monotonic())
+        if res.success and req.data:
+            self.cancel_navigation()
+        self.last_report = 0.
+        return res
 
     def wheel(self, msg):
         self.p.wheel = (msg.twist.twist.linear.x, msg.twist.twist.angular.z)
@@ -103,6 +115,9 @@ class Mux(Node):
             self.report.publish(String(data=json.dumps({
                 'control_session': self.control_session, 'stamp_ns': self.get_clock().now().nanoseconds,
                 'mode': self.p.mode, 'armed': self.p.armed,
+                'manual_ready': self.p.manual_ready(now),
+                'automatic_authorized': self.p.mode == 'AUTO' and not self.p.estop_latched,
+                'estop_latched': self.p.estop_latched, 'estop_reason': self.p.estop_reason,
                 'automatic_source': self.p.automatic_source,
                 'source_generation': self.p.source_generation,
                 'person_revoke_generation': self.p.person_revoke_generation,

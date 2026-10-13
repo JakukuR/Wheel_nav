@@ -66,14 +66,39 @@ with tempfile.TemporaryDirectory() as directory:
         os.mkfifo(device)
         writer = os.open(device, os.O_RDWR | os.O_NONBLOCK)
         until(lambda: node.connected)
-        event(writer, 0, 0x82, node.axis_linear)
+        event(writer, -20000, 0x82, node.axis_linear)
+        event(writer, 0, 0x82, node.axis_angular)
         event(writer, -32767, 0x82, node.axis_rt)
         event(writer, 1, 0x81, node.btn_estop)
         until(lambda: node.buttons.get(node.btn_estop) == 1)
         assert not node.estop_active
+        pump(.4)
+        assert not node.manual_ready and messages[-1] == (0., 0.)
+        assert statuses[-1].startswith('[ARMING]'), 'raw deflection blocks manual readiness'
+        event(writer, 0, 0x02, node.axis_linear)
+        until(lambda: node.axes.get(node.axis_linear) == 0.)
+        until(lambda: node.manual_ready)
         event(writer, 1, 0x01, node.btn_spin_left)
         until(lambda: messages and abs(messages[-1][1]) > .01)
         print('PASS delayed connection: input resumes; INIT does not toggle estop', flush=True)
+
+        # Deterministic boundary test of the actual gamepad gate, without ROS time jitter.
+        with node.input_lock:
+            node.manual_ready = False; node.neutral_since = None
+            node.spin_left = False
+            assert not node.update_manual_ready(10.)
+            assert not node.update_manual_ready(10.299)
+            assert node.update_manual_ready(10.301)
+            node.manual_ready = False; node.neutral_since = None
+            assert not node.update_manual_ready(20.)
+            node.axes[node.axis_linear] = .5
+            assert not node.update_manual_ready(20.2)
+            node.axes[node.axis_linear] = 0.
+            assert not node.update_manual_ready(21.)
+            assert not node.update_manual_ready(21.299)
+            assert node.update_manual_ready(21.301)
+            node.spin_left = True
+        print('PASS gamepad-owned 300ms neutral gate and deflection restart', flush=True)
 
         device.unlink()
         os.close(writer)
@@ -115,6 +140,7 @@ with tempfile.TemporaryDirectory() as directory:
         event(writer, 1, 0x81, node.btn_estop)
         pump(.3)
         assert node.estop_active and messages[-1] == (0., 0.)
+        assert not node.manual_ready
         print('PASS repeated reconnect: no stale rotation; estop latch preserved', flush=True)
 
         device.unlink(); os.close(writer); writer = None

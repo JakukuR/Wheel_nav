@@ -8,7 +8,10 @@ class Policy:
 
     def __init__(self, linear=.3, reverse=.3, angular=.5):
         self.limits = (linear, reverse, angular)
-        self.mode = 'MANUAL'; self.armed = False; self.neutral_since = None
+        self.mode = 'MANUAL'; self.armed = False
+        self.manual_ready_after = -1e9
+        self.estop_latched = False; self.estop_reason = ''
+        self.gamepad_stop_asserted = False
         self.manual = (0., 0.); self.auto = (0., 0.)
         self.manual_at = self.auto_at = self.status_at = self.wheel_at = -1e9
         self.status = 'DISCONNECTED'; self.wheel = (0., 0.); self.auto_after = -1e9
@@ -52,12 +55,60 @@ class Policy:
 
     def manual_input(self, v, t):
         if not all(math.isfinite(x) for x in v):
-            self.status = 'INVALID'; self.status_at = t; self.disarm(); return False
+            self.latch_stop('invalid_manual_input'); return False
         self.manual = v; self.manual_at = t
-        takeover = self.mode == 'AUTO' and not self.zero(v)
+        takeover = self.mode == 'AUTO' and self.manual_ready(t) and not self.zero(v)
         if takeover:
             self.set_manual()
         return takeover
+
+    def gamepad_status_input(self, status, t):
+        was_ready = self.status in ('ACTIVE', 'SPIN', 'STANDBY') and t - self.status_at < .5
+        self.status = status; self.status_at = t
+        ready = status in ('ACTIVE', 'SPIN', 'STANDBY')
+        if not ready or not was_ready:
+            self.clear_manual()
+            self.manual_ready_after = t
+        if status == 'ESTOP':
+            self.gamepad_stop_asserted = True
+            self.latch_stop('gamepad_estop')
+        elif ready or status == 'ARMING':
+            # A fresh released-button status clears the input, never the mux latch.
+            self.gamepad_stop_asserted = False
+        elif status != 'DISCONNECTED':
+            self.latch_stop('invalid_gamepad_status')
+
+    def clear_manual(self):
+        self.armed = False; self.manual = (0., 0.); self.manual_at = -1e9
+
+    def manual_ready(self, t):
+        return (not self.estop_latched and self.connected(t)
+                and self.manual_at > self.manual_ready_after)
+
+    def manual_requested(self, t):
+        return self.manual_ready(t) and not self.zero(self.manual)
+
+    def latch_stop(self, reason):
+        self.estop_latched = True; self.estop_reason = reason
+        self.disarm()
+        self.auto = (0., 0.); self.auto_at = -1e9
+
+    def set_estop(self, enabled, t):
+        if enabled:
+            self.latch_stop('explicit_estop')
+            return True, 'stop_latched; explicit reset and AUTO authorization required'
+        if not self.estop_latched:
+            return True, 'stop_already_clear'
+        if self.gamepad_stop_asserted:
+            return False, 'gamepad_estop_still_asserted'
+        if not self.stopped(t):
+            return False, 'chassis_not_stopped'
+        if self.connected(t) and not self.zero(self.manual):
+            return False, 'manual_input_not_neutral'
+        if self.estop_latched:
+            self.estop_latched = False; self.estop_reason = ''
+            self.disarm()
+        return True, 'stop_cleared; MANUAL; explicit AUTO required'
 
     def automatic_input(self, v, t):
         if all(math.isfinite(x) for x in v):
@@ -135,7 +186,7 @@ class Policy:
         return True
 
     def disarm(self):
-        self.set_manual(); self.armed = False; self.neutral_since = None
+        self.set_manual(); self.clear_manual()
 
     def connected(self, t):
         return (t - self.status_at < .5 and self.status in ('ACTIVE', 'SPIN', 'STANDBY')
@@ -148,8 +199,10 @@ class Policy:
         source = 'PERSON' if enabled else 'NAV'
         if source == self.automatic_source:
             return True, 'automatic_source_already_' + source.lower()
-        if not self.connected(t) or not self.zero(self.manual):
-            return False, 'joystick_not_neutral_or_ready'
+        if self.estop_latched:
+            return False, 'estop_latched'
+        if self.manual_requested(t):
+            return False, 'manual_takeover_active'
         if not self.stopped(t):
             return False, 'chassis_not_stopped'
         if self.automatic_source == 'PERSON':
@@ -160,8 +213,10 @@ class Policy:
         return True, 'automatic_source_' + source.lower() + '; MANUAL; explicit AUTO required'
 
     def set_auto(self, t, now_ns=0):
-        if not self.armed or not self.connected(t) or not self.zero(self.manual):
-            return False, 'joystick_not_neutral_or_ready'
+        if self.estop_latched:
+            return False, 'estop_latched'
+        if self.manual_requested(t):
+            return False, 'manual_takeover_active'
         if not self.stopped(t):
             return False, 'chassis_not_stopped'
         if self.automatic_source == 'PERSON':
@@ -174,16 +229,13 @@ class Policy:
         return True, 'AUTO ' + self.automatic_source + ': stick input or A stop returns to MANUAL'
 
     def output(self, t):
-        if not self.connected(t):
-            self.disarm(); return (0., 0.)
-        if not self.armed:
-            if self.zero(self.manual):
-                if self.neutral_since is None:
-                    self.neutral_since = t
-                self.armed = t - self.neutral_since >= .3
-            else:
-                self.neutral_since = None
+        if self.estop_latched:
+            # Retain new manual samples so reset can reject a held joystick.
+            self.armed = False
             return (0., 0.)
+        self.armed = self.manual_ready(t)  # Compatibility field: manual readiness only.
+        if not self.armed:
+            self.clear_manual()
         if self.mode == 'AUTO':
             if self.automatic_source == 'PERSON':
                 if t > self.person_status_until or self.person_fault:
@@ -199,6 +251,8 @@ class Policy:
                     return (0., 0.)
                 v = self.auto
         else:
+            if not self.armed:
+                return (0., 0.)
             v = self.manual
         forward, reverse, turn = self.limits
         return (max(-reverse, min(forward, v[0])), max(-turn, min(turn, v[1])))
