@@ -55,11 +55,15 @@ ros2 launch wla_openvins_navigation openvins.launch.py config_dir:=/absolute/pat
 
 默认输出 `/openvins_trial/odom_imu`、`/openvins_trial/odom`、`/openvins_trial/estimator_status`，不发布 TF、不启动相机或底盘。没有通过初始化时不会输出 odom。静态初始化需要先静置，再由人工提供适当运动激励；本包不自动驱动机器人初始化。
 
+2026-10-13 原工作区入口已接入完整 D455 候选配置，使用 `~/ros2_ws/r680_nav.sh --openvins --openvins-imu d455 --map MAP --test-scan-only`。当前默认就是 D455 内置 IMU。详细参数来源、脚本所有权、初始化预览和验证边界见 [接入说明](../wla_r680_navigation/docs/openvins_20261013.md)。导航层显式 `--auto-vio-init` 仅增加默认关闭的初始化运动预览与独立安全节点；OpenVINS 硬件输出仍被启动校验禁止。
+
 尚无联合标定且仅做接口联调时，manifest 可明确设置 `kind: commissioning`、`calibration_validated: false`，记录现有参数的来源与假设。生成时必须添加 `--allow-commissioning`，启动时必须设置 `allow_commissioning:=true`；原导航入口使用 `openvins_allow_commissioning:=true`。这一配置始终关闭运动许可，不能将接口测试结果当作标定或精度验收。
 
 初始化排查时可在生成的 `frontend.yaml` 参数中设置 `estimator_verbosity: INFO`，观察视觉位移与 IMU 激励检查。默认 `WARNING`；信息级日志仅用于排查，不能将调低初始化阈值等同于标定。
 
 初始化前的 IMU 暂时未到达保持等待；若采样间隔中断则丢弃初始化窗口重新积累。初始化之后的 IMU 超时/采样间隙仍锁存故障，需显式恢复。所有阶段的非有限值、错误帧及时间倒退仍拒绝。
+
+D455 启动时 global-time 可能尚未稳定。尚未初始化且未输出 odom 时，正时间戳超出既有新鲜度范围的样本丢弃，并清空已积累的初始化窗口，状态为 `waiting_for_imu_clock_stability`。这些样本不会送进滤波器，也不会触发初始化运动预览。初始化后的时间异常继续锁存；运行期时间限制保持原值。
 
 ## 接入现有导航进行无硬件输出联调
 

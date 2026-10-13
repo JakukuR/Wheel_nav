@@ -7,7 +7,7 @@ import json
 import tempfile
 from launch import LaunchContext
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
-from launch.utilities import perform_substitutions
+from launch.utilities import perform_substitutions, normalize_to_list_of_substitutions
 from launch_ros.utilities import evaluate_parameters
 
 
@@ -30,7 +30,12 @@ monitor=next(e for e in ld.entities if 'interface_monitor' in node_name(e))
 params=evaluate_parameters(c,monitor._Node__parameters)[0]
 assert params['require_vio_health'] is True
 assert params['vio_health_topic']=='/openvins/tracking_healthy'
-assert params['require_motion_permission'] is True
+assert params['require_motion_permission'] is False
+guard=next(e for e in ld.entities if 'command_guard' in node_name(e))
+gp=evaluate_parameters(c,guard._Node__parameters)[0]
+assert gp['require_frontend_motion_permission'] is True
+assert gp['frontend_motion_permission_topic']=='/openvins/motion_ready'
+assert gp['hardware_output_enabled'] is False
 assert params['motion_permission_topic']=='/openvins/motion_ready'
 assert params['require_vo_watchdog'] is False
 includes=[e for e in ld.entities if isinstance(e,IncludeLaunchDescription)]
@@ -89,3 +94,38 @@ with tempfile.TemporaryDirectory() as d:
     nodes=frontend_launch.setup(context)
     assert evaluate_parameters(context,nodes[1]._Node__parameters)[0]['motion_output_enabled'] is False
 print('PASS commissioning opt-in preserves unvalidated status and disables motion permission')
+
+c.launch_configurations.update(odom_source='openvins',start_nav2='true',auto_vio_init='true',
+    enable_hardware_output='false',openvins_config_dir=str(root/'config/r680_d455_20261013'))
+case=mod.generate_launch_description()
+initializer=next(e for e in case.entities if getattr(e,'_OpaqueFunction__function',None) and
+    e._OpaqueFunction__function.__name__=='make_initializer')
+assert enabled(initializer)
+nodes=initializer._OpaqueFunction__function(c)
+ip=evaluate_parameters(c,nodes[-1]._Node__parameters)[1]
+assert ip['frontend']=='openvins' and ip['imu_topic']=='/r680/d455/imu'
+assert ip['imu_frame']=='d455_imu_optical_frame' and ip['stationary_time_s']==3.
+assert list(ip['safety_nodes'])==['vio_init_velocity_smoother','vio_init_collision_monitor']
+cp=evaluate_parameters(c,nodes[1]._Node__parameters)[0]
+assert cp['base_shift_correction'] is False
+assert cp['cmd_vel_out_topic']=='/r680_nav/vio_init_checked'
+assert list(cp['observation_sources'])==['d455_points'] and cp['d455_points.topic']=='/r680_nav/d455/points_safety'
+guard=next(e for e in case.entities if 'command_guard' in node_name(e))
+gp=evaluate_parameters(c,guard._Node__parameters)[0]
+assert gp['initialization_checked_topic']=='/r680_nav/vio_init_checked'
+assert gp['hardware_output_enabled'] is False
+print('PASS no-odom bootstrap uses separate lifecycle safety chain, selected IMU and no hardware output')
+
+for frontend in ('openvins','cuvslam','rgbd'):
+    c.launch_configurations.update(odom_source=frontend)
+    case=mod.generate_launch_description()
+    nested=list(case.entities)
+    for entity in case.entities:
+        nested.extend(getattr(entity,'actions',[]))
+    manager=next(e for e in nested if getattr(e,'_Node__node_name',None) is not None
+        and perform_substitutions(c,normalize_to_list_of_substitutions(e._Node__node_name))=='lifecycle_manager_navigation')
+    mp=evaluate_parameters(c,manager._Node__parameters)[0]
+    assert mp['autostart'] is (frontend!='openvins')
+    starter=next(e for e in case.entities if 'openvins_nav_startup.py' in node_name(e))
+    assert enabled(starter) is (frontend=='openvins')
+print('PASS only OpenVINS defers Nav2 lifecycle startup until initialized odometry and map TF')

@@ -72,7 +72,7 @@ def generate_launch_description():
     odom_source = LaunchConfiguration('odom_source')
     auto_vio_init = LaunchConfiguration('auto_vio_init')
     init_enabled = PythonExpression(["'", auto_vio_init, "' == 'true' and '", odom_source,
-                                     "' == 'cuvslam' and '", start_nav2, "' == 'true'"])
+                                     "' in ('cuvslam', 'openvins') and '", start_nav2, "' == 'true'"])
     nav_command_topic = PythonExpression(["'/r680_nav/nav_command_input' if ", init_enabled,
                                           " else '/cmd_vel_nav'"])
     cuvslam_enabled = PythonExpression(["'", start_state_estimation, "' == 'true' and '", odom_source, "' == 'cuvslam'"])
@@ -231,7 +231,7 @@ def generate_launch_description():
     imu_filter = Node(
         package='imu_filter_madgwick', executable='imu_filter_madgwick_node',
         namespace='r680_nav/d455', name='imu_filter_madgwick', output='screen',
-        condition=IfCondition(use_imu), parameters=[str(config / 'rtabmap.yaml')],
+        condition=IfCondition(PythonExpression(["'", use_imu, "' == 'true' and '", odom_source, "' == 'rgbd'"])), parameters=[str(config / 'rtabmap.yaml')],
         remappings=[('imu/data_raw', '/r680/d455/imu'),
                     ('imu/data', '/r680_nav/d455/imu_filtered')])
 
@@ -398,11 +398,15 @@ def generate_launch_description():
             Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
                  name='lifecycle_manager_navigation', output='screen',
                  condition=IfCondition(full_navigation), parameters=[{
-                     'autostart': True,
+                     'autostart': ParameterValue(PythonExpression(["'", odom_source, "' != 'openvins'"]), value_type=bool),
                      'node_names': ['controller_server', 'smoother_server', 'planner_server',
                                     'behavior_server', 'bt_navigator', 'waypoint_follower',
                                     'velocity_smoother', 'collision_monitor']}]),
         ]),
+        Node(package='wla_r680_navigation', executable='openvins_nav_startup.py',
+             name='openvins_nav_startup', output='screen',
+             condition=IfCondition(AllSubstitution(container=[full_navigation,
+                 EqualsSubstitution(odom_source, 'openvins')]))),
         TimerAction(period=3.0, actions=[
             Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
                  name='lifecycle_manager_manual_safety', output='screen',
@@ -426,7 +430,7 @@ def generate_launch_description():
             'require_vio_health': ParameterValue(PythonExpression(["'", odom_source, "' in ('cuvslam', 'openvins')"]), value_type=bool),
             'vio_health_topic': PythonExpression(["'/openvins/tracking_healthy' if '", odom_source, "' == 'openvins' else '/r680_nav/vio_tracking_healthy'"]),
             'allow_bounded_degraded': ParameterValue(continuity_enabled, value_type=bool),
-            'require_motion_permission': ParameterValue(PythonExpression(["'", odom_source, "' in ('cuvslam', 'openvins')"]), value_type=bool),
+            'require_motion_permission': ParameterValue(PythonExpression(["'", odom_source, "' == 'cuvslam'"]), value_type=bool),
             'motion_permission_topic': continuity_health_topic,
             'require_mapping_odom': ParameterValue(cuvslam_mapping, value_type=bool),
         }])
@@ -434,27 +438,64 @@ def generate_launch_description():
         package='wla_r680_navigation', executable='command_guard', output='screen',
         parameters=[{
             'hardware_output_enabled': ParameterValue(enable_motion, value_type=bool),
+            'require_frontend_motion_permission': ParameterValue(openvins_enabled, value_type=bool),
+            'frontend_motion_permission_topic': '/openvins/motion_ready',
             'raw_output_topic': ParameterValue(IfElseSubstitution(
                 EqualsSubstitution(LaunchConfiguration('agent_control'), 'true'),
                 '/r680_nav/task_guard_input', '/r680_nav/chassis_cmd_vel'), value_type=str),
             'initialization_mode_enabled': ParameterValue(init_enabled, value_type=bool),
+            'initialization_checked_topic': PythonExpression([
+                "'/r680_nav/vio_init_checked' if '", odom_source,
+                "' == 'openvins' else '/r680_nav/cmd_vel_collision_checked'"]),
             'forward_max': 1.20,
             'reverse_max': 0.70,
             'degraded_mode_enabled': ParameterValue(continuity_enabled, value_type=bool),
             'degraded_linear_max': 0.15,
             'degraded_angular_max': 0.30,
         }])
-    initializer = Node(
-        package='wla_r680_navigation', executable='vio_initializer', name='r680_vio_initializer',
-        output='screen', condition=IfCondition(init_enabled),
-        parameters=[RewrittenYaml(
-            source_file=str(config / 'vio_initializer.yaml'),
-            param_rewrites={
-                'imu_topic': chassis_imu_topic, 'wheel_odom_topic': chassis_odom_topic,
-                'result_path': LaunchConfiguration('vio_init_result_path'),
-                'odom_topic': PythonExpression(["'/r680_nav/vio_raw_odom' if ", continuity_enabled,
-                                                " else '/d455_slam/odom'"]),
-            }, convert_types=True)])
+    def make_initializer(context):
+        import yaml
+        frontend = odom_source.perform(context)
+        bootstrap = []
+        overrides = {
+            'frontend': frontend,
+            'imu_topic': chassis_imu_topic.perform(context),
+            'wheel_odom_topic': chassis_odom_topic.perform(context),
+            'result_path': LaunchConfiguration('vio_init_result_path').perform(context),
+            'odom_topic': '/r680_nav/vio_raw_odom' if continuity_enabled.perform(context) == 'True' else '/d455_slam/odom',
+        }
+        if frontend == 'openvins':
+            folder = Path(LaunchConfiguration('openvins_config_dir').perform(context))
+            params = yaml.safe_load((folder/'frontend.yaml').read_text())['/**']['ros__parameters']
+            overrides.update(imu_topic=params['imu_topic'], imu_frame=params['imu_frame'],
+                contact_topic=LaunchConfiguration('openvins_contact_topic').perform(context),
+                stationary_time_s=3.0,
+                safety_nodes=['vio_init_velocity_smoother', 'vio_init_collision_monitor'])
+            # Regular Nav2 activation needs odom TF, which OpenVINS does not
+            # produce until initialized. A separate preview safety chain avoids
+            # that dependency; the normal collision monitor stays unchanged.
+            settings = yaml.safe_load(Path(nav_params.perform(context)).read_text())
+            smoother = dict(settings['velocity_smoother']['ros__parameters'])
+            collision = dict(settings['collision_monitor']['ros__parameters'])
+            collision.update(base_shift_correction=False,
+                cmd_vel_in_topic='/r680_nav/vio_init_smoothed',
+                cmd_vel_out_topic='/r680_nav/vio_init_checked',
+                state_topic='/r680_nav/vio_init_collision_state')
+            bootstrap = [
+                Node(package='nav2_velocity_smoother', executable='velocity_smoother',
+                    name='vio_init_velocity_smoother', output='screen', parameters=[smoother],
+                    remappings=[('cmd_vel', '/cmd_vel_nav'),
+                                ('cmd_vel_smoothed', '/r680_nav/vio_init_smoothed')]),
+                Node(package='nav2_collision_monitor', executable='collision_monitor',
+                    name='vio_init_collision_monitor', output='screen', parameters=[collision]),
+                TimerAction(period=3.0, actions=[Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
+                    name='lifecycle_manager_vio_init', output='screen', parameters=[{
+                        'autostart': True, 'node_names': overrides['safety_nodes']}])]),
+            ]
+        return bootstrap + [Node(package='wla_r680_navigation', executable='vio_initializer',
+            name='r680_vio_initializer', output='screen',
+            parameters=[str(config/'vio_initializer.yaml'), overrides])]
+    initializer = OpaqueFunction(function=make_initializer, condition=IfCondition(init_enabled))
     web_gateway = Node(
         package='wla_r680_navigation', executable='web_gateway',
         name='r680_web_gateway', output='screen', condition=IfCondition(start_web),

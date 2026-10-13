@@ -16,11 +16,16 @@ parser.add_argument('--root', type=Path, default=None,
                     help='Override storage.yaml run_root for this run only.')
 parser.add_argument('--run-id', default=None)
 parser.add_argument('--imu-mode', choices=('disabled', 'chassis-full', 'chassis-vio', 'd455'), default='chassis-full')
-parser.add_argument('--odom-source', choices=('rgbd', 'cuvslam'), default='rgbd')
+parser.add_argument('--odom-source', choices=('rgbd', 'cuvslam', 'openvins'), default='rgbd')
+parser.add_argument('--openvins-config', type=Path)
 parser.add_argument('--auto-vio-init', action='store_true')
 parser.add_argument('--hardware-output', action='store_true')
 args = parser.parse_args()
-if args.auto_vio_init and args.odom_source != 'cuvslam': parser.error('--auto-vio-init requires cuvslam')
+if args.auto_vio_init and args.odom_source not in ('cuvslam', 'openvins'): parser.error('--auto-vio-init requires cuvslam or openvins')
+if args.odom_source=='openvins' and args.openvins_config is None: parser.error('OpenVINS needs --openvins-config')
+frontend_params={}
+if args.openvins_config:
+    frontend_params=yaml.safe_load((args.openvins_config/'frontend.yaml').read_text())['/**']['ros__parameters']
 storage = load_storage_config(args.storage_config)
 run_id = args.run_id or datetime.now().strftime('run-%Y%m%d-%H%M%S')
 if '/' in run_id or run_id in ('.', '..'):
@@ -43,17 +48,21 @@ shutil.copy2(storage['config_path'], run_dir/'source_storage.yaml')
 resolved_storage = yaml.safe_load(storage['config_path'].read_text())
 resolved_storage.update(run_root=str(run_root), maps_root=str(storage['maps_root']))
 (run_dir/'storage.yaml').write_text(yaml.safe_dump(resolved_storage, sort_keys=False))
+if args.openvins_config:
+    shutil.copytree(args.openvins_config,run_dir/'openvins_config')
+    shutil.copy2(share/'config/vio_initializer.yaml',run_dir/'vio_initializer.yaml')
 database = run_dir/'rtabmap.db'
 metadata = {
     'schema': 'wla-r680-mapping-run-v1',
     'run_id': run_id,
     'database': str(database),
     'initial_origin_valid': True,
-    'imu_mode': args.imu_mode,
+    'imu_mode': ('d455' if frontend_params.get('imu_topic')=='/r680/d455/imu' else 'chassis-vio') if args.odom_source=='openvins' else args.imu_mode,
+    'openvins_config_dir': str(run_dir/'openvins_config') if args.openvins_config else None,
     'odom_source': args.odom_source,
     'auto_vio_init': args.auto_vio_init,
-    'rtabmap_odom_topic': '/r680_nav/mapping_odom' if args.odom_source == 'cuvslam' else '/d455_slam/odom',
-    'imu_topic': '/wheel/imu/data_raw' if args.odom_source == 'cuvslam' else '/r680_nav/chassis/imu_filtered',
+    'rtabmap_odom_topic': '/r680_nav/mapping_odom' if args.odom_source in ('cuvslam', 'openvins') else '/d455_slam/odom',
+    'imu_topic': frontend_params['imu_topic'] if args.odom_source=='openvins' else '/wheel/imu/data_raw' if args.odom_source == 'cuvslam' else '/r680_nav/chassis/imu_filtered',
     'obstacle_source': '/r680_nav/d455/points',
     'hardware_output_enabled': args.hardware_output,
     'run_root': str(run_root),

@@ -17,6 +17,7 @@ find_package(rclcpp REQUIRED)
 find_package(rtabmap_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(wla_openvins_navigation REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 add_library(wla_timed_obstacle_layer SHARED src/timed_obstacle_layer.cpp)
@@ -34,7 +35,7 @@ target_include_directories(command_guard PRIVATE include)
 ament_target_dependencies(command_guard geometry_msgs rclcpp std_msgs)
 add_executable(vio_initializer src/vio_initializer.cpp)
 target_include_directories(vio_initializer PRIVATE include)
-ament_target_dependencies(vio_initializer geometry_msgs lifecycle_msgs nav_msgs rclcpp sensor_msgs std_msgs)
+ament_target_dependencies(vio_initializer geometry_msgs lifecycle_msgs nav_msgs rclcpp sensor_msgs std_msgs wla_openvins_navigation)
 add_executable(mapping_odom_gate src/mapping_odom_gate.cpp)
 ament_target_dependencies(mapping_odom_gate nav_msgs rclcpp std_msgs)
 
@@ -65,9 +66,9 @@ ament_python_install_package(wla_r680_navigation_py)
 install(PROGRAMS scripts/navigation_goal_bridge scripts/web_gateway scripts/furniture_semantic.py scripts/nav_yolo_detector scripts/nav_perception_bringup
   DESTINATION lib/${PROJECT_NAME})
 install(PROGRAMS scripts/mapping_mission scripts/prepare_mapping_run scripts/save_manual_map
-  scripts/r680_nav.sh scripts/wait_mapping_ready
+  scripts/r680_nav.sh scripts/wait_mapping_ready scripts/openvins_nav_startup.py
   scripts/resolve_navigation_map scripts/accept_navigation_map_edit
-  scripts/r680_mapping.sh scripts/r680_mode_lock.sh DESTINATION lib/${PROJECT_NAME})
+  scripts/r680_mapping.sh scripts/r680_teleop.sh scripts/r680_mode_lock.sh DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY config launch docs web DESTINATION share/${PROJECT_NAME}
   PATTERN "__pycache__" EXCLUDE PATTERN "*.pyc" EXCLUDE)
 install(FILES README.md DESTINATION share/${PROJECT_NAME})
@@ -78,6 +79,11 @@ if(BUILD_TESTING)
   target_compile_options(test_map_localization_evidence PRIVATE -UNDEBUG)
   add_test(NAME map_localization_evidence COMMAND test_map_localization_evidence)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_test(NAME openvins_control COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_openvins_control.py)
+  set_tests_properties(openvins_control PROPERTIES
+    ENVIRONMENT "ROS_DOMAIN_ID=198;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST;WLA_NAV_BIN=$<TARGET_FILE_DIR:command_guard>"
+    RUN_SERIAL TRUE TIMEOUT 30)
   add_test(NAME frontend_map_watchdog COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/test/test_rgbd_watchdog.py)
   set_tests_properties(frontend_map_watchdog PROPERTIES
@@ -87,6 +93,11 @@ if(BUILD_TESTING)
     ${CMAKE_CURRENT_SOURCE_DIR}/test/test_frontend_interface.py)
   set_tests_properties(frontend_interface PROPERTIES
     ENVIRONMENT "ROS_DOMAIN_ID=198;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST;WLA_MONITOR_EXECUTABLE=$<TARGET_FILE:interface_monitor>"
+    RUN_SERIAL TRUE TIMEOUT 20)
+  add_test(NAME openvins_startup COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_openvins_startup.py)
+  set_tests_properties(openvins_startup PROPERTIES
+    ENVIRONMENT "ROS_DOMAIN_ID=198;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST"
     RUN_SERIAL TRUE TIMEOUT 20)
   add_executable(test_degraded_odometry test/test_degraded_odometry.cpp)
   target_include_directories(test_degraded_odometry PRIVATE include)
@@ -112,6 +123,7 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_navigation_static_map test/test_navigation_static_map.py)
   add_executable(test_vio_init_policy test/test_vio_init_policy.cpp)
   target_include_directories(test_vio_init_policy PRIVATE include)
+  target_compile_options(test_vio_init_policy PRIVATE -UNDEBUG)
   add_test(NAME vio_init_policy COMMAND test_vio_init_policy)
   add_executable(test_isolated_clusters test/test_isolated_clusters.cpp)
   target_include_directories(test_isolated_clusters PRIVATE include)

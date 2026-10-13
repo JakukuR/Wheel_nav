@@ -22,6 +22,7 @@
 #include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "wla_r680_navigation/vio_init_policy.hpp"
+#include "wla_openvins_navigation/msg/estimator_status.hpp"
 
 using namespace std::chrono_literals;
 namespace wla = wla_r680_navigation;
@@ -54,6 +55,9 @@ public:
     stopped_linear_ = parameter("stopped_linear", 0.015);
     stopped_angular_ = parameter("stopped_angular", 0.04);
     if (freshness_ > 0.5 || min_valid_ > 1) throw std::invalid_argument("invalid input gate");
+    frontend_ = declare_parameter<std::string>("frontend", "cuvslam");
+    if (frontend_ != "cuvslam" && frontend_ != "openvins") throw std::invalid_argument("unknown frontend");
+    imu_frame_ = declare_parameter<std::string>("imu_frame", "gyro_link");
     base_ = declare_parameter<std::string>("base_frame", "r680_mapping_floor");
     result_ = declare_parameter<std::string>("result_path", "/tmp/r680_vio_init.json");
     auto qos = rclcpp::SensorDataQoS();
@@ -69,7 +73,7 @@ public:
         const auto & a = m->linear_acceleration; const auto & w = m->angular_velocity;
         const double t = rclcpp::Time(m->header.stamp).seconds();
         const double norm = std::sqrt(a.x*a.x + a.y*a.y + a.z*a.z);
-        if (!stampFresh(m->header.stamp) || m->header.frame_id != "gyro_link" ||
+        if (!stampFresh(m->header.stamp) || m->header.frame_id != imu_frame_ ||
           !std::isfinite(norm + w.x + w.y + w.z) || norm < 7 || norm > 13 ||
           (!imu_stamps_.empty() && t <= imu_stamps_.back())) {imu_seen_ = {}; reject("invalid_imu"); return;}
         imu_stamps_.push_back(t);
@@ -111,7 +115,7 @@ public:
         blocked_ = blocked; blocking_points_ = blocking_points;
         first_blocking_point_ = first_blocking_point; points_seen_ = Clock::now();
       });
-    vio_status_sub_ = create_subscription<std_msgs::msg::String>(
+    if (frontend_ == "cuvslam") vio_status_sub_ = create_subscription<std_msgs::msg::String>(
       "/r680_nav/vio_status", 1, [this](std_msgs::msg::String::ConstSharedPtr m) {
         const bool tracking = m->data == "tracking_inertial_ready" ||
           m->data == "waiting_for_stable_inertial_initialization";
@@ -119,8 +123,41 @@ public:
         else {sdk_seen_ = {}; reject("frontend_reset_or_tracking_fault");}
       });
     vio_health_sub_ = create_subscription<std_msgs::msg::Bool>(
-      "/r680_nav/vio_tracking_healthy", 1, [this](std_msgs::msg::Bool::ConstSharedPtr m) {
+      frontend_ == "openvins" ? "/openvins/tracking_healthy" : "/r680_nav/vio_tracking_healthy", 1, [this](std_msgs::msg::Bool::ConstSharedPtr m) {
         inertial_ = m->data; inertial_seen_ = Clock::now();
+      });
+    if (frontend_ == "openvins") {
+      ov_status_sub_ = create_subscription<wla_openvins_navigation::msg::EstimatorStatus>(
+        "/openvins/estimator_status", 10,
+        [this](wla_openvins_navigation::msg::EstimatorStatus::ConstSharedPtr m) {
+          if (instance_.empty()) instance_ = m->instance_id;
+          if (m->instance_id.empty() || m->instance_id != instance_ || m->generation != 0) {
+            policy_->fail("frontend_generation_changed"); sdk_seen_ = {}; return;
+          }
+          const double stamp = rclcpp::Time(m->header.stamp).seconds();
+          if (stamp <= ov_stamp_ || !stampFresh(m->header.stamp)) return;
+          ov_stamp_ = stamp;
+          const bool sensors = m->mode != m->INVALID && m->image_age_s >= 0 &&
+            m->image_age_s <= freshness_ && m->imu_age_s >= 0 && m->imu_age_s <= 0.10 &&
+            m->reason != "waiting_for_matching_camera_info" &&
+            m->reason != "waiting_for_imu_clock_stability" &&
+            (!m->initialized || m->state_valid);
+          if (sensors) sdk_seen_ = Clock::now();
+          else {sdk_seen_ = {}; reject("openvins_sensor_or_state_invalid");}
+        });
+      contact_sub_ = create_subscription<std_msgs::msg::String>(
+        declare_parameter<std::string>("contact_topic", "/r680_nav/contact_state"), 10,
+        [this](std_msgs::msg::String::ConstSharedPtr m) {
+          grounded_ = m->data == "GROUNDED"; contact_seen_ = Clock::now();
+          if (!grounded_) reject("contact_not_grounded");
+        });
+    }
+    manual_sub_ = create_subscription<geometry_msgs::msg::Twist>(
+      "/r680_manual/cmd_vel", 1, [this](geometry_msgs::msg::Twist::ConstSharedPtr m) {
+        if (!std::isfinite(m->linear.x + m->angular.z) ||
+          std::abs(m->linear.x) > 1e-6 || std::abs(m->angular.z) > 1e-6) {
+          policy_->fail("manual_takeover"); nav_seen_ = {};
+        }
       });
     localization_sub_ = create_subscription<std_msgs::msg::Bool>(
       "/r680_nav/localization_ready", 1, [this](std_msgs::msg::Bool::ConstSharedPtr m) {
@@ -138,9 +175,11 @@ public:
     request_pub_ = create_publisher<geometry_msgs::msg::TwistStamped>("/r680_nav/vio_init_request", 1);
     permit_pub_ = create_publisher<std_msgs::msg::Bool>("/r680_nav/vio_init_permit", 1);
     state_pub_ = create_publisher<std_msgs::msg::String>("/r680_nav/vio_init_state", 1);
-    for (const auto & name : {"velocity_smoother", "collision_monitor"}) {
+    for (const auto & name : declare_parameter<std::vector<std::string>>(
+      "safety_nodes", {"velocity_smoother", "collision_monitor"})) {
       clients_.push_back(create_client<lifecycle_msgs::srv::GetState>(std::string("/") + name + "/get_state"));
     }
+    if (clients_.size() != 2) throw std::invalid_argument("exactly two safety nodes required");
     service_seen_.resize(2); service_active_.resize(2, false); pending_.resize(2, false);
     poll_ = create_wall_timer(250ms, [this]() {pollServices();});
     tick_ = create_wall_timer(50ms, [this]() {tick();});
@@ -189,6 +228,7 @@ private:
       }
       if (!vo && anchored_ && policy_->state() != wla::InitPolicy::State::Succeeded) travel_ += distance;
     }
+    if (vo && anchored_ && !vo_anchored_) {anchor_vo_ = next; vo_anchored_ = true;}
     previous = next; seen = Clock::now();
     if (!vo) {wheel_v_ = v; wheel_w_ = w;}
   }
@@ -226,6 +266,7 @@ private:
     }
   }
   std::string inputBlocker() const {
+    if (frontend_ == "openvins" && (!grounded_ || !fresh(contact_seen_, .3))) return "contact_missing_or_not_grounded";
     if (!last_inputs_.sensors) return "sensor_missing_stale_or_invalid";
     if (!last_inputs_.services) return "safety_lifecycle_not_active";
     if (blocked_) return "near_field_obstacle";
@@ -275,8 +316,9 @@ private:
   void tick() {
     imu_rate_ = imu_stamps_.size() > 2 ? (imu_stamps_.size()-1)/(imu_stamps_.back()-imu_stamps_.front()) : 0;
     wla::InitInput input;
-    input.sensors = fresh(vo_seen_) && fresh(wheel_seen_) && fresh(imu_seen_) && fresh(sdk_seen_) &&
-      fresh(depth_seen_) && fresh(points_seen_) && fresh(inertial_seen_) && imu_rate_ >= min_rate_;
+    input.sensors = (frontend_ == "openvins" || fresh(vo_seen_)) && fresh(wheel_seen_) && fresh(imu_seen_) && fresh(sdk_seen_) &&
+      fresh(depth_seen_) && fresh(points_seen_) && fresh(inertial_seen_) && imu_rate_ >= min_rate_ &&
+      (frontend_ != "openvins" || (grounded_ && fresh(contact_seen_, .3)));
     input.services = true;
     for (size_t i = 0; i < service_seen_.size(); ++i) input.services &= service_active_[i] && fresh(service_seen_[i], 1.0);
     input.clear = !blocked_ && depth_ratio_ >= min_valid_;
@@ -286,15 +328,15 @@ private:
     input.speed = wheel_v_; input.angular_speed = wheel_w_;
     last_inputs_ = input;
     if (anchored_) {
-      radius_ = std::max(std::hypot(vo_.x-anchor_vo_.x, vo_.y-anchor_vo_.y),
+      radius_ = std::max(vo_anchored_ ? std::hypot(vo_.x-anchor_vo_.x, vo_.y-anchor_vo_.y) : 0.,
         std::hypot(wheel_.x-anchor_wheel_.x, wheel_.y-anchor_wheel_.y));
       input.radius = radius_; input.travel = travel_;
-      input.yaw = std::max(std::abs(angle(vo_.yaw-anchor_vo_.yaw)), std::abs(angle(wheel_.yaw-anchor_wheel_.yaw)));
+      input.yaw = std::max(vo_anchored_ ? std::abs(angle(vo_.yaw-anchor_vo_.yaw)) : 0., std::abs(angle(wheel_.yaw-anchor_wheel_.yaw)));
     }
     const auto previous = policy_->state();
     const auto command = policy_->tick(std::chrono::duration<double>(Clock::now()-boot_).count(), input);
     if (policy_->state() == wla::InitPolicy::State::Moving && !anchored_) {
-      anchor_vo_ = vo_; anchor_wheel_ = wheel_; travel_ = 0; anchored_ = true;
+      anchor_vo_ = vo_; vo_anchored_ = fresh(vo_seen_); anchor_wheel_ = wheel_; travel_ = 0; anchored_ = true;
     }
     if (policy_->state() != previous) {
       nav_seen_ = {}; // Never replay a command buffered during initialization.
@@ -320,7 +362,12 @@ private:
   Clock::time_point inertial_seen_{}, localized_seen_{}, nav_seen_{};
   wla::InitConfig config_; std::unique_ptr<wla::InitPolicy> policy_;
   wla::InitInput last_inputs_;
-  std::string base_, result_;
+  std::string base_, result_, frontend_, imu_frame_, instance_;
+  double ov_stamp_{-1}; bool grounded_{false}, vo_anchored_{false};
+  Clock::time_point contact_seen_{};
+  rclcpp::Subscription<wla_openvins_navigation::msg::EstimatorStatus>::SharedPtr ov_status_sub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr contact_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr manual_sub_;
   double freshness_{}, min_rate_{}, min_valid_{}, obstacle_forward_{}, obstacle_width_{}, stopped_linear_{}, stopped_angular_{};
   double imu_rate_{}, depth_ratio_{}, radius_{}, travel_{}, wheel_v_{}, wheel_w_{};
   bool blocked_{true}, inertial_{false}, localized_{false}, anchored_{false}, ever_moved_{false};

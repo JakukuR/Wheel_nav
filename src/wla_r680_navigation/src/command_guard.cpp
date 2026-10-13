@@ -28,6 +28,12 @@ public:
     angular_max_ = declare_parameter<double>("angular_max", 1.50);
     hardware_output_enabled_ = declare_parameter<bool>("hardware_output_enabled", false);
     require_mission_permission_ = declare_parameter<bool>("require_mission_permission", true);
+    require_frontend_permission_ = declare_parameter<bool>("require_frontend_motion_permission", false);
+    frontend_permission_sub_ = create_subscription<std_msgs::msg::Bool>(
+      declare_parameter<std::string>("frontend_motion_permission_topic", "/openvins/motion_ready"), 1,
+      [this](std_msgs::msg::Bool::ConstSharedPtr msg) {
+        frontend_permission_ = msg->data; frontend_permission_seen_ = std::chrono::steady_clock::now();
+      });
     init_mode_enabled_ = declare_parameter<bool>("initialization_mode_enabled", false);
     degraded_enabled_ = declare_parameter<bool>("degraded_mode_enabled", false);
     degraded_v_ = declare_parameter<double>("degraded_linear_max", 0.15);
@@ -74,6 +80,11 @@ public:
       });
     timer_ = create_wall_timer(20ms, std::bind(&CommandGuard::tick, this));
     if (init_mode_enabled_) {
+      init_checked_sub_ = create_subscription<geometry_msgs::msg::Twist>(
+        declare_parameter<std::string>("initialization_checked_topic", input_topic), 1,
+        [this](geometry_msgs::msg::Twist::ConstSharedPtr msg) {
+          init_checked_ = *msg; init_checked_received_ = std::chrono::steady_clock::now();
+        });
       init_state_sub_ = create_subscription<std_msgs::msg::String>(
         "/r680_nav/vio_init_state", 1, [this](std_msgs::msg::String::ConstSharedPtr msg) {
           init_state_ = msg->data; init_state_received_ = std::chrono::steady_clock::now();
@@ -103,6 +114,8 @@ private:
     const bool mission_permitted = !require_mission_permission_ ||
       (mission_allowed_ && permission_age <= health_timeout_s_);
     const bool permitted = healthy_ && mission_permitted &&
+      (!require_frontend_permission_ || (frontend_permission_ &&
+       std::chrono::duration<double>(now - frontend_permission_seen_).count() <= 0.20)) &&
       command_age <= timeout_s_ && health_age <= health_timeout_s_ &&
       (!init_mode_enabled_ || (init_state_ == "succeeded" &&
       std::chrono::duration<double>(now - init_state_received_).count() <= 0.20));
@@ -119,12 +132,13 @@ private:
         std::chrono::duration<double>(now - init_permit_received_).count() <= 0.20 &&
         std::chrono::duration<double>(now - init_request_received_).count() <= 0.20 &&
         stamp_age >= -0.1 && stamp_age <= 0.20 &&
-        init_request_.header.frame_id == "r680_mapping_floor" && command_age <= 0.20;
+        init_request_.header.frame_id == "r680_mapping_floor" &&
+        std::chrono::duration<double>(now - init_checked_received_).count() <= 0.20;
       if (bootstrap_permitted) {
         output.linear.x = std::max(0.0, wla_r680_navigation::bound_init_component(
-          command_.linear.x, init_request_.twist.linear.x, 0.08));
+          init_checked_.linear.x, init_request_.twist.linear.x, 0.08));
         output.angular.z = wla_r680_navigation::bound_init_component(
-          command_.angular.z, init_request_.twist.angular.z, 0.20);
+          init_checked_.angular.z, init_request_.twist.angular.z, 0.20);
       }
     }
     if(degraded_enabled_) {
@@ -151,9 +165,15 @@ private:
   bool degraded_enabled_{false},degraded_{false};double degraded_v_{},degraded_w_{};
   std::chrono::steady_clock::time_point degraded_seen_{};
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr degraded_sub_;
+  bool require_frontend_permission_{false}, frontend_permission_{false};
+  std::chrono::steady_clock::time_point frontend_permission_seen_{};
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr frontend_permission_sub_;
   bool init_mode_enabled_{false}, init_permitted_{false};
   std::string init_state_;
   geometry_msgs::msg::TwistStamped init_request_;
+  geometry_msgs::msg::Twist init_checked_;
+  std::chrono::steady_clock::time_point init_checked_received_{};
+  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr init_checked_sub_;
   std::chrono::steady_clock::time_point init_state_received_{}, init_permit_received_{}, init_request_received_{};
   bool require_mission_permission_{true};
   bool mission_allowed_{false};

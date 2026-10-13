@@ -26,7 +26,7 @@ def init_diagnostics(run_dir):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--frontend', choices=['rgbd', 'cuvslam'], required=True)
+    parser.add_argument('--frontend', choices=['rgbd', 'cuvslam', 'openvins'], required=True)
     parser.add_argument('--auto-init', action='store_true')
     parser.add_argument('--run-dir', type=Path, required=True)
     parser.add_argument('--timeout', type=float, default=90)
@@ -41,6 +41,8 @@ def main():
         return cb
     for name, topic in [('interface', '/r680_nav/localization_ready'),
                         ('vio', '/r680_nav/vio_tracking_healthy'), ('gate', '/r680_nav/mapping_odom_ready')]:
+        if args.frontend == 'openvins':
+            topic = {'vio': '/openvins/tracking_healthy', 'gate': '/openvins/mapping_ready'}.get(name, topic)
         node.create_subscription(Bool, topic, health(name), 1)
     def init_cb(msg): state.update(init=msg.data, init_at=time.monotonic())
     node.create_subscription(String, '/r680_nav/vio_init_state', init_cb, 1)
