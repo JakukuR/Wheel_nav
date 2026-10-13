@@ -42,12 +42,13 @@ class Fixture(Node):
         return res
 
     def feed(self, seconds, manual=0., nav=0., person=.12, gamepad='ACTIVE',
-             send_person=True, send_status=True, wrong_session=False, send_manual=True):
+             send_person=True, send_status=True, wrong_session=False, send_manual=True, send_nav=True):
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
             if send_manual:
                 command = Twist(); command.linear.x = manual; self.manual.publish(command)
-            command = Twist(); command.linear.x = nav; self.nav.publish(command)
+            if send_nav:
+                command = Twist(); command.linear.x = nav; self.nav.publish(command)
             self.gamepad.publish(String(data='[' + gamepad + '] fixture'))
             wheel = Odometry(); wheel.header.stamp = self.get_clock().now().to_msg(); self.wheel.publish(wheel)
             stamp = self.get_clock().now().nanoseconds
@@ -136,11 +137,28 @@ def main():
             assert fixture.states[-1]['automatic_source'] == 'NAV'
             fixture.call(fixture.automatic, True); fixture.feed(.4, nav=.21)
             assert abs(fixture.outputs[-1][0] - .21) < 1e-6
+            # Retained from the retired NAV-only test, using current mux limits.
+            fixture.feed(.4, send_nav=False)
+            assert fixture.outputs[-1] == (0., 0.), 'stale NAV must stop'
+            fixture.feed(.3, nav=.21)
+            assert abs(fixture.outputs[-1][0] - .21) < 1e-6
+            fixture.feed(.3, manual=.2, gamepad='ESTOP')
+            assert fixture.outputs[-1] == (0., 0.) and not fixture.states[-1]['armed']
+            fixture.feed(.5, manual=.2)
+            assert fixture.outputs[-1] == (0., 0.), 'estop release still requires neutral'
+            fixture.feed(1.1)
+            fixture.feed(.3, manual=3.)
+            assert abs(fixture.outputs[-1][0] - 1.0) < 1e-6, 'current forward clamp'
+            fixture.feed(.3, manual=-3.)
+            assert abs(fixture.outputs[-1][0] + .3) < 1e-6, 'reverse clamp'
+            fixture.feed(.4, send_manual=False)
+            assert fixture.outputs[-1] == (0., 0.) and not fixture.states[-1]['armed'], 'stale joystick'
             publishers = fixture.get_publishers_info_by_topic('/r680_base/cmd_vel')
             assert len(publishers) == 1 and publishers[0].node_name == 'r680_command_mux'
             assert not any('wheeltec_robot' in name for name in fixture.get_node_names())
             print('PASS: source exclusivity, explicit AUTO, session binding, stale candidate/status, '
-                  'idle-to-new-task, manual revoke, hotplug, Nav2 cancel; isolated sole mux publisher')
+                  'idle-to-new-task, manual revoke, hotplug, Nav2 cancel, stale NAV/manual, '
+                  'estop rearm, forward/reverse limits; isolated sole mux publisher')
         finally:
             os.killpg(process.pid, signal.SIGINT)
             process.wait(timeout=10)

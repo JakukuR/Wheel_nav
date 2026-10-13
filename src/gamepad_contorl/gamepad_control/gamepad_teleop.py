@@ -36,6 +36,79 @@ import time
 import math
 import threading
 import select
+import ctypes
+import errno
+from pathlib import Path
+
+
+class DevicePathEvents:
+    """Wait for Linux device-path changes, including udev symlink/parent creation."""
+
+    MASK = 0x00000004 | 0x00000040 | 0x00000080 | 0x00000100 | 0x00000200 | 0x00000400 | 0x00000800
+    HEADER = struct.Struct('iIII')
+
+    def __init__(self, device):
+        self.device = Path(os.path.abspath(device))
+        self.libc = ctypes.CDLL(None, use_errno=True)
+        self.libc.inotify_init1.argtypes = [ctypes.c_int]
+        self.libc.inotify_init1.restype = ctypes.c_int
+        self.libc.inotify_add_watch.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_uint32]
+        self.libc.inotify_add_watch.restype = ctypes.c_int
+        self.libc.inotify_rm_watch.argtypes = [ctypes.c_int, ctypes.c_int]
+        self.libc.inotify_rm_watch.restype = ctypes.c_int
+        self.fd = self.libc.inotify_init1(os.O_NONBLOCK | os.O_CLOEXEC)
+        if self.fd < 0:
+            raise OSError(ctypes.get_errno(), 'cannot watch joystick device events')
+        self.watches = {}
+        try:
+            self.refresh()
+        except OSError:
+            self.close()
+            raise
+
+    def refresh(self):
+        wanted = {}
+        # Also watch the symlink target: udev may grant access after creating it.
+        for path in (self.device, Path(os.path.realpath(self.device))):
+            while path.parent != path:
+                wanted.setdefault(path.parent, set()).add(path.name)
+                path = path.parent
+        watches = {}
+        for directory, names in wanted.items():
+            wd = self.libc.inotify_add_watch(self.fd, os.fsencode(directory), self.MASK)
+            if wd < 0:
+                error = ctypes.get_errno()
+                if error in (errno.ENOENT, errno.ENOTDIR):
+                    continue
+                raise OSError(error, 'cannot watch ' + str(directory))
+            watches.setdefault(wd, set()).update(names)
+        for wd in self.watches.keys() - watches.keys():
+            self.libc.inotify_rm_watch(self.fd, wd)
+        self.watches = watches
+
+    def wait(self, stop_event):
+        while not stop_event.is_set():
+            # Timeout only checks shutdown; it never triggers a connection attempt.
+            if not select.select([self.fd], [], [], .2)[0]:
+                continue
+            data = os.read(self.fd, 65536)
+            offset = 0; changed = False
+            while offset < len(data):
+                wd, mask, _, length = self.HEADER.unpack_from(data, offset)
+                offset += self.HEADER.size
+                name = os.fsdecode(data[offset:offset + length].split(b'\0', 1)[0])
+                offset += length
+                names = self.watches.get(wd)
+                if mask & 0x00004000 or (names is not None and
+                        (name in names or mask & (0x00000400 | 0x00000800))):
+                    changed = True
+            if changed:
+                self.refresh()
+                return True
+        return False
+
+    def close(self):
+        os.close(self.fd)
 
 
 class GamepadTeleop(Node):
@@ -248,12 +321,28 @@ class GamepadTeleop(Node):
                 self.js_fd = None
 
     def read_device_loop(self):
-        """Remain alive without a device and retry until it becomes available."""
+        """Keep zero output while waiting for device events; no timed reconnect."""
+        events = None
+        try:
+            events = DevicePathEvents(self.device)
+            self._read_device_events(events)
+        except OSError as error:
+            self.disconnect_device()
+            self.get_logger().error(f'手柄设备事件监听失败，保持零速: {error}')
+            self.stop_event.wait()
+        finally:
+            if events is not None:
+                events.close()
+
+    def _read_device_events(self, events):
+        attempt = True  # One initial open handles an already attached controller.
         while self.running and not self.stop_event.is_set():
             if not self.connected:
-                self.try_connect()
+                if attempt:
+                    self.try_connect()
+                    attempt = False
                 if not self.connected:
-                    self.stop_event.wait(1.0)
+                    attempt = events.wait(self.stop_event)
                     continue
             try:
                 ready, _, _ = select.select([self.js_fd], [], [], 0.2)
@@ -284,7 +373,6 @@ class GamepadTeleop(Node):
                 self.disconnect_device()
                 if not self.stop_event.is_set():
                     self.get_logger().warn('手柄连接断开，输出归零，等待手柄重新接入。')
-                    self.stop_event.wait(1.0)
 
     def try_connect(self):
         """A missing or temporarily inaccessible device is a waiting state."""
@@ -295,7 +383,7 @@ class GamepadTeleop(Node):
             now = time.monotonic()
             if now - self.last_wait_log >= 10.0:
                 self.get_logger().info(
-                    f'等待手柄接入: {self.device} ({error.strerror})；每秒重试，输出保持零速。')
+                    f'等待手柄接入: {self.device} ({error.strerror})；等待设备接入或权限变化事件，输出保持零速。')
                 self.last_wait_log = now
             return
         with self.input_lock:

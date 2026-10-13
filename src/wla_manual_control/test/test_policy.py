@@ -22,6 +22,22 @@ class TestTakeover(unittest.TestCase):
         p.status = 'DISCONNECTED'; self.assertEqual(p.output(1), (0., 0.))
         self.assertEqual(self.ready(p, 1.1, (.2, 0)), (0., 0.))
 
+    def test_neutral_gate_is_300ms_and_restarts_after_deflection(self):
+        p = Policy()
+        self.ready(p, 0.0); self.ready(p, .299)
+        self.assertFalse(p.armed)
+        self.ready(p, .300); self.assertTrue(p.armed)
+        p.status = 'DISCONNECTED'; p.output(.4)
+        self.ready(p, 1.0); self.ready(p, 1.299)
+        self.assertFalse(p.armed)
+        self.ready(p, 1.3); self.assertTrue(p.armed)
+        p.status = 'ESTOP'; p.output(1.4)
+        self.ready(p, 2.0); self.ready(p, 2.2, (.1, 0.))
+        self.ready(p, 3.0); self.ready(p, 3.299)
+        self.assertFalse(p.armed)
+        self.ready(p, 3.301); self.assertTrue(p.armed)
+        self.assertEqual(p.mode, 'MANUAL')
+
     def test_navigation_failure_manual_takeover_latches(self):
         p = Policy(); self.arm(p); p.wheel_at = .8; p.automatic_input((0., 0.), .8)
         self.assertTrue(p.set_auto(.81)[0]); p.automatic_input((.1, .1), .82)

@@ -18,9 +18,17 @@ spec.loader.exec_module(module)
 assert os.environ.get('ROS_DOMAIN_ID') == '174', 'Run this synthetic probe in ROS_DOMAIN_ID=174 only'
 
 with tempfile.TemporaryDirectory() as directory:
-    device = Path(directory) / 'joystick'
+    device = Path(directory) / 'input' / 'by-id' / 'joystick'
     rclpy.init(args=['--ros-args', '-p', f'device:={device}',
                      '-p', 'cmd_vel_topic:=/test/gamepad_cmd', '-p', 'deadman_enabled:=false'])
+    connect_attempts = []
+    original_connect = module.GamepadTeleop.try_connect
+
+    def counted_connect(self):
+        connect_attempts.append(time.monotonic())
+        return original_connect(self)
+
+    module.GamepadTeleop.try_connect = counted_connect
     node = module.GamepadTeleop()
     messages, statuses = [], []
     node.create_subscription(Twist, '/test/gamepad_cmd', lambda m: messages.append((m.linear.x, m.angular.z)), 10)
@@ -48,7 +56,12 @@ with tempfile.TemporaryDirectory() as directory:
         assert not node.connected and node.read_thread.is_alive()
         assert messages and all(v == (0., 0.) for v in messages)
         assert statuses and statuses[-1].startswith('[DISCONNECTED]')
-        print('PASS absent at startup: alive, waiting, zero output', flush=True)
+        assert len(connect_attempts) == 1, 'no periodic open while absent'
+        (Path(directory) / 'unrelated').touch()
+        pump(1.2)
+        assert len(connect_attempts) == 1, 'unrelated filesystem events must not retry'
+        print('PASS absent at startup: alive, zero output, one open only; unrelated events ignored', flush=True)
+        device.parent.mkdir(parents=True)
 
         os.mkfifo(device)
         writer = os.open(device, os.O_RDWR | os.O_NONBLOCK)
@@ -73,14 +86,19 @@ with tempfile.TemporaryDirectory() as directory:
         assert node.read_thread.is_alive()
         print('PASS unplug/EOF: zero output, old input cleared, reader alive', flush=True)
 
-        # Exercise a temporarily inaccessible device without stopping the thread.
+        # A failed event-triggered open waits for a new event, not a timer.
         with patch.object(module.os, 'open', side_effect=PermissionError(13, 'Permission denied')):
+            before = len(connect_attempts)
+            os.mkfifo(device)
+            until(lambda: len(connect_attempts) > before)
+            attempts = len(connect_attempts)
             pump(1.2)
+            assert len(connect_attempts) == attempts, 'permission failure must not cause polling'
             assert not node.connected and node.read_thread.is_alive()
-        print('PASS inaccessible device: waiting continues', flush=True)
+        print('PASS inaccessible device: no timed retries', flush=True)
 
-        os.mkfifo(device)
         writer = os.open(device, os.O_RDWR | os.O_NONBLOCK)
+        os.chmod(device, 0o600)  # Permission event triggers the next connection.
         until(lambda: node.connected)
         pump(.4)
         assert messages[-1] == (0., 0.) and not node.spin_left
@@ -98,6 +116,27 @@ with tempfile.TemporaryDirectory() as directory:
         pump(.3)
         assert node.estop_active and messages[-1] == (0., 0.)
         print('PASS repeated reconnect: no stale rotation; estop latch preserved', flush=True)
+
+        device.unlink(); os.close(writer); writer = None
+        until(lambda: not node.connected)
+        device.parent.rmdir(); device.parent.parent.rmdir()
+        pump(.3)
+        device.parent.mkdir(parents=True)
+        # Exercise the production by-id symlink and target-permission path.
+        target = device.parent.parent / 'js0'
+        os.mkfifo(target)
+        writer = os.open(target, os.O_RDWR | os.O_NONBLOCK)
+        with patch.object(module.os, 'open', side_effect=PermissionError(13, 'Permission denied')):
+            before = len(connect_attempts)
+            device.symlink_to(target)
+            until(lambda: len(connect_attempts) > before)
+            pump(.3)
+            assert not node.connected
+        os.chmod(target, 0o600)
+        until(lambda: node.connected)
+        pump(.3)
+        assert node.estop_active and messages[-1] == (0., 0.)
+        print('PASS recreated parent directories, by-id symlink and target permission event', flush=True)
     finally:
         if writer is not None:
             os.close(writer)

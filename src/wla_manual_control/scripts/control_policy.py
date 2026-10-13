@@ -180,7 +180,7 @@ class Policy:
             if self.zero(self.manual):
                 if self.neutral_since is None:
                     self.neutral_since = t
-                self.armed = t - self.neutral_since >= .7
+                self.armed = t - self.neutral_since >= .3
             else:
                 self.neutral_since = None
             return (0., 0.)
