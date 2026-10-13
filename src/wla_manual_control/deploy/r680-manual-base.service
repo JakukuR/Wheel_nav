@@ -1,0 +1,20 @@
+[Unit]
+Description=R680 independent chassis and gamepad with manual takeover
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=orin
+Group=orin
+WorkingDirectory=/home/orin/ros2_ws
+Environment=ROS_DOMAIN_ID=73
+ExecStart=/bin/bash /home/orin/ros2_ws/install/wla_manual_control/lib/wla_manual_control/start_manual_base.sh
+Restart=always
+RestartSec=3
+KillSignal=SIGINT
+KillMode=control-group
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

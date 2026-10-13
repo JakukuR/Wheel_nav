@@ -35,6 +35,7 @@ import os
 import time
 import math
 import threading
+import select
 
 
 class GamepadTeleop(Node):
@@ -181,6 +182,9 @@ class GamepadTeleop(Node):
         # 设备连接状态
         self.js_fd = None
         self.connected = False
+        self.input_lock = threading.RLock()
+        self.stop_event = threading.Event()
+        self.last_wait_log = -float("inf")
 
         # ═══════════════════════════════════════════════════
         # ROS2 发布器与定时器
@@ -223,68 +227,83 @@ class GamepadTeleop(Node):
     # ═══════════════════════════════════════════════════════
     # 设备读取线程
     # ═══════════════════════════════════════════════════════
+    def reset_input(self):
+        """Clear commands across unplug/replug; preserve the emergency-stop latch."""
+        self.axes.clear()
+        self.buttons.clear()
+        self.deadman_pressed = False
+        self.spin_left = self.spin_right = False
+        self.filtered_linear = self.filtered_angular = 0.0
+        self.current_linear = self.current_angular = 0.0
+
+    def disconnect_device(self):
+        with self.input_lock:
+            self.connected = False
+            self.reset_input()
+            if self.js_fd is not None:
+                try:
+                    os.close(self.js_fd)
+                except OSError:
+                    pass
+                self.js_fd = None
+
     def read_device_loop(self):
-        """持续读取手柄输入的后台线程"""
-        while self.running:
+        """Remain alive without a device and retry until it becomes available."""
+        while self.running and not self.stop_event.is_set():
             if not self.connected:
                 self.try_connect()
                 if not self.connected:
-                    time.sleep(1.0)
+                    self.stop_event.wait(1.0)
                     continue
-
             try:
-                event = os.read(self.js_fd, self.JS_EVENT_SIZE)
-                if len(event) < self.JS_EVENT_SIZE:
+                ready, _, _ = select.select([self.js_fd], [], [], 0.2)
+                if not ready:
                     continue
-
-                timestamp, value, etype, number = struct.unpack(
-                    self.JS_EVENT_FORMAT, event)
-
-                # 去除初始化标记
+                event = os.read(self.js_fd, self.JS_EVENT_SIZE)
+                if len(event) != self.JS_EVENT_SIZE:
+                    raise OSError('joystick stream closed or incomplete')
+                _, value, etype, number = struct.unpack(self.JS_EVENT_FORMAT, event)
+                initial = bool(etype & self.JS_EVENT_INIT)
                 etype &= ~self.JS_EVENT_INIT
-
-                if etype == self.JS_EVENT_AXIS:
-                    # 归一化到 [-1.0, 1.0]
-                    self.axes[number] = value / 32767.0
-
-                elif etype == self.JS_EVENT_BUTTON:
-                    prev = self.buttons.get(number, 0)
-                    self.buttons[number] = value
-
-                    # 按钮事件处理（只在按下瞬间触发）
-                    if value == 1 and prev == 0:
-                        self.handle_button_press(number)
-
-                    # 长按按钮状态更新
-                    if number == self.btn_spin_left:
-                        self.spin_left = bool(value)
-                    elif number == self.btn_spin_right:
-                        self.spin_right = bool(value)
-
+                with self.input_lock:
+                    if etype == self.JS_EVENT_AXIS:
+                        self.axes[number] = value / 32767.0
+                    elif etype == self.JS_EVENT_BUTTON:
+                        prev = self.buttons.get(number, 0)
+                        self.buttons[number] = value
+                        # Initial button snapshots must not toggle the estop latch.
+                        if not initial and value == 1 and prev == 0:
+                            self.handle_button_press(number)
+                        if number == self.btn_spin_left:
+                            self.spin_left = bool(value)
+                        elif number == self.btn_spin_right:
+                            self.spin_right = bool(value)
+            except BlockingIOError:
+                continue
             except OSError:
-                self.get_logger().warn('手柄连接断开，尝试重新连接...')
-                self.connected = False
-                self.deadman_pressed = False
-                if self.js_fd is not None:
-                    try:
-                        os.close(self.js_fd)
-                    except OSError:
-                        pass
-                    self.js_fd = None
+                self.disconnect_device()
+                if not self.stop_event.is_set():
+                    self.get_logger().warn('手柄连接断开，输出归零，等待手柄重新接入。')
+                    self.stop_event.wait(1.0)
 
     def try_connect(self):
-        """尝试连接手柄设备"""
+        """A missing or temporarily inaccessible device is a waiting state."""
         try:
-            self.js_fd = os.open(self.device, os.O_RDONLY | os.O_NONBLOCK)
-            # 切换为阻塞模式以便线程阻塞等待
-            import fcntl
-            flags = fcntl.fcntl(self.js_fd, fcntl.F_GETFL)
-            fcntl.fcntl(self.js_fd, fcntl.F_SETFL, flags & ~os.O_NONBLOCK)
+            fd = os.open(self.device, os.O_RDONLY | os.O_NONBLOCK)
+        except OSError as error:
+            self.disconnect_device()
+            now = time.monotonic()
+            if now - self.last_wait_log >= 10.0:
+                self.get_logger().info(
+                    f'等待手柄接入: {self.device} ({error.strerror})；每秒重试，输出保持零速。')
+                self.last_wait_log = now
+            return
+        with self.input_lock:
+            self.reset_input()
+            self.js_fd = fd
             self.connected = True
-            self.get_logger().info(f'手柄已连接: {self.device}')
-        except OSError as e:
-            self.connected = False
-            self.js_fd = None
+        self.last_wait_log = -float("inf")
+        self.get_logger().info(f'手柄已连接: {self.device}；请先松开摇杆回中。')
 
     def handle_button_press(self, button):
         """处理按钮按下事件（边沿触发）"""
@@ -356,6 +375,10 @@ class GamepadTeleop(Node):
     # 核心控制循环
     # ═══════════════════════════════════════════════════════
     def control_loop(self):
+        with self.input_lock:
+            self._control_loop()
+
+    def _control_loop(self):
         """50Hz 控制主循环"""
         now = time.time()
         dt = now - self.last_publish_time
@@ -382,12 +405,7 @@ class GamepadTeleop(Node):
         # 2. 未连接或设备断开
         # ───────────────────────────────────────────────
         if not self.connected:
-            self.current_linear = self.apply_accel_limit(
-                self.current_linear, 0.0, self.max_lin_accel, self.max_lin_decel, dt)
-            self.current_angular = self.apply_accel_limit(
-                self.current_angular, 0.0, self.max_ang_accel, self.max_ang_decel, dt)
-            msg.linear.x = self.current_linear
-            msg.angular.z = self.current_angular
+            self.reset_input()
             self.cmd_pub.publish(msg)
             self.publish_status("DISCONNECTED")
             return
@@ -548,18 +566,13 @@ class GamepadTeleop(Node):
             self.status_pub.publish(status_msg)
 
     def destroy_node(self):
-        """清理资源"""
+        """Stop the reader before closing its descriptor and ROS publishers."""
         self.running = False
-        if self.js_fd is not None:
-            try:
-                os.close(self.js_fd)
-            except OSError:
-                pass
-
-        # 发送零速停车指令
-        msg = Twist()
-        self.cmd_pub.publish(msg)
-        self.get_logger().info('手柄遥控节点已关闭，已发送停车指令')
+        self.stop_event.set()
+        self.read_thread.join(timeout=2.0)
+        self.disconnect_device()
+        if rclpy.ok(context=self.context):
+            self.cmd_pub.publish(Twist())
         super().destroy_node()
 
 
@@ -572,7 +585,8 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

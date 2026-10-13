@@ -1,0 +1,34 @@
+gamepad_teleop:
+  ros__parameters:
+    device: /dev/input/by-id/usb-Flydigi_Flydigi_Dune_Fox_5FA2AFFE-joystick
+    cmd_vel_topic: /r680_manual/cmd_vel
+    publish_rate: 50.0
+    max_linear_speed: 1.00
+    max_reverse_speed: 0.30
+    max_angular_speed: 1.50
+    spin_angular_speed: 0.80
+    min_linear_speed: 0.02
+    max_linear_accel: 0.50
+    max_linear_decel: 1.00
+    max_angular_accel: 1.50
+    max_angular_decel: 3.00
+    expo_linear: 2.0
+    expo_angular: 1.8
+    deadzone: 0.08
+    filter_alpha: 0.3
+    steering_speed_factor: 0.6
+    speed_profile_low: 0.3
+    speed_profile_mid: 0.6
+    speed_profile_high: 1.0
+    deadman_enabled: false
+    single_stick_mode: false
+    axis_linear: 1
+    axis_angular: 3
+    axis_lt: 2
+    axis_rt: 5
+    btn_estop: 0
+    btn_speed_low: 2
+    btn_speed_mid: 3
+    btn_speed_high: 1
+    btn_spin_left: 4
+    btn_spin_right: 5
