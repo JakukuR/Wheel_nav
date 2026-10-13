@@ -1,0 +1,6 @@
+[INFO] [launch]: All log files can be found below /home/orin/.ros/log/2026-10-12-16-28-39-454586-localhost.localdomain-107981
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [agent_semantic_api-1]: process started with pid [108026]
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[INFO] [agent_semantic_api-1]: sending signal 'SIGINT' to process[agent_semantic_api-1]
+[INFO] [agent_semantic_api-1]: process has finished cleanly [pid 108026]

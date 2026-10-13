@@ -1,0 +1,12 @@
+Starting >>> wla_diff_mpc
+Finished <<< wla_diff_mpc [39.9s]
+Starting >>> wla_follow_mpc
+Finished <<< wla_follow_mpc [23.2s]
+Starting >>> wla_behavior_bridge
+Finished <<< wla_behavior_bridge [0.83s]
+Starting >>> wla_person_follow
+Finished <<< wla_person_follow [2.56s]
+Starting >>> wla_r680_navigation
+Finished <<< wla_r680_navigation [59.9s]
+
+Summary: 5 packages finished [2min 7s]

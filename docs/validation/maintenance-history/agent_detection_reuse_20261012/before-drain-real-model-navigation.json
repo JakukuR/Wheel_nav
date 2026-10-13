@@ -1,0 +1,41 @@
+{
+  "status": "passed",
+  "provided_model": true,
+  "input": "prerecorded_bus_image",
+  "geometry": "synthetic_depth_odom_tf_and_health",
+  "selected_map_record": "fixture",
+  "real_camera": false,
+  "real_localization": false,
+  "physical_motion": false,
+  "map_position_pipeline_verified": true,
+  "source_age_ms": {
+    "min": 121.884592,
+    "median": 249.4619615,
+    "p95": 328.0078572,
+    "max": 1230.261906
+  },
+  "batches": 80,
+  "within_follow_300ms": 67,
+  "follow_person_batches": 49,
+  "api_valid_map_positions": 188,
+  "example": {
+    "id": "d455:583e16d1283a485788803267ff4b66b3:t1",
+    "what": "person",
+    "position": {
+      "frame_id": "map",
+      "xyz_m": [
+        1.9999999999999993,
+        0.235,
+        1.5325000000000002
+      ]
+    },
+    "position_valid": true,
+    "position_reason": "depth_surface_candidate",
+    "observed_stamp_s": 1791788493.751297,
+    "expires_stamp_s": 1791788495.001297,
+    "position_is_navigation_goal": false
+  },
+  "health_loss_revoked_position": true,
+  "motion_publishers": 0,
+  "candidate_nonzero": 0
+}

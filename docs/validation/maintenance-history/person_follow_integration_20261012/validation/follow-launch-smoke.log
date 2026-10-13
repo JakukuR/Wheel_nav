@@ -1,0 +1,65 @@
+[INFO] [launch]: All log files can be found below /home/orin/.ros/log/2026-10-12-12-20-26-793037-localhost.localdomain-50038
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [python3-1]: process started with pid [50050]
+[INFO] [python3-2]: process started with pid [50051]
+[INFO] [python3-3]: process started with pid [50052]
+[INFO] [follow_mpc_server-4]: process started with pid [50053]
+[follow_mpc_server-4] [WARN] [1791778826.925657147] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[follow_mpc_server-4] [WARN] [1791778826.925694108] [rcl]: 'localhost_only' is enabled, 'automatic_discovery_range' and 'static_peers' will be ignored.
+[python3-2] [WARN] [1791778827.678763749] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[python3-2] [WARN] [1791778827.678796871] [rcl]: 'localhost_only' is enabled, 'automatic_discovery_range' and 'static_peers' will be ignored.
+[python3-3] [WARN] [1791778828.024549085] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[python3-3] [WARN] [1791778828.024580542] [rcl]: 'localhost_only' is enabled, 'automatic_discovery_range' and 'static_peers' will be ignored.
+[python3-1] [WARN] [1791778828.176735162] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[python3-1] [WARN] [1791778828.176760540] [rcl]: 'localhost_only' is enabled, 'automatic_discovery_range' and 'static_peers' will be ignored.
+[python3-1] Traceback (most recent call last):
+[python3-1]   File "<frozen runpy>", line 198, in _run_module_as_main
+[python3-1]   File "<frozen runpy>", line 88, in _run_code
+[python3-1]   File "/home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/node.py", line 658, in <module>
+[python3-1]     main()
+[python3-1]   File "/home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/node.py", line 646, in main
+[python3-1]     node = PersonFollow()
+[python3-1]            ^^^^^^^^^^^^^^
+[python3-1]   File "/home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/node.py", line 107, in __init__
+[python3-1]     raise ValueError('person-follow model file missing: '+str(self.p['model_path']))
+[python3-1] ValueError: person-follow model file missing: /home/orin/Wheel_Legged_Agent/models/yolo11n.pt
+[ERROR] [python3-1]: process has died [pid 50050, exit code 1, cmd '/usr/bin/python3 -m wla_person_follow.node --ros-args --params-file /home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow/config/follow.yaml --params-file /home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow/config/indoor.yaml --params-file /home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow/config/voxel_mpc.yaml -p model_path:=/home/orin/Wheel_Legged_Agent/models/yolo11n.pt'].
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[INFO] [follow_mpc_server-4]: sending signal 'SIGINT' to process[follow_mpc_server-4]
+[INFO] [python3-3]: sending signal 'SIGINT' to process[python3-3]
+[INFO] [python3-2]: sending signal 'SIGINT' to process[python3-2]
+[follow_mpc_server-4] [INFO] [1791778841.839180052] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[follow_mpc_server-4] [INFO] [1791778841.846257540] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[python3-2] Traceback (most recent call last):
+[python3-2]   File "<frozen runpy>", line 198, in _run_module_as_main
+[python3-2]   File "<frozen runpy>", line 88, in _run_code
+[python3-2]   File "/home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/voxel_node.py", line 124, in <module>
+[python3-2]     main()
+[python3-2]   File "/home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/voxel_node.py", line 120, in main
+[python3-2]     node.destroy_node();rclpy.try_shutdown()
+[python3-2]     ^^^^^^^^^^^^^^^^^^^
+[python3-2]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/node.py", line 1958, in destroy_node
+[python3-3] Traceback (most recent call last):
+[python3-3]   File "<frozen runpy>", line 198, in _run_module_as_main
+[python3-3]   File "<frozen runpy>", line 88, in _run_code
+[python3-3]   File "/home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/voxel_navigation.py", line 229, in <module>
+[python3-3]     main()
+[python3-3]   File "/home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/voxel_navigation.py", line 225, in main
+[python3-2]     self.destroy_subscription(self._subscriptions[0])
+[python3-2]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/node.py", line 1854, in destroy_subscription
+[python3-3]     node.invalidate();node.destroy_node();rclpy.try_shutdown()
+[python3-3]                       ^^^^^^^^^^^^^^^^^^^
+[python3-3]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/node.py", line 1962, in destroy_node
+[python3-2]     subscription.destroy()
+[python3-2]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/subscription.py", line 101, in destroy
+[python3-3]     self.destroy_service(self._services[0])
+[python3-3]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/node.py", line 1886, in destroy_service
+[python3-2]     self.handle.destroy_when_not_in_use()
+[python3-2] KeyboardInterrupt
+[python3-3]     service.destroy()
+[python3-3]   File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/service.py", line 123, in destroy
+[python3-3]     self.__service.destroy_when_not_in_use()
+[python3-3] KeyboardInterrupt
+[INFO] [follow_mpc_server-4]: process has finished cleanly [pid 50053]
+[ERROR] [python3-2]: process has died [pid 50051, exit code -2, cmd '/usr/bin/python3 -m wla_person_follow.voxel_node --ros-args --params-file /home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow/config/voxel_mpc.yaml'].
+[ERROR] [python3-3]: process has died [pid 50052, exit code -2, cmd '/usr/bin/python3 -m wla_person_follow.voxel_navigation --ros-args --params-file /home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow/config/indoor.yaml --params-file /home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow/config/voxel_mpc.yaml'].

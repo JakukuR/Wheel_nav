@@ -1,0 +1,1 @@
+PASS: source exclusivity, explicit AUTO, session binding, stale candidate/status, idle-to-new-task, manual revoke, hotplug, Nav2 cancel; isolated sole mux publisher

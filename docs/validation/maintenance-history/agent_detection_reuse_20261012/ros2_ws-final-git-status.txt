@@ -1,0 +1,66 @@
+ M r680_mapping.sh
+ M r680_nav.sh
+ M src/gamepad_contorl/gamepad_control/gamepad_teleop.py
+ M src/wla_diff_mpc/CMakeLists.txt
+ M src/wla_person_follow/README.md
+ M src/wla_person_follow/config/follow.yaml
+ M src/wla_person_follow/launch/follow.launch.py
+ M src/wla_person_follow/package.xml
+ M src/wla_person_follow/setup.cfg
+ M src/wla_person_follow/setup.py
+ M src/wla_person_follow/wla_person_follow/depth_proc.py
+ M src/wla_person_follow/wla_person_follow/detector.py
+ M src/wla_person_follow/wla_person_follow/node.py
+ M src/wla_person_follow/wla_person_follow/target_lock.py
+ M src/wla_r680_navigation/CMakeLists.txt
+ M src/wla_r680_navigation/launch/bringup.launch.py
+ M src/wla_r680_navigation/package.xml
+ M src/wla_r680_navigation/scripts/furniture_semantic.py
+ M src/wla_r680_navigation/scripts/r680_mapping.sh
+ M src/wla_r680_navigation/scripts/r680_nav.sh
+ M src/wla_r680_navigation/scripts/r680_teleop.sh
+ M src/wla_r680_navigation/src/vo_watchdog.cpp
+?? .maintenance/
+?? .venv-perception/
+?? config/
+?? docs/Agent共享检测与YOLO模型接入.md
+?? docs/Agent语义导航接入.md
+?? docs/人物跟随合入与系统链路核验.md
+?? r680_agent.sh
+?? r680_perception.sh
+?? r680_person_follow.sh
+?? src/gamepad_contorl/test/
+?? src/open_vins/
+?? src/wla_behavior_bridge/
+?? src/wla_behavior_bt/
+?? src/wla_behavior_interfaces/
+?? src/wla_detection_bridge/
+?? src/wla_follow_mpc/
+?? src/wla_manual_control/
+?? src/wla_openvins_navigation/
+?? src/wla_person_follow/config/indoor.yaml
+?? src/wla_person_follow/config/nav2_costmap_overlay.yaml
+?? src/wla_person_follow/config/nav2_voxel_overlay.yaml
+?? src/wla_person_follow/config/outdoor_flat.yaml
+?? src/wla_person_follow/config/voxel_mpc.yaml
+?? src/wla_person_follow/config/voxel_scene.rviz
+?? src/wla_person_follow/launch/autonomous_follow.launch.py
+?? src/wla_person_follow/launch/voxel_mpc_follow.launch.py
+?? src/wla_person_follow/test/test_launch_parameters.py
+?? src/wla_person_follow/test/test_mpc_ros.py
+?? src/wla_person_follow/test/test_mpc_validation_ros.py
+?? src/wla_person_follow/test/test_ros_upgrade.py
+?? src/wla_person_follow/test/test_shared_detections_ros.py
+?? src/wla_person_follow/test/test_upgrade.py
+?? src/wla_person_follow/test/test_voxel.py
+?? src/wla_person_follow/wla_person_follow/geometry.py
+?? src/wla_person_follow/wla_person_follow/launch_parameters.py
+?? src/wla_person_follow/wla_person_follow/lightnav_adapter.py
+?? src/wla_person_follow/wla_person_follow/navigation.py
+?? src/wla_person_follow/wla_person_follow/recovery.py
+?? src/wla_person_follow/wla_person_follow/voxel.py
+?? src/wla_person_follow/wla_person_follow/voxel_navigation.py
+?? src/wla_person_follow/wla_person_follow/voxel_node.py
+?? src/wla_r680_navigation/config/yolo_mapping_whitelist.json
+?? src/wla_r680_navigation/scripts/r680_mode_lock.sh
+?? src/wla_r680_navigation/test/test_rgbd_watchdog.py

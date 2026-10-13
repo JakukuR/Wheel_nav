@@ -1,0 +1,8 @@
+{
+  "workspace": "/home/orin/ros2_ws",
+  "source_files_checked": 37,
+  "legacy_trial_archived_to": "/home/orin/ros2_ws/.maintenance/agent_semantic_integration_20261012/legacy_trial",
+  "old_directory_exists": false,
+  "entrypoint": "/home/orin/ros2_ws/r680_agent.sh",
+  "hardware_motion_started": false
+}

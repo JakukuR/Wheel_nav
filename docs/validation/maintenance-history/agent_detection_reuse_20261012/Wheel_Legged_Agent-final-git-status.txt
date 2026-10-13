@@ -1,0 +1,62 @@
+ M benchmarks/README.md
+ M deploy/behavior_bridge/README.md
+ M "docs/Agent\345\267\245\347\250\213\345\256\236\347\216\260\346\212\200\346\234\257\346\212\245\345\221\212.md"
+ M "docs/Mopie-V1.0-\346\272\220\347\240\201\345\217\221\345\270\203\350\214\203\345\233\264.md"
+ M "docs/Mopie-V1.1-\346\272\220\347\240\201\345\217\221\345\270\203\350\214\203\345\233\264.md"
+ M "docs/v1.0-Qt\346\274\224\347\244\272\351\223\276\350\267\257\344\270\216\345\274\202\346\255\245\345\271\266\345\217\221\346\265\213\350\257\225.md"
+ M scripts/behavior_bridge_cli.py
+ M scripts/r680_d455_perception.py
+ M scripts/start_r680_d455_perception.sh
+ M src/wla_sim/action_execution.py
+ M src/wla_sim/action_lifecycle.py
+ M src/wla_sim/action_packages/registry.py
+ M src/wla_sim/action_packages/schema.py
+ M src/wla_sim/benchmarks/core_scenarios.py
+ M src/wla_sim/benchmarks/qt_demo.py
+ M src/wla_sim/candidate_routes.py
+ M src/wla_sim/information_services.py
+ M src/wla_sim/language_policy.py
+ M src/wla_sim/language_system.py
+ M src/wla_sim/locomotion.py
+ M src/wla_sim/perception/localization_async.py
+ M src/wla_sim/platform_capabilities.py
+ M src/wla_sim/product_actions.py
+ M src/wla_sim/state_layer/memory_worker.py
+ M src/wla_sim/state_layer/mock_system2.py
+ M src/wla_sim/ui/panels.py
+ M src/wla_sim/ui/product_mechanisms_panel.py
+ M src/wla_sim/ui/shared_life_panel.py
+ M src/wla_sim/ui/theme.py
+ M tests/test_action_package_coverage.py
+ M tests/test_agent_architecture.py
+ M tests/test_candidate_routes.py
+ M tests/test_core_scenarios.py
+ M tests/test_d455_perception_runner.py
+ M tests/test_demo_engine_alignment.py
+ M tests/test_demo_layout.py
+ M tests/test_information_boundaries_audit.py
+ M tests/test_language_system.py
+ M tests/test_localization_offline_acceptance.py
+ M tests/test_performance_optimizations.py
+ M tests/test_product_action_catalog.py
+ M tests/test_product_identity_audit.py
+ M tests/test_product_lifecycle_audit.py
+ M tests/test_qt_person_switch_audit.py
+ M tests/test_reminder_updates_audit.py
+ M tests/test_semantic_memory.py
+ M tests/test_semantic_preference_map.py
+ M tests/test_shared_life_qt.py
+ M tests/test_sixty_actions_learning.py
+ M tests/test_ui_system1_async.py
+ M tests/test_weather_request_order_audit.py
+ M tools/action_package_coverage.py
+ M "\345\212\250\344\275\234\346\261\240\344\270\216\345\212\250\344\275\234\345\214\205\350\247\204\350\214\203.md"
+?? "deploy/behavior_bridge/ROS2\345\267\245\344\275\234\345\214\272\346\216\245\345\205\245.md"
+?? deploy/r680/yolo_realtime_whitelist.json
+?? models/
+?? scripts/agent_semantic_cli.py
+?? scripts/agent_semantic_policy.py
+?? scripts/r680_navigation_perception.py
+?? src/wla_sim/behavior_bridge/agent_semantics.py
+?? src/wla_sim/behavior_bridge/ros_lifecycle.py
+?? tests/test_navigation_perception.py

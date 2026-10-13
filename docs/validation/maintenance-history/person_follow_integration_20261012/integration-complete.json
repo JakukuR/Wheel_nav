@@ -1,0 +1,110 @@
+{
+  "status": "integrated_and_isolated_validation_complete",
+  "workspace": "/home/orin/ros2_ws",
+  "packages_built": 5,
+  "test_suites": {
+    "follow-tests.xml": {
+      "tests": 80,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "system-regressions.xml": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "gateway-ownership.xml": {
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "manual-policy.xml": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "after-archive-service.xml": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "agent_dds": {
+    "passed": [
+      "exclusive_control_claim",
+      "stored_map_query",
+      "realtime_coordinates_and_source_expiry",
+      "semantic_intent_bt_free_approach_nav_stop_and_idempotency",
+      "occupied_costmap_rejects_without_nav_goal",
+      "planner_failure_rejects_without_nav_goal",
+      "caller_lease_expiry_owned_cancel_and_stop",
+      "zero_chassis_publishers"
+    ],
+    "nav_goals": [
+      [
+        1.3636038969321072,
+        1.3636038969321072
+      ],
+      [
+        1.3636038969321072,
+        1.3636038969321072
+      ]
+    ],
+    "source": "synthetic_fixture",
+    "actual_yolo": "not_run",
+    "hardware_motion": "not_run"
+  },
+  "launch_resource_check": {
+    "preflight": "expected_failure_missing_assets",
+    "errors": [
+      "missing_local_model",
+      "missing_module:ultralytics",
+      "missing_module:torch"
+    ],
+    "missing_model_launch": "fails_closed_and_stops_three_siblings",
+    "remaining_follow_nodes": 0,
+    "real_camera_yolo": "not_available",
+    "real_motion": "not_run"
+  },
+  "provenance": {
+    "prefixes": {
+      "wla_person_follow": "/home/orin/ros2_ws/install/wla_person_follow",
+      "wla_follow_mpc": "/home/orin/ros2_ws/install/wla_follow_mpc",
+      "wla_diff_mpc": "/home/orin/ros2_ws/install/wla_diff_mpc",
+      "wla_r680_navigation": "/home/orin/ros2_ws/install/wla_r680_navigation",
+      "wla_behavior_bridge": "/home/orin/ros2_ws/install/wla_behavior_bridge"
+    },
+    "verified_files": [
+      "src/wla_person_follow/wla_person_follow/node.py",
+      "src/wla_person_follow/wla_person_follow/geometry.py",
+      "src/wla_person_follow/wla_person_follow/navigation.py",
+      "src/wla_person_follow/wla_person_follow/depth_proc.py",
+      "src/wla_person_follow/wla_person_follow/voxel.py",
+      "src/wla_person_follow/wla_person_follow/__init__.py",
+      "src/wla_person_follow/wla_person_follow/voxel_node.py",
+      "src/wla_person_follow/wla_person_follow/controller.py",
+      "src/wla_person_follow/wla_person_follow/detector.py",
+      "src/wla_person_follow/wla_person_follow/camera.py",
+      "src/wla_person_follow/wla_person_follow/costmap.py",
+      "src/wla_person_follow/wla_person_follow/recovery.py",
+      "src/wla_person_follow/wla_person_follow/voxel_navigation.py",
+      "src/wla_person_follow/wla_person_follow/target_lock.py",
+      "src/wla_person_follow/wla_person_follow/lightnav_adapter.py",
+      "src/wla_person_follow/wla_person_follow/kalman.py"
+    ],
+    "model_environment": "missing model, ultralytics, torch",
+    "old_workspace_present": false,
+    "base_service": "MainPID=2215\nActiveState=active\n"
+  },
+  "legacy_workspace": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/legacy_upgrade",
+  "real_yolo_camera_test": "not_run_missing_perception_assets",
+  "real_motion_test": "not_run",
+  "follow_chassis_connection": "candidate_only_pending_task_gateway",
+  "autonomous_mapping_exploration_switch": "design_only",
+  "production_service_restarted": false
+}

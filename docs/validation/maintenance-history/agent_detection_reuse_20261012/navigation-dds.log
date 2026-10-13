@@ -1,0 +1,42 @@
+[WARN] [1791788645.075375915] [person_follow]: Person follow starts DISABLED; publishes candidate velocity only to /r680/person_follow/cmd_vel_candidate
+{
+  "status": "passed",
+  "provided_model": true,
+  "input": "prerecorded_bus_image",
+  "geometry": "synthetic_depth_odom_tf_and_health",
+  "selected_map_record": "fixture",
+  "real_camera": false,
+  "real_localization": false,
+  "physical_motion": false,
+  "map_position_pipeline_verified": true,
+  "source_age_ms": {
+    "min": 126.827089,
+    "median": 284.185168,
+    "p95": 355.3508366,
+    "max": 1228.397285
+  },
+  "batches": 73,
+  "within_follow_300ms": 46,
+  "follow_person_batches": 21,
+  "api_valid_map_positions": 184,
+  "example": {
+    "id": "d455:c36e0d4dd4b848bca366fc35301b2a32:t1",
+    "what": "person",
+    "position": {
+      "frame_id": "map",
+      "xyz_m": [
+        1.9999999999999993,
+        0.235,
+        1.5325000000000002
+      ]
+    },
+    "position_valid": true,
+    "position_reason": "depth_surface_candidate",
+    "observed_stamp_s": 1791788650.3870852,
+    "expires_stamp_s": 1791788651.6370852,
+    "position_is_navigation_goal": false
+  },
+  "health_loss_revoked_position": true,
+  "motion_publishers": 0,
+  "candidate_nonzero": 0
+}

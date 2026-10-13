@@ -1,0 +1,30 @@
+{
+  "prefixes": {
+    "wla_person_follow": "/home/orin/ros2_ws/install/wla_person_follow",
+    "wla_follow_mpc": "/home/orin/ros2_ws/install/wla_follow_mpc",
+    "wla_diff_mpc": "/home/orin/ros2_ws/install/wla_diff_mpc",
+    "wla_r680_navigation": "/home/orin/ros2_ws/install/wla_r680_navigation",
+    "wla_behavior_bridge": "/home/orin/ros2_ws/install/wla_behavior_bridge"
+  },
+  "verified_files": [
+    "src/wla_person_follow/wla_person_follow/node.py",
+    "src/wla_person_follow/wla_person_follow/geometry.py",
+    "src/wla_person_follow/wla_person_follow/navigation.py",
+    "src/wla_person_follow/wla_person_follow/depth_proc.py",
+    "src/wla_person_follow/wla_person_follow/voxel.py",
+    "src/wla_person_follow/wla_person_follow/__init__.py",
+    "src/wla_person_follow/wla_person_follow/voxel_node.py",
+    "src/wla_person_follow/wla_person_follow/controller.py",
+    "src/wla_person_follow/wla_person_follow/detector.py",
+    "src/wla_person_follow/wla_person_follow/camera.py",
+    "src/wla_person_follow/wla_person_follow/costmap.py",
+    "src/wla_person_follow/wla_person_follow/recovery.py",
+    "src/wla_person_follow/wla_person_follow/voxel_navigation.py",
+    "src/wla_person_follow/wla_person_follow/target_lock.py",
+    "src/wla_person_follow/wla_person_follow/lightnav_adapter.py",
+    "src/wla_person_follow/wla_person_follow/kalman.py"
+  ],
+  "model_environment": "missing model, ultralytics, torch",
+  "old_workspace_present": false,
+  "base_service": "MainPID=2215\nActiveState=active\n"
+}

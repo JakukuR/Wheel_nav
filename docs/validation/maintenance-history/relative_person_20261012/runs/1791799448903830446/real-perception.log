@@ -1,0 +1,24 @@
+[INFO] [launch]: All log files can be found below /home/orin/.ros/log/2026-10-12-17-59-26-294280-localhost.localdomain-132421
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [python-1]: process started with pid [132442]
+[INFO] [python3-2]: process started with pid [132443]
+[INFO] [python3-3]: process started with pid [132444]
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[INFO] [python3-3]: sending signal 'SIGINT' to process[python3-3]
+[INFO] [python3-2]: sending signal 'SIGINT' to process[python3-2]
+[INFO] [python-1]: sending signal 'SIGINT' to process[python-1]
+[python-1] Traceback (most recent call last):
+[python-1]   File "/home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/nav_yolo_detector", line 310, in <module>
+[python-1]     main()
+[python-1]   File "/home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/nav_yolo_detector", line 285, in main
+[python-1]     import torch
+[python-1]   File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+[python-1]   File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+[python-1]   File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+[python-1]   File "<frozen importlib._bootstrap_external>", line 991, in exec_module
+[python-1]   File "<frozen importlib._bootstrap_external>", line 1124, in get_code
+[python-1]   File "<frozen importlib._bootstrap_external>", line 753, in _compile_bytecode
+[python-1] KeyboardInterrupt
+[ERROR] [python-1]: process has died [pid 132442, exit code -2, cmd '/home/orin/ros2_ws/.venv-perception/bin/python /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/nav_yolo_detector --model /home/orin/Wheel_Legged_Agent/models/perception/yolo/yolo11n.pt --tracker /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/perception.botsort.yaml --device 0'].
+[INFO] [python3-3]: process has finished cleanly [pid 132444]
+[INFO] [python3-2]: process has finished cleanly [pid 132443]

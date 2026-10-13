@@ -1,0 +1,14 @@
+{
+  "prefixes": {
+    "wla_diff_mpc": "/home/orin/ros2_ws/install/wla_diff_mpc",
+    "wla_follow_mpc": "/home/orin/ros2_ws/install/wla_follow_mpc",
+    "wla_person_follow": "/home/orin/ros2_ws/install/wla_person_follow",
+    "wla_r680_navigation": "/home/orin/ros2_ws/install/wla_r680_navigation",
+    "wla_behavior_bridge": "/home/orin/ros2_ws/install/wla_behavior_bridge"
+  },
+  "modules": {
+    "wla_person_follow.node": "/home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/node.py",
+    "wla_person_follow.navigation": "/home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/navigation.py",
+    "wla_person_follow.voxel_navigation": "/home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/voxel_navigation.py"
+  }
+}

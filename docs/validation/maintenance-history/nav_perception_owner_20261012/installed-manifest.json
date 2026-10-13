@@ -1,0 +1,132 @@
+[
+  {
+    "path": "ros2_ws/docs/Agent\u5171\u4eab\u68c0\u6d4b\u4e0eYOLO\u6a21\u578b\u63a5\u5165.md",
+    "sha256": "6ffc82b1e200e7744bbe1e357896b0d5c7861abe38096c274366cd4e2c5c5a33",
+    "before": "cd92b0291467afcd70a3e4ee086c9a1f2f3a9da1fdec5bbace27d013e856f90c"
+  },
+  {
+    "path": "ros2_ws/docs/Agent\u8bed\u4e49\u5bfc\u822a\u63a5\u5165.md",
+    "sha256": "9260db8e7ed9506c42ace4ecb441c19df6a4d123a22605f89062fa0e17688645",
+    "before": "ca253c7de8181a91a0ba4c15746ae987767d9ee8a6a181c50b6568bfd6025973"
+  },
+  {
+    "path": "ros2_ws/docs/\u4eba\u7269\u8ddf\u968f\u5408\u5165\u4e0e\u7cfb\u7edf\u94fe\u8def\u6838\u9a8c.md",
+    "sha256": "072c1f0cf30ab287cb76dfda41aa223fb0ba63a7efc3f8e4ee1a13a674ca1cb5",
+    "before": "c597021d201abcfb48f7460001030deb6c2e62a766053a68ad13e48c73d20e1d"
+  },
+  {
+    "path": "ros2_ws/r680_agent.sh",
+    "sha256": "624733854677f21dbd71fa77e6680166a939b8f5ec54f711064b0f88bd9a209a",
+    "before": "624733854677f21dbd71fa77e6680166a939b8f5ec54f711064b0f88bd9a209a"
+  },
+  {
+    "path": "ros2_ws/r680_perception.sh",
+    "sha256": "55a05f22364f01824637c4e745607eb6791c4e98d22007d500c82d5a7935b0ed",
+    "before": "55a05f22364f01824637c4e745607eb6791c4e98d22007d500c82d5a7935b0ed"
+  },
+  {
+    "path": "ros2_ws/src/wla_behavior_bridge/CMakeLists.txt",
+    "sha256": "7ac04763c50ed8dec69db8e4a8a7d620614462a739f78cc3f7197f08170f0ff3",
+    "before": "7ac04763c50ed8dec69db8e4a8a7d620614462a739f78cc3f7197f08170f0ff3"
+  },
+  {
+    "path": "ros2_ws/src/wla_behavior_bridge/package.xml",
+    "sha256": "9289c6e629a32bcf177e7789951b8fea27e87a3d52ae9c8db4b8d46aed8ea09c",
+    "before": "9289c6e629a32bcf177e7789951b8fea27e87a3d52ae9c8db4b8d46aed8ea09c"
+  },
+  {
+    "path": "ros2_ws/src/wla_behavior_bridge/scripts/nav_perception_adapter",
+    "sha256": "e6c5ea8abd8f29a5b9c3ffebe7b08b3ef800827be46ecc9958f0ff397de1d601",
+    "before": "e6c5ea8abd8f29a5b9c3ffebe7b08b3ef800827be46ecc9958f0ff397de1d601"
+  },
+  {
+    "path": "ros2_ws/src/wla_detection_bridge/README.md",
+    "sha256": "73e9d9831d65d561a36442e45ef931be04033883d3a424c8485b48a3ff2eedd4",
+    "before": "75a75f7304b8148a793e6f59367d6f7bbae7f68dc0a0ee27ab5bf38d68abfe50"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/config/follow.yaml",
+    "sha256": "16d11d78d881394680633acf706e5aaaccd8173611d1d8cd957bf238964c9464",
+    "before": "16d11d78d881394680633acf706e5aaaccd8173611d1d8cd957bf238964c9464"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/README.md",
+    "sha256": "b6e9ec9b5adc871cca506403797aa92d462d6028a7becfdbac6e057ac4aa07f0",
+    "before": "47e449bb48e4c4d93803e8683e838c895f93a7fd7092f96aa663535ce712f8d1"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/wla_person_follow/node.py",
+    "sha256": "ee322c11b181b05615539eb5f5db20dee975b6ae75f1ca4a04af070ec865bf0a",
+    "before": "ee322c11b181b05615539eb5f5db20dee975b6ae75f1ca4a04af070ec865bf0a"
+  },
+  {
+    "path": "ros2_ws/src/wla_r680_navigation/CMakeLists.txt",
+    "sha256": "abe2d478550dd8477c30bd84f492c768d404beb78c1d1bd832b233d80f6faef6",
+    "before": "abe2d478550dd8477c30bd84f492c768d404beb78c1d1bd832b233d80f6faef6"
+  },
+  {
+    "path": "ros2_ws/src/wla_r680_navigation/config/perception.botsort.yaml",
+    "sha256": "01e2b8aee2f868a9e1deca08c109fb7806c550e3584dfe0b3144067dc91948c0",
+    "before": "01e2b8aee2f868a9e1deca08c109fb7806c550e3584dfe0b3144067dc91948c0"
+  },
+  {
+    "path": "ros2_ws/src/wla_r680_navigation/scripts/furniture_semantic.py",
+    "sha256": "46278677267a56b725b343395005574405e795b43c75f5321e02f946f8183ab0",
+    "before": "46278677267a56b725b343395005574405e795b43c75f5321e02f946f8183ab0"
+  },
+  {
+    "path": "ros2_ws/src/wla_r680_navigation/scripts/nav_perception_bringup",
+    "sha256": "7a25c28cc5d34e1fa5f95bf1b19fa1ca9c8c28ee564dbd0baa030f156e492edd",
+    "before": "7a25c28cc5d34e1fa5f95bf1b19fa1ca9c8c28ee564dbd0baa030f156e492edd"
+  },
+  {
+    "path": "ros2_ws/src/wla_r680_navigation/scripts/nav_yolo_detector",
+    "sha256": "01b83817162525279a7f582b14ea30145395e4f49db1403be2a986d6f1983223",
+    "before": "01b83817162525279a7f582b14ea30145395e4f49db1403be2a986d6f1983223"
+  },
+  {
+    "path": "ros2_ws/src/wla_r680_navigation/test/test_nav_detector_ros.py",
+    "sha256": "bda9c7dca76da26dc7cc015278965e375c3d716f74786073d4a74982b1a59b01",
+    "before": "bda9c7dca76da26dc7cc015278965e375c3d716f74786073d4a74982b1a59b01"
+  },
+  {
+    "path": "ros2_ws/src/wla_r680_navigation/test/test_perception_geometry.py",
+    "sha256": "46bfd2178e176d2d0c1a3c244d1b7233db31ef7bb2c05a2941bf7bf757bbb8f6",
+    "before": "46bfd2178e176d2d0c1a3c244d1b7233db31ef7bb2c05a2941bf7bf757bbb8f6"
+  },
+  {
+    "path": "ros2_ws/src/wla_r680_navigation/wla_r680_navigation_py/perception_context.py",
+    "sha256": "f55762cc846a431c3dcb6e6afe70134cc3ae0c76b12e92349b8fcab942ce211e",
+    "before": "f55762cc846a431c3dcb6e6afe70134cc3ae0c76b12e92349b8fcab942ce211e"
+  },
+  {
+    "path": "ros2_ws/src/wla_r680_navigation/wla_r680_navigation_py/perception_geometry.py",
+    "sha256": "11b19e6aa213553a233bffb731b20b36efb47f05eba2f0b674560909858c843a",
+    "before": "11b19e6aa213553a233bffb731b20b36efb47f05eba2f0b674560909858c843a"
+  },
+  {
+    "path": "Wheel_Legged_Agent/docs/Agent\u5de5\u7a0b\u5b9e\u73b0\u6280\u672f\u62a5\u544a.md",
+    "sha256": "e3d6d4532ad3f4f13c4bb92bbb87280eeca65cf8991ff1ace09099d2c187ca0a",
+    "before": "321aef6c40911c7578506d99d6a89cccc5bb7e8eeaf4ba20c72a0827699fa152"
+  },
+  {
+    "path": "Wheel_Legged_Agent/scripts/start_r680_d455_perception.sh",
+    "sha256": "16ebf14e8f93dcca26e05bb2ec241524ba163411c1d5f519e6875e14dcf5126a",
+    "before": "16ebf14e8f93dcca26e05bb2ec241524ba163411c1d5f519e6875e14dcf5126a"
+  },
+  {
+    "path": "Wheel_Legged_Agent/scripts/start_r680_d455_perception_legacy.sh",
+    "sha256": "8cb82991a876f8a28dd06ed5dbbfe0a4d59c0bae55fcdb23c221452d4adfeac5",
+    "before": "8cb82991a876f8a28dd06ed5dbbfe0a4d59c0bae55fcdb23c221452d4adfeac5"
+  },
+  {
+    "path": "Wheel_Legged_Agent/src/wla_sim/perception/nav_adapter.py",
+    "sha256": "4bea05b7fe1fc0ce576dfe8e60545410fef97b385f76750be28e87818693cf84",
+    "before": "4bea05b7fe1fc0ce576dfe8e60545410fef97b385f76750be28e87818693cf84"
+  },
+  {
+    "path": "Wheel_Legged_Agent/tests/test_nav_observation_adapter.py",
+    "sha256": "5bda30d9ee4305887e61c5d230539f1e571783b83ba89269257ccabe7fd6dd3e",
+    "before": "5bda30d9ee4305887e61c5d230539f1e571783b83ba89269257ccabe7fd6dd3e"
+  }
+]

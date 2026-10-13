@@ -1,0 +1,21 @@
+Looking in indexes: https://download.pytorch.org/whl/cpu
+Collecting torch==2.6.0
+  Downloading https://download-r2.pytorch.org/whl/cpu/torch-2.6.0%2Bcpu-cp312-cp312-manylinux_2_28_aarch64.whl.metadata (28 kB)
+Collecting torchvision==0.21.0
+  Downloading https://download-r2.pytorch.org/whl/cpu/torchvision-0.21.0-cp312-cp312-linux_aarch64.whl.metadata (6.1 kB)
+Collecting filelock (from torch==2.6.0)
+  Using cached filelock-3.32.3-py3-none-any.whl.metadata (2.0 kB)
+Requirement already satisfied: typing-extensions>=4.10.0 in /usr/lib/python3/dist-packages (from torch==2.6.0) (4.10.0)
+Requirement already satisfied: setuptools in /usr/lib/python3/dist-packages (from torch==2.6.0) (68.1.2)
+Collecting sympy==1.13.1 (from torch==2.6.0)
+  Downloading sympy-1.13.1-py3-none-any.whl.metadata (12 kB)
+Collecting networkx (from torch==2.6.0)
+  Using cached networkx-3.6.1-py3-none-any.whl.metadata (6.8 kB)
+Requirement already satisfied: jinja2 in /usr/lib/python3/dist-packages (from torch==2.6.0) (3.1.2)
+Collecting fsspec (from torch==2.6.0)
+  Using cached fsspec-2026.7.0-py3-none-any.whl.metadata (10 kB)
+Requirement already satisfied: numpy in /usr/lib/python3/dist-packages (from torchvision==0.21.0) (1.26.4)
+Requirement already satisfied: pillow!=8.3.*,>=5.3.0 in /usr/lib/python3/dist-packages (from torchvision==0.21.0) (10.2.0)
+Collecting mpmath<1.4,>=1.1.0 (from sympy==1.13.1->torch==2.6.0)
+  Using cached mpmath-1.3.0-py3-none-any.whl.metadata (8.6 kB)
+Downloading https://download-r2.pytorch.org/whl/cpu/torch-2.6.0%2Bcpu-cp312-cp312-manylinux_2_28_aarch64.whl (95.5 MB)

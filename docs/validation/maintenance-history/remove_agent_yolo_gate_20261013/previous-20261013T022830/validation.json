@@ -1,0 +1,72 @@
+{
+  "exit_code": 0,
+  "tests": {
+    "tests": 103,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1
+  },
+  "hashes": [
+    {
+      "path": "ros2_ws/docs/Agent共享检测与YOLO模型接入.md",
+      "matches": true
+    },
+    {
+      "path": "ros2_ws/docs/Agent语义导航接入.md",
+      "matches": true
+    },
+    {
+      "path": "ros2_ws/docs/人物跟随合入与系统链路核验.md",
+      "matches": true
+    },
+    {
+      "path": "ros2_ws/r680_perception.sh",
+      "matches": true
+    },
+    {
+      "path": "ros2_ws/src/wla_behavior_bridge/scripts/agent_person_api",
+      "matches": true
+    },
+    {
+      "path": "ros2_ws/src/wla_r680_navigation/scripts/nav_yolo_detector",
+      "matches": true
+    },
+    {
+      "path": "ros2_ws/src/wla_r680_navigation/test/test_nav_detector_ros.py",
+      "matches": true
+    },
+    {
+      "path": "Wheel_Legged_Agent/docs/Agent工程实现技术报告.md",
+      "matches": true
+    },
+    {
+      "path": "Wheel_Legged_Agent/scripts/agent_person_cli.py",
+      "matches": true
+    },
+    {
+      "path": "Wheel_Legged_Agent/src/wla_sim/behavior_bridge/person_transport.py",
+      "matches": true
+    },
+    {
+      "path": "Wheel_Legged_Agent/tests/test_relative_person_interface.py",
+      "matches": true
+    },
+    {
+      "path": "ros2_ws/install/wla_behavior_bridge/lib/wla_behavior_bridge/agent_person_api",
+      "matches": true
+    },
+    {
+      "path": "/home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/nav_yolo_detector",
+      "matches": true
+    },
+    {
+      "path": "/home/orin/ros2_ws/install/wla_behavior_bridge/lib/wla_behavior_bridge/agent_person_api",
+      "matches": true
+    }
+  ],
+  "runtime_processes": "",
+  "runtime_check_code": 1,
+  "chassis_service": "MainPID=2217\nActiveState=active\n",
+  "ros_domain": 198,
+  "scope": "Fake inference, synthetic frames and isolated ROS/Agent contract regression; no hardware motion"
+}

@@ -1,0 +1,19 @@
+[INFO] [launch]: All log files can be found below /home/orin/.ros/log/2026-10-12-12-15-47-117458-localhost.localdomain-49079
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [behavior_executor-1]: process started with pid [49087]
+[INFO] [navigation_task_gateway-2]: process started with pid [49088]
+[INFO] [task_velocity_gate-3]: process started with pid [49089]
+[behavior_executor-1] [WARN] [1791778547.260249019] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[behavior_executor-1] [WARN] [1791778547.260287388] [rcl]: 'localhost_only' is enabled, 'automatic_discovery_range' and 'static_peers' will be ignored.
+[task_velocity_gate-3] [WARN] [1791778547.816424295] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[task_velocity_gate-3] [WARN] [1791778547.816454728] [rcl]: 'localhost_only' is enabled, 'automatic_discovery_range' and 'static_peers' will be ignored.
+[navigation_task_gateway-2] [WARN] [1791778548.303576400] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[navigation_task_gateway-2] [WARN] [1791778548.303603282] [rcl]: 'localhost_only' is enabled, 'automatic_discovery_range' and 'static_peers' will be ignored.
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[INFO] [task_velocity_gate-3]: sending signal 'SIGINT' to process[task_velocity_gate-3]
+[INFO] [navigation_task_gateway-2]: sending signal 'SIGINT' to process[navigation_task_gateway-2]
+[INFO] [behavior_executor-1]: sending signal 'SIGINT' to process[behavior_executor-1]
+[behavior_executor-1] [INFO] [1791778553.534022973] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [behavior_executor-1]: process has finished cleanly [pid 49087]
+[INFO] [task_velocity_gate-3]: process has finished cleanly [pid 49089]
+[INFO] [navigation_task_gateway-2]: process has finished cleanly [pid 49088]

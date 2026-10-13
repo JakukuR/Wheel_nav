@@ -1,0 +1,61 @@
+{
+  "weight": "/home/orin/Wheel_Legged_Agent/models/perception/yolo/yolo11n.pt",
+  "sha256": "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1",
+  "torch": "2.12.1+cu132",
+  "ultralytics": "8.3.203",
+  "cuda": "13.2",
+  "gpu": "Orin",
+  "input": "ultralytics_bundled_bus_image",
+  "first_call_ms": 1429.1498589991534,
+  "warm_calls_ms": [
+    88.81532599843922,
+    83.55695900172577,
+    83.23950500198407
+  ],
+  "detections": [
+    {
+      "label": "bus",
+      "confidence": 0.8881624341011047
+    },
+    {
+      "label": "person",
+      "confidence": 0.8708688616752625
+    },
+    {
+      "label": "person",
+      "confidence": 0.8236851692199707
+    },
+    {
+      "label": "person",
+      "confidence": 0.6562881469726562
+    }
+  ],
+  "mapping_classes": [
+    "chair",
+    "dining table",
+    "couch",
+    "bed"
+  ],
+  "realtime_classes": [
+    "person",
+    "cat",
+    "dog",
+    "umbrella",
+    "chair",
+    "dining table",
+    "couch",
+    "bed",
+    "potted plant",
+    "tv",
+    "refrigerator",
+    "microwave",
+    "oven",
+    "sink",
+    "toilet",
+    "bottle",
+    "cup"
+  ],
+  "all_classes_supported": true,
+  "real_camera": false,
+  "physical_motion": false
+}

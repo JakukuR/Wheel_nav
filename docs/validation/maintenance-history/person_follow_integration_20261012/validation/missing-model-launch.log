@@ -1,0 +1,33 @@
+[INFO] [launch]: All log files can be found below /home/orin/.ros/log/2026-10-12-12-25-13-696577-localhost.localdomain-51216
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [python3-1]: process started with pid [51221]
+[INFO] [python3-2]: process started with pid [51222]
+[INFO] [python3-3]: process started with pid [51223]
+[INFO] [follow_mpc_server-4]: process started with pid [51224]
+[follow_mpc_server-4] [WARN] [1791779113.834012600] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[follow_mpc_server-4] [WARN] [1791779113.834051449] [rcl]: 'localhost_only' is enabled, 'automatic_discovery_range' and 'static_peers' will be ignored.
+[python3-2] [WARN] [1791779114.609773070] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[python3-2] [WARN] [1791779114.609807215] [rcl]: 'localhost_only' is enabled, 'automatic_discovery_range' and 'static_peers' will be ignored.
+[python3-3] [WARN] [1791779114.969770929] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[python3-3] [WARN] [1791779114.969804658] [rcl]: 'localhost_only' is enabled, 'automatic_discovery_range' and 'static_peers' will be ignored.
+[python3-1] [WARN] [1791779115.129761368] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[python3-1] [WARN] [1791779115.129792281] [rcl]: 'localhost_only' is enabled, 'automatic_discovery_range' and 'static_peers' will be ignored.
+[python3-1] Traceback (most recent call last):
+[python3-1]   File "<frozen runpy>", line 198, in _run_module_as_main
+[python3-1]   File "<frozen runpy>", line 88, in _run_code
+[python3-1]   File "/home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/node.py", line 658, in <module>
+[python3-1]     main()
+[python3-1]   File "/home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/node.py", line 646, in main
+[python3-1]     node = PersonFollow()
+[python3-1]            ^^^^^^^^^^^^^^
+[python3-1]   File "/home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/node.py", line 107, in __init__
+[python3-1]     raise ValueError('person-follow model file missing: '+str(self.p['model_path']))
+[python3-1] ValueError: person-follow model file missing: /home/orin/Wheel_Legged_Agent/models/yolo11n.pt
+[ERROR] [python3-1]: process has died [pid 51221, exit code 1, cmd '/usr/bin/python3 -m wla_person_follow.node --ros-args --params-file /home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow/config/follow.yaml --params-file /home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow/config/indoor.yaml --params-file /home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow/config/voxel_mpc.yaml -p model_path:=/home/orin/Wheel_Legged_Agent/models/yolo11n.pt'].
+[INFO] [follow_mpc_server-4]: sending signal 'SIGINT' to process[follow_mpc_server-4]
+[INFO] [python3-3]: sending signal 'SIGINT' to process[python3-3]
+[INFO] [python3-2]: sending signal 'SIGINT' to process[python3-2]
+[follow_mpc_server-4] [INFO] [1791779115.717725451] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [follow_mpc_server-4]: process has finished cleanly [pid 51224]
+[INFO] [python3-3]: process has finished cleanly [pid 51223]
+[INFO] [python3-2]: process has finished cleanly [pid 51222]

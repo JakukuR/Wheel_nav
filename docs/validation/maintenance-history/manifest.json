@@ -1,0 +1,1128 @@
+{
+  "archived_at": "2026-10-13T11:17:43.613409+08:00",
+  "files": [
+    {
+      "path": "agent_detection_reuse_20261012/Wheel_Legged_Agent-final-git-status.txt",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/Wheel_Legged_Agent-final-git-status.txt",
+      "bytes": 2786,
+      "sha256": "b5d868ac46e3868c8f84f5bcc424706b18f53d5e487cc3982d0c6a144f711971"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/agent-producer-final.xml",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/agent-producer-final.xml",
+      "bytes": 2421,
+      "sha256": "3a93204c3b254c0ff8e27ee81a1c59873daf21b15113c6f7e512ed13b18f0b67"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/agent-producer.xml",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/agent-producer.xml",
+      "bytes": 2261,
+      "sha256": "e78df9098f4b635f2e282269e44c2995c7ff04e9123032d5319143c1f3a801d3"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/before-drain-navigation-api.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/before-drain-navigation-api.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/before-drain-navigation-checks.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/before-drain-navigation-checks.log",
+      "bytes": 33,
+      "sha256": "31c34281230f0c2037f78e7695b51c6bec3c5a5b03b6c504fdaac73c9b91a91d"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/before-drain-navigation-dds.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/before-drain-navigation-dds.log",
+      "bytes": 1223,
+      "sha256": "8d8e5762d5a29fead372590713bd05425f2624c002814d749d598090b92eab42"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/before-drain-navigation-producer.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/before-drain-navigation-producer.log",
+      "bytes": 3934,
+      "sha256": "147d09000fe5514edd1a203a6cb7cfa086c6d11c65307ec7d170d97d96941fc0"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/before-drain-navigation-producer.xml",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/before-drain-navigation-producer.xml",
+      "bytes": 3804,
+      "sha256": "e083097dc9ce31472ec569f3c5890124b266c4cb2c700b7979bb4eb4ca37579f"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/before-drain-navigation-unit.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/before-drain-navigation-unit.log",
+      "bytes": 210,
+      "sha256": "9dd2e926248e508e589fdf6c8610b5aa105d873e6f6e80fbc6018e6913b7deeb"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/before-drain-real-model-navigation.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/before-drain-real-model-navigation.json",
+      "bytes": 1069,
+      "sha256": "e322da19a72cfcc48c7dd4870921c93e86be00f134c73c13f9079a72bee0abc7"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/before-launch-fix-no-input-follow.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/before-launch-fix-no-input-follow.log",
+      "bytes": 606,
+      "sha256": "bad56991085a692359ab3ea9415ae178fc648ae7e2af190b1df17f5defc2ba7e"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/before-launch-fix-no-input-producer.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/before-launch-fix-no-input-producer.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/before-launch-fix-no-input-smoke.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/before-launch-fix-no-input-smoke.log",
+      "bytes": 304,
+      "sha256": "b86663ad3f5f8dfb56dc8442d0a5a1099caea3303dd23ff04c7572357ce0d491"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/build.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/build.log",
+      "bytes": 2977,
+      "sha256": "59ea0445ec5b6e5d23492f883d2798070fb779830933b1a5d0597463c4ddbfc9"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/callback-drain-conclusion.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/callback-drain-conclusion.json",
+      "bytes": 412,
+      "sha256": "7a12faa0d382c8036ebdeb2e307195fb1a7c92b73242aec437d08f90f8ae9a14"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/capture.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/capture.json",
+      "bytes": 90,
+      "sha256": "2cd120a4e29d69150a3c7c25b8b0a0db7a04f15a18031faabb740376ff8aecd0"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/cpu-download-attempt.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/cpu-download-attempt.log",
+      "bytes": 1583,
+      "sha256": "6cd9f3e52c681fc56f847304722a2dbff805001f63835e1364abe40f0b9a51fa"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/documentation-manifest.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/documentation-manifest.json",
+      "bytes": 1509,
+      "sha256": "0f289eb95dfc24c0bc66c3a0556c15daf7df109ef324061f8f7a2766c3f61121"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/entrypoint-check.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/entrypoint-check.json",
+      "bytes": 530,
+      "sha256": "cc603a96dc09ac9aec0ba7f653746b54794a71b09ff88bfe5c7ad14745f4d101"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/final-documentation-manifest.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/final-documentation-manifest.json",
+      "bytes": 776,
+      "sha256": "24553017913664a9c7991b4c8c1a53e2b9b26dff85facab130aec59f18752f66"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/final-follow-and-stream.xml",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/final-follow-and-stream.xml",
+      "bytes": 14208,
+      "sha256": "ec63ccb207bc4668266597147c2b8e1b2230f65c7d4b074afc10dd043efc8e79"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/final-follow-build.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/final-follow-build.log",
+      "bytes": 107,
+      "sha256": "3d32d879095421dfc76e9293f9284a788d7dbf4127c21fedbeb274731ecde108"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/final-follow-tests.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/final-follow-tests.log",
+      "bytes": 294,
+      "sha256": "15df6433f1db0913cfc0b1429f808d14ead6f7298d882a2e60e151d14793d034"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/final-follow.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/final-follow.log",
+      "bytes": 32,
+      "sha256": "eb9777546dccabc923d4a24b105b431278bcfdae86d7fbbdc1333601ff2a5484"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/final-preflight.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/final-preflight.json",
+      "bytes": 1267,
+      "sha256": "a961e09e12ed872c9df22db7d5c977376a4b9cc897a7059e78efcf0ce9e4dc2b"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/final-validation.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/final-validation.json",
+      "bytes": 10222,
+      "sha256": "aa539eb2f20b7156da1bcca200a33baa33894a85f70ac1ab14330c2c48f10836"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/first-build.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/first-build.log",
+      "bytes": 8438,
+      "sha256": "1500ccf4d4c7ddf5f887fc38bf972dbfbe18def69f0b22f8bc4678882d6750e7"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/fixture-selected-map.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/fixture-selected-map.json",
+      "bytes": 104,
+      "sha256": "f2f28601b23dbf2baa9ebf05b06208760fa7eb36c329eabefe732e2c45f51fbb"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/follow-and-stream.xml",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/follow-and-stream.xml",
+      "bytes": 13720,
+      "sha256": "808bc0d83ca81d891951abde61f03fd867405d0a13625d3be2adbbc27f0e7bb1"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/gpu-install.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/gpu-install.log",
+      "bytes": 7508,
+      "sha256": "3d0be848545d5c5bc857667c038170c2cf2a99bf81d769cf61d37b6cc88b91ac"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/group-interrupt-no-input-follow.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/group-interrupt-no-input-follow.log",
+      "bytes": 5831,
+      "sha256": "e7524ab5d3c0a70725ab19697ae7f5d17b748b512e7553f0c765dcead717fffd"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/group-interrupt-no-input-producer.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/group-interrupt-no-input-producer.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/group-interrupt-no-input-smoke.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/group-interrupt-no-input-smoke.json",
+      "bytes": 225,
+      "sha256": "8a1cea2839d9ac4df74f4874f78ece03be55570ee67d57b64acc77d60ee26520"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/group-interrupt-no-input-smoke.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/group-interrupt-no-input-smoke.log",
+      "bytes": 198,
+      "sha256": "7364262d8c1822b3bbf2c833a30e0d65a2ba714358424673fc2f3a2350676131"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/installed.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/installed.json",
+      "bytes": 2663,
+      "sha256": "c26face02b9e5bb29bdee16434250ef5fc9462ee6c2b18bd31fece8d21b340d8"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/model-checks.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/model-checks.log",
+      "bytes": 27,
+      "sha256": "fc65d9510be5ebb3c8511c192b8841b111f0a8d759e849a67060dc6c8c56f2db"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/model-smoke.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/model-smoke.json",
+      "bytes": 1191,
+      "sha256": "dfd27a81d1bc78cceb3fb039299ea54a7ec6edb3e8d6c3aab5fa36e8d093d710"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/model-smoke.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/model-smoke.log",
+      "bytes": 2357,
+      "sha256": "3c270bed60afd2346525035142d284d711ab91c6d60025a47816698d96a3d2c8"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/navigation-api.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/navigation-api.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/navigation-checks.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/navigation-checks.log",
+      "bytes": 33,
+      "sha256": "31c34281230f0c2037f78e7695b51c6bec3c5a5b03b6c504fdaac73c9b91a91d"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/navigation-dds.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/navigation-dds.log",
+      "bytes": 1224,
+      "sha256": "e6c2df1773df3c548e40d222f3a48f086fb4ec9d7edd95dfe1b8f33857881966"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/navigation-producer.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/navigation-producer.log",
+      "bytes": 3696,
+      "sha256": "244f355ca336bce23868948424d42a947b67883267777f876d05b082ca15bd1e"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/navigation-producer.xml",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/navigation-producer.xml",
+      "bytes": 3804,
+      "sha256": "c016e954971b180a6fea2f3243c52a08d25fc88018097ea099f1050cdb025f3f"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/navigation-unit.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/navigation-unit.log",
+      "bytes": 210,
+      "sha256": "1b0e39f745edbefcbcece950f9287ce3490613d1b68c8dcab8cc4792cbf20f6d"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/no-input-follow.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/no-input-follow.log",
+      "bytes": 1789,
+      "sha256": "19473053ca060d0f5af08c034d73c28525e7da5fd1e7e7dd7ce4009a35416a8c"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/no-input-producer.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/no-input-producer.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/no-input-smoke.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/no-input-smoke.json",
+      "bytes": 225,
+      "sha256": "be2bef85979eff144847b6c5728e62d94d56d99e97269623809eae20c5f947f5"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/no-input-smoke.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/no-input-smoke.log",
+      "bytes": 198,
+      "sha256": "10dc4d85166e9341661454cdecb1f777eeb6fb2043e6089ba02c1f8f98fa1020"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/offline-install.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/offline-install.log",
+      "bytes": 9155,
+      "sha256": "4fd4e24791fa44757a86a639b1b47a4bda04c7501a09cd6a6189b531685fc07e"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/real-model-dds.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/real-model-dds.json",
+      "bytes": 424,
+      "sha256": "2a45f5bac6832ff5007006040aebcbaf0c23ee78ccf52e5933a975e05ed17810"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/real-model-dds.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/real-model-dds.log",
+      "bytes": 683,
+      "sha256": "66c45e944d52e0419b03eeaa27547221af7fc3131d86d0e48a312c3081e2f73b"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/real-model-navigation.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/real-model-navigation.json",
+      "bytes": 1070,
+      "sha256": "76b2c1a0698f95cd1ade656acb5320a61c77df90677edf036e71d205d2685347"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/real-model-producer.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/real-model-producer.log",
+      "bytes": 3147,
+      "sha256": "bf43877a290f5e9a5c5a6d1bbe6a52062c60c8707ab4b7d33f659c305697cbfa"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/real-preflight.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/real-preflight.json",
+      "bytes": 1221,
+      "sha256": "830db6fc0db14d832d97358dac41f8e1652a8d08699bf8053d1bd29bede42f78"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/ros2_ws-final-git-status.txt",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/ros2_ws-final-git-status.txt",
+      "bytes": 2872,
+      "sha256": "d8f50ac6ed00eba3f3745b7dd6886ae4434160c461680ad86c5c3a7d34f68422"
+    },
+    {
+      "path": "agent_detection_reuse_20261012/runtime-install.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/runtime-install.log",
+      "bytes": 1583,
+      "sha256": "6cd9f3e52c681fc56f847304722a2dbff805001f63835e1364abe40f0b9a51fa"
+    },
+    {
+      "path": "agent_semantic_integration_20261012/before-manifest.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_semantic_integration_20261012/before-manifest.json",
+      "bytes": 2792,
+      "sha256": "611583bd5f9e486cba109b2b9770ae3c8c8d2102cf850f1cbc27b39f4a8fddd5"
+    },
+    {
+      "path": "agent_semantic_integration_20261012/build.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_semantic_integration_20261012/build.log",
+      "bytes": 846,
+      "sha256": "69722e6b072099fee9c3d5f6778af3eddae6b4a34d3d38e3e2e536ffdc6a279c"
+    },
+    {
+      "path": "agent_semantic_integration_20261012/final-manifest.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_semantic_integration_20261012/final-manifest.json",
+      "bytes": 4714,
+      "sha256": "70b7b0cddedab49023c50c61aec10708286483530f4ba21b7439675168051052"
+    },
+    {
+      "path": "agent_semantic_integration_20261012/installed-manifest.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_semantic_integration_20261012/installed-manifest.json",
+      "bytes": 4714,
+      "sha256": "bc0f5f89275ef8d1eecbab44634283cedb08c5f5e1b09154254352f109361683"
+    },
+    {
+      "path": "agent_semantic_integration_20261012/integration-complete.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_semantic_integration_20261012/integration-complete.json",
+      "bytes": 304,
+      "sha256": "43e8467ba45442d90818d323431c6a9859c9169b22181e1da20dfaf171b03a8d"
+    },
+    {
+      "path": "agent_semantic_integration_20261012/launch-fix-build.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_semantic_integration_20261012/launch-fix-build.log",
+      "bytes": 111,
+      "sha256": "01cb83122359f2a0c00e4ed87baa859931c3de7ac7605e11edc12c412e6bd2b1"
+    },
+    {
+      "path": "agent_semantic_integration_20261012/validation/actual-map-preview-result.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_semantic_integration_20261012/validation/actual-map-preview-result.json",
+      "bytes": 1013,
+      "sha256": "ab0e0f5b55f59f7bf2dd53bf571bc30b5b4fb85b136116f9cb4b478765c6f38b"
+    },
+    {
+      "path": "agent_semantic_integration_20261012/validation/api-smoke.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_semantic_integration_20261012/validation/api-smoke.log",
+      "bytes": 465,
+      "sha256": "685e7f3d25dcef5073736d16bf20228b555d5660d1bb160f76407333164ec832"
+    },
+    {
+      "path": "agent_semantic_integration_20261012/validation/bridge-smoke.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_semantic_integration_20261012/validation/bridge-smoke.log",
+      "bytes": 1022,
+      "sha256": "155ceebbd20ec37dadd1c0a431c018e91b0f3f351cd5f89a0edbb2cbafd24866"
+    },
+    {
+      "path": "agent_semantic_integration_20261012/validation/dds-smoke-result.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_semantic_integration_20261012/validation/dds-smoke-result.json",
+      "bytes": 605,
+      "sha256": "e11bfdc2e9440c76aa9d3bc8f692ebeff26e5d1b79bfec1a324dccd87e8775ab"
+    },
+    {
+      "path": "agent_semantic_integration_20261012/validation/dds.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_semantic_integration_20261012/validation/dds.log",
+      "bytes": 559,
+      "sha256": "668feacea56365f5245d1f88171d99f168c455b60d4f19763fdc878811038270"
+    },
+    {
+      "path": "agent_semantic_integration_20261012/validation/installed-integration.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_semantic_integration_20261012/validation/installed-integration.json",
+      "bytes": 1417,
+      "sha256": "7b5232ae1cc88afb8b1e6e245a86048e9b50b5a0c4b08e7a1a755a600d09afe8"
+    },
+    {
+      "path": "agent_semantic_integration_20261012/validation/preview-after-archive.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_semantic_integration_20261012/validation/preview-after-archive.log",
+      "bytes": 1014,
+      "sha256": "d763d6953cd39bda00c6a7ff5660b02bab0f496230fec6044404f003f7a79fb6"
+    },
+    {
+      "path": "agent_semantic_integration_20261012/validation/preview-api.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_semantic_integration_20261012/validation/preview-api.log",
+      "bytes": 465,
+      "sha256": "4e615000ff0c46e331496b00a3f5f7d589a637a1440760a850845f63ca160876"
+    },
+    {
+      "path": "agent_semantic_integration_20261012/validation/provenance-after-archive.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_semantic_integration_20261012/validation/provenance-after-archive.json",
+      "bytes": 1418,
+      "sha256": "be7fb376c0c15834654af6ef56a1db7bb38cca73c7eb35b551ea0f859991433d"
+    },
+    {
+      "path": "agent_semantic_integration_20261012/validation/smoke-policy.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_semantic_integration_20261012/validation/smoke-policy.json",
+      "bytes": 405,
+      "sha256": "856015346519fe65fb07800a04155a1674c84ad870126201de3a2e8494ba2ce2"
+    },
+    {
+      "path": "agent_semantic_integration_20261012/validation/smoke-selected.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/agent_semantic_integration_20261012/validation/smoke-selected.json",
+      "bytes": 130,
+      "sha256": "0fc6d21db2816b397d25b424c16ec6d356f3f81de9d8489d0e940f99b8f91059"
+    },
+    {
+      "path": "nav_perception_owner_20261012/api-replay.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/api-replay.log",
+      "bytes": 468,
+      "sha256": "df815058568bf8f3a7fbc1e13b8e2100f44d9e3e7672653e78345412bbd705ea"
+    },
+    {
+      "path": "nav_perception_owner_20261012/build-test-driver.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/build-test-driver.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "nav_perception_owner_20261012/build-test-result",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/build-test-result",
+      "bytes": 8,
+      "sha256": "1f513d4ecec4e91ddd48da1a59b6d96f1b76c374dc1da641980782a34f43b102"
+    },
+    {
+      "path": "nav_perception_owner_20261012/build.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/build.log",
+      "bytes": 29184,
+      "sha256": "7205f214e6224155b7fa40465fa858b67445cdcd06a87326d52c314a3b28ff6e"
+    },
+    {
+      "path": "nav_perception_owner_20261012/check.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/check.log",
+      "bytes": 1093,
+      "sha256": "e26b6258a30f493648a4ccb2d25511552d3cbd1af11519ce464cf96f492139b7"
+    },
+    {
+      "path": "nav_perception_owner_20261012/docs-install.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/docs-install.log",
+      "bytes": 4738,
+      "sha256": "cb245e833bde74447fb88a025cfc52076b6d95dda17b129298f7377eaff0dc20"
+    },
+    {
+      "path": "nav_perception_owner_20261012/final-audit.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/final-audit.json",
+      "bytes": 1258,
+      "sha256": "3acf19097bbc9a191afe6fa6cdedbb32e050e1c4f8ad9efd09fc500d5c39c281"
+    },
+    {
+      "path": "nav_perception_owner_20261012/final-build.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/final-build.log",
+      "bytes": 16936,
+      "sha256": "2bde566be58e0669cda34793b0cbc0f93395441ef9f9ad67f3d29f3a9d8dc50c"
+    },
+    {
+      "path": "nav_perception_owner_20261012/final-runtime-driver.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/final-runtime-driver.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "nav_perception_owner_20261012/final-runtime-result",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/final-runtime-result",
+      "bytes": 8,
+      "sha256": "1f513d4ecec4e91ddd48da1a59b6d96f1b76c374dc1da641980782a34f43b102"
+    },
+    {
+      "path": "nav_perception_owner_20261012/fixture-selected-map.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/fixture-selected-map.json",
+      "bytes": 104,
+      "sha256": "f2f28601b23dbf2baa9ebf05b06208760fa7eb36c329eabefe732e2c45f51fbb"
+    },
+    {
+      "path": "nav_perception_owner_20261012/follow-tests.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/follow-tests.log",
+      "bytes": 294,
+      "sha256": "ede84def21d174d2adfb7ec4e5985651397965cd7a40d4725ea2369330b85d35"
+    },
+    {
+      "path": "nav_perception_owner_20261012/follow-tests.xml",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/follow-tests.xml",
+      "bytes": 17434,
+      "sha256": "51475d41af6a945875bee8844ca244e82bc2acf7b6ae421f3b011c0725059135"
+    },
+    {
+      "path": "nav_perception_owner_20261012/full-follow-tests.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/full-follow-tests.log",
+      "bytes": 287,
+      "sha256": "e3f0625f6103a0207b4295f32fc857fcda61e6684fbe6ec74e8eac28143eacea"
+    },
+    {
+      "path": "nav_perception_owner_20261012/full-follow-tests.xml",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/full-follow-tests.xml",
+      "bytes": 14208,
+      "sha256": "99f25566d2cccbfe9ddc75d2f32e10dcb561f7ceca3251a692f003f5b4254388"
+    },
+    {
+      "path": "nav_perception_owner_20261012/installed-manifest.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/installed-manifest.json",
+      "bytes": 6379,
+      "sha256": "f499cc4541bd0b5041e31a77ec5a357283f68580993c4aed1f39fb65379e3c93"
+    },
+    {
+      "path": "nav_perception_owner_20261012/nav-replay.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/nav-replay.log",
+      "bytes": 6653,
+      "sha256": "624899bbe0fba0aa04f2d8cca4da85f97d07e5cadafdce0de06c612eea9906a2"
+    },
+    {
+      "path": "nav_perception_owner_20261012/new-tests.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/new-tests.log",
+      "bytes": 199,
+      "sha256": "2f252b9d2df989695f6eb61ecbf90f1cd3b2ac99cca527745834d8851354d76f"
+    },
+    {
+      "path": "nav_perception_owner_20261012/new-tests.xml",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/new-tests.xml",
+      "bytes": 2125,
+      "sha256": "6f35723383ef4216022cbd2bfabb2229f613beba0f527266e734a0d32ac8caf8"
+    },
+    {
+      "path": "nav_perception_owner_20261012/no-input-follow.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/no-input-follow.log",
+      "bytes": 1798,
+      "sha256": "ebf7937e063c2c346792de0510b007e860ddeae88a3c4a64722a1b168c69b066"
+    },
+    {
+      "path": "nav_perception_owner_20261012/no-input-producer.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/no-input-producer.log",
+      "bytes": 744,
+      "sha256": "2395f805716f44f3fe261bd841a796171ca13923643749ff29d009884303976e"
+    },
+    {
+      "path": "nav_perception_owner_20261012/no-input-smoke.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/no-input-smoke.json",
+      "bytes": 282,
+      "sha256": "3954f8df689abec316b5879c15cdc73f1fe8166e4c7783963f8d78a4596b6bf5"
+    },
+    {
+      "path": "nav_perception_owner_20261012/no-input-smoke.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/no-input-smoke.log",
+      "bytes": 253,
+      "sha256": "5acb67b4248883282d9474a7ac34020741b45c95d6af8e097443dcd9def071d7"
+    },
+    {
+      "path": "nav_perception_owner_20261012/real-nav-replay.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/real-nav-replay.json",
+      "bytes": 1841,
+      "sha256": "5876ffb9bdf70c15d5c282a7ba6ee127ea78cc452faa782ff6bc40eb304910f5"
+    },
+    {
+      "path": "nav_perception_owner_20261012/real-nav-replay.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/real-nav-replay.log",
+      "bytes": 2013,
+      "sha256": "dcc9b9a4f88e8ac5de2e6b39d29eee508f7dc5725c67c757bcfe41e2419351c5"
+    },
+    {
+      "path": "nav_perception_owner_20261012/rebuild.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/rebuild.log",
+      "bytes": 20206,
+      "sha256": "e28bf11eb4b6fa5d7747f7e870abc043c1a6c167da8f7b3ce1a9cec924a51163"
+    },
+    {
+      "path": "nav_perception_owner_20261012/retry-driver.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/retry-driver.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "nav_perception_owner_20261012/runtime-driver.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/runtime-driver.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "nav_perception_owner_20261012/runtime-result",
+      "original_path": "/home/orin/ros2_ws/.maintenance/nav_perception_owner_20261012/runtime-result",
+      "bytes": 8,
+      "sha256": "1f513d4ecec4e91ddd48da1a59b6d96f1b76c374dc1da641980782a34f43b102"
+    },
+    {
+      "path": "person_follow_integration_20261012/build.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/build.log",
+      "bytes": 382,
+      "sha256": "f743e99b12d3c4b659d62c7d409d5f35e6a12972378e645540f835fc1f89b0b5"
+    },
+    {
+      "path": "person_follow_integration_20261012/final-manifest.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/final-manifest.json",
+      "bytes": 7510,
+      "sha256": "2d1c3fa1d4b732732e23b61149f9f635878df27c41e03023899f6d78fd31d688"
+    },
+    {
+      "path": "person_follow_integration_20261012/footprint-delta-manifest.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/footprint-delta-manifest.json",
+      "bytes": 1386,
+      "sha256": "c69fff095c63627b87a44837b6d5ebbd6c21fdea6035bc717ec46fdea3103f75"
+    },
+    {
+      "path": "person_follow_integration_20261012/health-delta-manifest.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/health-delta-manifest.json",
+      "bytes": 1330,
+      "sha256": "35ad4d9cade434317b5bf57b41b0daff23f3f7f86c33a7aa32eaf39442b545f8"
+    },
+    {
+      "path": "person_follow_integration_20261012/installed-manifest.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/installed-manifest.json",
+      "bytes": 12562,
+      "sha256": "17d36625e6b7196d7e6126c50bcc8b36ad73880c025a22081542f537a2f9c4db"
+    },
+    {
+      "path": "person_follow_integration_20261012/integration-complete.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/integration-complete.json",
+      "bytes": 3724,
+      "sha256": "943acc63a0e78507eb88de33981dc84c295b5184f0e2429680110e282d68aff7"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/after-archive-plugin.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/after-archive-plugin.log",
+      "bytes": 66,
+      "sha256": "6e38e04292d1b09e194e3826515ae89063b6b3481d7e0c6298cf90e065fed356"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/after-archive-service.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/after-archive-service.log",
+      "bytes": 226,
+      "sha256": "6e44974d27c49b3779fb65cbda9be564fc3eee81f081bdeb56e69c66e29c7246"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/after-archive-service.xml",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/after-archive-service.xml",
+      "bytes": 935,
+      "sha256": "74ae274b3d1644e139cf4d5c38f22b40cd21a65f0a95676b093eb34135855b46"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/agent-dds-smoke.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/agent-dds-smoke.log",
+      "bytes": 859,
+      "sha256": "83128364276ac34162042c0c9213a59cfc8fadbf31b3a3630951c950e2326538"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/api-smoke.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/api-smoke.log",
+      "bytes": 811,
+      "sha256": "d55ba915f80a1dbb7b520f7a7152248a7915e0dccb794c9ee97f9f9ed276f9f2"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/bridge-smoke.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/bridge-smoke.log",
+      "bytes": 2068,
+      "sha256": "9785bf469bb7d908dc765782d545ed83ecbabf9c65a4bf51672048538834ce59"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/colcon-test.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/colcon-test.log",
+      "bytes": 172,
+      "sha256": "c03c4c63dca658e441a758d903689ce381f492e17e34967f2b938d638779e138"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/dds-smoke-result.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/dds-smoke-result.json",
+      "bytes": 605,
+      "sha256": "e11bfdc2e9440c76aa9d3bc8f692ebeff26e5d1b79bfec1a324dccd87e8775ab"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/final-provenance.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/final-provenance.json",
+      "bytes": 1514,
+      "sha256": "39d3ba6ed2b805e80f6d98157075fc6e2afee721031dd83c7a6a6e743cced5e0"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/follow-launch-smoke.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/follow-launch-smoke.log",
+      "bytes": 6481,
+      "sha256": "07e1006f8079d5c9c50d9d2510f82462d66ca64edc19b41cb988f7f853004772"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/follow-mpc-linkage.txt",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/follow-mpc-linkage.txt",
+      "bytes": 4950,
+      "sha256": "49f850d631acd7d1bfd6c20d3a83c8aaf991f892d7f336e74d8f69cd53a2db1f"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/follow-tests.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/follow-tests.log",
+      "bytes": 298,
+      "sha256": "7d928f54300970c985db01e24f57c1d624b48ae3388d46d3d5836fcb23b347c6"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/follow-tests.xml",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/follow-tests.xml",
+      "bytes": 9909,
+      "sha256": "c831eb034be391b2cbe14ab4f578160b5135f711ab161dac6ffc9541c249531d"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/footprint-rebuild.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/footprint-rebuild.log",
+      "bytes": 309,
+      "sha256": "46068fc5ac57dd1b196a03ff9bb20fea884e0c03fc48c9e36a27decde4f969b7"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/gateway-ownership.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/gateway-ownership.log",
+      "bytes": 222,
+      "sha256": "4278ce2c5cb73ce0e1dbe577705d08cf0635a741a0cbcb29fd976e6bbfdc7fce"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/gateway-ownership.xml",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/gateway-ownership.xml",
+      "bytes": 1363,
+      "sha256": "9d305c886aa713ef49de8b634fa045766bc6b5985077837c623fe1295a872d81"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/health-follow-tests.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/health-follow-tests.log",
+      "bytes": 298,
+      "sha256": "66d6720e3df46a724e7c2316846996ae62351fe1ae03ec00365983af092baaa1"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/health-follow-tests.xml",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/health-follow-tests.xml",
+      "bytes": 9243,
+      "sha256": "d5619d810ff0dac3c0d12532636684de781abd24d9227c2c7480e416fd2899fc"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/health-rebuild.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/health-rebuild.log",
+      "bytes": 309,
+      "sha256": "07e8f8777b1655ccde938ebd0b8c3c949c1ac1d77da9ad1e375a245d22061e74"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/import-provenance.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/import-provenance.json",
+      "bytes": 834,
+      "sha256": "f8365f823571d217edb14758379434b2b45ca2c7f2210e9d318e0316a68840a7"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/initial-follow-tests.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/initial-follow-tests.log",
+      "bytes": 298,
+      "sha256": "53074c9adbd5d66f841b7fa1c661355908d1749a31de99a395d046c913f2d742"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/initial-follow-tests.xml",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/initial-follow-tests.xml",
+      "bytes": 8944,
+      "sha256": "b27e068ad536410e1730661f700108610fe2c6a9896abe5424f6bc4d78308051"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/launch-dependency-check.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/launch-dependency-check.json",
+      "bytes": 324,
+      "sha256": "72e82ee623af34d4d6f9a5953a91619146daa1da8fc1f8b082f04948adfd0b9b"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/manual-dds.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/manual-dds.log",
+      "bytes": 426,
+      "sha256": "8458b8e930da3c00ffbf7ad7680d65d57683b3c63bc1a0850bce6ce99818d7b1"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/manual-policy.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/manual-policy.log",
+      "bytes": 218,
+      "sha256": "268bab2ebab0711688b5ed33400f3495c4164000e02dc9ef2043f30578c7e899"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/manual-policy.xml",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/manual-policy.xml",
+      "bytes": 802,
+      "sha256": "0fb008d0191c477b3be5fddb79d807bf8345ebf1f35ab36a5c46740e032f62d6"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/missing-model-launch.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/missing-model-launch.log",
+      "bytes": 3628,
+      "sha256": "a2f9a581c6156023bfd55e2e4cdd546c7f21b77bba21f56a3f2b69056fa1823b"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/mpc-colcon-result.txt",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/mpc-colcon-result.txt",
+      "bytes": 50,
+      "sha256": "30486a8587e236385d36bec31bf4130ae9ac039f0a8ea70e17730d3ddd8e46a7"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/nav-mpc-linkage.txt",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/nav-mpc-linkage.txt",
+      "bytes": 8242,
+      "sha256": "ebae6e63bd14a19443dbf2fad4216ce3437d32245191af160f944f71633a1cce"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/navigation-colcon-result.txt",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/navigation-colcon-result.txt",
+      "bytes": 51,
+      "sha256": "f2e29a2bd4a47e6f628a91ea2048409ecfdd5d6b17af66a78691021950284742"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/perception-preflight.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/perception-preflight.json",
+      "bytes": 473,
+      "sha256": "dea8ed4860922f0800cfa3fb44918e98a719d0fa994916d814b99609768d5586"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/plugin-probe-build.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/plugin-probe-build.log",
+      "bytes": 1976,
+      "sha256": "58690df8ee1677218ba4d5c1e8d3e2fcb7ce21f7fcec9606fb246482fa123c20"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/plugin-probe.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/plugin-probe.log",
+      "bytes": 66,
+      "sha256": "6e38e04292d1b09e194e3826515ae89063b6b3481d7e0c6298cf90e065fed356"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/smoke-policy.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/smoke-policy.json",
+      "bytes": 405,
+      "sha256": "856015346519fe65fb07800a04155a1674c84ad870126201de3a2e8494ba2ce2"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/smoke-selected.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/smoke-selected.json",
+      "bytes": 129,
+      "sha256": "6b87cdf3a0e62cc10b3ff17a43e76910459f3c3e6ebf242badec02f304663f39"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/system-regressions.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/system-regressions.log",
+      "bytes": 223,
+      "sha256": "934e1878f46064497e2240856f5c6d4f80abef6799beb476d68dcdfab34fcbdc"
+    },
+    {
+      "path": "person_follow_integration_20261012/validation/system-regressions.xml",
+      "original_path": "/home/orin/ros2_ws/.maintenance/person_follow_integration_20261012/validation/system-regressions.xml",
+      "bytes": 887,
+      "sha256": "db0a5398a5b240bcecca56d94791e4ff7388320edc0039ba67e435aceb0f6293"
+    },
+    {
+      "path": "relative_person_20261012/build-runner.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/build-runner.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "relative_person_20261012/build-test-exit",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/build-test-exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "path": "relative_person_20261012/build-test-result",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/build-test-result",
+      "bytes": 8,
+      "sha256": "1f513d4ecec4e91ddd48da1a59b6d96f1b76c374dc1da641980782a34f43b102"
+    },
+    {
+      "path": "relative_person_20261012/build.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/build.log",
+      "bytes": 66993,
+      "sha256": "6086b2dbbaf561376b0fa13fefe6ea77b617afcad8eb8d82ac223be34544c4c7"
+    },
+    {
+      "path": "relative_person_20261012/final-audit.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/final-audit.json",
+      "bytes": 1843,
+      "sha256": "c7884b6b5556f46da3ef2ad2a497b2530a6a59a6e2e1645082cf9a402c980cef"
+    },
+    {
+      "path": "relative_person_20261012/first-build-failure.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/first-build-failure.json",
+      "bytes": 13994,
+      "sha256": "cb60de9ef2cef6ec1e083de65b7a87c89797b21395d7e4209b5f7ba92e8ca4c7"
+    },
+    {
+      "path": "relative_person_20261012/follow-check.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/follow-check.log",
+      "bytes": 254,
+      "sha256": "34bfb1bcc8b076a7bd52bff5646fb6b9f066d17e734d6f582b5f6aaccbfc73e6"
+    },
+    {
+      "path": "relative_person_20261012/installed-manifest.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/installed-manifest.json",
+      "bytes": 19275,
+      "sha256": "541dc73d3017b6a592f191eb59706d9a92c2b2bf4909d55711cce8b1ad7659a8"
+    },
+    {
+      "path": "relative_person_20261012/model-check.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/model-check.log",
+      "bytes": 1093,
+      "sha256": "e26b6258a30f493648a4ccb2d25511552d3cbd1af11519ce464cf96f492139b7"
+    },
+    {
+      "path": "relative_person_20261012/mux-ros.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/mux-ros.log",
+      "bytes": 165,
+      "sha256": "517a8d053b5b98f7926d00260d3e2a0d437e74af522061b16db3312fe8b639f6"
+    },
+    {
+      "path": "relative_person_20261012/obsolete-cleanup.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/obsolete-cleanup.json",
+      "bytes": 3568,
+      "sha256": "8aa7b7ae3c2bd99c17279b363e0af8ca51518bfc1c1151c95f892fd70978604e"
+    },
+    {
+      "path": "relative_person_20261012/real-perception.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/real-perception.log",
+      "bytes": 2308,
+      "sha256": "8e0536f2f6d61143960a219b0f4f47746a9af83a77e3daf53015b1e1f576a0b1"
+    },
+    {
+      "path": "relative_person_20261012/real-relative-replay.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/real-relative-replay.json",
+      "bytes": 1547,
+      "sha256": "285e59abaf26528cc7695ea52023efbf326d62875dcabdc2e3545d68b30df07f"
+    },
+    {
+      "path": "relative_person_20261012/relative-tests.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/relative-tests.log",
+      "bytes": 440,
+      "sha256": "8244432692649e48e6e42a7bdc4b3397712bfa689b7f79c6e030acf1843aa33e"
+    },
+    {
+      "path": "relative_person_20261012/relative-tests.xml",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/relative-tests.xml",
+      "bytes": 30095,
+      "sha256": "c82d90271c79505bcccbf185f53627139039818046e417c19ba1798ba57b2c41"
+    },
+    {
+      "path": "relative_person_20261012/replay-trace.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/replay-trace.json",
+      "bytes": 513774,
+      "sha256": "241b636fed7974e52a4087de44e40a2074c32d60921ccd4a854c2210a36180af"
+    },
+    {
+      "path": "relative_person_20261012/runs/1791799345393838725/build-test-exit",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/runs/1791799345393838725/build-test-exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "path": "relative_person_20261012/runs/1791799345393838725/build-test-result",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/runs/1791799345393838725/build-test-result",
+      "bytes": 8,
+      "sha256": "1f513d4ecec4e91ddd48da1a59b6d96f1b76c374dc1da641980782a34f43b102"
+    },
+    {
+      "path": "relative_person_20261012/runs/1791799345393838725/build.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/runs/1791799345393838725/build.log",
+      "bytes": 66993,
+      "sha256": "575c4387513c3ec7ff77df42cf8e27035b331dfb71552327ac26b7b69828ef8a"
+    },
+    {
+      "path": "relative_person_20261012/runs/1791799345393838725/follow-check.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/runs/1791799345393838725/follow-check.log",
+      "bytes": 254,
+      "sha256": "34bfb1bcc8b076a7bd52bff5646fb6b9f066d17e734d6f582b5f6aaccbfc73e6"
+    },
+    {
+      "path": "relative_person_20261012/runs/1791799345393838725/model-check.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/runs/1791799345393838725/model-check.log",
+      "bytes": 1093,
+      "sha256": "e26b6258a30f493648a4ccb2d25511552d3cbd1af11519ce464cf96f492139b7"
+    },
+    {
+      "path": "relative_person_20261012/runs/1791799345393838725/mux-ros.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/runs/1791799345393838725/mux-ros.log",
+      "bytes": 165,
+      "sha256": "517a8d053b5b98f7926d00260d3e2a0d437e74af522061b16db3312fe8b639f6"
+    },
+    {
+      "path": "relative_person_20261012/runs/1791799345393838725/relative-tests.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/runs/1791799345393838725/relative-tests.log",
+      "bytes": 440,
+      "sha256": "77792caa0d6fef721a42ee9f76c04a275c5b8e849a09d122a9893c6620a84898"
+    },
+    {
+      "path": "relative_person_20261012/runs/1791799345393838725/relative-tests.xml",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/runs/1791799345393838725/relative-tests.xml",
+      "bytes": 29952,
+      "sha256": "3d14fa8c681cbccfd7f8b5bf14edad31f0cffdaf92e7b50cec21c9cc0d6a4f3c"
+    },
+    {
+      "path": "relative_person_20261012/runs/1791799448903830446/real-perception.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/runs/1791799448903830446/real-perception.log",
+      "bytes": 2020,
+      "sha256": "2d1cd6dfb6d7e1e60eb2a42ab3cd7625b6c7c73c0d3f95445ed52d02cf19f9bb"
+    },
+    {
+      "path": "relative_person_20261012/runs/1791799448903830446/replay-trace.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/runs/1791799448903830446/replay-trace.json",
+      "bytes": 40928,
+      "sha256": "8a851afe8e21e1ae4686db02dda5c5fea2dee95b56f6cd854334f636df183501"
+    },
+    {
+      "path": "relative_person_20261012/runs/1791799448903830446/runtime-exit",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/runs/1791799448903830446/runtime-exit",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "path": "relative_person_20261012/runs/1791799448903830446/runtime.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/runs/1791799448903830446/runtime.log",
+      "bytes": 484,
+      "sha256": "019bd52c4e7b9231382086863ffdd8784d1e70cae17cc9e20f08edf398083d83"
+    },
+    {
+      "path": "relative_person_20261012/runtime-exit",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/runtime-exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "path": "relative_person_20261012/runtime.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/relative_person_20261012/runtime.log",
+      "bytes": 1741,
+      "sha256": "742456aa3771db59ee1906f07fd754dcd1a46dec9c6c0b117063ca179511f016"
+    },
+    {
+      "path": "remove_agent_yolo_gate_20261013/changes.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/remove_agent_yolo_gate_20261013/changes.json",
+      "bytes": 3102,
+      "sha256": "16245365938fcad406c96c23ff5104fbc61540482b361b0cc204a0104423116b"
+    },
+    {
+      "path": "remove_agent_yolo_gate_20261013/final-audit.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/remove_agent_yolo_gate_20261013/final-audit.json",
+      "bytes": 4960,
+      "sha256": "b5c1d8951b22d639c52a9b914ba761d8ed3ba8d4a7f7e8d187e638f975e132f7"
+    },
+    {
+      "path": "remove_agent_yolo_gate_20261013/gate-removal-tests.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/remove_agent_yolo_gate_20261013/gate-removal-tests.log",
+      "bytes": 291,
+      "sha256": "cbdfaca64e5282eb09c8bbbae10848e8929c302c30242775d215d25af8975504"
+    },
+    {
+      "path": "remove_agent_yolo_gate_20261013/gate-removal-tests.xml",
+      "original_path": "/home/orin/ros2_ws/.maintenance/remove_agent_yolo_gate_20261013/gate-removal-tests.xml",
+      "bytes": 11800,
+      "sha256": "da897dfe4921bd4e7802e55e359e70da915966b97874d5e00248d3bb9f6a4ef5"
+    },
+    {
+      "path": "remove_agent_yolo_gate_20261013/installed-before.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/remove_agent_yolo_gate_20261013/installed-before.json",
+      "bytes": 691,
+      "sha256": "deb04680fc6a6a0349347dd37b8377e39e90ff612ed93f3f30faa8182d84fcd7"
+    },
+    {
+      "path": "remove_agent_yolo_gate_20261013/previous-20261013T022723/gate-removal-tests.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/remove_agent_yolo_gate_20261013/previous-20261013T022723/gate-removal-tests.log",
+      "bytes": 231,
+      "sha256": "c40c589ceef67b63f624e7a2ac8dc16a8e3ad7df1898d2e717fe0bb0258c84ac"
+    },
+    {
+      "path": "remove_agent_yolo_gate_20261013/previous-20261013T022723/gate-removal-tests.xml",
+      "original_path": "/home/orin/ros2_ws/.maintenance/remove_agent_yolo_gate_20261013/previous-20261013T022723/gate-removal-tests.xml",
+      "bytes": 221,
+      "sha256": "3e00b66e4de640bf8007fcf6c43fdfd3bac30dd97e3bf7a51c3ba2fdf3ca0208"
+    },
+    {
+      "path": "remove_agent_yolo_gate_20261013/previous-20261013T022723/validation.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/remove_agent_yolo_gate_20261013/previous-20261013T022723/validation.json",
+      "bytes": 1934,
+      "sha256": "e91628ce5b5b83ec1c4f8851e599fc9ecd15947fb7f09611f276ab0dbfec1347"
+    },
+    {
+      "path": "remove_agent_yolo_gate_20261013/previous-20261013T022830/gate-removal-tests.log",
+      "original_path": "/home/orin/ros2_ws/.maintenance/remove_agent_yolo_gate_20261013/previous-20261013T022830/gate-removal-tests.log",
+      "bytes": 302,
+      "sha256": "8b89c6b82bb1e0ccdeaf7ac14ed34c37715aaf938a1e45783b1b1686ac59a2a7"
+    },
+    {
+      "path": "remove_agent_yolo_gate_20261013/previous-20261013T022830/gate-removal-tests.xml",
+      "original_path": "/home/orin/ros2_ws/.maintenance/remove_agent_yolo_gate_20261013/previous-20261013T022830/gate-removal-tests.xml",
+      "bytes": 11985,
+      "sha256": "c12fa1187189c4b39112c28f5a2712ff893c2f575ca4266c2f3817fcda86d705"
+    },
+    {
+      "path": "remove_agent_yolo_gate_20261013/previous-20261013T022830/validation.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/remove_agent_yolo_gate_20261013/previous-20261013T022830/validation.json",
+      "bytes": 1936,
+      "sha256": "6c9642e2a0dcfabf9303320a8b64c0b0865ce5bbcf0bb189e0aaad14e9a3ebf6"
+    },
+    {
+      "path": "remove_agent_yolo_gate_20261013/validation.json",
+      "original_path": "/home/orin/ros2_ws/.maintenance/remove_agent_yolo_gate_20261013/validation.json",
+      "bytes": 1936,
+      "sha256": "dbb79c7d42c98b3cb364afd3490f3171bff55d4c70e274d6a6d80bd7bc8f022f"
+    }
+  ],
+  "bytes": 1211109
+}

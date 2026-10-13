@@ -1,0 +1,23 @@
+{
+  "ros2_ws/src/wla_detection_bridge/wla_detection_bridge/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "ros2_ws/src/wla_detection_bridge/wla_detection_bridge/stream.py": "f5d503a20825ad0e4248a1504d0dd8548a1f70f7f19084aeb6ab6f82bea27286",
+  "ros2_ws/src/wla_detection_bridge/resource/wla_detection_bridge": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "ros2_ws/src/wla_detection_bridge/setup.cfg": "f3f05e30639634992eee0e121cc301b868baffaa1d028324ebe941a62dca2599",
+  "ros2_ws/src/wla_detection_bridge/setup.py": "4783b39087efb741b39205ea0b1aacd47ebcaecf39fef46eec4802122b9cfc3c",
+  "ros2_ws/src/wla_detection_bridge/package.xml": "dd64fcde8d690922e35177e03d3f03ebb343ea972de8fc7c01bf2e2b69cd20ae",
+  "Wheel_Legged_Agent/scripts/r680_d455_perception.py": "53081a3aac60a1001ab9451ce6eee72e4236d389dc5a0295705fa8f9a25bed6a",
+  "Wheel_Legged_Agent/scripts/start_r680_d455_perception.sh": "840f135b2e8bf3494208b6bf42d80f850c88966f23dd158520c61a7543cb295c",
+  "ros2_ws/src/wla_person_follow/wla_person_follow/node.py": "596593a7ef391688abfac80fbe276b4a16600a4914c746b523f30f1ce63b0a4a",
+  "ros2_ws/src/wla_person_follow/config/follow.yaml": "086d5ce28b1faee4da6f65156dcce2084c4a45a308914895ad1e79a8d2cb9257",
+  "ros2_ws/src/wla_person_follow/package.xml": "b163d7d0ae3b289117fc57e56e1d89787e460887067569d2070bb0bd6ed15dd7",
+  "ros2_ws/src/wla_r680_navigation/package.xml": "1b1a13fbe2a8da279fddb5de9e481915fc594257bc2a0ab37f5465eee820a009",
+  "ros2_ws/src/wla_person_follow/launch/follow.launch.py": "283327b6001e6a19385a76859156720dcac4163578596d74d94ce3bcc1b2458c",
+  "ros2_ws/src/wla_person_follow/launch/autonomous_follow.launch.py": "e5148cf1dfaedb0072210efaf8645499cfca851bf3fa3bd3e84172f3f002a59f",
+  "ros2_ws/src/wla_person_follow/launch/voxel_mpc_follow.launch.py": "3905edf0f54ba1094ddb091bd6439f2e159564957a3df6f936b932fc038f47ec",
+  "ros2_ws/src/wla_r680_navigation/scripts/furniture_semantic.py": "cbb9b425665faccf31141cf0e82b2ead45cf7116ba2ddd6094ddd2c814067c60",
+  "ros2_ws/src/wla_r680_navigation/launch/bringup.launch.py": "952da703aa0a845f4115a1eb3789267fa0569bcf4460e114f23518a8586709d0",
+  "ros2_ws/r680_person_follow.sh": "74607e7f81ec956de02d5acbaf79faffdc0c43c3979721155333aa97d3dc5091",
+  "Wheel_Legged_Agent/tests/test_d455_perception_runner.py": "43b957e16f34f9bb08ecaecaa56c3d50e7869a16d971093b9d9b4394152422f0",
+  "ros2_ws/src/wla_detection_bridge/test/test_stream.py": "60ef1cb9d93792e90390ef54d2c7bb3db9d48f06a37d8ffe16baf0afa95ae7c6",
+  "ros2_ws/src/wla_person_follow/test/test_shared_detections_ros.py": "376d9fcc3ca8b308d117ef01a426d8a09de871e77d75d81b0e5ca3003c2db259"
+}

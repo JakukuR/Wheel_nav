@@ -1,0 +1,16 @@
+[
+  {
+    "path": "/home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/nav_yolo_detector",
+    "resolved": "/home/orin/ros2_ws/src/wla_r680_navigation/scripts/nav_yolo_detector",
+    "source": "/home/orin/ros2_ws/src/wla_r680_navigation/scripts/nav_yolo_detector",
+    "symlink": true,
+    "matches_source": true
+  },
+  {
+    "path": "/home/orin/ros2_ws/install/wla_behavior_bridge/lib/wla_behavior_bridge/agent_person_api",
+    "resolved": "/home/orin/ros2_ws/install/wla_behavior_bridge/lib/wla_behavior_bridge/agent_person_api",
+    "source": "/home/orin/ros2_ws/src/wla_behavior_bridge/scripts/agent_person_api",
+    "symlink": false,
+    "matches_source": false
+  }
+]

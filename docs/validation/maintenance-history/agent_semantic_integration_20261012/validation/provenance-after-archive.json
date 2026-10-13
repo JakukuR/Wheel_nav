@@ -1,0 +1,28 @@
+{
+  "package_prefixes": {
+    "wla_behavior_interfaces": "/home/orin/ros2_ws/install/wla_behavior_interfaces",
+    "wla_behavior_bt": "/home/orin/ros2_ws/install/wla_behavior_bt",
+    "wla_behavior_bridge": "/home/orin/ros2_ws/install/wla_behavior_bridge",
+    "wla_r680_navigation": "/home/orin/ros2_ws/install/wla_r680_navigation"
+  },
+  "core": "/home/orin/Wheel_Legged_Agent/src/wla_sim/behavior_bridge/agent_semantics.py",
+  "whitelist": "/home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/config/yolo_realtime_whitelist.json",
+  "installed_matches": {
+    "navigation_task_gateway": "e59e98853596512f62e436c0949dd7e67425f3dab87dff315cfa25b6be430c85",
+    "task_velocity_gate": "714598912c40d0d00a6c257330bd57c13ee5d21779d5ba6f9d8ae7ee2b59cc37",
+    "agent_semantic_api": "69f8fd2079a8d7604541e6053ad3c683a7fc5aa705ac2c8804075a3e13d03e41",
+    "scripts/furniture_semantic.py": "d18ba5b6ebb471f1d30e02c647ea311a8f2b423c0b531a941d31f06f41e05347",
+    "launch/bringup.launch.py": "81837e52f4c93d909f50a9500cd74719fa3204100198d54e179f992ad67e93c2",
+    "config/yolo_mapping_whitelist.json": "6a67025dc456bc3001b6d40a00555a07ae1711c9b5b6ad458fde7eb850882bd1"
+  },
+  "wiring": {
+    "false": {
+      "legacy_goal_bridge": true,
+      "guard_output": "/r680_nav/chassis_cmd_vel"
+    },
+    "true": {
+      "legacy_goal_bridge": false,
+      "guard_output": "/r680_nav/task_guard_input"
+    }
+  }
+}

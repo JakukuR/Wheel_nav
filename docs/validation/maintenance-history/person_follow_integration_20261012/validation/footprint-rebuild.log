@@ -1,0 +1,11 @@
+Starting >>> wla_person_follow
+--- stderr: wla_person_follow
+warning: build_py: byte-compiling is disabled, skipping.
+
+warning: install_lib: byte-compiling is disabled, skipping.
+
+---
+Finished <<< wla_person_follow [2.41s]
+
+Summary: 1 package finished [2.72s]
+  1 package had stderr output: wla_person_follow

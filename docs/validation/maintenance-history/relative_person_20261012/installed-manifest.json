@@ -1,0 +1,488 @@
+[
+  {
+    "path": "ros2_ws/docs/Agent\u5171\u4eab\u68c0\u6d4b\u4e0eYOLO\u6a21\u578b\u63a5\u5165.md",
+    "before": "6ffc82b1e200e7744bbe1e357896b0d5c7861abe38096c274366cd4e2c5c5a33",
+    "sha256": "882ffd4ed56656df6f5ffa6c92e4d9cfd2dfa6c1ec615313b65ba961c54a3d03",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/docs/Agent\u8bed\u4e49\u5bfc\u822a\u63a5\u5165.md",
+    "before": "9260db8e7ed9506c42ace4ecb441c19df6a4d123a22605f89062fa0e17688645",
+    "sha256": "813647b34e05251c6bf47f613e0922f86ad7df5c6ee0cf61348eb1e2c64a6861",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/docs/\u4eba\u7269\u8ddf\u968f\u5408\u5165\u4e0e\u7cfb\u7edf\u94fe\u8def\u6838\u9a8c.md",
+    "before": "072c1f0cf30ab287cb76dfda41aa223fb0ba63a7efc3f8e4ee1a13a674ca1cb5",
+    "sha256": "04ea2135e1c6276369bfc24aadecf6c9a04a2836719c204b75d3aaa1af447651",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/r680_agent.sh",
+    "before": "624733854677f21dbd71fa77e6680166a939b8f5ec54f711064b0f88bd9a209a",
+    "sha256": "55bbffafc224cce9cd3668dc5afb7a26825d555f3273759cf414d1a4ea72c9c1",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/r680_perception.sh",
+    "before": "55a05f22364f01824637c4e745607eb6791c4e98d22007d500c82d5a7935b0ed",
+    "sha256": "236f26c16b2ee4e184f907a4ed81524f9fd33fa345e84908d50ae66fa81736e6",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/r680_person_follow.sh",
+    "before": "9f9291805b5674e00edf2359c636df71a064164a6620f5c092040650c368e6bd",
+    "sha256": "7a9d1f33a44d5b5c1ebb9204b6f1d60dbec1bacb7cab611f78d6fc6bd2dde8b6",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_behavior_bridge/CMakeLists.txt",
+    "before": "7ac04763c50ed8dec69db8e4a8a7d620614462a739f78cc3f7197f08170f0ff3",
+    "sha256": "0e9763188be96031b6081a041dbcfb833826fa5747ecf65d2a33a989b61567c7",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_behavior_bridge/launch/agent_person_api.launch.py",
+    "before": null,
+    "sha256": "e24482cea0b3e1c8bad19d49d23c07c55b0b5408aa17c9280185411f5c0c6d44",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_behavior_bridge/scripts/agent_person_api",
+    "before": null,
+    "sha256": "eb5b5bbd62b3f0b165e73f55ae8f6bc33b48eb61cd156056cd271968bb5355b3",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_behavior_bridge/scripts/agent_semantic_api",
+    "before": "69f8fd2079a8d7604541e6053ad3c683a7fc5aa705ac2c8804075a3e13d03e41",
+    "sha256": "9a5f565cc8569c2da29c57ac13108034b002d4a9b7d76326eae1bc87e3d54ff2",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_behavior_bridge/scripts/nav_perception_adapter",
+    "before": "e6c5ea8abd8f29a5b9c3ffebe7b08b3ef800827be46ecc9958f0ff397de1d601",
+    "sha256": "69abc79d9e685588d81ccdb02e06ff98f9df0d075ad188c332eba38bee9a9870",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_behavior_interfaces/CMakeLists.txt",
+    "before": "bfe4f9ab91379b39f0aa3bd1c86f6eb642b66fa53d940f34258525a4ea59adc4",
+    "sha256": "bc4980af4f3e79f119d770926cef3732dcef402fe882fe452ed00b41088739a7",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_behavior_interfaces/srv/PersonCommand.srv",
+    "before": null,
+    "sha256": "9ed53ecfd530a383cbdc59ade15244c1c5f78f5e4fbc1d56199bc420dfc4f8bc",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_manual_control/README.md",
+    "before": "53c9e0864f8dd66f1121c0ff0bb2aa93081af737ac2e7c571ec951a1c3f65a11",
+    "sha256": "2fdfa52aae47b57521a709eda8b30d135782ca3449fe336323f53b3ee53e85c9",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_manual_control/scripts/command_mux.py",
+    "before": "458980c72e810b7a942ece31c72b82b0f2af4d199080df6b76f0a035d7981ff9",
+    "sha256": "7c491ded7229a8a5e7349b903496440ec09b538013e75d33eb9a8170e5b45d92",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_manual_control/scripts/control_policy.py",
+    "before": "817812f7e2de4e36fe63c21abe002696ac520004dba99cb2ee439944c5a6217a",
+    "sha256": "440fb9065cced75baabb272b96b17dfd81ed3051811d3efef8b31693c3a4974d",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_manual_control/test/test_policy.py",
+    "before": "fb9c579bf7f8e0d52eca71fc2cc96a2732dd31a489c14cd96157e76cfcf504f4",
+    "sha256": "88841227e226cd9368e49eae6ba0887346e07d2acaaca5a8dd7e3c0a5be41cac",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_manual_control/test/test_relative_mux_ros.py",
+    "before": null,
+    "sha256": "c9e6896e77ea81d441a21a96f29a62a14b452e00db88736441af6b50b115a539",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/config/follow.yaml",
+    "before": "16d11d78d881394680633acf706e5aaaccd8173611d1d8cd957bf238964c9464",
+    "sha256": "685795101ac71538cc92cf6f71be5e511bd06f25fc404054ea70b32b6aca9d1b",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/launch/follow.launch.py",
+    "before": "7985066342cc85292fc95b176d040277ffd671051428027b0a1c6fda2a3ce6da",
+    "sha256": "33caabc2cd0f04f7d47111537107871da88a04823ea4b2d2c17d073c451d4ae4",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/package.xml",
+    "before": "b163d7d0ae3b289117fc57e56e1d89787e460887067569d2070bb0bd6ed15dd7",
+    "sha256": "151495f357c2c8f40e55f8cb83b9fee28159ebe23861ecf1f89c437b4283ae5e",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/README.md",
+    "before": "b6e9ec9b5adc871cca506403797aa92d462d6028a7becfdbac6e057ac4aa07f0",
+    "sha256": "61056baad2a113bed61515e675bd4fcceae5f07e6bcd62861369aff712fd3bca",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/resource/wla_person_follow",
+    "before": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/scripts/person_follow",
+    "before": "f80a61e79844e3a1ef66bae3e1cc8a2a06f74b3d4f01876f308c72cef1980d8a",
+    "sha256": "49488985728f2e497925e0ee3def44d45d29887f1f87d843c1ee7783e9917a65",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/setup.cfg",
+    "before": "b5af044eba173c4f45ccaab8ecf6e0ef823c8a4a814767118f55992d1e6ff47c",
+    "sha256": "5eb0bd8a776997609104c7115be6e499ce9583c68df322df4d380e4d44830385",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/setup.py",
+    "before": "aa0921eb2e819630bc26257461455a73af9bc0d8efcff3aa4cee993132d83a2d",
+    "sha256": "ee8bfc2c63cda42e2fd9dbfb7078f41e0edf2333fa635a09f4c875ac58acaf86",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/test/test_relative_control.py",
+    "before": null,
+    "sha256": "688660fa638da48281ec6361df9349026d6ed36165ebcbba588553f44044c885",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/test/test_relative_geometry.py",
+    "before": null,
+    "sha256": "22b4dab1673d1a19e3b72367459d0cadce35abb57a2ddcd35184bea8f78951e0",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/test/test_relative_ros.py",
+    "before": null,
+    "sha256": "dd643b7ec5127e9ade960420cd4eadc6533ad53bc9dbbd2f642f254fada42a3e",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/wla_person_follow/__init__.py",
+    "before": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "sha256": "9dab234ca8e75fe314c7e44e3081c48feecec2cb5789a2925695aa459784b01c",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/wla_person_follow/camera.py",
+    "before": "abfcfc1fd1b183d3bb2ec3d04a82baf5c95a641685eb067a4dc71f102b9a03de",
+    "sha256": "a629818b9e6e6d27ddaf58138867d4e94d1ccf996d96967c4ee44db329391c70",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/wla_person_follow/depth_proc.py",
+    "before": "1de8346e85711f625e12fdf15f5bdb63e19fdcd1cd6f500dfec8d932a1763815",
+    "sha256": "0989adede56e2a1a76d915c2be53447affa6289caf35fb1fa9a86b0164314040",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/wla_person_follow/node.py",
+    "before": "ee322c11b181b05615539eb5f5db20dee975b6ae75f1ca4a04af070ec865bf0a",
+    "sha256": "dd53cf50c1173585bd6476115ab9310ada4c5b0ceae76bfb824d40b542cfdedd",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/wla_person_follow/relative_control.py",
+    "before": null,
+    "sha256": "8b2ece315f8efb060b5047b217707426de423453a5208a6e8389547c685557cc",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_r680_navigation/scripts/nav_perception_bringup",
+    "before": "7a25c28cc5d34e1fa5f95bf1b19fa1ca9c8c28ee564dbd0baa030f156e492edd",
+    "sha256": "8ca1beeef4f0a7c9c8a63a1a2ed22daf205508374e22c7b4b2cb84c8e42b0fde",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_r680_navigation/scripts/nav_yolo_detector",
+    "before": "01b83817162525279a7f582b14ea30145395e4f49db1403be2a986d6f1983223",
+    "sha256": "2cbda8a3daa04139730c7b085bfa7a259fa1ff5d2346b36bb06bf992891f6b0c",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_r680_navigation/test/test_nav_detector_ros.py",
+    "before": "bda9c7dca76da26dc7cc015278965e375c3d716f74786073d4a74982b1a59b01",
+    "sha256": "820ae40544ebb6318fa84e8899085a87d183700f97993a396649a05064077c30",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_r680_navigation/test/test_perception_geometry.py",
+    "before": "46bfd2178e176d2d0c1a3c244d1b7233db31ef7bb2c05a2941bf7bf757bbb8f6",
+    "sha256": "71cf84b33a80d0cb613dad2fd21bccbba49fbbe269f9a8c3365cc9f106481831",
+    "operation": "write"
+  },
+  {
+    "path": "Wheel_Legged_Agent/docs/Agent\u5de5\u7a0b\u5b9e\u73b0\u6280\u672f\u62a5\u544a.md",
+    "before": "54644d43b8f85c6edbdcf395d9b8a23142dab2ea777d78436e76a0d2d3c31675",
+    "sha256": "8c1d6ef6f9d7e6e2b4d79c57a5ab01c09ecb92a2b8f5a211b395c4ba7d0a9be9",
+    "operation": "write"
+  },
+  {
+    "path": "Wheel_Legged_Agent/scripts/agent_person_cli.py",
+    "before": null,
+    "sha256": "b55fd698994498896b331c9e12966e6c44daa77638cf936b2fc9e3acea3da028",
+    "operation": "write"
+  },
+  {
+    "path": "Wheel_Legged_Agent/scripts/r680_d455_perception.py",
+    "before": "18913ea86c9e1526e37b600a02db97af97d9d5e715b1989d8ad9023f1c530ef9",
+    "sha256": "43ae1e1188dfa0b922d0777c2567df958eaddd4a80d578226ad1c98a396928ef",
+    "operation": "write"
+  },
+  {
+    "path": "Wheel_Legged_Agent/scripts/start_r680_d455_perception.sh",
+    "before": "16ebf14e8f93dcca26e05bb2ec241524ba163411c1d5f519e6875e14dcf5126a",
+    "sha256": "5d297cf2dc1986d3ca72e69353f104c3b1fcba3628f12bd0016d31e1dc3e12ff",
+    "operation": "write"
+  },
+  {
+    "path": "Wheel_Legged_Agent/scripts/start_r680_d455_perception_legacy.sh",
+    "before": "8cb82991a876f8a28dd06ed5dbbfe0a4d59c0bae55fcdb23c221452d4adfeac5",
+    "sha256": "5c17d4424ee389d63d861ca2c170731b744626706d627fdbf466c1ffacb57489",
+    "operation": "write"
+  },
+  {
+    "path": "Wheel_Legged_Agent/src/wla_sim/behavior_bridge/agent_semantics.py",
+    "before": "a814a1c54e4b9636eef0ade1df2e54d0c5c4081c499d6211bf1425c78e2564c6",
+    "sha256": "12db6460e19b7d5dd31966d7826d853c0586875f24037ff279bd985176a58f8c",
+    "operation": "write"
+  },
+  {
+    "path": "Wheel_Legged_Agent/src/wla_sim/behavior_bridge/person_executor.py",
+    "before": null,
+    "sha256": "a1e16441e65cc161b6011a0951bbda247265b3f9fe8e8b0f5b56c9fe1cafaa75",
+    "operation": "write"
+  },
+  {
+    "path": "Wheel_Legged_Agent/src/wla_sim/behavior_bridge/person_transport.py",
+    "before": null,
+    "sha256": "609607166d8f8c5555b7bd2f1eb37c7fa3eee9e440a3f8a6b1046a1eeb3d7b9e",
+    "operation": "write"
+  },
+  {
+    "path": "Wheel_Legged_Agent/src/wla_sim/perception/nav_adapter.py",
+    "before": "4bea05b7fe1fc0ce576dfe8e60545410fef97b385f76750be28e87818693cf84",
+    "sha256": "195ec9ddbd168df1b190951ca8ad4f6bce4fdb6b1edb9178c8a1773ebee2878e",
+    "operation": "write"
+  },
+  {
+    "path": "Wheel_Legged_Agent/src/wla_sim/perception/relative_adapter.py",
+    "before": null,
+    "sha256": "4c3a747271433542c898c1dc632e6808616e6cfe9b39ef59f15e4fc5df4a6764",
+    "operation": "write"
+  },
+  {
+    "path": "Wheel_Legged_Agent/src/wla_sim/r680/behavior_shadow.py",
+    "before": "e85ac4ef12bc4d4897a1adb4f181619afd55c62f40ae9a2983ee73491043b99a",
+    "sha256": "c3e7cd1a9b5e30c17181b1723423d364f9a9f4fadf72e12c9f76110b12cf455f",
+    "operation": "write"
+  },
+  {
+    "path": "Wheel_Legged_Agent/tests/test_nav_observation_adapter.py",
+    "before": "5bda30d9ee4305887e61c5d230539f1e571783b83ba89269257ccabe7fd6dd3e",
+    "sha256": "ce3da4f5166051834538483686662db5cdf6d249873f1768eb83ef5b7461e848",
+    "operation": "write"
+  },
+  {
+    "path": "Wheel_Legged_Agent/tests/test_relative_person_executor.py",
+    "before": null,
+    "sha256": "26e2eb5c905f501a87b3f7765276e60bed983fe43f611e82b04c4c4af19529f7",
+    "operation": "write"
+  },
+  {
+    "path": "Wheel_Legged_Agent/tests/test_relative_person_interface.py",
+    "before": null,
+    "sha256": "51fa3f88cd5802129ba4f0ced8627f1e24e65cead1d73410d3939746a3d26aac",
+    "operation": "write"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/config/indoor.yaml",
+    "before": "f385c7b15a961906c7aafe8a5625a29f92c4d61ed5108b1bb7d344eca2f90adb",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/config/nav2_costmap_overlay.yaml",
+    "before": "2a0a8f9b31008b86026b95fbea647d13c57b00bbc961c6c55168ea67bb6e5474",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/config/nav2_voxel_overlay.yaml",
+    "before": "d2df2615d008efe94e358e8e28afbde2ab26cfa76b20b56a7fb84c609e7e65b5",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/config/outdoor_flat.yaml",
+    "before": "653150784b5d9355a1a410fcac688ad443bc37adb099ce5d6299878c78fa3cb9",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/config/voxel_mpc.yaml",
+    "before": "c4d07adddcf7496d2fb2e462130879d7681a9e7e782d4c397702c00c0641d356",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/config/voxel_scene.rviz",
+    "before": "51cc9d6a5b4cf2ea018ee4cd82a89c0b0f0e4744e61fdf32c212ba4b4bb6224b",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/launch/autonomous_follow.launch.py",
+    "before": "ac0adf5c443eb9453f04a948e31d3d7b015aeae0dc34e4c220007f29e22c9121",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/launch/voxel_mpc_follow.launch.py",
+    "before": "de8ff16a4bd9dc45a70ebc67bdc3f9c6bc948880b91f53e4cc8e203cc00a080c",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/test/test_core.py",
+    "before": "c161cce4b07d2e31e7cae541b3f9188ff40c980a664da8dfcc3e24d2f83450d6",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/test/test_launch_parameters.py",
+    "before": "5b88569fcbfc2740cbace87224057d2ba82eac178d14ecf625cea3328413ea61",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/test/test_mpc_ros.py",
+    "before": "08a2adb8ebab0bad75523ed95c9fab89b020e5949d3e8cc7964d731afcaa668e",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/test/test_mpc_validation_ros.py",
+    "before": "f86bd739109f17a4c09b398699d1264b614f5b5866fc9e96eb533f9bfb0d9fd9",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/test/test_ros_upgrade.py",
+    "before": "78b86b0300acca729c3b01cde07fe888fd9171a0396166ef08f3d52f788853d5",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/test/test_shared_detections_ros.py",
+    "before": "376d9fcc3ca8b308d117ef01a426d8a09de871e77d75d81b0e5ca3003c2db259",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/test/test_upgrade.py",
+    "before": "91076c4b798e8862371e2ad483ca0253b3b32fe6a00bcf105e6e85ae584c1240",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/test/test_voxel.py",
+    "before": "50cfc6c679769aa56c28ee72b2caa7120095cf682e092c4339affc384eba6c79",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/wla_person_follow/controller.py",
+    "before": "708eead48c37bcbb491829b90e7bf0e199bbe960b368f7ff30d191b37207f056",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/wla_person_follow/detector.py",
+    "before": "c25146cc1e6cf593d8d2ebec46990e3dfa7f38f67f880533883723d892bd132a",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/wla_person_follow/geometry.py",
+    "before": "45f60bbb2333d0f0b671618c98adf3cd409266ffe19a06052849732b72421237",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/wla_person_follow/kalman.py",
+    "before": "791eea709ffa59885ec48f15da52a94a560bf89e9c84de9ddaadb16d9f7d300c",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/wla_person_follow/launch_parameters.py",
+    "before": "92f9f0379ea068aa3c0d27de6fcd2fb7e95deebd7424e2665d6a9b1c3e22f05b",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/wla_person_follow/lightnav_adapter.py",
+    "before": "27a80df7705a9dc0c4a016f9f8d49290edb43d6f7b05d47cf1ab9a0548a6e3e1",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/wla_person_follow/navigation.py",
+    "before": "327385b5307ef5d7733ac9b9c7dc0e4f4690737650b19b18a323433a01ae300b",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/wla_person_follow/recovery.py",
+    "before": "302b102fe86b96cd576ccca1c776ba7c4faa0d8086da67e131bdde8197118dc9",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/wla_person_follow/target_lock.py",
+    "before": "b941135f597e474253edf0669eafcf8567a3948ee102ca7046048359334c8cd0",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/wla_person_follow/voxel.py",
+    "before": "32189711feeb5bf252d0e8bd73507b86bdf3759353f052d748977cfcbc9f5ef5",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/wla_person_follow/voxel_navigation.py",
+    "before": "361f8df0f10e69f3295a8bbc7e52d4246f4d74953d36d9258a500cb19e618b42",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_person_follow/wla_person_follow/voxel_node.py",
+    "before": "e681f7287665b06a859ad3a850f4a33f014a143c514d8daad843b5ace6426c1d",
+    "sha256": null,
+    "operation": "delete"
+  },
+  {
+    "path": "ros2_ws/src/wla_r680_navigation/wla_r680_navigation_py/perception_context.py",
+    "before": "f55762cc846a431c3dcb6e6afe70134cc3ae0c76b12e92349b8fcab942ce211e",
+    "sha256": null,
+    "operation": "delete"
+  }
+]

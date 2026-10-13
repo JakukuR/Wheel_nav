@@ -1,0 +1,8 @@
+[INFO] [launch]: All log files can be found below /home/orin/.ros/log/2026-10-12-12-15-47-120305-localhost.localdomain-49080
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [agent_semantic_api-1]: process started with pid [49086]
+[agent_semantic_api-1] [WARN] [1791778547.812437483] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[agent_semantic_api-1] [WARN] [1791778547.812471725] [rcl]: 'localhost_only' is enabled, 'automatic_discovery_range' and 'static_peers' will be ignored.
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[INFO] [agent_semantic_api-1]: sending signal 'SIGINT' to process[agent_semantic_api-1]
+[INFO] [agent_semantic_api-1]: process has finished cleanly [pid 49086]

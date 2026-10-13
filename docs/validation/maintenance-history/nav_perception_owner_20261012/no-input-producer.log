@@ -1,0 +1,10 @@
+[INFO] [launch]: All log files can be found below /home/orin/.ros/log/2026-10-12-16-28-22-990812-localhost.localdomain-107781
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [python-1]: process started with pid [107828]
+[INFO] [python3-2]: process started with pid [107829]
+[python-1] [INFO] [1791793706.962308632] [r680_nav_yolo_detector]: nav owns YOLO + RGB-D projection; waiting for camera; no motion publishers
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[INFO] [python3-2]: sending signal 'SIGINT' to process[python3-2]
+[INFO] [python-1]: sending signal 'SIGINT' to process[python-1]
+[INFO] [python3-2]: process has finished cleanly [pid 107829]
+[INFO] [python-1]: process has finished cleanly [pid 107828]

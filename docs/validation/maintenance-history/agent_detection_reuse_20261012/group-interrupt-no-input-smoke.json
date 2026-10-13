@@ -1,0 +1,12 @@
+{
+  "status": "passed",
+  "producer_waits_for_camera": true,
+  "follow_waits_for_shared_detection": true,
+  "candidate_messages": 114,
+  "nonzero_candidates": 0,
+  "chassis_publishers": 0,
+  "exit_codes": [
+    0,
+    0
+  ]
+}

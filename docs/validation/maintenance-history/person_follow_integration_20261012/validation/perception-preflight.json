@@ -1,0 +1,15 @@
+{
+  "workspace_packages": {
+    "wla_person_follow": "/home/orin/ros2_ws/install/wla_person_follow",
+    "wla_follow_mpc": "/home/orin/ros2_ws/install/wla_follow_mpc",
+    "wla_diff_mpc": "/home/orin/ros2_ws/install/wla_diff_mpc"
+  },
+  "python": "/usr/bin/python3",
+  "model": "/home/orin/Wheel_Legged_Agent/models/yolo11n.pt",
+  "motion_output": "candidate_only",
+  "errors": [
+    "missing_local_model",
+    "missing_module:ultralytics",
+    "missing_module:torch"
+  ]
+}

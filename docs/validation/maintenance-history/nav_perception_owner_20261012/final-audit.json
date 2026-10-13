@@ -1,0 +1,21 @@
+{
+  "status": "passed",
+  "source_files": 26,
+  "installed_artifacts": [
+    "/home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/nav_yolo_detector",
+    "/home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/nav_perception_bringup",
+    "/home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/furniture_semantic.py",
+    "/home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py/perception_geometry.py",
+    "/home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py/perception_context.py",
+    "/home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/perception.botsort.yaml",
+    "/home/orin/ros2_ws/install/wla_behavior_bridge/lib/wla_behavior_bridge/nav_perception_adapter",
+    "/home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/node.py",
+    "/home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow/config/follow.yaml"
+  ],
+  "syntax_and_bash_checks": true,
+  "map_revision_matches": true,
+  "production_service": "MainPID=2215\nActiveState=active\n",
+  "remaining_test_processes": 0,
+  "real_camera": false,
+  "physical_motion": false
+}

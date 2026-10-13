@@ -1,0 +1,19 @@
+{
+  "status": "passed",
+  "provided_model": true,
+  "input": "ultralytics_bus_prerecorded_image",
+  "depth": "synthetic_constant_2m",
+  "camera_live": false,
+  "map_position_validated": false,
+  "physical_motion": false,
+  "batches": 53,
+  "observations": 110,
+  "source_stamps": 53,
+  "detected_labels": [
+    "bus",
+    "person"
+  ],
+  "sessions": 1,
+  "elapsed_s": 17.462019279999367,
+  "forbidden_motion_publishers": 0
+}

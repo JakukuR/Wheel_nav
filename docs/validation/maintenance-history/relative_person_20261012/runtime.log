@@ -1,0 +1,55 @@
+[INFO] [1791799453.293800832] [person_follow]: Relative person service ready; waiting for explicit Agent command and detection. Preview mode: leased motion candidates remain zero.
+{
+  "status": "passed",
+  "domain": 198,
+  "real_camera": false,
+  "physical_motion": false,
+  "chassis_publishers": 0,
+  "input": "ultralytics bus RGB + synthetic aligned depth and camera-to-robot static TF",
+  "preview_nonzero": true,
+  "leased_candidates_all_zero": true,
+  "default_inference_disabled": true,
+  "two_independent_gates": true,
+  "atomic_start_switch_stop": true,
+  "lease_expiry": true,
+  "retired_id_rejected": true,
+  "detector_reopen_does_not_start_motion": true,
+  "missing_depth_keeps_label": true,
+  "stream_loss_expires": true,
+  "map_odom_localization_subscriptions": 0,
+  "raw_batches": 15,
+  "source_to_raw_ms": {
+    "p50": 162.121964,
+    "p95": 211.58580129999999,
+    "maximum": 220.79384
+  },
+  "first_observation": {
+    "detected": true,
+    "what": "person",
+    "id": "bbefe0893e65461d8afd6156265b7c8a:1:2",
+    "yaw": 0.4753683931311507,
+    "distance": 2.2494045746070612
+  },
+  "reopened_observation": {
+    "detected": true,
+    "what": "person",
+    "id": "bbefe0893e65461d8afd6156265b7c8a:3:2",
+    "yaw": 0.4753683931311507,
+    "distance": 2.2494045746070612
+  },
+  "discarded": [
+    {
+      "stamp_ns": 1791799459030946909,
+      "rgb_received_ns": 1791799459038299298,
+      "inference_start_ns": 1791799459038940767,
+      "epoch": 1,
+      "session": "bbefe0893e65461d8afd6156265b7c8a",
+      "inference_end_ns": 1791799460491181801,
+      "outcome": "expired_or_retired",
+      "discarded_ns": 1791799460495382307,
+      "_phase": "enabled",
+      "_received_ns": 1791799460496830211
+    }
+  ]
+}
+CLEAN_EXIT 0

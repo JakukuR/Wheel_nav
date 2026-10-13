@@ -1,0 +1,16 @@
+{
+  "files": {
+    "ros2_ws/src/wla_person_follow/README.md": "df796f0cb9869e35fe8271681a51aa581a83f5b4c16d21f75095e6102dfacd7d",
+    "ros2_ws/src/wla_person_follow/test/test_ros_upgrade.py": "b19b2c3ab198a38d5b8adcebee57de811babe5bb843d5734e5da1314eeeabf13",
+    "ros2_ws/src/wla_person_follow/test/test_upgrade.py": "e7a30314652e1c42b5abf59ea882aac731dca23c526879f8b0935fac6292020d",
+    "ros2_ws/src/wla_person_follow/wla_person_follow/navigation.py": "e692b6c2ed332796ff0bcc39a1d974348d2b9cb40bab23492ebea6fb402e1266",
+    "ros2_ws/src/wla_person_follow/wla_person_follow/node.py": "242882cae2f4bd17c0a3670a87d7e162d4fb93cfa2f1836731e500e9a1a33047"
+  },
+  "before": {
+    "ros2_ws/src/wla_person_follow/README.md": "74c1e3eeadee5dfcc4972353d0f03d7a6d8408ac1f56e4f6d5b4eb420df57a30",
+    "ros2_ws/src/wla_person_follow/test/test_ros_upgrade.py": "8fce61416def918dc3a59778a29685ca2d9ff7a040b44a2b88829bbcb14806ec",
+    "ros2_ws/src/wla_person_follow/test/test_upgrade.py": "b8ddb9a6f5eef412e6fa281dfc0a854115a5b621591db3c427a8be3060bf0cdb",
+    "ros2_ws/src/wla_person_follow/wla_person_follow/navigation.py": "4ea17a407bc7302525b3d72a56429452117c6f3042bd14893e5faee206d40273",
+    "ros2_ws/src/wla_person_follow/wla_person_follow/node.py": "dd2b51790f7de2200fce382308bf50054a75fe599e2bea5874f62c67e9da50d9"
+  }
+}

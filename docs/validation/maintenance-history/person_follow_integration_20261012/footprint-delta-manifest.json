@@ -1,0 +1,16 @@
+{
+  "files": {
+    "ros2_ws/src/wla_person_follow/launch/voxel_mpc_follow.launch.py": "60c81b896a60409c18a3c00ae26b3910bdb476c0094335c69b47d040e049b9c1",
+    "ros2_ws/src/wla_person_follow/test/test_ros_upgrade.py": "78b86b0300acca729c3b01cde07fe888fd9171a0396166ef08f3d52f788853d5",
+    "ros2_ws/src/wla_person_follow/test/test_upgrade.py": "91076c4b798e8862371e2ad483ca0253b3b32fe6a00bcf105e6e85ae584c1240",
+    "ros2_ws/src/wla_person_follow/wla_person_follow/geometry.py": "45f60bbb2333d0f0b671618c98adf3cd409266ffe19a06052849732b72421237",
+    "ros2_ws/src/wla_person_follow/wla_person_follow/navigation.py": "327385b5307ef5d7733ac9b9c7dc0e4f4690737650b19b18a323433a01ae300b"
+  },
+  "before": {
+    "ros2_ws/src/wla_person_follow/launch/voxel_mpc_follow.launch.py": "30755e955ae6fabae15cd19e4710c257eaa6006b800d7c837df7042f2dbd7be0",
+    "ros2_ws/src/wla_person_follow/test/test_ros_upgrade.py": "b19b2c3ab198a38d5b8adcebee57de811babe5bb843d5734e5da1314eeeabf13",
+    "ros2_ws/src/wla_person_follow/test/test_upgrade.py": "e7a30314652e1c42b5abf59ea882aac731dca23c526879f8b0935fac6292020d",
+    "ros2_ws/src/wla_person_follow/wla_person_follow/geometry.py": "22956cf9d00941ebcd5de12255261d4be697deadd2235b930b00c0efb539c47e",
+    "ros2_ws/src/wla_person_follow/wla_person_follow/navigation.py": "e692b6c2ed332796ff0bcc39a1d974348d2b9cb40bab23492ebea6fb402e1266"
+  }
+}

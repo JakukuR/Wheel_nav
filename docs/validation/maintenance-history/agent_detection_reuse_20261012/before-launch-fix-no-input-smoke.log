@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/no_input_smoke.py", line 18, in <module>
+    assert all(p.poll() is None for p in children),[p.poll() for p in children]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: [None, 1]

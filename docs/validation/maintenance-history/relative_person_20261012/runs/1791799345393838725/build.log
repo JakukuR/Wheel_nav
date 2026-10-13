@@ -1,0 +1,551 @@
+Starting >>> wla_behavior_interfaces
+Starting >>> wla_manual_control
+Starting >>> wla_r680_navigation
+-- Found ament_cmake: 2.5.6 (/opt/ros/jazzy/share/ament_cmake/cmake)
+-- Install configuration: ""
+-- Execute custom install script
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_manual_control/lib/wla_manual_control/command_mux.py
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_manual_control/lib/wla_manual_control/start_manual_base.sh
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_manual_control/lib/wla_manual_control/control_policy.py
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_manual_control/share/wla_manual_control/launch/manual_base.launch.py
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_manual_control/share/wla_manual_control/config/chassis.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_manual_control/share/wla_manual_control/config/cyclonedds-local.xml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_manual_control/share/wla_manual_control/config/gamepad.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_manual_control/share/wla_manual_control/deploy/r680-manual-base.service
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_manual_control/share/wla_manual_control/README.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_manual_control/share/ament_index/resource_index/package_run_dependencies/wla_manual_control
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_manual_control/share/ament_index/resource_index/parent_prefix_path/wla_manual_control
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_manual_control/share/wla_manual_control/environment/ament_prefix_path.sh
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_manual_control/share/wla_manual_control/environment/ament_prefix_path.dsv
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_manual_control/share/wla_manual_control/environment/path.sh
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_manual_control/share/wla_manual_control/environment/path.dsv
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_manual_control/share/wla_manual_control/local_setup.bash
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_manual_control/share/wla_manual_control/local_setup.sh
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_manual_control/share/wla_manual_control/local_setup.zsh
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_manual_control/share/wla_manual_control/local_setup.dsv
+-- Symlinking: /home/orin/ros2_ws/install/wla_manual_control/share/wla_manual_control/package.dsv
+[  5%] Built target wla_timed_obstacle_layer
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_manual_control/share/ament_index/resource_index/packages/wla_manual_control
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_manual_control/share/wla_manual_control/cmake/wla_manual_controlConfig.cmake
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_manual_control/share/wla_manual_control/cmake/wla_manual_controlConfig-version.cmake
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_manual_control/share/wla_manual_control/package.xml
+Finished <<< wla_manual_control [0.20s]
+[ 10%] Built target goal_approach_limiter
+[ 15%] Built target dynamic_obstacle_memory
+-- Found rosidl_default_generators: 1.6.1 (/opt/ros/jazzy/share/rosidl_default_generators/cmake)
+-- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+[ 20%] Built target vo_watchdog
+-- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+[ 25%] Built target interface_monitor
+-- Found rosidl_adapter: 4.6.9 (/opt/ros/jazzy/share/rosidl_adapter/cmake)
+-- Found geometry_msgs: 5.3.8 (/opt/ros/jazzy/share/geometry_msgs/cmake)
+[ 30%] Built target depth_to_points
+[ 35%] Built target point_to_scan
+[ 35%] Built target ament_cmake_python_symlink_wla_r680_navigation_py
+[ 40%] Built target test_degraded_odometry
+[ 45%] Built target test_recovery_evidence
+[ 50%] Built target test_relocalization_prior
+[ 55%] Built target test_timed_obstacle_layer
+[ 60%] Built target test_vio_init_policy
+[ 65%] Built target test_isolated_clusters
+[ 70%] Built target test_scan_projection
+-- Found ament_cmake_ros: 0.12.1 (/opt/ros/jazzy/share/ament_cmake_ros/cmake)
+running egg_info
+writing wla_r680_navigation_py.egg-info/PKG-INFO
+writing dependency_links to wla_r680_navigation_py.egg-info/dependency_links.txt
+writing top-level names to wla_r680_navigation_py.egg-info/top_level.txt
+reading manifest file 'wla_r680_navigation_py.egg-info/SOURCES.txt'
+writing manifest file 'wla_r680_navigation_py.egg-info/SOURCES.txt'
+[ 70%] Built target ament_cmake_python_build_wla_r680_navigation_py_egg
+[ 75%] Built target path_speed_profile
+-- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+[ 80%] Built target imu_conditioner
+[ 85%] Built target mapping_odom_gate
+[ 90%] Built target vio_initializer
+[ 95%] Built target degraded_odometry
+[100%] Built target command_guard
+-- Install configuration: "Release"
+-- Execute custom install script
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation//costmap_plugins.xml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/libwla_timed_obstacle_layer.so
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/degraded_odometry
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/command_guard
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/vio_initializer
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/mapping_odom_gate
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/imu_conditioner
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/path_speed_profile
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/goal_approach_limiter
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/dynamic_obstacle_memory
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/vo_watchdog
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/interface_monitor
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/depth_to_points
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/point_to_scan
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/environment/pythonpath.sh
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/environment/pythonpath.dsv
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py-0.1.0-py3.12.egg-info/PKG-INFO
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py-0.1.0-py3.12.egg-info/SOURCES.txt
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py-0.1.0-py3.12.egg-info/dependency_links.txt
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py-0.1.0-py3.12.egg-info/top_level.txt
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py/__init__.py
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py/archive.py
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py/mission.py
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py/mission_core.py
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py/perception_geometry.py
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py/storage.py
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/navigation_goal_bridge
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/web_gateway
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/furniture_semantic.py
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/nav_yolo_detector
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/nav_perception_bringup
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/mapping_mission
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/prepare_mapping_run
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/save_manual_map
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/r680_nav.sh
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/wait_mapping_ready
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/resolve_navigation_map
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/accept_navigation_map_edit
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/r680_mapping.sh
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/r680_mode_lock.sh
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/chassis.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/cuvslam.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/d455_cuvslam.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/d455_points.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/d455_scan.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/degraded_odometry.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/dynamic_obstacles.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/ekf_vo_imu.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/exploration.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/goal_approach_limiter.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/interfaces.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/mission.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/nav2.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/nav2_mpc.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/nav2_recovery_test.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/nav2_test.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/nav2_test_scan_only.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/navigate_through_poses_no_spin.xml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/navigate_to_pose_no_spin.xml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/path_speed_profile.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/perception.botsort.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/r680_mapping.rviz
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/r680_navigation.rviz
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/rtabmap.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/storage.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/vio_initializer.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/vo_watchdog.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/web_gateway.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/yolo_mapping_whitelist.json
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/launch/bringup.launch.py
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/R680-CUVSLAM-001.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/R680-CUVSLAM-002.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/R680-CUVSLAM-003.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/R680-CUVSLAM-004.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/R680-CUVSLAM-005.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/R680-MAP-EDIT-001.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/R680-MAP-EDIT-002.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/R680导航建图启动链路与代码目录树.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/changes/R680-DEGRADED-ODOM-001.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/changes/R680-DEGRADED-ODOM-002.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/changes/R680-FIXES-20261009.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/changes/R680-MPC-STATIC-GLOBAL-001.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/changes/R680-OBSTACLE-001.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/changes/R680-RECOVERY-001.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/changes/R680-RECOVERY-002.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/changes/R680-TERMINAL-001.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/changes/R680-VIO-OUTPUT-001.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/web/app.js
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/web/index.html
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/web/robot-sticker.png
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/web/style.css
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/README.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/ament_index/resource_index/package_run_dependencies/wla_r680_navigation
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/ament_index/resource_index/parent_prefix_path/wla_r680_navigation
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/environment/ament_prefix_path.sh
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/environment/ament_prefix_path.dsv
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/environment/path.sh
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/environment/path.dsv
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/local_setup.bash
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/local_setup.sh
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/local_setup.zsh
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/local_setup.dsv
+-- Symlinking: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/package.dsv
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/ament_index/resource_index/packages/wla_r680_navigation
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/ament_index/resource_index/nav2_costmap_2d__pluginlib__plugin/wla_r680_navigation
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/cmake/wla_r680_navigationConfig.cmake
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/cmake/wla_r680_navigationConfig-version.cmake
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/package.xml
+-- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+-- Found python_cmake_module: 0.11.1 (/opt/ros/jazzy/share/python_cmake_module/cmake)
+Listing '/home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py'...
+Finished <<< wla_r680_navigation [2.02s]
+-- Found Python3: /usr/bin/python3 (found version "3.12.3") found components: Interpreter Development NumPy Development.Module Development.Embed 
+-- Found Python3: /usr/bin/python3 (found version "3.12.3") found components: Interpreter 
+-- Configuring done (2.6s)
+-- Generating done (0.1s)
+-- Build files have been written to: /home/orin/ros2_ws/build/wla_behavior_interfaces
+[  1%] Built target wla_behavior_interfaces__rs
+[  1%] Built target ament_cmake_python_copy_wla_behavior_interfaces
+[  2%] Built target wla_behavior_interfaces__rosidl_generator_type_description
+running egg_info
+writing wla_behavior_interfaces.egg-info/PKG-INFO
+writing dependency_links to wla_behavior_interfaces.egg-info/dependency_links.txt
+writing top-level names to wla_behavior_interfaces.egg-info/top_level.txt
+reading manifest file 'wla_behavior_interfaces.egg-info/SOURCES.txt'
+writing manifest file 'wla_behavior_interfaces.egg-info/SOURCES.txt'
+[  2%] Built target ament_cmake_python_build_wla_behavior_interfaces_egg
+[  4%] Built target wla_behavior_interfaces__cpp
+[ 26%] Built target wla_behavior_interfaces__rosidl_generator_c
+[ 36%] Built target wla_behavior_interfaces__rosidl_typesupport_fastrtps_c
+[ 45%] Built target wla_behavior_interfaces__rosidl_typesupport_cpp
+[ 54%] Built target wla_behavior_interfaces__rosidl_typesupport_introspection_cpp
+[ 64%] Built target wla_behavior_interfaces__rosidl_typesupport_fastrtps_cpp
+[ 73%] Built target wla_behavior_interfaces__rosidl_typesupport_c
+[ 82%] Built target wla_behavior_interfaces__rosidl_typesupport_introspection_c
+[ 82%] Built target wla_behavior_interfaces
+[ 84%] Built target wla_behavior_interfaces__py
+[ 92%] Built target wla_behavior_interfaces__rosidl_generator_py
+[ 94%] Built target wla_behavior_interfaces_s__rosidl_typesupport_fastrtps_c
+[ 97%] Built target wla_behavior_interfaces_s__rosidl_typesupport_c
+[100%] Built target wla_behavior_interfaces_s__rosidl_typesupport_introspection_c
+-- Install configuration: ""
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/ament_index/resource_index/rosidl_interfaces/wla_behavior_interfaces
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/action/BehaviorTask.json
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/srv/ResolveTarget.json
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/msg/TaskLease.json
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/srv/AgentSemanticCommand.json
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/srv/PersonCommand.json
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/task_lease.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/detail
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/detail/task_lease__type_support.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/detail/task_lease__functions.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/detail/task_lease__description.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/detail/task_lease__type_support.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/detail/task_lease__struct.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/detail/task_lease__functions.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/rosidl_generator_c__visibility_control.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action/behavior_task.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action/detail
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action/detail/behavior_task__type_support.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action/detail/behavior_task__struct.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action/detail/behavior_task__type_support.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action/detail/behavior_task__description.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action/detail/behavior_task__functions.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action/detail/behavior_task__functions.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/agent_semantic_command__functions.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/resolve_target__description.c
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/resolve_target__type_support.c
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/person_command__type_support.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/person_command__description.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/resolve_target__struct.h
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/agent_semantic_command__type_support.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/resolve_target__functions.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/resolve_target__functions.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/person_command__struct.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/resolve_target__type_support.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/person_command__type_support.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/agent_semantic_command__type_support.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/agent_semantic_command__struct.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/person_command__functions.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/agent_semantic_command__functions.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/agent_semantic_command__description.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/person_command__functions.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/resolve_target.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/person_command.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/agent_semantic_command.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/environment/library_path.sh
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/environment/library_path.dsv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/libwla_behavior_interfaces__rosidl_generator_c.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/rosidl_typesupport_fastrtps_c__visibility_control.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/detail
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/detail/task_lease__rosidl_typesupport_fastrtps_c.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action/detail
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action/detail/behavior_task__rosidl_typesupport_fastrtps_c.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/person_command__rosidl_typesupport_fastrtps_c.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/agent_semantic_command__rosidl_typesupport_fastrtps_c.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/resolve_target__rosidl_typesupport_fastrtps_c.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/libwla_behavior_interfaces__rosidl_typesupport_fastrtps_c.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/rosidl_typesupport_introspection_c__visibility_control.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/detail
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/detail/task_lease__rosidl_typesupport_introspection_c.h
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/detail/task_lease__type_support.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action/detail
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action/detail/behavior_task__type_support.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action/detail/behavior_task__rosidl_typesupport_introspection_c.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/agent_semantic_command__rosidl_typesupport_introspection_c.h
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/resolve_target__type_support.c
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/person_command__type_support.c
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/agent_semantic_command__type_support.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/person_command__rosidl_typesupport_introspection_c.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/resolve_target__rosidl_typesupport_introspection_c.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/libwla_behavior_interfaces__rosidl_typesupport_introspection_c.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/libwla_behavior_interfaces__rosidl_typesupport_c.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/task_lease.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/rosidl_generator_cpp__visibility_control.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/detail
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/detail/task_lease__builder.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/detail/task_lease__type_support.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/detail/task_lease__struct.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/detail/task_lease__traits.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action/detail
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action/detail/behavior_task__type_support.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action/detail/behavior_task__struct.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action/detail/behavior_task__builder.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action/detail/behavior_task__traits.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action/behavior_task.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/agent_semantic_command__builder.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/agent_semantic_command__type_support.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/resolve_target__struct.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/agent_semantic_command__struct.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/resolve_target__type_support.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/resolve_target__traits.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/person_command__traits.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/person_command__builder.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/person_command__struct.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/resolve_target__builder.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/person_command__type_support.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/agent_semantic_command__traits.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/resolve_target.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/person_command.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/agent_semantic_command.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/rosidl_typesupport_fastrtps_cpp__visibility_control.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/detail
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/detail/dds_fastrtps
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/detail/task_lease__rosidl_typesupport_fastrtps_cpp.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action/detail
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action/detail/dds_fastrtps
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action/detail/behavior_task__rosidl_typesupport_fastrtps_cpp.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/resolve_target__rosidl_typesupport_fastrtps_cpp.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/dds_fastrtps
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/person_command__rosidl_typesupport_fastrtps_cpp.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/agent_semantic_command__rosidl_typesupport_fastrtps_cpp.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/libwla_behavior_interfaces__rosidl_typesupport_fastrtps_cpp.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/detail
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/detail/task_lease__type_support.cpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/msg/detail/task_lease__rosidl_typesupport_introspection_cpp.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action/detail
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action/detail/behavior_task__type_support.cpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/action/detail/behavior_task__rosidl_typesupport_introspection_cpp.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/agent_semantic_command__rosidl_typesupport_introspection_cpp.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/resolve_target__rosidl_typesupport_introspection_cpp.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/agent_semantic_command__type_support.cpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/person_command__rosidl_typesupport_introspection_cpp.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/person_command__type_support.cpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/include/wla_behavior_interfaces/wla_behavior_interfaces/srv/detail/resolve_target__type_support.cpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/libwla_behavior_interfaces__rosidl_typesupport_introspection_cpp.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/libwla_behavior_interfaces__rosidl_typesupport_cpp.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/environment/pythonpath.sh
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/environment/pythonpath.dsv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces-0.1.0-py3.12.egg-info
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces-0.1.0-py3.12.egg-info/top_level.txt
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces-0.1.0-py3.12.egg-info/dependency_links.txt
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces-0.1.0-py3.12.egg-info/SOURCES.txt
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces-0.1.0-py3.12.egg-info/PKG-INFO
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/_wla_behavior_interfaces_s.ep.rosidl_typesupport_c.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/wla_behavior_interfaces_s__rosidl_typesupport_c.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/msg
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/msg/_task_lease.py
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/msg/_task_lease_s.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/msg/__init__.py
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/wla_behavior_interfaces_s__rosidl_typesupport_introspection_c.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/_wla_behavior_interfaces_s.ep.rosidl_typesupport_fastrtps_c.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/action
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/action/_behavior_task.py
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/action/_behavior_task_s.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/action/__init__.py
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/__init__.py
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/wla_behavior_interfaces_s__rosidl_typesupport_fastrtps_c.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/_wla_behavior_interfaces_s.ep.rosidl_typesupport_introspection_c.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/srv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/srv/_agent_semantic_command_s.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/srv/_resolve_target.py
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/srv/_person_command_s.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/srv/__init__.py
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/srv/_agent_semantic_command.py
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/srv/_resolve_target_s.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/srv/_person_command.py
+Listing '/home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces'...
+Compiling '/home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/__init__.py'...
+Listing '/home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/action'...
+Listing '/home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/msg'...
+Listing '/home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/srv'...
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/wla_behavior_interfaces_s__rosidl_typesupport_fastrtps_c.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/wla_behavior_interfaces_s__rosidl_typesupport_introspection_c.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/python3.12/site-packages/wla_behavior_interfaces/wla_behavior_interfaces_s__rosidl_typesupport_c.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/lib/libwla_behavior_interfaces__rosidl_generator_py.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/ament_index/resource_index/rust_packages/wla_behavior_interfaces
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/rust
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/rust/Cargo.toml
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/rust/src
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/rust/src/msg
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/rust/src/msg/rmw.rs
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/rust/src/action
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/rust/src/action/rmw.rs
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/rust/src/msg.rs
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/rust/src/action.rs
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/rust/src/srv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/rust/src/srv/rmw.rs
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/rust/src/lib.rs
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/rust/src/srv.rs
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/rust/build.rs
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/action/BehaviorTask.idl
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/srv/ResolveTarget.idl
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/msg/TaskLease.idl
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/srv/AgentSemanticCommand.idl
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/srv/PersonCommand.idl
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/action/BehaviorTask.action
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/srv/ResolveTarget.srv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/msg/TaskLease.msg
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/srv/AgentSemanticCommand.srv
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/srv/PersonCommand.srv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/ament_index/resource_index/package_run_dependencies/wla_behavior_interfaces
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/ament_index/resource_index/parent_prefix_path/wla_behavior_interfaces
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/environment/ament_prefix_path.sh
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/environment/ament_prefix_path.dsv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/environment/path.sh
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/environment/path.dsv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/local_setup.bash
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/local_setup.sh
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/local_setup.zsh
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/local_setup.dsv
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/package.dsv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/ament_index/resource_index/packages/wla_behavior_interfaces
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/export_wla_behavior_interfaces__rosidl_generator_cExport.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/export_wla_behavior_interfaces__rosidl_generator_cExport-noconfig.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/export_wla_behavior_interfaces__rosidl_typesupport_fastrtps_cExport.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/export_wla_behavior_interfaces__rosidl_typesupport_fastrtps_cExport-noconfig.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/wla_behavior_interfaces__rosidl_typesupport_introspection_cExport.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/wla_behavior_interfaces__rosidl_typesupport_introspection_cExport-noconfig.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/wla_behavior_interfaces__rosidl_typesupport_cExport.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/wla_behavior_interfaces__rosidl_typesupport_cExport-noconfig.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/export_wla_behavior_interfaces__rosidl_generator_cppExport.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/export_wla_behavior_interfaces__rosidl_typesupport_fastrtps_cppExport.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/export_wla_behavior_interfaces__rosidl_typesupport_fastrtps_cppExport-noconfig.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/wla_behavior_interfaces__rosidl_typesupport_introspection_cppExport.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/wla_behavior_interfaces__rosidl_typesupport_introspection_cppExport-noconfig.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/wla_behavior_interfaces__rosidl_typesupport_cppExport.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/wla_behavior_interfaces__rosidl_typesupport_cppExport-noconfig.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/export_wla_behavior_interfaces__rosidl_generator_pyExport.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/export_wla_behavior_interfaces__rosidl_generator_pyExport-noconfig.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/rosidl_cmake-extras.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/ament_cmake_export_dependencies-extras.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/ament_cmake_export_include_directories-extras.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/ament_cmake_export_libraries-extras.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/ament_cmake_export_targets-extras.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/rosidl_cmake_export_typesupport_targets-extras.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/rosidl_cmake_export_typesupport_libraries-extras.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/rosidl_cmake_aggregate_target-extras.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/wla_behavior_interfacesConfig.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/cmake/wla_behavior_interfacesConfig-version.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_interfaces/share/wla_behavior_interfaces/package.xml
+Finished <<< wla_behavior_interfaces [4.58s]
+Starting >>> wla_person_follow
+Starting >>> wla_behavior_bridge
+-- Found ament_cmake: 2.5.6 (/opt/ros/jazzy/share/ament_cmake/cmake)
+-- Configuring done (0.7s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/orin/ros2_ws/build/wla_behavior_bridge
+-- Install configuration: "Release"
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/environment/agent_runtime.dsv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/lib/wla_behavior_bridge/navigation_task_gateway
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/lib/wla_behavior_bridge/task_velocity_gate
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_bridge/lib/wla_behavior_bridge/agent_semantic_api
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_bridge/lib/wla_behavior_bridge/nav_perception_adapter
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_bridge/lib/wla_behavior_bridge/agent_person_api
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/launch
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/launch/agent_person_api.launch.py
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/launch/behavior_bridge.launch.py
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/launch/agent_semantic_api.launch.py
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/config
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/config/policy.example.json
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/config/yolo_realtime_whitelist.json
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/ament_index/resource_index/package_run_dependencies/wla_behavior_bridge
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/ament_index/resource_index/parent_prefix_path/wla_behavior_bridge
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/environment/ament_prefix_path.sh
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/environment/ament_prefix_path.dsv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/environment/path.sh
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/environment/path.dsv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/local_setup.bash
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/local_setup.sh
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/local_setup.zsh
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/local_setup.dsv
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/package.dsv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/ament_index/resource_index/packages/wla_behavior_bridge
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/cmake/wla_behavior_bridgeConfig.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/cmake/wla_behavior_bridgeConfig-version.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/package.xml
+Finished <<< wla_behavior_bridge [1.27s]
+running egg_info
+writing ../../build/wla_person_follow/wla_person_follow.egg-info/PKG-INFO
+writing dependency_links to ../../build/wla_person_follow/wla_person_follow.egg-info/dependency_links.txt
+writing requirements to ../../build/wla_person_follow/wla_person_follow.egg-info/requires.txt
+writing top-level names to ../../build/wla_person_follow/wla_person_follow.egg-info/top_level.txt
+reading manifest file '../../build/wla_person_follow/wla_person_follow.egg-info/SOURCES.txt'
+writing manifest file '../../build/wla_person_follow/wla_person_follow.egg-info/SOURCES.txt'
+running build
+running build_py
+copying wla_person_follow/node.py -> /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow
+copying wla_person_follow/depth_proc.py -> /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow
+copying wla_person_follow/__init__.py -> /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow
+copying wla_person_follow/relative_control.py -> /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow
+copying wla_person_follow/camera.py -> /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow
+running build_scripts
+copying and adjusting scripts/person_follow -> /home/orin/ros2_ws/build/wla_person_follow/build/scripts-3.12
+running install
+running install_lib
+copying /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow/node.py -> /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow
+copying /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow/depth_proc.py -> /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow
+copying /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow/__init__.py -> /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow
+copying /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow/relative_control.py -> /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow
+copying /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow/camera.py -> /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow
+byte-compiling /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/node.py to node.cpython-312.pyc
+byte-compiling /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/depth_proc.py to depth_proc.cpython-312.pyc
+byte-compiling /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/__init__.py to __init__.cpython-312.pyc
+byte-compiling /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/relative_control.py to relative_control.cpython-312.pyc
+byte-compiling /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/camera.py to camera.cpython-312.pyc
+running install_data
+copying resource/wla_person_follow -> /home/orin/ros2_ws/install/wla_person_follow/share/ament_index/resource_index/packages
+copying package.xml -> /home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow
+copying README.md -> /home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow
+copying config/follow.yaml -> /home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow/config
+copying launch/follow.launch.py -> /home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow/launch
+running install_egg_info
+removing '/home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow-0.2.0-py3.12.egg-info' (and everything under it)
+Copying ../../build/wla_person_follow/wla_person_follow.egg-info to /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow-0.2.0-py3.12.egg-info
+running install_scripts
+copying /home/orin/ros2_ws/build/wla_person_follow/build/scripts-3.12/person_follow -> /home/orin/ros2_ws/install/wla_person_follow/lib/wla_person_follow
+changing mode of /home/orin/ros2_ws/install/wla_person_follow/lib/wla_person_follow/person_follow to 755
+writing list of installed files to '/home/orin/ros2_ws/build/wla_person_follow/install.log'
+Finished <<< wla_person_follow [2.49s]
+
+Summary: 5 packages finished [7.40s]

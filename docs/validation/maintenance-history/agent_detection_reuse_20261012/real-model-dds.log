@@ -1,0 +1,3 @@
+[WARN] [1791787689.322308648] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[WARN] [1791787689.322431277] [rcl]: 'localhost_only' is enabled, 'automatic_discovery_range' and 'static_peers' will be ignored.
+{"status": "passed", "provided_model": true, "input": "ultralytics_bus_prerecorded_image", "depth": "synthetic_constant_2m", "camera_live": false, "map_position_validated": false, "physical_motion": false, "batches": 53, "observations": 110, "source_stamps": 53, "detected_labels": ["bus", "person"], "sessions": 1, "elapsed_s": 17.462019279999367, "forbidden_motion_publishers": 0}

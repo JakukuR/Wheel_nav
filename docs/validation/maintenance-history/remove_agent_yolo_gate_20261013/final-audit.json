@@ -1,0 +1,134 @@
+{
+  "tests": {
+    "tests": 103,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "updated_files": 13,
+  "active_reference_scan_count": 485,
+  "removed_control_references": [],
+  "cli_checks": [
+    {
+      "command": [
+        "bash",
+        "-n",
+        "/home/orin/ros2_ws/r680_agent.sh"
+      ],
+      "code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "bash",
+        "-n",
+        "/home/orin/ros2_ws/r680_perception.sh"
+      ],
+      "code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "bash",
+        "/home/orin/ros2_ws/r680_agent.sh",
+        "--help"
+      ],
+      "code": 0,
+      "stdout": "r680_agent.sh person-api | person visible | person start --mode follow|approach_interact --target-id ID [--request-id RID] [--seconds N] | person heartbeat|stop|status [--request-id RID] | observations [--whitelist FILE] | preview | execute | query map|visible|navigate|REQUEST.json | bridge SELECTED_MAP.json [launch arguments] | navigation [r680_nav.sh arguments]\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "bash",
+        "/home/orin/ros2_ws/r680_agent.sh",
+        "person",
+        "--help"
+      ],
+      "code": 0,
+      "stdout": "usage: agent_person_cli.py [-h] {visible,start,heartbeat,stop,status} ...\n\nExplicit relative task operator client, independent of a stored map.\n\npositional arguments:\n  {visible,start,heartbeat,stop,status}\n\noptions:\n  -h, --help            show this help message and exit\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "bash",
+        "/home/orin/ros2_ws/r680_agent.sh",
+        "person",
+        "detection",
+        "on"
+      ],
+      "code": 2,
+      "stdout": "",
+      "stderr": "usage: agent_person_cli.py [-h] {visible,start,heartbeat,stop,status} ...\nagent_person_cli.py: error: argument command: invalid choice: 'detection' (choose from 'visible', 'start', 'heartbeat', 'stop', 'status')\n"
+    },
+    {
+      "command": [
+        "bash",
+        "/home/orin/ros2_ws/r680_perception.sh",
+        "check",
+        "--help"
+      ],
+      "code": 0,
+      "stdout": "usage: nav_yolo_detector [-h] --model MODEL --tracker TRACKER\n                         [--device DEVICE] [--imgsz IMGSZ] [--hz HZ]\n                         [--base-frame {r680_mapping_floor,base_link}]\n                         [--check-dependencies]\n\noptions:\n  -h, --help            show this help message and exit\n  --model MODEL\n  --tracker TRACKER\n  --device DEVICE\n  --imgsz IMGSZ\n  --hz HZ\n  --base-frame {r680_mapping_floor,base_link}\n  --check-dependencies\n",
+      "stderr": ""
+    }
+  ],
+  "hashes": [
+    {
+      "path": "ros2_ws/docs/Agent共享检测与YOLO模型接入.md",
+      "sha256": "0c502328994c7d1c91a745cd4b52236547ffb6fd98a4af5896a94c02473708e7"
+    },
+    {
+      "path": "ros2_ws/docs/Agent语义导航接入.md",
+      "sha256": "6e161bff4af08ce9a84958391eb1a1907c78a9b990470d8be92f5aaebdf182c4"
+    },
+    {
+      "path": "ros2_ws/docs/人物跟随合入与系统链路核验.md",
+      "sha256": "76bffc8ba50bc64d504f84dc79116fa57150f340e46074f491eaec6f7b188fc9"
+    },
+    {
+      "path": "ros2_ws/r680_agent.sh",
+      "sha256": "acfb2f95dfb73065bf959be1304e7a93c839a4b5619376d4dbc53a0c773adcc0"
+    },
+    {
+      "path": "ros2_ws/r680_perception.sh",
+      "sha256": "f5fb0e3b498a0bb453c4c2d7d4606346aeaa411bf2730476bd1df7e8d5f39130"
+    },
+    {
+      "path": "ros2_ws/src/wla_behavior_bridge/scripts/agent_person_api",
+      "sha256": "14d0cf8c0281a5b13c60b3af475df99b78f8e7f59efbfe06b8628788b4a58f9d"
+    },
+    {
+      "path": "ros2_ws/src/wla_r680_navigation/scripts/nav_yolo_detector",
+      "sha256": "07f35a06626ae71bfecabaae1e0b7e1b923f747c45c602b0182a13d77cb440d6"
+    },
+    {
+      "path": "ros2_ws/src/wla_r680_navigation/test/test_nav_detector_ros.py",
+      "sha256": "4fae6a7ef62c46dc7f59dd4aa10a6b9909a9d7294efa8cb526049cf84acc0517"
+    },
+    {
+      "path": "Wheel_Legged_Agent/docs/Agent工程实现技术报告.md",
+      "sha256": "51ac685902bd25302077a5d1fd4e428c6b2051e900e858e11bca599d5ed42a21"
+    },
+    {
+      "path": "Wheel_Legged_Agent/scripts/agent_person_cli.py",
+      "sha256": "658085af21ede123397d5e0d295d55e053adbb4184e9bfd97c27f44e530bc4f7"
+    },
+    {
+      "path": "Wheel_Legged_Agent/src/wla_sim/behavior_bridge/person_transport.py",
+      "sha256": "2ed39151fbf4d9bc90800fdeedd0ba0cec5265a253e732527556a5fea84a7c3c"
+    },
+    {
+      "path": "Wheel_Legged_Agent/tests/test_relative_person_interface.py",
+      "sha256": "0e77169551166ea12b5ca60bef6b561867a214990cb0323380720354ad7c30c5"
+    },
+    {
+      "path": "ros2_ws/install/wla_behavior_bridge/lib/wla_behavior_bridge/agent_person_api",
+      "sha256": "14d0cf8c0281a5b13c60b3af475df99b78f8e7f59efbfe06b8628788b4a58f9d"
+    }
+  ],
+  "chassis_service": "MainPID=2217\nActiveState=active\n",
+  "perception_processes": "",
+  "source_installed_match": true
+}

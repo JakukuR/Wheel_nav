@@ -1,0 +1,117 @@
+[INFO] [launch]: All log files can be found below /home/orin/.ros/log/2026-10-12-16-28-39-113677-localhost.localdomain-107980
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [python-1]: process started with pid [108020]
+[INFO] [python3-2]: process started with pid [108021]
+[python-1] [INFO] [1791793723.034659565] [r680_nav_yolo_detector]: nav owns YOLO + RGB-D projection; waiting for camera; no motion publishers
+[python-1] /home/orin/ros2_ws/.venv-perception/lib/python3.12/site-packages/torch/cuda/__init__.py:384: UserWarning: Found GPU0 Orin which is of compute capability (CC) 8.7.
+[python-1] The following list shows the CCs this version of PyTorch was built for and the hardware CCs it supports:
+[python-1] - 8.0 which supports hardware CC >=8.0,<9.0 except {8.7}
+[python-1] - 9.0 which supports hardware CC >=9.0,<10.0
+[python-1] - 10.0 which supports hardware CC >=10.0,<11.0 except {10.1}
+[python-1] - 11.0 which supports hardware CC >=11.0,<12.0
+[python-1] - 12.0 which supports hardware CC >=12.0,<13.0
+[python-1]   _warn_unsupported_code(d, device_cc, code_ccs)
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[python-1] WARNING ⚠️ not enough matching points
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[INFO] [python3-2]: sending signal 'SIGINT' to process[python3-2]
+[INFO] [python-1]: sending signal 'SIGINT' to process[python-1]
+[INFO] [python3-2]: process has finished cleanly [pid 108021]
+[INFO] [python-1]: process has finished cleanly [pid 108020]

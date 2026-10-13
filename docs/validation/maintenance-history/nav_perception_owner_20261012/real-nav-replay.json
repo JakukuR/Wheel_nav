@@ -1,0 +1,72 @@
+{
+  "status": "passed",
+  "model": "user_yolo11n",
+  "input": "bundled_bus_rgb",
+  "geometry": "synthetic_depth_tf_odom_health",
+  "domain": 198,
+  "real_camera": false,
+  "physical_motion": false,
+  "raw_owner": [
+    "r680_nav_yolo_detector"
+  ],
+  "source_to_raw": {
+    "n": 99,
+    "median_ms": 162.847755,
+    "p95_ms": 229.16518729999999,
+    "max_ms": 239.374405
+  },
+  "inference": {
+    "n": 99,
+    "median_ms": 115.167095,
+    "p95_ms": 131.2219989,
+    "max_ms": 134.754626
+  },
+  "source_to_agent": {
+    "n": 99,
+    "median_ms": 163.895286,
+    "p95_ms": 230.8802115,
+    "max_ms": 240.892708
+  },
+  "raw_batches": 99,
+  "within_follow_300ms": 99,
+  "discarded_frames": [
+    {
+      "stamp_ns": 1791793723076324519,
+      "rgb_received_ns": 1791793723081471803,
+      "inference_start_ns": 1791793723082305758,
+      "epoch": 0,
+      "session": "e66d1e52df914f4dabebe6eabe7f42c2",
+      "inference_end_ns": 1791793724248961718,
+      "outcome": "expired_or_retired",
+      "discarded_ns": 1791793724253596054,
+      "_received_ns": 1791793724254630625,
+      "_phase": "warmup"
+    }
+  ],
+  "valid_map_positions": 120,
+  "example": {
+    "id": "d455:8b6cd1a9e2d241158456751797d6846b:t1",
+    "what": "person",
+    "position": {
+      "frame_id": "map",
+      "xyz_m": [
+        2.0,
+        0.2366851806640625,
+        1.5294760513305667
+      ]
+    },
+    "position_valid": true,
+    "position_reason": "depth_surface_candidate",
+    "observed_stamp_s": 1791793726.6424224,
+    "expires_stamp_s": 1791793727.3924224,
+    "position_is_navigation_goal": false
+  },
+  "health_revocation": true,
+  "no_depth_labels_preserved": true,
+  "stream_loss_expires": true,
+  "recovery_requires_new_frame": true,
+  "follow_person_batches": 79,
+  "chassis_publishers": 0,
+  "nonzero_candidates": 0,
+  "map_revision_matches_agent": true
+}

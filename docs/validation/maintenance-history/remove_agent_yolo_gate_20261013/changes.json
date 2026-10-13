@@ -1,0 +1,67 @@
+[
+  {
+    "path": "ros2_ws/docs/Agent共享检测与YOLO模型接入.md",
+    "before": "882ffd4ed56656df6f5ffa6c92e4d9cfd2dfa6c1ec615313b65ba961c54a3d03",
+    "after": "0c502328994c7d1c91a745cd4b52236547ffb6fd98a4af5896a94c02473708e7"
+  },
+  {
+    "path": "ros2_ws/docs/Agent语义导航接入.md",
+    "before": "813647b34e05251c6bf47f613e0922f86ad7df5c6ee0cf61348eb1e2c64a6861",
+    "after": "6e161bff4af08ce9a84958391eb1a1907c78a9b990470d8be92f5aaebdf182c4"
+  },
+  {
+    "path": "ros2_ws/docs/人物跟随合入与系统链路核验.md",
+    "before": "04ea2135e1c6276369bfc24aadecf6c9a04a2836719c204b75d3aaa1af447651",
+    "after": "76bffc8ba50bc64d504f84dc79116fa57150f340e46074f491eaec6f7b188fc9"
+  },
+  {
+    "path": "ros2_ws/r680_agent.sh",
+    "before": "55bbffafc224cce9cd3668dc5afb7a26825d555f3273759cf414d1a4ea72c9c1",
+    "after": "acfb2f95dfb73065bf959be1304e7a93c839a4b5619376d4dbc53a0c773adcc0"
+  },
+  {
+    "path": "ros2_ws/r680_perception.sh",
+    "before": "236f26c16b2ee4e184f907a4ed81524f9fd33fa345e84908d50ae66fa81736e6",
+    "after": "f5fb0e3b498a0bb453c4c2d7d4606346aeaa411bf2730476bd1df7e8d5f39130"
+  },
+  {
+    "path": "ros2_ws/src/wla_behavior_bridge/scripts/agent_person_api",
+    "before": "eb5b5bbd62b3f0b165e73f55ae8f6bc33b48eb61cd156056cd271968bb5355b3",
+    "after": "14d0cf8c0281a5b13c60b3af475df99b78f8e7f59efbfe06b8628788b4a58f9d"
+  },
+  {
+    "path": "ros2_ws/src/wla_r680_navigation/scripts/nav_yolo_detector",
+    "before": "2cbda8a3daa04139730c7b085bfa7a259fa1ff5d2346b36bb06bf992891f6b0c",
+    "after": "07f35a06626ae71bfecabaae1e0b7e1b923f747c45c602b0182a13d77cb440d6"
+  },
+  {
+    "path": "ros2_ws/src/wla_r680_navigation/test/test_nav_detector_ros.py",
+    "before": "820ae40544ebb6318fa84e8899085a87d183700f97993a396649a05064077c30",
+    "after": "4fae6a7ef62c46dc7f59dd4aa10a6b9909a9d7294efa8cb526049cf84acc0517"
+  },
+  {
+    "path": "Wheel_Legged_Agent/docs/Agent工程实现技术报告.md",
+    "before": "8c1d6ef6f9d7e6e2b4d79c57a5ab01c09ecb92a2b8f5a211b395c4ba7d0a9be9",
+    "after": "51ac685902bd25302077a5d1fd4e428c6b2051e900e858e11bca599d5ed42a21"
+  },
+  {
+    "path": "Wheel_Legged_Agent/scripts/agent_person_cli.py",
+    "before": "b55fd698994498896b331c9e12966e6c44daa77638cf936b2fc9e3acea3da028",
+    "after": "658085af21ede123397d5e0d295d55e053adbb4184e9bfd97c27f44e530bc4f7"
+  },
+  {
+    "path": "Wheel_Legged_Agent/src/wla_sim/behavior_bridge/person_transport.py",
+    "before": "609607166d8f8c5555b7bd2f1eb37c7fa3eee9e440a3f8a6b1046a1eeb3d7b9e",
+    "after": "2ed39151fbf4d9bc90800fdeedd0ba0cec5265a253e732527556a5fea84a7c3c"
+  },
+  {
+    "path": "Wheel_Legged_Agent/tests/test_relative_person_interface.py",
+    "before": "51fa3f88cd5802129ba4f0ced8627f1e24e65cead1d73410d3939746a3d26aac",
+    "after": "0e77169551166ea12b5ca60bef6b561867a214990cb0323380720354ad7c30c5"
+  },
+  {
+    "path": "ros2_ws/install/wla_behavior_bridge/lib/wla_behavior_bridge/agent_person_api",
+    "before": "eb5b5bbd62b3f0b165e73f55ae8f6bc33b48eb61cd156056cd271968bb5355b3",
+    "after": "14d0cf8c0281a5b13c60b3af475df99b78f8e7f59efbfe06b8628788b4a58f9d"
+  }
+]

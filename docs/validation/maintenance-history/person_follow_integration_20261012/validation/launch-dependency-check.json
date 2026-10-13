@@ -1,0 +1,12 @@
+{
+  "preflight": "expected_failure_missing_assets",
+  "errors": [
+    "missing_local_model",
+    "missing_module:ultralytics",
+    "missing_module:torch"
+  ],
+  "missing_model_launch": "fails_closed_and_stops_three_siblings",
+  "remaining_follow_nodes": 0,
+  "real_camera_yolo": "not_available",
+  "real_motion": "not_run"
+}

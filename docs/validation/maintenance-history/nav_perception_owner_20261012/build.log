@@ -1,0 +1,278 @@
+Starting >>> wla_behavior_bridge
+Starting >>> wla_person_follow
+Starting >>> wla_r680_navigation
+-- Found ament_cmake: 2.5.6 (/opt/ros/jazzy/share/ament_cmake/cmake)
+-- Found ament_cmake: 2.5.6 (/opt/ros/jazzy/share/ament_cmake/cmake)
+-- Configuring done (0.6s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/orin/ros2_ws/build/wla_behavior_bridge
+-- Install configuration: "Release"
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/environment/agent_runtime.dsv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/lib/wla_behavior_bridge/navigation_task_gateway
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/lib/wla_behavior_bridge/task_velocity_gate
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/lib/wla_behavior_bridge/agent_semantic_api
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_bridge/lib/wla_behavior_bridge/nav_perception_adapter
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/launch
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/launch/behavior_bridge.launch.py
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/launch/agent_semantic_api.launch.py
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/config
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/config/policy.example.json
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/config/yolo_realtime_whitelist.json
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_bridge/share/ament_index/resource_index/package_run_dependencies/wla_behavior_bridge
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_bridge/share/ament_index/resource_index/parent_prefix_path/wla_behavior_bridge
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/environment/ament_prefix_path.sh
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/environment/ament_prefix_path.dsv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/environment/path.sh
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/environment/path.dsv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/local_setup.bash
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/local_setup.sh
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/local_setup.zsh
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/local_setup.dsv
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/package.dsv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/ament_index/resource_index/packages/wla_behavior_bridge
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/cmake/wla_behavior_bridgeConfig.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/cmake/wla_behavior_bridgeConfig-version.cmake
+-- Installing: /home/orin/ros2_ws/install/wla_behavior_bridge/share/wla_behavior_bridge/package.xml
+Finished <<< wla_behavior_bridge [0.90s]
+-- Override CMake install command with custom implementation using symlinks instead of copying resources
+-- Found geometry_msgs: 5.3.8 (/opt/ros/jazzy/share/geometry_msgs/cmake)
+-- Found rosidl_generator_c: 4.6.9 (/opt/ros/jazzy/share/rosidl_generator_c/cmake)
+-- Found rosidl_generator_cpp: 4.6.9 (/opt/ros/jazzy/share/rosidl_generator_cpp/cmake)
+-- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+-- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+-- Found lifecycle_msgs: 2.0.4 (/opt/ros/jazzy/share/lifecycle_msgs/cmake)
+-- Found nav_msgs: 5.3.8 (/opt/ros/jazzy/share/nav_msgs/cmake)
+-- Found nav2_msgs: 1.3.12 (/opt/ros/jazzy/share/nav2_msgs/cmake)
+-- Found nav2_costmap_2d: 1.3.12 (/opt/ros/jazzy/share/nav2_costmap_2d/cmake)
+-- Found rmw_implementation_cmake: 7.3.3 (/opt/ros/jazzy/share/rmw_implementation_cmake/cmake)
+-- Found rmw_cyclonedds_cpp: 2.2.3 (/opt/ros/jazzy/share/rmw_cyclonedds_cpp/cmake)
+-- Using RMW implementation 'rmw_cyclonedds_cpp' as default
+-- Found eigen3_cmake_module: 0.3.1 (/opt/ros/jazzy/share/eigen3_cmake_module/cmake)
+-- Ensuring Eigen3 include directory is part of orocos-kdl CMake target
+-- Found TinyXML2 via Config file: /usr/lib/aarch64-linux-gnu/cmake/tinyxml2
+-- Found rtabmap_msgs: 0.22.1 (/opt/ros/jazzy/share/rtabmap_msgs/cmake)
+running develop
+-- Found ament_cmake_pytest: 2.5.6 (/opt/ros/jazzy/share/ament_cmake_pytest/cmake)
+Removing /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla-person-follow.egg-link (link to .)
+Note: you must uninstall or replace scripts manually!
+running egg_info
+writing ../../build/wla_person_follow/wla_person_follow.egg-info/PKG-INFO
+writing dependency_links to ../../build/wla_person_follow/wla_person_follow.egg-info/dependency_links.txt
+writing requirements to ../../build/wla_person_follow/wla_person_follow.egg-info/requires.txt
+writing top-level names to ../../build/wla_person_follow/wla_person_follow.egg-info/top_level.txt
+reading manifest file '../../build/wla_person_follow/wla_person_follow.egg-info/SOURCES.txt'
+writing manifest file '../../build/wla_person_follow/wla_person_follow.egg-info/SOURCES.txt'
+running build
+running build_py
+copying wla_person_follow/node.py -> /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow
+copying wla_person_follow/launch_parameters.py -> /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow
+running build_scripts
+running install
+running install_lib
+creating /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow
+copying /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow/node.py -> /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow
+copying /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow/geometry.py -> /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow
+copying /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow/navigation.py -> /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow
+copying /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow/launch_parameters.py -> /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow
+copying /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow/depth_proc.py -> /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow
+copying /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow/voxel.py -> /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow
+copying /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow/__init__.py -> /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow
+copying /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow/voxel_node.py -> /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow
+copying /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow/controller.py -> /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow
+copying /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow/detector.py -> /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow
+copying /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow/camera.py -> /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow
+copying /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow/costmap.py -> /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow
+copying /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow/recovery.py -> /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow
+copying /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow/voxel_navigation.py -> /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow
+copying /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow/target_lock.py -> /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow
+copying /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow/lightnav_adapter.py -> /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow
+copying /home/orin/ros2_ws/build/wla_person_follow/build/lib/wla_person_follow/kalman.py -> /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow
+byte-compiling /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/node.py to node.cpython-312.pyc
+byte-compiling /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/geometry.py to geometry.cpython-312.pyc
+byte-compiling /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/navigation.py to navigation.cpython-312.pyc
+byte-compiling /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/launch_parameters.py to launch_parameters.cpython-312.pyc
+byte-compiling /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/depth_proc.py to depth_proc.cpython-312.pyc
+byte-compiling /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/voxel.py to voxel.cpython-312.pyc
+byte-compiling /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/__init__.py to __init__.cpython-312.pyc
+byte-compiling /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/voxel_node.py to voxel_node.cpython-312.pyc
+byte-compiling /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/controller.py to controller.cpython-312.pyc
+byte-compiling /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/detector.py to detector.cpython-312.pyc
+byte-compiling /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/camera.py to camera.cpython-312.pyc
+byte-compiling /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/costmap.py to costmap.cpython-312.pyc
+byte-compiling /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/recovery.py to recovery.cpython-312.pyc
+byte-compiling /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/voxel_navigation.py to voxel_navigation.cpython-312.pyc
+byte-compiling /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/target_lock.py to target_lock.cpython-312.pyc
+byte-compiling /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/lightnav_adapter.py to lightnav_adapter.cpython-312.pyc
+byte-compiling /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/kalman.py to kalman.cpython-312.pyc
+running install_data
+copying resource/wla_person_follow -> /home/orin/ros2_ws/install/wla_person_follow/share/ament_index/resource_index/packages
+copying package.xml -> /home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow
+copying README.md -> /home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow
+copying config/nav2_costmap_overlay.yaml -> /home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow/config
+copying config/follow.yaml -> /home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow/config
+copying config/indoor.yaml -> /home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow/config
+copying config/nav2_voxel_overlay.yaml -> /home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow/config
+copying config/outdoor_flat.yaml -> /home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow/config
+copying config/voxel_mpc.yaml -> /home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow/config
+copying config/voxel_scene.rviz -> /home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow/config
+copying launch/autonomous_follow.launch.py -> /home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow/launch
+copying launch/voxel_mpc_follow.launch.py -> /home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow/launch
+copying launch/follow.launch.py -> /home/orin/ros2_ws/install/wla_person_follow/share/wla_person_follow/launch
+running install_egg_info
+Copying ../../build/wla_person_follow/wla_person_follow.egg-info to /home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow-0.1.0-py3.12.egg-info
+running install_scripts
+changing mode of /home/orin/ros2_ws/install/wla_person_follow/lib/wla_person_follow/person_follow to 775
+writing list of installed files to '/home/orin/ros2_ws/build/wla_person_follow/install.log'
+--- stderr: wla_person_follow
+Note: you must uninstall or replace scripts manually!
+---
+Finished <<< wla_person_follow [3.58s]
+-- Configuring done (4.6s)
+-- Generating done (0.1s)
+-- Build files have been written to: /home/orin/ros2_ws/build/wla_r680_navigation
+[ 15%] Built target vio_initializer
+[ 15%] Built target imu_conditioner
+[ 15%] Built target command_guard
+[ 20%] Built target wla_timed_obstacle_layer
+[ 30%] Built target mapping_odom_gate
+[ 30%] Built target goal_approach_limiter
+[ 35%] Built target degraded_odometry
+[ 40%] Built target path_speed_profile
+[ 45%] Built target depth_to_points
+[ 50%] Built target interface_monitor
+[ 55%] Built target dynamic_obstacle_memory
+[ 60%] Built target vo_watchdog
+[ 65%] Built target test_degraded_odometry
+[ 70%] Built target point_to_scan
+[ 75%] Built target test_recovery_evidence
+[ 75%] Built target ament_cmake_python_symlink_wla_r680_navigation_py
+[ 80%] Built target test_relocalization_prior
+[ 85%] Built target test_vio_init_policy
+[ 90%] Built target test_isolated_clusters
+[ 95%] Built target test_timed_obstacle_layer
+[100%] Built target test_scan_projection
+running egg_info
+writing wla_r680_navigation_py.egg-info/PKG-INFO
+writing dependency_links to wla_r680_navigation_py.egg-info/dependency_links.txt
+writing top-level names to wla_r680_navigation_py.egg-info/top_level.txt
+reading manifest file 'wla_r680_navigation_py.egg-info/SOURCES.txt'
+writing manifest file 'wla_r680_navigation_py.egg-info/SOURCES.txt'
+[100%] Built target ament_cmake_python_build_wla_r680_navigation_py_egg
+-- Install configuration: "Release"
+-- Execute custom install script
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation//costmap_plugins.xml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/libwla_timed_obstacle_layer.so
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/degraded_odometry
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/command_guard
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/vio_initializer
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/mapping_odom_gate
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/imu_conditioner
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/path_speed_profile
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/goal_approach_limiter
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/dynamic_obstacle_memory
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/vo_watchdog
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/interface_monitor
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/depth_to_points
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/point_to_scan
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/environment/pythonpath.sh
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/environment/pythonpath.dsv
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py-0.1.0-py3.12.egg-info/PKG-INFO
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py-0.1.0-py3.12.egg-info/SOURCES.txt
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py-0.1.0-py3.12.egg-info/dependency_links.txt
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py-0.1.0-py3.12.egg-info/top_level.txt
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py/__init__.py
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py/archive.py
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py/mission.py
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py/mission_core.py
+-- Symlinking: /home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py/perception_context.py
+-- Symlinking: /home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py/perception_geometry.py
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py/storage.py
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/navigation_goal_bridge
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/web_gateway
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/furniture_semantic.py
+-- Symlinking: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/nav_yolo_detector
+-- Symlinking: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/nav_perception_bringup
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/mapping_mission
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/prepare_mapping_run
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/save_manual_map
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/r680_nav.sh
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/wait_mapping_ready
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/resolve_navigation_map
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/accept_navigation_map_edit
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/r680_mapping.sh
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/r680_mode_lock.sh
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/chassis.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/cuvslam.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/d455_cuvslam.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/d455_points.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/d455_scan.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/degraded_odometry.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/dynamic_obstacles.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/ekf_vo_imu.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/exploration.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/goal_approach_limiter.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/interfaces.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/mission.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/nav2.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/nav2_mpc.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/nav2_recovery_test.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/nav2_test.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/nav2_test_scan_only.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/navigate_through_poses_no_spin.xml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/navigate_to_pose_no_spin.xml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/path_speed_profile.yaml
+-- Symlinking: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/perception.botsort.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/r680_mapping.rviz
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/r680_navigation.rviz
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/rtabmap.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/storage.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/vio_initializer.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/vo_watchdog.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/web_gateway.yaml
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/config/yolo_mapping_whitelist.json
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/launch/bringup.launch.py
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/R680-CUVSLAM-001.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/R680-CUVSLAM-002.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/R680-CUVSLAM-003.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/R680-CUVSLAM-004.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/R680-CUVSLAM-005.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/R680-MAP-EDIT-001.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/R680-MAP-EDIT-002.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/R680导航建图启动链路与代码目录树.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/changes/R680-DEGRADED-ODOM-001.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/changes/R680-DEGRADED-ODOM-002.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/changes/R680-FIXES-20261009.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/changes/R680-MPC-STATIC-GLOBAL-001.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/changes/R680-OBSTACLE-001.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/changes/R680-RECOVERY-001.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/changes/R680-RECOVERY-002.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/changes/R680-TERMINAL-001.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/docs/changes/R680-VIO-OUTPUT-001.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/web/app.js
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/web/index.html
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/web/robot-sticker.png
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/web/style.css
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/README.md
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/ament_index/resource_index/package_run_dependencies/wla_r680_navigation
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/ament_index/resource_index/parent_prefix_path/wla_r680_navigation
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/environment/ament_prefix_path.sh
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/environment/ament_prefix_path.dsv
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/environment/path.sh
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/environment/path.dsv
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/local_setup.bash
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/local_setup.sh
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/local_setup.zsh
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/local_setup.dsv
+-- Symlinking: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/package.dsv
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/ament_index/resource_index/packages/wla_r680_navigation
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/ament_index/resource_index/nav2_costmap_2d__pluginlib__plugin/wla_r680_navigation
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/cmake/wla_r680_navigationConfig.cmake
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/cmake/wla_r680_navigationConfig-version.cmake
+-- Up-to-date symlink: /home/orin/ros2_ws/install/wla_r680_navigation/share/wla_r680_navigation/package.xml
+Listing '/home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py'...
+Compiling '/home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py/perception_context.py'...
+Compiling '/home/orin/ros2_ws/install/wla_r680_navigation/lib/python3.12/site-packages/wla_r680_navigation_py/perception_geometry.py'...
+Finished <<< wla_r680_navigation [6.45s]
+
+Summary: 3 packages finished [6.81s]
+  1 package had stderr output: wla_person_follow

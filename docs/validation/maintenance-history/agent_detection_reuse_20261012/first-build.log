@@ -1,0 +1,182 @@
+Starting >>> wla_detection_bridge
+Finished <<< wla_detection_bridge [3.11s]
+Starting >>> wla_person_follow
+Finished <<< wla_person_follow [3.21s]
+Starting >>> wla_r680_navigation
+Finished <<< wla_r680_navigation [5.10s]
+
+Summary: 3 packages finished [11.7s]
+.....................EEEEEEEEEEEEEE..................................... [ 75%]
+........................                                                 [100%]
+==================================== ERRORS ====================================
+_ ERROR at setup of ActualMpcTests.test_bad_voxel_labels_and_resolution_revoke_map _
+
+cls = <class 'test_mpc_ros.ActualMpcTests'>
+
+    @classmethod
+    def setUpClass(cls):
+        if os.environ.get('ROS_DOMAIN_ID') != '198':
+>           raise RuntimeError('tests must use isolated ROS domain 198')
+E           RuntimeError: tests must use isolated ROS domain 198
+
+src/wla_person_follow/test/test_mpc_ros.py:34: RuntimeError
+_______________ ERROR at setup of ActualMpcTests.test_curved_qp ________________
+
+cls = <class 'test_mpc_ros.ActualMpcTests'>
+
+    @classmethod
+    def setUpClass(cls):
+        if os.environ.get('ROS_DOMAIN_ID') != '198':
+>           raise RuntimeError('tests must use isolated ROS domain 198')
+E           RuntimeError: tests must use isolated ROS domain 198
+
+src/wla_person_follow/test/test_mpc_ros.py:34: RuntimeError
+_ ERROR at setup of ActualMpcTests.test_empty_map_and_old_target_reply_rejected _
+
+cls = <class 'test_mpc_ros.ActualMpcTests'>
+
+    @classmethod
+    def setUpClass(cls):
+        if os.environ.get('ROS_DOMAIN_ID') != '198':
+>           raise RuntimeError('tests must use isolated ROS domain 198')
+E           RuntimeError: tests must use isolated ROS domain 198
+
+src/wla_person_follow/test/test_mpc_ros.py:34: RuntimeError
+_ ERROR at setup of ActualMpcTests.test_invalid_measured_velocity_revokes_last_good_sample _
+
+cls = <class 'test_mpc_ros.ActualMpcTests'>
+
+    @classmethod
+    def setUpClass(cls):
+        if os.environ.get('ROS_DOMAIN_ID') != '198':
+>           raise RuntimeError('tests must use isolated ROS domain 198')
+E           RuntimeError: tests must use isolated ROS domain 198
+
+src/wla_person_follow/test/test_mpc_ros.py:34: RuntimeError
+________ ERROR at setup of ActualMpcTests.test_invalid_request_rejected ________
+
+cls = <class 'test_mpc_ros.ActualMpcTests'>
+
+    @classmethod
+    def setUpClass(cls):
+        if os.environ.get('ROS_DOMAIN_ID') != '198':
+>           raise RuntimeError('tests must use isolated ROS domain 198')
+E           RuntimeError: tests must use isolated ROS domain 198
+
+src/wla_person_follow/test/test_mpc_ros.py:34: RuntimeError
+_ ERROR at setup of ActualMpcTests.test_scene_node_publishes_real_voxel_cloud __
+
+cls = <class 'test_mpc_ros.ActualMpcTests'>
+
+    @classmethod
+    def setUpClass(cls):
+        if os.environ.get('ROS_DOMAIN_ID') != '198':
+>           raise RuntimeError('tests must use isolated ROS domain 198')
+E           RuntimeError: tests must use isolated ROS domain 198
+
+src/wla_person_follow/test/test_mpc_ros.py:34: RuntimeError
+__ ERROR at setup of ActualMpcTests.test_straight_qp_and_nonlinear_prediction __
+
+cls = <class 'test_mpc_ros.ActualMpcTests'>
+
+    @classmethod
+    def setUpClass(cls):
+        if os.environ.get('ROS_DOMAIN_ID') != '198':
+>           raise RuntimeError('tests must use isolated ROS domain 198')
+E           RuntimeError: tests must use isolated ROS domain 198
+
+src/wla_person_follow/test/test_mpc_ros.py:34: RuntimeError
+_ ERROR at setup of ActualMpcTests.test_timed_out_request_is_removed_from_rclpy_pending_table _
+
+cls = <class 'test_mpc_ros.ActualMpcTests'>
+
+    @classmethod
+    def setUpClass(cls):
+        if os.environ.get('ROS_DOMAIN_ID') != '198':
+>           raise RuntimeError('tests must use isolated ROS domain 198')
+E           RuntimeError: tests must use isolated ROS domain 198
+
+src/wla_person_follow/test/test_mpc_ros.py:34: RuntimeError
+____ ERROR at setup of ActualMpcTests.test_voxel_gate_with_actual_mpc_reply ____
+
+cls = <class 'test_mpc_ros.ActualMpcTests'>
+
+    @classmethod
+    def setUpClass(cls):
+        if os.environ.get('ROS_DOMAIN_ID') != '198':
+>           raise RuntimeError('tests must use isolated ROS domain 198')
+E           RuntimeError: tests must use isolated ROS domain 198
+
+src/wla_person_follow/test/test_mpc_ros.py:34: RuntimeError
+_ ERROR at setup of MpcValidationTests.test_lowered_limit_has_priority_over_command_slew _
+
+cls = <class 'test_mpc_validation_ros.MpcValidationTests'>
+
+    @classmethod
+    def setUpClass(cls):
+        if os.environ.get('ROS_DOMAIN_ID') != '198':
+>           raise RuntimeError('tests must use isolated ROS domain 198')
+E           RuntimeError: tests must use isolated ROS domain 198
+
+src/wla_person_follow/test/test_mpc_validation_ros.py:28: RuntimeError
+_ ERROR at setup of MpcValidationTests.test_pose_frames_height_and_orientation_validated _
+
+cls = <class 'test_mpc_validation_ros.MpcValidationTests'>
+
+    @classmethod
+    def setUpClass(cls):
+        if os.environ.get('ROS_DOMAIN_ID') != '198':
+>           raise RuntimeError('tests must use isolated ROS domain 198')
+E           RuntimeError: tests must use isolated ROS domain 198
+
+src/wla_person_follow/test/test_mpc_validation_ros.py:28: RuntimeError
+_ ERROR at setup of MpcValidationTests.test_scene_error_revokes_cloud_and_preserves_memory _
+
+cls = <class 'test_mpc_validation_ros.MpcValidationTests'>
+
+    @classmethod
+    def setUpClass(cls):
+        if os.environ.get('ROS_DOMAIN_ID') != '198':
+>           raise RuntimeError('tests must use isolated ROS domain 198')
+E           RuntimeError: tests must use isolated ROS domain 198
+
+src/wla_person_follow/test/test_mpc_validation_ros.py:28: RuntimeError
+_ ERROR at setup of MpcValidationTests.test_short_control_period_respects_first_input_slew _
+
+cls = <class 'test_mpc_validation_ros.MpcValidationTests'>
+
+    @classmethod
+    def setUpClass(cls):
+        if os.environ.get('ROS_DOMAIN_ID') != '198':
+>           raise RuntimeError('tests must use isolated ROS domain 198')
+E           RuntimeError: tests must use isolated ROS domain 198
+
+src/wla_person_follow/test/test_mpc_validation_ros.py:28: RuntimeError
+_ ERROR at setup of MpcValidationTests.test_unbounded_measured_motion_rejected _
+
+cls = <class 'test_mpc_validation_ros.MpcValidationTests'>
+
+    @classmethod
+    def setUpClass(cls):
+        if os.environ.get('ROS_DOMAIN_ID') != '198':
+>           raise RuntimeError('tests must use isolated ROS domain 198')
+E           RuntimeError: tests must use isolated ROS domain 198
+
+src/wla_person_follow/test/test_mpc_validation_ros.py:28: RuntimeError
+- generated xml file: /home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/follow-and-stream.xml -
+=========================== short test summary info ============================
+ERROR src/wla_person_follow/test/test_mpc_ros.py::ActualMpcTests::test_bad_voxel_labels_and_resolution_revoke_map
+ERROR src/wla_person_follow/test/test_mpc_ros.py::ActualMpcTests::test_curved_qp
+ERROR src/wla_person_follow/test/test_mpc_ros.py::ActualMpcTests::test_empty_map_and_old_target_reply_rejected
+ERROR src/wla_person_follow/test/test_mpc_ros.py::ActualMpcTests::test_invalid_measured_velocity_revokes_last_good_sample
+ERROR src/wla_person_follow/test/test_mpc_ros.py::ActualMpcTests::test_invalid_request_rejected
+ERROR src/wla_person_follow/test/test_mpc_ros.py::ActualMpcTests::test_scene_node_publishes_real_voxel_cloud
+ERROR src/wla_person_follow/test/test_mpc_ros.py::ActualMpcTests::test_straight_qp_and_nonlinear_prediction
+ERROR src/wla_person_follow/test/test_mpc_ros.py::ActualMpcTests::test_timed_out_request_is_removed_from_rclpy_pending_table
+ERROR src/wla_person_follow/test/test_mpc_ros.py::ActualMpcTests::test_voxel_gate_with_actual_mpc_reply
+ERROR src/wla_person_follow/test/test_mpc_validation_ros.py::MpcValidationTests::test_lowered_limit_has_priority_over_command_slew
+ERROR src/wla_person_follow/test/test_mpc_validation_ros.py::MpcValidationTests::test_pose_frames_height_and_orientation_validated
+ERROR src/wla_person_follow/test/test_mpc_validation_ros.py::MpcValidationTests::test_scene_error_revokes_cloud_and_preserves_memory
+ERROR src/wla_person_follow/test/test_mpc_validation_ros.py::MpcValidationTests::test_short_control_period_respects_first_input_slew
+ERROR src/wla_person_follow/test/test_mpc_validation_ros.py::MpcValidationTests::test_unbounded_measured_motion_rejected
+82 passed, 14 errors in 4.40s

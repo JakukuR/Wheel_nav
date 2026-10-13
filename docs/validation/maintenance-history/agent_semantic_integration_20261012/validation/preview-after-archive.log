@@ -1,0 +1,30 @@
+{
+  "actual_map_id": "map-2026-10-08-1",
+  "objects": 50,
+  "navigation_routes": 27,
+  "preview_intent": {
+    "request_id": "preview-table-0005",
+    "state": "preview",
+    "reason": "execution_disabled",
+    "binding": {
+      "action_id": "investigate",
+      "package_version": "builtin-1",
+      "phase": "接近调查",
+      "target_key": "nav:e22002c2dcae42d27d997f53d9283b76ffa29823264c89fb1d0bbd424ca440c4",
+      "request_id": "preview-table-0005",
+      "instance_id": "intent-28d38bbe04994c87af19a70d6d541f68",
+      "generation": 1,
+      "owner": "agent",
+      "map_id": "map-2026-10-08-1",
+      "map_revision": "nav-6ba3db8494e0e2f85cbcc70c97632392",
+      "feature_id": "furniture-0005",
+      "target_fingerprint": "e3eb338e5588045c84953f44e448688b83e9fe86bb62938b1b60b00b68e37d18"
+    },
+    "execution_enabled": false,
+    "task_terminal": false
+  },
+  "realtime_objects": [],
+  "reason": "detector_not_running_in_preview_domain",
+  "chassis_publishers": 0,
+  "hardware_motion": "not_run"
+}

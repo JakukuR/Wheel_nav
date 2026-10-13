@@ -1,0 +1,13 @@
+[INFO] [launch]: All log files can be found below /home/orin/.ros/log/2026-10-12-11-41-15-282382-localhost.localdomain-41489
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [behavior_executor-1]: process started with pid [41496]
+[INFO] [navigation_task_gateway-2]: process started with pid [41497]
+[INFO] [task_velocity_gate-3]: process started with pid [41498]
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[INFO] [task_velocity_gate-3]: sending signal 'SIGINT' to process[task_velocity_gate-3]
+[INFO] [navigation_task_gateway-2]: sending signal 'SIGINT' to process[navigation_task_gateway-2]
+[INFO] [behavior_executor-1]: sending signal 'SIGINT' to process[behavior_executor-1]
+[behavior_executor-1] [INFO] [1791776481.864767009] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [behavior_executor-1]: process has finished cleanly [pid 41496]
+[INFO] [task_velocity_gate-3]: process has finished cleanly [pid 41498]
+[INFO] [navigation_task_gateway-2]: process has finished cleanly [pid 41497]

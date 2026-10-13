@@ -1,0 +1,8 @@
+{
+  "owner": "ros2_ws/wla_person_follow",
+  "mode": "relative_only",
+  "input": "/r680/perception/relative_objects",
+  "command_service": "/r680/person_follow/command",
+  "errors": [],
+  "package_prefix": "/home/orin/ros2_ws/install/wla_person_follow"
+}

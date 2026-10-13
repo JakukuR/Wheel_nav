@@ -1,0 +1,7 @@
+{
+  "callback_drain_trial": "reverted_no_latency_improvement",
+  "current_producer_sha256": "18913ea86c9e1526e37b600a02db97af97d9d5e715b1989d8ad9023f1c530ef9",
+  "current_code_validation": "before-drain-navigation-producer.xml",
+  "current_code_dds_result": "before-drain-real-model-navigation.json",
+  "remaining_limitation": "not_all_batches_within_follow_300ms; real_camera_and_loaded_runtime_not_validated"
+}

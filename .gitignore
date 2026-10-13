@@ -25,3 +25,7 @@ node_modules/
 /.gateway-backup-*/
 
 /maps/.publish.lock
+
+# Local perception runtime and temporary maintenance backups.
+/.venv-perception/
+/.maintenance/

@@ -1,0 +1,63 @@
+Looking in links: /home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/torch-2.12.1+cu132-cp312-cp312-manylinux_2_28_aarch64.whl
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/torchvision-0.27.1+cu132-cp312-cp312-manylinux_2_28_aarch64.whl
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/filelock-3.20.0-py3-none-any.whl (from torch==2.12.1)
+Requirement already satisfied: typing-extensions>=4.10.0 in /usr/lib/python3/dist-packages (from torch==2.12.1) (4.10.0)
+Requirement already satisfied: setuptools<82 in /usr/lib/python3/dist-packages (from torch==2.12.1) (68.1.2)
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/sympy-1.14.0-py3-none-any.whl (from torch==2.12.1)
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/networkx-3.5-py3-none-any.whl (from torch==2.12.1)
+Requirement already satisfied: jinja2 in /usr/lib/python3/dist-packages (from torch==2.12.1) (3.1.2)
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/fsspec-2026.7.0-py3-none-any.whl (from torch==2.12.1)
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/cuda_toolkit-13.2.1-py3-none-any.whl (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==13.2.1; platform_system == "Linux"->torch==2.12.1)
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/cuda_bindings-13.3.1-cp312-cp312-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl (from torch==2.12.1)
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/nvidia_cudnn_cu13-9.20.0.48-py3-none-manylinux_2_27_aarch64.whl (from torch==2.12.1)
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/nvidia_cusparselt_cu13-0.8.1-py3-none-manylinux2014_aarch64.whl (from torch==2.12.1)
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/nvidia_nccl_cu13-2.29.7-py3-none-manylinux_2_18_aarch64.whl (from torch==2.12.1)
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/nvidia_nvshmem_cu13-3.4.5-py3-none-manylinux2014_aarch64.whl (from torch==2.12.1)
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/triton-3.7.1-cp312-cp312-linux_aarch64.whl (from torch==2.12.1)
+Requirement already satisfied: numpy in /usr/lib/python3/dist-packages (from torchvision==0.27.1) (1.26.4)
+Requirement already satisfied: pillow!=8.3.*,>=5.3.0 in /usr/lib/python3/dist-packages (from torchvision==0.27.1) (10.2.0)
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/nvidia_cublas-13.4.0.1-py3-none-manylinux_2_27_aarch64.whl (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==13.2.1; platform_system == "Linux"->torch==2.12.1)
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/nvidia_cuda_nvrtc-13.2.78-py3-none-manylinux2014_aarch64.whl (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==13.2.1; platform_system == "Linux"->torch==2.12.1)
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/nvidia_cuda_runtime-13.2.75-py3-none-manylinux2014_aarch64.whl (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==13.2.1; platform_system == "Linux"->torch==2.12.1)
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/nvidia_cufft-12.2.0.46-py3-none-manylinux2014_aarch64.whl (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==13.2.1; platform_system == "Linux"->torch==2.12.1)
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/nvidia_nvjitlink-13.3.33-py3-none-manylinux2014_aarch64.whl (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==13.2.1; platform_system == "Linux"->torch==2.12.1)
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/nvidia_cufile-1.17.1.22-py3-none-manylinux_2_27_aarch64.whl (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==13.2.1; platform_system == "Linux"->torch==2.12.1)
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/nvidia_cuda_cupti-13.2.75-py3-none-manylinux_2_25_aarch64.whl (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==13.2.1; platform_system == "Linux"->torch==2.12.1)
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/nvidia_curand-10.4.2.55-py3-none-manylinux_2_27_aarch64.whl (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==13.2.1; platform_system == "Linux"->torch==2.12.1)
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/nvidia_cusolver-12.2.0.1-py3-none-manylinux_2_27_aarch64.whl (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==13.2.1; platform_system == "Linux"->torch==2.12.1)
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/nvidia_cusparse-12.7.10.1-py3-none-manylinux2014_aarch64.whl (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==13.2.1; platform_system == "Linux"->torch==2.12.1)
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/nvidia_nvtx-13.2.75-py3-none-manylinux2014_aarch64.whl (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==13.2.1; platform_system == "Linux"->torch==2.12.1)
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/cuda_pathfinder-1.6.0-py3-none-any.whl (from cuda-bindings<14,>=13.0.3->torch==2.12.1)
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/mpmath-1.3.0-py3-none-any.whl (from sympy>=1.13.3->torch==2.12.1)
+Installing collected packages: nvidia-cusparselt-cu13, mpmath, cuda-toolkit, triton, sympy, nvidia-nvtx, nvidia-nvshmem-cu13, nvidia-nvjitlink, nvidia-nccl-cu13, nvidia-curand, nvidia-cufile, nvidia-cuda-runtime, nvidia-cuda-nvrtc, nvidia-cuda-cupti, networkx, fsspec, filelock, cuda-pathfinder, nvidia-cusparse, nvidia-cufft, nvidia-cublas, cuda-bindings, nvidia-cusolver, nvidia-cudnn-cu13, torch, torchvision
+  Attempting uninstall: mpmath
+    Found existing installation: mpmath 0.0.0
+    Not uninstalling mpmath at /usr/lib/python3/dist-packages, outside environment /home/orin/ros2_ws/.venv-perception
+    Can't uninstall 'mpmath'. No files were found to uninstall.
+  Attempting uninstall: sympy
+    Found existing installation: sympy 1.12
+    Not uninstalling sympy at /usr/lib/python3/dist-packages, outside environment /home/orin/ros2_ws/.venv-perception
+    Can't uninstall 'sympy'. No files were found to uninstall.
+Successfully installed cuda-bindings-13.3.1 cuda-pathfinder-1.6.0 cuda-toolkit-13.2.1 filelock-3.20.0 fsspec-2026.7.0 mpmath-1.3.0 networkx-3.5 nvidia-cublas-13.4.0.1 nvidia-cuda-cupti-13.2.75 nvidia-cuda-nvrtc-13.2.78 nvidia-cuda-runtime-13.2.75 nvidia-cudnn-cu13-9.20.0.48 nvidia-cufft-12.2.0.46 nvidia-cufile-1.17.1.22 nvidia-curand-10.4.2.55 nvidia-cusolver-12.2.0.1 nvidia-cusparse-12.7.10.1 nvidia-cusparselt-cu13-0.8.1 nvidia-nccl-cu13-2.29.7 nvidia-nvjitlink-13.3.33 nvidia-nvshmem-cu13-3.4.5 nvidia-nvtx-13.2.75 sympy-1.14.0 torch-2.12.1+cu132 torchvision-0.27.1+cu132 triton-3.7.1
+Looking in links: /home/orin/ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/ultralytics-8.3.203-py3-none-any.whl
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/ultralytics_thop-2.0.18-py3-none-any.whl
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/lap-0.5.12-cp312-cp312-manylinux_2_17_aarch64.whl
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/polars-1.34.0-py3-none-any.whl
+Processing ./ros2_ws/.maintenance/agent_detection_reuse_20261012/wheels/polars_runtime_32-1.34.0-cp39-abi3-manylinux_2_24_aarch64.whl
+Installing collected packages: ultralytics-thop, ultralytics, polars-runtime-32, polars, lap
+Successfully installed lap-0.5.12 polars-1.34.0 polars-runtime-32-1.34.0 ultralytics-8.3.203 ultralytics-thop-2.0.18
+/home/orin/ros2_ws/.venv-perception/lib/python3.12/site-packages/torch/cuda/__init__.py:384: UserWarning: Found GPU0 Orin which is of compute capability (CC) 8.7.
+The following list shows the CCs this version of PyTorch was built for and the hardware CCs it supports:
+- 8.0 which supports hardware CC >=8.0,<9.0 except {8.7}
+- 9.0 which supports hardware CC >=9.0,<10.0
+- 10.0 which supports hardware CC >=10.0,<11.0 except {10.1}
+- 11.0 which supports hardware CC >=11.0,<12.0
+- 12.0 which supports hardware CC >=12.0,<13.0
+  _warn_unsupported_code(d, device_cc, code_ccs)
+TORCH 2.12.1+cu132 CUDA 13.2 AVAILABLE True
+ARCHITECTURES ['sm_80', 'sm_90', 'sm_100', 'sm_110', 'sm_120']
+NUMPY 1.26.4 OPENCV 4.6.0
+CUDA_MATMUL_OK
+ULTRALYTICS 8.3.203

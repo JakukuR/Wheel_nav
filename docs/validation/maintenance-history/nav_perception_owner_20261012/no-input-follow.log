@@ -1,0 +1,31 @@
+{
+  "workspace_packages": {
+    "wla_person_follow": "/home/orin/ros2_ws/install/wla_person_follow",
+    "wla_follow_mpc": "/home/orin/ros2_ws/install/wla_follow_mpc",
+    "wla_diff_mpc": "/home/orin/ros2_ws/install/wla_diff_mpc",
+    "wla_detection_bridge": "/home/orin/ros2_ws/install/wla_detection_bridge"
+  },
+  "python": "/usr/bin/python3",
+  "detection_backend": "agent",
+  "detections_topic": "/r680/perception/detections",
+  "runtime_detection_status": "not_checked",
+  "motion_output": "candidate_only",
+  "errors": []
+}
+[INFO] [launch]: All log files can be found below /home/orin/.ros/log/2026-10-12-16-28-23-533631-localhost.localdomain-107782
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [python3-1]: process started with pid [107845]
+[INFO] [python3-2]: process started with pid [107846]
+[INFO] [python3-3]: process started with pid [107847]
+[INFO] [follow_mpc_server-4]: process started with pid [107848]
+[python3-1] [WARN] [1791793705.138832255] [person_follow]: Person follow starts DISABLED; publishes candidate velocity only to /r680/person_follow/cmd_vel_candidate
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[INFO] [follow_mpc_server-4]: sending signal 'SIGINT' to process[follow_mpc_server-4]
+[INFO] [python3-3]: sending signal 'SIGINT' to process[python3-3]
+[INFO] [python3-2]: sending signal 'SIGINT' to process[python3-2]
+[INFO] [python3-1]: sending signal 'SIGINT' to process[python3-1]
+[follow_mpc_server-4] [INFO] [1791793712.830403163] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [follow_mpc_server-4]: process has finished cleanly [pid 107848]
+[INFO] [python3-2]: process has finished cleanly [pid 107846]
+[INFO] [python3-3]: process has finished cleanly [pid 107847]
+[INFO] [python3-1]: process has finished cleanly [pid 107845]

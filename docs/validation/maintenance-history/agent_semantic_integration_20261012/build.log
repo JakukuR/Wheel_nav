@@ -1,0 +1,35 @@
+Starting >>> wla_behavior_interfaces
+--- stderr: wla_behavior_interfaces
+CMake Warning:
+  Manually-specified variables were not used by the project:
+
+    WLA_AGENT_SOURCE_DIR
+
+
+---
+Finished <<< wla_behavior_interfaces [16.9s]
+Starting >>> wla_behavior_bt
+--- stderr: wla_behavior_bt
+CMake Warning:
+  Manually-specified variables were not used by the project:
+
+    WLA_AGENT_SOURCE_DIR
+
+
+---
+Finished <<< wla_behavior_bt [18.4s]
+Starting >>> wla_behavior_bridge
+Finished <<< wla_behavior_bridge [1.72s]
+Starting >>> wla_r680_navigation
+--- stderr: wla_r680_navigation
+CMake Warning:
+  Manually-specified variables were not used by the project:
+
+    WLA_AGENT_SOURCE_DIR
+
+
+---
+Finished <<< wla_r680_navigation [5.13s]
+
+Summary: 4 packages finished [42.5s]
+  3 packages had stderr output: wla_behavior_bt wla_behavior_interfaces wla_r680_navigation

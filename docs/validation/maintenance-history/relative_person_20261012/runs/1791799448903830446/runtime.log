@@ -1,0 +1,6 @@
+[INFO] [1791799165.100589416] [person_follow]: Relative person service ready; waiting for explicit Agent command and detection. Preview mode: leased motion candidates remain zero.
+Traceback (most recent call last):
+  File "/home/orin/ros2_ws/.maintenance/relative_person_20261012/real_relative_replay.py", line 82, in <module>
+    result=call(gate,SetBool.Request(data=True));assert result.success
+                                                        ^^^^^^^^^^^^^^
+AssertionError

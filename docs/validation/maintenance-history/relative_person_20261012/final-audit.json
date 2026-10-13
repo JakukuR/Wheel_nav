@@ -1,0 +1,34 @@
+{
+  "status": "passed",
+  "changed_files": 81,
+  "writes": 52,
+  "deleted_sources": 29,
+  "tests": {
+    "tests": 239,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "installed_source_matches": [
+    "/home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/nav_yolo_detector",
+    "/home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/nav_perception_bringup",
+    "/home/orin/ros2_ws/install/wla_behavior_bridge/lib/wla_behavior_bridge/nav_perception_adapter",
+    "/home/orin/ros2_ws/install/wla_behavior_bridge/lib/wla_behavior_bridge/agent_person_api",
+    "/home/orin/ros2_ws/install/wla_behavior_bridge/lib/wla_behavior_bridge/agent_semantic_api",
+    "/home/orin/ros2_ws/install/wla_manual_control/lib/wla_manual_control/command_mux.py",
+    "/home/orin/ros2_ws/install/wla_manual_control/lib/wla_manual_control/control_policy.py",
+    "/home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/node.py",
+    "/home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/depth_proc.py",
+    "/home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/__init__.py",
+    "/home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/relative_control.py",
+    "/home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/camera.py",
+    "/home/orin/ros2_ws/install/wla_person_follow/lib/python3.12/site-packages/wla_person_follow/costmap.py"
+  ],
+  "manual_service": "MainPID=2215\nActiveState=active\n",
+  "model_sha256": "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1",
+  "legacy_follow_launch_removed": true,
+  "runtime_exit": 0,
+  "no_test_processes": true,
+  "real_camera": false,
+  "physical_motion": false
+}

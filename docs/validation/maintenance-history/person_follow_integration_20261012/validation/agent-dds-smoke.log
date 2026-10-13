@@ -1,0 +1,25 @@
+[WARN] [1791778546.458160637] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[WARN] [1791778546.458253409] [rcl]: 'localhost_only' is enabled, 'automatic_discovery_range' and 'static_peers' will be ignored.
+{
+  "passed": [
+    "exclusive_control_claim",
+    "stored_map_query",
+    "realtime_coordinates_and_source_expiry",
+    "semantic_intent_bt_free_approach_nav_stop_and_idempotency",
+    "occupied_costmap_rejects_without_nav_goal",
+    "planner_failure_rejects_without_nav_goal",
+    "caller_lease_expiry_owned_cancel_and_stop",
+    "zero_chassis_publishers"
+  ],
+  "nav_goals": [
+    [
+      1.3636038969321072,
+      1.3636038969321072
+    ],
+    [
+      1.3636038969321072,
+      1.3636038969321072
+    ]
+  ]
+}
+shutdown: all bridge processes exited cleanly
