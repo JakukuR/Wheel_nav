@@ -1,0 +1,22 @@
+/**:
+  ros__parameters:
+    config_path: estimator_config.yaml
+    imu_topic: /r680/d455/imu
+    imu_frame: d455_imu_optical_frame
+    left_topic: /r680/d455/infra1/image_rect_raw
+    right_topic: /r680/d455/infra2/image_rect_raw
+    left_info_topic: /r680/d455/infra1/camera_info
+    right_info_topic: /r680/d455/infra2/camera_info
+    left_frame: d455_infra1_optical_frame
+    right_frame: d455_infra2_optical_frame
+    left_info_frame: d455_infra1_optical_frame
+    right_info_frame: d455_infra1_optical_frame
+    p_base_in_imu:
+    - 0.030159840884801038
+    - 0.5199686890677738
+    - -0.09421803542008074
+    q_base_to_imu_xyzw:
+    - 0.538016361048302
+    - -0.5344694096336806
+    - 0.4609123770506909
+    - 0.46091281831996167

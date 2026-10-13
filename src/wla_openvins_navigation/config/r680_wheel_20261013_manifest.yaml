@@ -1,0 +1,90 @@
+kind: commissioning
+calibration_validated: false
+provenance: Kalibr wheel_20261013_153818; 90min conditional random walk, not validated.
+  Base mount retained from bringup; camera geometry rectified.
+T_imu_base:
+- - 0.9998954678747043
+  - 0.013778371202790365
+  - 0.0043828997961594994
+  - 0.048279056332004876
+- - -0.013762878505415273
+  - 0.9998990010499702
+  - -0.003545542908480244
+  - -0.0448135447788336
+- - -0.0044313089341905115
+  - 0.0034848509679487193
+  - 0.9999841095311764
+  - -0.051391922025553205
+- - 0.0
+  - 0.0
+  - 0.0
+  - 1.0
+timeshift_cam_imu: 0.04785907860927844
+imu:
+  rostopic: /wheel/imu/data_raw
+  update_rate: 200.0
+  gyroscope_noise_density: 0.0007899999999999999
+  gyroscope_random_walk: 1.4e-05
+  accelerometer_noise_density: 0.011999999999999999
+  accelerometer_random_walk: 0.00064
+  frame_id: gyro_link
+cam0:
+  image_model: rectified_pinhole
+  intrinsics:
+  - 389.33770751953125
+  - 389.33770751953125
+  - 323.924072265625
+  - 237.82652282714844
+  resolution:
+  - 640
+  - 480
+  topic: /r680/d455/infra1/image_rect_raw
+  frame_id: d455_infra1_optical_frame
+  camera_info_frame_id: d455_infra1_optical_frame
+  T_imu_camera_rectified:
+  - - -0.014910794627222035
+    - -0.15810283966537989
+    - 0.9873100628947965
+    - 0.23571098323530848
+  - - -0.9998823961225481
+    - 0.005899343271922205
+    - -0.014155976589084449
+    - 0.010667081222851465
+  - - -0.0035863808798685948
+    - -0.987405028262821
+    - -0.15817221005436233
+    - 0.4496512603713754
+  - - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+cam1:
+  image_model: rectified_pinhole
+  intrinsics:
+  - 389.33770751953125
+  - 389.33770751953125
+  - 323.924072265625
+  - 237.82652282714844
+  resolution:
+  - 640
+  - 480
+  topic: /r680/d455/infra2/image_rect_raw
+  frame_id: d455_infra2_optical_frame
+  camera_info_frame_id: d455_infra1_optical_frame
+  T_imu_camera_rectified:
+  - - -0.01491079462722205
+    - -0.15810283966537997
+    - 0.987310062894797
+    - 0.23429336827094915
+  - - -0.9998823961225486
+    - 0.005899343271922213
+    - -0.01415597658908448
+    - -0.08439480399385588
+  - - -0.0035863808798686082
+    - -0.9874050282628213
+    - -0.15817221005436236
+    - 0.4493102921446446
+  - - 0.0
+    - 0.0
+    - 0.0
+    - 1.0

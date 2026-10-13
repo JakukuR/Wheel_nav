@@ -19,7 +19,7 @@ ament_target_dependencies(openvins_frontend rclcpp std_msgs std_srvs geometry_ms
 target_link_libraries(openvins_frontend Eigen3::Eigen ${OpenCV_LIBRARIES} ${Boost_LIBRARIES} "${cpp_typesupport_target}")
 install(TARGETS openvins_frontend DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY launch config patches DESTINATION share/${PROJECT_NAME})
-install(PROGRAMS scripts/generate_config.py scripts/quality_gate.py scripts/record_metrics.py scripts/stereo_fault_injector.py DESTINATION lib/${PROJECT_NAME})
+install(PROGRAMS scripts/generate_config.py scripts/inspect_config.py scripts/quality_gate.py scripts/record_metrics.py scripts/stereo_fault_injector.py DESTINATION lib/${PROJECT_NAME})
 install(FILES README.md COPYING VERSION.json openvins.repos DESTINATION share/${PROJECT_NAME})
 if(BUILD_TESTING)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)

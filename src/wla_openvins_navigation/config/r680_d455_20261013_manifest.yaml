@@ -1,0 +1,90 @@
+kind: commissioning
+calibration_validated: false
+provenance: Kalibr d455_20261013_153541; 90min conditional random walk, not validated.
+  Base mount retained from bringup; camera geometry rectified.
+T_imu_base:
+- - 0.003804461694614182
+  - -0.9999874191354673
+  - 0.0032691959257402535
+  - 0.030159840884801038
+- - -0.15022572831552072
+  - -0.003803648148350743
+  - -0.9886444066563236
+  - 0.5199686890677738
+- - 0.9886444035260024
+  - 0.003270142435768087
+  - -0.1502383091796637
+  - -0.09421803542008074
+- - 0.0
+  - 0.0
+  - 0.0
+  - 1.0
+timeshift_cam_imu: 0.0035531290999110724
+imu:
+  rostopic: /r680/d455/imu
+  update_rate: 200.0
+  gyroscope_noise_density: 0.00021
+  gyroscope_random_walk: 8.0e-06
+  accelerometer_noise_density: 0.0011
+  accelerometer_random_walk: 0.00012
+  frame_id: d455_imu_optical_frame
+cam0:
+  image_model: rectified_pinhole
+  intrinsics:
+  - 389.33770751953125
+  - 389.33770751953125
+  - 323.924072265625
+  - 237.82652282714844
+  resolution:
+  - 640
+  - 480
+  topic: /r680/d455/infra1/image_rect_raw
+  frame_id: d455_infra1_optical_frame
+  camera_info_frame_id: d455_infra1_optical_frame
+  T_imu_camera_rectified:
+  - - 0.999982117356846
+    - -0.00409478371763177
+    - 0.004358636578611837
+    - -0.0273013207805696
+  - - 0.004079054309972771
+    - 0.9999851587798207
+    - 0.003611583590643329
+    - -0.0039280460413439145
+  - - -0.004373360544808526
+    - -0.0035937398906611662
+    - 0.9999839792472391
+    - 0.012943168160036132
+  - - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+cam1:
+  image_model: rectified_pinhole
+  intrinsics:
+  - 389.33770751953125
+  - 389.33770751953125
+  - 323.924072265625
+  - 237.82652282714844
+  resolution:
+  - 640
+  - 480
+  topic: /r680/d455/infra2/image_rect_raw
+  frame_id: d455_infra2_optical_frame
+  camera_info_frame_id: d455_infra1_optical_frame
+  T_imu_camera_rectified:
+  - - 0.9999821173568464
+    - -0.004094783717631772
+    - 0.004358636578611839
+    - 0.06777004523964547
+  - - 0.004079054309972773
+    - 0.9999851587798212
+    - 0.00361158359064333
+    - -0.0035402378409885005
+  - - -0.004373360544808528
+    - -0.003593739890661168
+    - 0.9999839792472396
+    - 0.012527379363539603
+  - - 0.0
+    - 0.0
+    - 0.0
+    - 1.0

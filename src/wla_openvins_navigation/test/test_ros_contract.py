@@ -50,6 +50,15 @@ def main():
                 '--ros-args','-r','__ns:=/contract','--params-file',str(p)],stdout=log,stderr=log,start_new_session=True))
             spin(3)
             assert statuses and statuses[-1].mode==EstimatorStatus.INITIALIZING
+            # A real D455 startup delivered old timestamps while its global
+            # clock settled. Discard those before initialization, without
+            # accepting stale data or manufacturing an odometry state.
+            old=Imu();old.header.stamp=n.get_clock().now().to_msg();old.header.stamp.sec-=15
+            old.header.frame_id='gyro_link';old.linear_acceleration.z=9.81
+            imu.publish(old);spin(.2)
+            assert statuses[-1].mode==EstimatorStatus.INITIALIZING
+            assert statuses[-1].reason=='waiting_for_imu_clock_stability'
+            assert not odoms
             end=time.monotonic()+1.
             while time.monotonic()<end:
                 ts=n.get_clock().now().to_msg()

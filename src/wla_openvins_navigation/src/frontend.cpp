@@ -166,10 +166,30 @@ class Frontend final : public rclcpp::Node {
     ov_core::ImuData imu; imu.timestamp=t;
     imu.wm<<m.angular_velocity.x,m.angular_velocity.y,m.angular_velocity.z;
     imu.am<<m.linear_acceleration.x,m.linear_acceleration.y,m.linear_acceleration.z;
-    if(!fresh(t)||m.header.frame_id!=imu_frame_||!imu.wm.allFinite()||!imu.am.allFinite()||
+    if(m.header.frame_id!=imu_frame_||!imu.wm.allFinite()||!imu.am.allFinite()||
        imu.wm.norm()>max_gyro_||imu.am.norm()>max_accel_||m.angular_velocity_covariance[0]<0||
-       m.linear_acceleration_covariance[0]<0) {++rejected_imu_;fail("invalid_imu_requires_reset");return;}
+       m.linear_acceleration_covariance[0]<0) {
+      RCLCPP_ERROR(get_logger(), "Rejected IMU: age=%.6f frame=%s expected=%s accel_norm=%.6f gyro_norm=%.6f accel_cov=%.6f gyro_cov=%.6f",
+        now().seconds()-t,m.header.frame_id.c_str(),imu_frame_.c_str(),imu.am.norm(),imu.wm.norm(),
+        m.linear_acceleration_covariance[0],m.angular_velocity_covariance[0]);
+      ++rejected_imu_;fail("invalid_imu_requires_reset");return;
+    }
     if(last_imu_>=0&&t<=last_imu_) {++rejected_imu_;fail("imu_nonmonotonic_requires_reset");return;}
+    if(!fresh(t)) {
+      ++rejected_imu_;
+      if(estimator_->initialized() || t<=0) {fail("imu_timestamp_requires_reset");return;}
+      // D455 global-time conversion can settle after streaming begins. Before
+      // any odom exists, discard out-of-clock data and invalidate the entire
+      // initialization window. Never feed it or widen runtime age limits.
+      if(last_imu_>=0 && !startup_clock_wait_) {
+        estimator_=std::make_shared<ov_msckf::VioManager>(params_);
+        images_[0].clear();images_[1].clear();cameras_.clear();
+        last_image_=last_visual_=-1;last_left_=last_right_=-1;
+      }
+      startup_clock_wait_=true;
+      return;
+    }
+    startup_clock_wait_=false;
     if(last_imu_>=0&&t-last_imu_>imu_gap_) {
       if(estimator_->initialized()) {++rejected_imu_;fail("imu_gap_requires_reset");return;}
       // Before an odometry frame exists, a sensor warm-up gap restarts only the
@@ -254,11 +274,12 @@ class Frontend final : public rclcpp::Node {
     if(fault_.empty()&&require_info_&&(!info_valid_[0]||!info_valid_[1]||
        elapsed(info_seen_[0])>2.||elapsed(info_seen_[1])>2.)) s.reason="waiting_for_matching_camera_info";
     if(fault_.empty()&&!s.initialized&&(last_imu_<0||t-last_imu_>imu_timeout_)) s.reason="waiting_for_fresh_imu";
+    if(fault_.empty()&&!s.initialized&&startup_clock_wait_) s.reason="waiting_for_imu_clock_stability";
     status_pub_->publish(s);
   }
   ov_msckf::VioManagerOptions params_;std::shared_ptr<ov_msckf::VioManager> estimator_;
   Eigen::Isometry3d T_IB_;std::string world_,body_,imu_frame_,left_frame_,right_frame_,left_info_frame_,right_info_frame_,instance_,fault_;
-  bool publish_tf_=false,state_valid_=false,require_info_=true,info_valid_[2]={false,false};
+  bool publish_tf_=false,state_valid_=false,require_info_=true,info_valid_[2]={false,false},startup_clock_wait_=false;
   double imu_timeout_,imu_gap_,visual_timeout_,max_delay_,sync_tol_,propagation_lag_,max_accel_,max_gyro_;
   double pos_limit_,rot_limit_,vel_limit_,pos_std_=1e9,rot_std_=1e9,vel_std_=1e9;
   double last_imu_=-1,last_image_=-1,last_visual_=-1,state_stamp_=-1,last_left_=-1,last_right_=-1;

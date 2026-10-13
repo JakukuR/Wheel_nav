@@ -1,0 +1,16 @@
+{
+  "kind": "commissioning",
+  "calibration_validated": false,
+  "provenance": "Kalibr wheel_20261013_153818; 90min conditional random walk, not validated. Base mount retained from bringup; camera geometry rectified.",
+  "source_sha256": "1bcbe7efea9649ff0f29bad9877196d6bd7d374af308e7d56f95e38ec7df9a45",
+  "sensor": "wheel",
+  "source_run": "wheel_20261013_153818",
+  "source_camchain_sha256": "26f745abd40d96019c0db8129d25ca6f48f996ef030496a091851c0a3415905e",
+  "deployment_allowed": false,
+  "config_sha256": {
+    "frontend.yaml": "60be35a7b8d998f7ad929df6f214a31af3858d7b230d1c864735853c318eb37e",
+    "estimator_config.yaml": "1b31e3f58649b68a137fed7d3393974d5ce3468d8d0b7dd13c21c6d8cfb40dce",
+    "kalibr_imucam_chain.yaml": "c6124e219cf2b23372f55e1df690d491176afddd579553b65b5fe4e755fbd3be",
+    "kalibr_imu_chain.yaml": "839b9dbd7258ffaeba377d320b514528c85554c6efdb52b37ed1430a2dbf97a6"
+  }
+}
