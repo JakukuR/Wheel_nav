@@ -11,8 +11,8 @@ person_follow:
     max_linear_mps: 0.20
     max_angular_rps: 0.45
     emergency_distance_m: 0.60
-    obstacle_height_min_m: 0.10
-    obstacle_height_max_m: 1.50
+    obstacle_height_min_m: 0.01
+    obstacle_height_max_m: 0.50
     obstacle_inflation_m: 0.45
     depth_min_m: 0.25
     depth_max_m: 5.0

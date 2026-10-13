@@ -38,11 +38,12 @@ class RelativeFollower:
     """All clocks passed explicitly so replay, expiry and mode changes are testable."""
     def __init__(self, base_frame='r680_mapping_floor', max_age=.30,
                  follow_distance=1.4, approach_distance=.95,
-                 max_linear=.20, max_angular=.45, emergency_distance=.60):
+                 max_linear=.20, max_angular=.45, emergency_distance=.60, local_planner=None):
         if (not base_frame or not 0 < max_age <= .30 or
                 not 0 < max_linear <= .20 or not 0 < max_angular <= .45 or
                 not .50 <= emergency_distance < approach_distance <= follow_distance):
             raise ValueError('invalid_control_configuration')
+        self.local_planner = local_planner
         self.base_frame, self.max_age = base_frame, max_age
         self.follow_distance, self.approach_distance = follow_distance, approach_distance
         self.max_linear, self.max_angular = max_linear, max_angular
@@ -66,6 +67,8 @@ class RelativeFollower:
 
     def _terminate(self, state, reason):
         self.active, self.state, self.reason = False, state, reason
+        if self.local_planner is not None:
+            self.local_planner.reset()
         self.lease_until = -math.inf
         self.arrival_count, self.arrival_stamp = 0, 0
         self._zero()
@@ -218,6 +221,8 @@ class RelativeFollower:
             return False, 'person_id_not_visible'
         if row['yaw'] is None or row['distance'] is None:
             return False, 'person_geometry_unavailable'
+        if self.local_planner is not None:
+            self.local_planner.reset()
         self.request_id, self.mode, self.target_id = request_id, mode, target_id
         self.requests[request_id] = (mode, target_id)
         self.active, self.state, self.reason = True, 'waiting', 'waiting_for_safe_depth'
@@ -227,7 +232,7 @@ class RelativeFollower:
         self._zero()
         return True, 'started'
 
-    def tick(self, now, safety=None):
+    def tick(self, now, safety=None, scene=None):
         self._expire(now)
         previous_tick, self.previous_tick = self.previous_tick, now
         dt = .05 if previous_tick is None else max(.001, min(.10, now-previous_tick))
@@ -239,7 +244,8 @@ class RelativeFollower:
                   'target_not_visible' if row is None or not row['detected'] or row['label'] != 'person' else
                   'target_geometry_unavailable' if row['yaw'] is None or row['distance'] is None else
                   'depth_safety_unavailable' if safety is None or not safety.valid else
-                  'emergency_obstacle' if safety.front_distance < self.emergency_distance else '')
+                  'emergency_obstacle' if safety.front_distance < self.emergency_distance else
+                  'local_scene_unavailable' if self.local_planner is not None and scene is None else '')
         if reason:
             self.state, self.reason = 'waiting', reason
             self.arrival_count = 0
@@ -258,19 +264,31 @@ class RelativeFollower:
             if self.arrival_count >= 3:
                 self._terminate('arrived', 'interaction_distance_reached')
                 return self._zero()
-        v = max(0., min(self.max_linear, .45*(distance-target_distance)))
-        if distance <= target_distance+.10 or abs(yaw) >= .55 or not safety.forward_clear:
-            v = 0.
-        w = 0. if abs(yaw) <= .08 else max(-self.max_angular, min(self.max_angular, 1.2*yaw))
+        if self.local_planner is not None:
+            v, w = self.local_planner.command(scene, yaw, distance, target_distance,
+                                               self.max_linear, self.max_angular)
+            if not self.local_planner.last.path:
+                self.state, self.reason = 'waiting', self.local_planner.last.reason
+                return self._zero()
+        else:
+            v = max(0., min(self.max_linear, .45*(distance-target_distance)))
+            if distance <= target_distance+.10 or abs(yaw) >= .55 or not safety.forward_clear:
+                v = 0.
+            w = 0. if abs(yaw) <= .08 else max(-self.max_angular, min(self.max_angular, 1.2*yaw))
         # Stops are immediate; only nonzero commands ramp upward from rest.
         v = min(v, self.previous_v+.4*dt) if v else 0.
         if w:
             if w*self.previous_w < 0:
                 self.previous_w = 0.
             w = max(self.previous_w-.8*dt, min(self.previous_w+.8*dt, w))
+        if self.local_planner is not None and not scene.command_clear(v, w):
+            v = 0.
+            if not scene.command_clear(v, w):
+                w = 0.
         self.previous_v, self.previous_w = v, w
         self.state = 'approaching' if self.mode == 'approach_interact' else 'following'
-        self.reason = 'obstacle_blocks_forward' if not safety.forward_clear and distance > target_distance+.10 else 'relative_control'
+        self.reason = (self.local_planner.last.reason if self.local_planner is not None else
+                       'obstacle_blocks_forward' if not safety.forward_clear and distance > target_distance+.10 else 'relative_control')
         return v, w
 
     def snapshot(self, now):

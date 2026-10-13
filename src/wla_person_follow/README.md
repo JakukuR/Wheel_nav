@@ -1,6 +1,6 @@
 # Relative person approach and follow
 
-人物执行仅使用机器人相对位置，提供 `follow` 与 `approach_interact` 两种模式。人物路径不再包含 map/odom 转换、Nav2 目标、世界坐标预测、自动换 ID、地图拐角搜索或 MPC。家具语义建图由导航侧独立维护，不受此包影响。
+人物执行仅使用机器人相对位置，提供 `follow` 与 `approach_interact` 两种模式。人物路径不依赖 map、全局里程计位姿、Nav2 或 MPC。使用轮速机体 twist 补偿短时局部障碍记忆；不自动换 ID。家具语义建图由导航侧独立维护，不受此包影响。
 
 ## 运行与数据
 
@@ -43,7 +43,7 @@
 
 ## 深度安全与运动权限
 
-本包保留本地 D455 aligned depth 安全门：深度、内参匹配，图像时刻 camera→`r680_mapping_floor` TF；无 map/odom 要求。无新鲜深度、深度覆盖不足、附近可见障碍、前进走廊占用时停止相应候选。人物本身仍是障碍。这是前向相机局部安全门，不提供完整屋内路径规划，也未建立侧后方完整可观测性或台阶通行能力。
+本包保留本地 D455 aligned depth 安全门：深度、内参匹配，图像时刻 camera→`r680_mapping_floor` TF；无 map 或全局定位要求；新增 `/wheel/odom` 的机体速度输入，child_frame_id 必须为 `r680_mapping_floor`，忽略其 pose。无新鲜深度、深度覆盖不足、附近可见障碍进入紧急距离时停车；直达通道受阻时尝试局部绕行，没有已观测通路则停车。人物本身仍是障碍。这是前向相机局部安全门，不提供完整屋内路径规划，也未建立侧后方完整可观测性或台阶通行能力。
 
 默认 `enable_motion=false`，`/r680/person_follow/cmd_vel_candidate` Twist 仅用于预览；正式 `/r680/person_follow/command_candidate` String 始终为零。`enable_motion:=true` 只允许生成正式候选，仍需要底盘显式选择 PERSON 自动源和 AUTO 授权；不会直接发布 `/r680_base/cmd_vel`。正式候选和 status 都有进程级 follow_session 与 request_id，防止跨重启/任务迟到速度。手动接管、切回 NAV 或运动控制状态失效会撤销执行。
 
@@ -54,3 +54,22 @@
 ## 测试
 
 `python3 -m unittest discover -s test -p 'test_relative_control.py' -v` 验证：无输入、安全门、源时间 TTL、检测健康兼容状态、会话/epoch、指定 ID、租约、原子模式切换、接近完成锁存、角度正负号和失目标立即停。
+
+
+## 独立局部绕障（2026-10-13）
+
+`wla_follow_local/src/local.cpp` 实现栅格射线、障碍膨胀、Dijkstra 与弧线碰撞检查，Python `local_avoidance.py` 仅做数组适配，不保留 Python 搜索回退。通过 pybind11 调用，主要计算释放 GIL；状态与 ROS 回调仍在 Python 中，不宣称硬实时。深度按离地高度筛选，默认 0.01–0.50 m，下限可改为 0.02 m；阈值不是相机 1 cm 检出精度的证明。高度依赖图像时刻相机到 floor 坐标的安装变换，本版不估计动态地面平面，适用于标定正确的平地姿态。低于地面 0.10 m 的有效点也保留为危险占据；缺测不能证明没有落差。
+
+局部栅格分辨率 0.10 m、中心范围约 ±3 m；仅实测射线与未过期历史提供可通行中心点。障碍规划膨胀为 max(obstacle_inflation_m, emergency_distance_m+0.10)，默认 0.70 m，用来提前绕开 0.60 m 紧急停车区。机器人当前位置只补 1 格连接种子，不能据此声称已观测侧后方完整扫掠体积。
+
+直达通路优先，否则使用 8 邻接 Dijkstra、禁止对角穿角、保留绕行侧偏好；路径前视点约 0.45 m，比例角速度控制，实际输出弧线检查约 0.8 s。限速仍为 0.20 m/s、0.45 rad/s，不倒车。目标保持碰撞对象，不从深度中整框删除人物。
+
+`local_memory.py`：轮速机体 twist 积分只建立任意原点的局部运动参考，保存约 2 s 原始观测；不递归刷新历史寿命。轮速源龄超过 0.20 s、数值异常或运动代次重置时停止使用旧场景。新鲜深度和轮速恢复后可恢复仍有效的任务。
+
+诊断输出 `/r680/person_follow/local_path`（Path）和 `/r680/person_follow/local_obstacles`（OccupancyGrid）均为机器人坐标；后者显示原始占据，控制器内部另外膨胀。status 包含规划原因、绕行侧、轮速新鲜度、记忆时间及实际规划净空。20 Hz 是控制定时器配置，不等于实测整链路帧率。
+
+验证：核心/几何/记忆/隔离 ROS 用例以及闭环运动学场景。宽视野场景能绕开箱体；86 度全视野场景出现目标出视野并立即停车，这是功能边界，不算完整绕障成功。未进行真实相机低障碍精度、侧后盲区、底盘制动或动态人物实车验收；默认 enable_motion=false。
+
+测试命令（隔离域 198，无底盘）：`RUN_RELATIVE_ROS=1 ROS_DOMAIN_ID=198 python3 -m pytest -q src/wla_person_follow/test/test_relative_control.py src/wla_person_follow/test/test_relative_geometry.py src/wla_person_follow/test/test_local_avoidance.py src/wla_person_follow/test/test_local_memory.py src/wla_person_follow/test/test_local_closed_loop.py src/wla_person_follow/test/test_relative_ros.py`。
+
+车端 Release 构建与安装包验证：58 项测试通过，覆盖原相对控制、几何、C++ 局部规划、轮速短时记忆、闭环场景、隔离 ROS。未启用实车运动。

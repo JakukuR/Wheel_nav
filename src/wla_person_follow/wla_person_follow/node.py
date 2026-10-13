@@ -8,7 +8,8 @@ import uuid
 
 import numpy as np
 import rclpy
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, PoseStamped
+from nav_msgs.msg import Path, OccupancyGrid, Odometry
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.time import Time
@@ -21,6 +22,8 @@ from .camera import depth_meters
 from .costmap import LocalCostmap
 from .depth_proc import points_to_base, rotation_from_quaternion
 from .relative_control import RelativeFollower, Safety
+from .local_avoidance import LocalAvoidance, scene_from_points
+from .local_memory import LocalMemory, LocalMotion
 
 
 def stamp_ns(message):
@@ -38,16 +41,21 @@ class PersonFollow(Node):
             base_frame='r680_mapping_floor', max_sensor_age_s=.30,
             follow_distance_m=1.4, approach_distance_m=.95,
             max_linear_mps=.20, max_angular_rps=.45, emergency_distance_m=.60,
-            obstacle_inflation_m=.45, obstacle_height_min_m=.10,
-            obstacle_height_max_m=1.50, depth_min_m=.25, depth_max_m=5.,
+            obstacle_inflation_m=.45, obstacle_height_min_m=.01,
+            obstacle_height_max_m=.50, depth_min_m=.25, depth_max_m=5.,
             camera_min_valid_fraction=.25, camera_front_min_valid_fraction=.35,
             enable_motion=False)
         self.p = {key: self.declare_parameter(key, value).value for key, value in defaults.items()}
+        self.local_planner = LocalAvoidance()
+        self.local_motion = LocalMotion()
+        self.local_memory = LocalMemory()
+        self.scene_generation = -1
+        self.scene = None
         self.core = RelativeFollower(self.p['base_frame'], self.p['max_sensor_age_s'],
             self.p['follow_distance_m'], self.p['approach_distance_m'],
-            self.p['max_linear_mps'], self.p['max_angular_rps'], self.p['emergency_distance_m'])
+            self.p['max_linear_mps'], self.p['max_angular_rps'], self.p['emergency_distance_m'], self.local_planner)
         if (not 0 < self.p['depth_min_m'] < self.p['depth_max_m'] <= 10 or
-                not 0 <= self.p['obstacle_height_min_m'] < self.p['obstacle_height_max_m'] or
+                not 0 < self.p['obstacle_height_min_m'] < self.p['obstacle_height_max_m'] <= 1.5 or
                 not .30 <= self.p['obstacle_inflation_m'] <= .75 or
                 not .25 <= self.p['camera_min_valid_fraction'] <= 1 or
                 not .35 <= self.p['camera_front_min_valid_fraction'] <= 1):
@@ -69,11 +77,14 @@ class PersonFollow(Node):
         self.cmd_pub = self.create_publisher(Twist, '/r680/person_follow/cmd_vel_candidate', 1)
         self.leased_pub = self.create_publisher(String, '/r680/person_follow/command_candidate', 1)
         self.status_pub = self.create_publisher(String, '/r680/person_follow/status', 5)
+        self.path_pub = self.create_publisher(Path, '/r680/person_follow/local_path', 1)
+        self.grid_pub = self.create_publisher(OccupancyGrid, '/r680/person_follow/local_obstacles', 1)
         self.create_subscription(String, self.p['relative_topic'], self.on_relative, 1)
         self.create_subscription(String, self.p['detection_status_topic'], self.on_detection_status, 1)
         self.create_subscription(Image, self.p['depth_topic'], self.on_depth, qos_profile_sensor_data)
         self.create_subscription(CameraInfo, self.p['camera_info_topic'], self.on_info, qos_profile_sensor_data)
         self.create_subscription(String, '/r680_base/control_state', self.on_control_state, 5)
+        self.create_subscription(Odometry, '/wheel/odom', self.on_wheel_motion, qos_profile_sensor_data)
         self.create_service(PersonCommand, '/r680/person_follow/command', self.on_command)
         self.worker = threading.Thread(target=self.depth_worker, name='relative-depth-safety', daemon=True)
         self.worker.start()
@@ -167,6 +178,20 @@ class PersonFollow(Node):
         except (ValueError, TypeError, KeyError):
             return
 
+    def on_wheel_motion(self, message):
+        with self.guard:
+            velocity = message.twist.twist
+            if message.child_frame_id != self.p['base_frame']:
+                self.local_motion.samples.clear()
+                self.local_motion.generation += 1
+            else:
+                self.local_motion.update(stamp_ns(message)/1e9,
+                    (velocity.linear.x, velocity.linear.y, velocity.angular.z), self.ros_ns()/1e9)
+            if self.scene_generation != self.local_motion.generation:
+                self.local_memory.reset()
+                self.scene = None
+                self.safety_until = -math.inf
+
     def on_info(self, message):
         with self.guard:
             self.infos.append(message)
@@ -223,7 +248,18 @@ class PersonFollow(Node):
                     raise ValueError('insufficient_depth_coverage')
                 points = points_to_base(depth, (info.k[0],info.k[4],info.k[2],info.k[5]),
                     rotation, translation, minimum=self.p['depth_min_m'], maximum=self.p['depth_max_m'],
+                    height_min=-3., height_max=3., stride=2)
+                scene = scene_from_points(points, translation[:2],
+                    radius=max(self.p['obstacle_inflation_m'], self.p['emergency_distance_m']+.10),
                     height_min=self.p['obstacle_height_min_m'], height_max=self.p['obstacle_height_max_m'])
+                with self.guard:
+                    pose = self.local_motion.pose_at(stamp/1e9)
+                    if pose is None or not self.local_motion.healthy(self.ros_ns()/1e9):
+                        raise ValueError('waiting_for_fresh_wheel_motion')
+                    generation = self.local_motion.generation
+                    scene = self.local_memory.apply(scene, pose, stamp/1e9, generation)
+                points = points[((points[:, 2] >= self.p['obstacle_height_min_m']) &
+                                 (points[:, 2] <= self.p['obstacle_height_max_m'])) | (points[:, 2] < -.10)]
                 grid = LocalCostmap(inflation=self.p['obstacle_inflation_m'])
                 grid.update(points)
                 # Radius checks also stop rotation near visible side obstacles. The
@@ -233,11 +269,15 @@ class PersonFollow(Node):
                 safety = Safety(True, min(grid.front_distance(), nearest),
                                 not any(grid.collision_at(x, 0.) for x in (.25,.35,.45)))
                 with self.guard:
-                    if not self.done and time.monotonic() < valid_until:
+                    if (not self.done and time.monotonic() < valid_until and
+                            generation == self.local_motion.generation):
+                        self.scene = scene
+                        self.scene_generation = generation
                         self.safety, self.safety_stamp, self.safety_until = safety, stamp, valid_until
                         self.safety_reason = 'valid_depth'
             except Exception as exc:
                 with self.guard:
+                    self.scene = None
                     self.safety, self.safety_until = Safety(), -math.inf
                     self.safety_reason = str(exc)[:160]
 
@@ -256,7 +296,19 @@ class PersonFollow(Node):
             self.last_motion_permission = permitted
             safety = self.safety if (now < self.safety_until and
                 -.05 <= (self.ros_ns()-self.safety_stamp)/1e9 <= self.p['max_sensor_age_s']) else Safety()
-            linear, angular = self.core.tick(now, safety)
+            motion_ready = (self.local_motion.healthy(self.ros_ns()/1e9) and
+                            self.scene_generation == self.local_motion.generation)
+            scene = self.scene if safety.valid and motion_ready else None
+            if not motion_ready:
+                self.safety_reason = 'waiting_for_fresh_wheel_motion'
+            linear, angular = self.core.tick(now, safety, scene)
+            # Planning must not extend a nearly expired frame or task lease.
+            finished = time.monotonic()
+            if (not self.local_motion.healthy(self.ros_ns()/1e9) or
+                    finished >= self.safety_until or finished >= self.core.expires_at or
+                    finished >= self.core.lease_until or
+                    not -.05 <= (self.ros_ns()-self.safety_stamp)/1e9 <= self.p['max_sensor_age_s']):
+                linear, angular = self.core._zero()
             self.publish(linear, angular)
 
     def publish(self, linear, angular):
@@ -268,11 +320,21 @@ class PersonFollow(Node):
             base_frame=self.p['base_frame'], candidate_only=not self.p['enable_motion'],
             motion_permitted=permitted and state['enabled'],
             linear_mps=linear, angular_rps=angular, safety_reason=self.safety_reason,
-            safety_fresh=now < self.safety_until)
+            safety_fresh=now < self.safety_until,
+            planner='robot_frame_depth_local',
+            local_motion_fresh=self.local_motion.healthy(ros_now/1e9),
+            obstacle_memory_s=self.local_memory.ttl,
+            planning_clearance_m=max(self.p['obstacle_inflation_m'], self.p['emergency_distance_m']+.10),
+            local_plan_reason=self.local_planner.last.reason,
+            detour_side=self.local_planner.side,
+            local_path_points=len(self.local_planner.last.path),
+            obstacle_height_min_m=self.p['obstacle_height_min_m'],
+            obstacle_height_max_m=self.p['obstacle_height_max_m'])
         state['fault'] = bool(state['request_id'] and state['state'] == 'cancelled' and
             state['reason'] in ('detector_generation_changed', 'detection_disabled',
                                'motion_authority_revoked', 'motion_authority_lost'))
         self.status_pub.publish(String(data=json.dumps(state, allow_nan=False)))
+        self.publish_local_geometry(state, ros_now)
         preview = Twist()
         preview.linear.x, preview.angular.z = float(linear), float(angular)
         self.cmd_pub.publish(preview)
@@ -282,6 +344,31 @@ class PersonFollow(Node):
             follow_session=self.follow_session,
             request_id=state['request_id'], stamp_ns=ros_now,
             linear=float(actual[0]), angular=float(actual[1])), allow_nan=False)))
+
+    def publish_local_geometry(self, state, ros_now):
+        path = Path()
+        path.header.frame_id = self.p['base_frame']
+        stamp = self.safety_stamp if self.safety_stamp else ros_now
+        path.header.stamp.sec, path.header.stamp.nanosec = divmod(stamp, 1_000_000_000)
+        if state['enabled'] and state['safety_fresh'] and state['observations_fresh'] and state['state'] in ('following', 'approaching'):
+            for x, y in self.local_planner.last.path:
+                pose = PoseStamped(); pose.header = path.header
+                pose.pose.position.x, pose.pose.position.y = float(x), float(y)
+                pose.pose.orientation.w = 1.
+                path.poses.append(pose)
+        self.path_pub.publish(path)
+        grid = OccupancyGrid(); grid.header = path.header
+        if self.scene is not None and state['safety_fresh']:
+            scene = self.scene
+            grid.info.resolution = scene.resolution
+            grid.info.width = grid.info.height = scene.free.shape[0]
+            grid.info.origin.position.x = grid.info.origin.position.y = -(scene.center+.5)*scene.resolution
+            grid.info.origin.orientation.w = 1.
+            values = np.full(scene.free.shape, -1, dtype=np.int8)
+            values[scene.observed] = 0
+            values[scene.occupied] = 100
+            grid.data = values.ravel().tolist()
+        self.grid_pub.publish(grid)
 
     def close(self):
         with self.guard:
