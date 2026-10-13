@@ -1,0 +1,4 @@
+PASS OpenVINS exclusive odom, no plane fallback/restart watchdog, quality gate and hardware-output rejection
+PASS RGBD/cuVSLAM frontend selection and explicit continuity wiring
+PASS commissioning opt-in preserves unvalidated status and disables motion permission
+{"passed": ["initialization_status", "stereo_image_and_camera_info_input", "startup_silence_waits_without_fault", "nonfinite_imu_latched", "explicit_reset_generation", "no_fake_odom", "no_default_tf", "unknown_and_carried_no_drive", "inertial_no_mapping", "raw_vio_independent_of_contact", "fresh_report_cannot_mask_stale_state", "tracking_grounded_permission", "generation_change_latched", "recovering_can_relocalize_without_drive", "pose_only_and_stale_info_cannot_confirm_map", "matched_pose_confirms_map", "visual_loss_and_backend_timeout_revoke_map", "commissioning_never_authorizes_motion"]}

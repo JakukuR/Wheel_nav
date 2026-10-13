@@ -1,0 +1,176 @@
+Starting >>> wla_r680_navigation
+Finished <<< wla_r680_navigation [1min 6s]
+
+Summary: 1 package finished [1min 6s]
+Internal ctest changing into directory: /home/orin/ros2_ws/build/wla_r680_navigation
+Test project /home/orin/ros2_ws/build/wla_r680_navigation
+    Start 1: map_localization_evidence
+1/4 Test #1: map_localization_evidence ........   Passed    0.00 sec
+    Start 4: degraded_odometry
+2/4 Test #4: degraded_odometry ................   Passed    0.00 sec
+    Start 5: recovery_evidence
+3/4 Test #5: recovery_evidence ................   Passed    0.00 sec
+    Start 6: relocalization_prior
+4/4 Test #6: relocalization_prior .............   Passed    0.00 sec
+
+100% tests passed, 0 tests failed out of 4
+
+Total Test time (real) =   0.02 sec
+-- Install configuration: "Release"
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/ament_index/resource_index/rosidl_interfaces/wla_openvins_navigation
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/msg/EstimatorStatus.json
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/detail
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/detail/estimator_status__functions.h
+-- Installing: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/detail/estimator_status__type_support.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/detail/estimator_status__functions.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/detail/estimator_status__type_support.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/detail/estimator_status__description.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/detail/estimator_status__struct.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/estimator_status.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/rosidl_generator_c__visibility_control.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/environment/library_path.sh
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/environment/library_path.dsv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/libwla_openvins_navigation__rosidl_generator_c.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/rosidl_typesupport_fastrtps_c__visibility_control.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/detail
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/detail/estimator_status__rosidl_typesupport_fastrtps_c.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/libwla_openvins_navigation__rosidl_typesupport_fastrtps_c.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/rosidl_typesupport_introspection_c__visibility_control.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/detail
+-- Installing: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/detail/estimator_status__type_support.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/detail/estimator_status__rosidl_typesupport_introspection_c.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/libwla_openvins_navigation__rosidl_typesupport_introspection_c.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/libwla_openvins_navigation__rosidl_typesupport_c.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/rosidl_generator_cpp__visibility_control.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/detail
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/detail/estimator_status__builder.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/detail/estimator_status__traits.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/detail/estimator_status__struct.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/detail/estimator_status__type_support.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/estimator_status.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/rosidl_typesupport_fastrtps_cpp__visibility_control.h
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/detail
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/detail/estimator_status__rosidl_typesupport_fastrtps_cpp.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/detail/dds_fastrtps
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/libwla_openvins_navigation__rosidl_typesupport_fastrtps_cpp.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/detail
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/detail/estimator_status__rosidl_typesupport_introspection_cpp.hpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/include/wla_openvins_navigation/wla_openvins_navigation/msg/detail/estimator_status__type_support.cpp
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/libwla_openvins_navigation__rosidl_typesupport_introspection_cpp.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/libwla_openvins_navigation__rosidl_typesupport_cpp.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/environment/pythonpath.sh
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/environment/pythonpath.dsv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/python3.12/site-packages/wla_openvins_navigation-0.1.0-py3.12.egg-info
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/python3.12/site-packages/wla_openvins_navigation-0.1.0-py3.12.egg-info/top_level.txt
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/python3.12/site-packages/wla_openvins_navigation-0.1.0-py3.12.egg-info/dependency_links.txt
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/python3.12/site-packages/wla_openvins_navigation-0.1.0-py3.12.egg-info/SOURCES.txt
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/python3.12/site-packages/wla_openvins_navigation-0.1.0-py3.12.egg-info/PKG-INFO
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/python3.12/site-packages/wla_openvins_navigation
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/python3.12/site-packages/wla_openvins_navigation/msg
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/python3.12/site-packages/wla_openvins_navigation/msg/__init__.py
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/python3.12/site-packages/wla_openvins_navigation/msg/_estimator_status.py
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/python3.12/site-packages/wla_openvins_navigation/msg/_estimator_status_s.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/python3.12/site-packages/wla_openvins_navigation/wla_openvins_navigation_s__rosidl_typesupport_fastrtps_c.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/python3.12/site-packages/wla_openvins_navigation/__init__.py
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/python3.12/site-packages/wla_openvins_navigation/wla_openvins_navigation_s__rosidl_typesupport_c.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/python3.12/site-packages/wla_openvins_navigation/_wla_openvins_navigation_s.ep.rosidl_typesupport_fastrtps_c.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/python3.12/site-packages/wla_openvins_navigation/_wla_openvins_navigation_s.ep.rosidl_typesupport_introspection_c.c
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/python3.12/site-packages/wla_openvins_navigation/wla_openvins_navigation_s__rosidl_typesupport_introspection_c.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/python3.12/site-packages/wla_openvins_navigation/_wla_openvins_navigation_s.ep.rosidl_typesupport_c.c
+Listing '/home/orin/ros2_ws/install/wla_openvins_navigation/lib/python3.12/site-packages/wla_openvins_navigation'...
+Listing '/home/orin/ros2_ws/install/wla_openvins_navigation/lib/python3.12/site-packages/wla_openvins_navigation/msg'...
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/python3.12/site-packages/wla_openvins_navigation/wla_openvins_navigation_s__rosidl_typesupport_fastrtps_c.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/python3.12/site-packages/wla_openvins_navigation/wla_openvins_navigation_s__rosidl_typesupport_introspection_c.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/python3.12/site-packages/wla_openvins_navigation/wla_openvins_navigation_s__rosidl_typesupport_c.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/libwla_openvins_navigation__rosidl_generator_py.so
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/ament_index/resource_index/rust_packages/wla_openvins_navigation
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/rust
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/rust/Cargo.toml
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/rust/src
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/rust/src/msg
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/rust/src/msg/rmw.rs
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/rust/src/msg.rs
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/rust/src/lib.rs
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/rust/build.rs
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/msg/EstimatorStatus.idl
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/msg/EstimatorStatus.msg
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/wla_openvins_navigation/openvins_frontend
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/launch
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/launch/openvins.launch.py
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/launch/__pycache__
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/launch/__pycache__/openvins.launch.cpython-312.pyc
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/config
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/config/calibration_manifest.example.yaml
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/config/synthetic
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/config/synthetic/kalibr_imu_chain.yaml
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/config/synthetic/calibration.json
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/config/synthetic/kalibr_imucam_chain.yaml
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/config/synthetic/frontend.yaml
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/config/synthetic/estimator_config.yaml
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/config/synthetic_manifest.yaml
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/config/estimator_template.yaml
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/patches
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/patches/openvins-v1.patch
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/wla_openvins_navigation/generate_config.py
+-- Installing: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/wla_openvins_navigation/quality_gate.py
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/wla_openvins_navigation/record_metrics.py
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/lib/wla_openvins_navigation/stereo_fault_injector.py
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/README.md
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/COPYING
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/VERSION.json
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/openvins.repos
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/ament_index/resource_index/package_run_dependencies/wla_openvins_navigation
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/ament_index/resource_index/parent_prefix_path/wla_openvins_navigation
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/environment/ament_prefix_path.sh
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/environment/ament_prefix_path.dsv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/environment/path.sh
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/environment/path.dsv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/local_setup.bash
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/local_setup.sh
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/local_setup.zsh
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/local_setup.dsv
+-- Installing: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/package.dsv
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/ament_index/resource_index/packages/wla_openvins_navigation
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/export_wla_openvins_navigation__rosidl_generator_cExport.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/export_wla_openvins_navigation__rosidl_generator_cExport-release.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/export_wla_openvins_navigation__rosidl_typesupport_fastrtps_cExport.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/export_wla_openvins_navigation__rosidl_typesupport_fastrtps_cExport-release.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/wla_openvins_navigation__rosidl_typesupport_introspection_cExport.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/wla_openvins_navigation__rosidl_typesupport_introspection_cExport-release.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/wla_openvins_navigation__rosidl_typesupport_cExport.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/wla_openvins_navigation__rosidl_typesupport_cExport-release.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/export_wla_openvins_navigation__rosidl_generator_cppExport.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/export_wla_openvins_navigation__rosidl_typesupport_fastrtps_cppExport.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/export_wla_openvins_navigation__rosidl_typesupport_fastrtps_cppExport-release.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/wla_openvins_navigation__rosidl_typesupport_introspection_cppExport.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/wla_openvins_navigation__rosidl_typesupport_introspection_cppExport-release.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/wla_openvins_navigation__rosidl_typesupport_cppExport.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/wla_openvins_navigation__rosidl_typesupport_cppExport-release.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/export_wla_openvins_navigation__rosidl_generator_pyExport.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/export_wla_openvins_navigation__rosidl_generator_pyExport-release.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/rosidl_cmake-extras.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/ament_cmake_export_dependencies-extras.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/ament_cmake_export_include_directories-extras.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/ament_cmake_export_libraries-extras.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/ament_cmake_export_targets-extras.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/rosidl_cmake_export_typesupport_targets-extras.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/rosidl_cmake_export_typesupport_libraries-extras.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/rosidl_cmake_aggregate_target-extras.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/wla_openvins_navigationConfig.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/cmake/wla_openvins_navigationConfig-version.cmake
+-- Up-to-date: /home/orin/ros2_ws/install/wla_openvins_navigation/share/wla_openvins_navigation/package.xml
+install/wla_r680_navigation/lib/wla_r680_navigation/vo_watchdog /home/orin/ros2_ws/build/wla_r680_navigation/vo_watchdog 99f7c76696bccb1c2fe8a9369ba4b732ca39a825a35b713fbbef4c8b94da8a32
+install/wla_r680_navigation/lib/wla_r680_navigation/interface_monitor /home/orin/ros2_ws/build/wla_r680_navigation/interface_monitor 6158cc818644172f41a932763aa6576984a3d9d3c1c8b586a4af7a1b6facef0c
+install/wla_openvins_navigation/lib/wla_openvins_navigation/quality_gate.py /home/orin/ros2_ws/install/wla_openvins_navigation/lib/wla_openvins_navigation/quality_gate.py f333b5b8a0a5e333e5b0196227fb17b225612f82f7ff2b3f8eb04e7cd53c717c

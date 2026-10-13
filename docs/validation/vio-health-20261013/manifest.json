@@ -1,0 +1,24 @@
+{
+  "date": "2026-10-13T12:43:11.396851",
+  "precommit_head": "75145d122e4da7d5427bd04db4279df4b3d759db",
+  "sources": {
+    "src/wla_r680_navigation/src/vo_watchdog.cpp": "8ae3442a9d9f8b1c9dee4d935a6b5e6d09bdcc15a2db8344208836802d49c0f9",
+    "src/wla_r680_navigation/src/interface_monitor.cpp": "84cb85574267802adda909d8f72524507211625ab6ff64526a484ce059c697fa",
+    "src/wla_r680_navigation/launch/bringup.launch.py": "8fd75a57c6c8ca22f573f6c815e7c874f4c183b89bf30c743821725ed8d39b8f",
+    "src/wla_r680_navigation/include/wla_r680_navigation/map_localization_evidence.hpp": "ea89ccfbdc82a020df4b454615e446055030e222e2be6fdb1cb324d7af6cb102",
+    "src/wla_r680_navigation/CMakeLists.txt": "40ec8da90dbb4e560912f94b73d4c545c16340ec3ebebd287a97a012554c8d2d",
+    "src/wla_r680_navigation/test/test_map_localization_evidence.cpp": "1414a697a2c0db7c32a22956ab65abbee87cff232aa14cd4a1b61b010e3bce69",
+    "src/wla_r680_navigation/test/test_rgbd_watchdog.py": "636dd5293cdde53e1c9023f7c11ecdc99fa49c714a1ff807bcdd1b37952759a8",
+    "src/wla_openvins_navigation/scripts/quality_gate.py": "f333b5b8a0a5e333e5b0196227fb17b225612f82f7ff2b3f8eb04e7cd53c717c",
+    "src/wla_openvins_navigation/test/test_launch_contract.py": "6c31afa164f4269ada4cd7fba4acd0442375dd6ce102cdcfa538224329df21af",
+    "src/wla_r680_navigation/test/test_frontend_interface.py": "f37d8c0aa100604a5b79ed78799d7cb9c857994be3796077374737ab95aac05c",
+    "src/wla_openvins_navigation/test/test_ros_contract.py": "19635bbf169f6a6718731483e82be639ff2b761d96cec8fd81dd9e25be5d4a25"
+  },
+  "runtime_restarted": false,
+  "physical_motion_tested": false,
+  "installed": {
+    "install/wla_r680_navigation/lib/wla_r680_navigation/vo_watchdog": "99f7c76696bccb1c2fe8a9369ba4b732ca39a825a35b713fbbef4c8b94da8a32",
+    "install/wla_r680_navigation/lib/wla_r680_navigation/interface_monitor": "6158cc818644172f41a932763aa6576984a3d9d3c1c8b586a4af7a1b6facef0c",
+    "install/wla_openvins_navigation/lib/wla_openvins_navigation/quality_gate.py": "f333b5b8a0a5e333e5b0196227fb17b225612f82f7ff2b3f8eb04e7cd53c717c"
+  }
+}

@@ -22,6 +22,7 @@ class Gate(Node):
         self.last_degraded_stamp=0.;self.last_odom_stamp=0.
         self.last_match_stamp=0.;self.map_confirmed=False
         self.mapping=self.create_publisher(Odometry,self.declare_parameter('mapping_odom_topic','/openvins_trial/mapping_odom').value,10)
+        self.tracking=self.create_publisher(Bool,'tracking_healthy',10)
         self.motion=self.create_publisher(Bool,'motion_ready',10)
         self.ready=self.create_publisher(Bool,'mapping_ready',10)
         self.reason=self.create_publisher(String,'gate_status',10)
@@ -43,6 +44,8 @@ class Gate(Node):
         identity=(s.instance_id,s.generation)
         if self.identity is None: self.identity=identity
         if identity!=self.identity or s.generation!=0: self.generation_changed=True
+        if (self.status is not None and identity==self.identity and
+                self.stamp(s.header.stamp)<=self.stamp(self.status.header.stamp)): return
         self.status=s;self.status_seen=time.monotonic()
         if not self.visual_ready(): self.invalidate_map(self.stamp(s.header.stamp))
 
@@ -61,11 +64,15 @@ class Gate(Node):
     def on_info(self,m):
         stamp=self.stamp(m.header.stamp)
         age=self.get_clock().now().nanoseconds*1e-9-stamp
-        if (self.visual_ready() and -.05<=age<=.5 and stamp>self.last_degraded_stamp and
+        if (self.visual_ready() and -.05<=age<=.5 and stamp>max(self.last_degraded_stamp,self.last_match_stamp) and
                 (m.loop_closure_id>0 or m.proximity_detection_id>0)):
             self.last_match_stamp=stamp;self.confirm_map()
 
     def on_map(self,m):
+        stamp=self.stamp(m.header.stamp)
+        now=self.get_clock().now().nanoseconds*1e-9
+        if self.map_confirmed and now-self.last_map_stamp>=3.: self.invalidate_map(now)
+        if stamp<=max(self.last_degraded_stamp,self.last_map_stamp): return
         p=m.pose.pose.position;q=m.pose.pose.orientation
         age=self.get_clock().now().nanoseconds*1e-9-self.stamp(m.header.stamp)
         if (m.header.frame_id=='map' and -.05<=age<=.5 and
@@ -79,10 +86,11 @@ class Gate(Node):
         s=self.status
         return (s is not None and not self.generation_changed and time.monotonic()-self.status_seen<.2 and
                 -.05<=self.get_clock().now().nanoseconds*1e-9-self.stamp(s.header.stamp)<.2 and
+                -.05<=self.get_clock().now().nanoseconds*1e-9-self.stamp(s.state_stamp)<.2 and
                 s.state_valid)
 
     def local_ok(self):
-        return (self.recent_status() and self.status.mode==self.status.VIO_TRACKING and
+        return (self.visual_ready() and self.status.mode==self.status.VIO_TRACKING and
                 self.status.uncertainty_acceptable)
 
     def visual_ready(self):
@@ -115,6 +123,8 @@ class Gate(Node):
         map_ok=self.mode=='mapping' or (self.map_confirmed and
             -.05<=now-self.last_map_stamp<3.)
         output_fresh=time.monotonic()-self.last_forwarded<.2
+        # Raw VIO health is independent of map/contact/commissioning permission.
+        self.tracking.publish(Bool(data=local))
         self.ready.publish(Bool(data=local and output_fresh))
         self.motion.publish(Bool(data=self.motion_enabled and local and ground and map_ok and output_fresh))
         self.reason.publish(String(data='generation_changed' if self.generation_changed else

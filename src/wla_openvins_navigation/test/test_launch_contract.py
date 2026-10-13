@@ -29,9 +29,15 @@ for e in ld.entities:
 monitor=next(e for e in ld.entities if 'interface_monitor' in node_name(e))
 params=evaluate_parameters(c,monitor._Node__parameters)[0]
 assert params['require_vio_health'] is True
-assert params['vio_health_topic']=='/openvins/motion_ready'
+assert params['vio_health_topic']=='/openvins/tracking_healthy'
+assert params['require_motion_permission'] is True
+assert params['motion_permission_topic']=='/openvins/motion_ready'
 assert params['require_vo_watchdog'] is False
 includes=[e for e in ld.entities if isinstance(e,IncludeLaunchDescription)]
+# Shared camera launch is wrapped to scope the RealSense SDK environment.
+# Inspect its argument without executing or starting the camera launch.
+for e in ld.entities:
+    includes.extend(x for x in getattr(e,'_OpaqueFunction__args',[]) if isinstance(x,IncludeLaunchDescription))
 camera=next(e for e in includes if 'enable_infra1' in dict(e.launch_arguments))
 camera_args=dict(camera.launch_arguments)
 assert perform_substitutions(c,[camera_args['enable_infra1']])=='true'
@@ -47,6 +53,25 @@ try:mod.validate_navigation_map(c)
 except ValueError:pass
 else:raise AssertionError('experimental hardware output must be rejected')
 print('PASS OpenVINS exclusive odom, no plane fallback/restart watchdog, quality gate and hardware-output rejection')
+
+for frontend in ('rgbd','cuvslam'):
+    for mode in ('mapping','localization'):
+        c.launch_configurations.update(odom_source=frontend,mode=mode,enable_hardware_output='false')
+        # ParameterValue caches evaluation; a new launch invocation owns new
+        # objects. Reusing the OpenVINS invocation would test cached values.
+        case=mod.generate_launch_description()
+        watchdog=next(e for e in case.entities if 'vo_watchdog' in node_name(e))
+        monitor=next(e for e in case.entities if 'interface_monitor' in node_name(e))
+        assert enabled(watchdog)==(mode=='localization')
+        wp=evaluate_parameters(c,watchdog._Node__parameters)[1]
+        mp=evaluate_parameters(c,monitor._Node__parameters)[0]
+        assert wp['frontend']==frontend
+        assert wp['frontend_health_topic']=='/r680_nav/vio_tracking_healthy'
+        assert wp['allow_bounded_degraded']==(frontend=='cuvslam' and mode=='localization')
+        assert mp['require_vio_health']==(frontend=='cuvslam')
+        assert mp['require_motion_permission']==(frontend=='cuvslam')
+        assert mp['vio_health_topic']=='/r680_nav/vio_tracking_healthy'
+print('PASS RGBD/cuVSLAM frontend selection and explicit continuity wiring')
 
 spec=importlib.util.spec_from_file_location('openvins_launch',root/'launch/openvins.launch.py')
 frontend_launch=importlib.util.module_from_spec(spec);spec.loader.exec_module(frontend_launch)

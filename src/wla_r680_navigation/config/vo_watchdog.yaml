@@ -3,7 +3,7 @@ r680_vo_watchdog:
     vo_topic: /r680_nav/vo_odom
     info_topic: /d455_slam/odom_info
     wheel_topic: /wheel/odom
-    # 启动图像/深度同步的宽限；之后 VO 或 OdomInfo 超时即锁定本次任务。
+    # 启动宽限；RGB-D 检查 OdomInfo，cuVSLAM 检查原始 VIO 与显式连续里程计。
     startup_grace_s: 12.0
     stale_s: 1.5
     lost_limit: 3
@@ -23,6 +23,8 @@ r680_vo_watchdog:
     localization_topic: /d455_slam/localization_pose
     recovery_stable_s: 2.0
     localization_stale_s: 3.0
+    # Current map correction applied to base at localization source time.
+    localization_odom_frame: d455_floor_odom
     localization_translation_error_m: 0.40
     localization_yaw_change_rad: 0.80
     # One initialpose after respawn and verified stationary/tracking feedback.

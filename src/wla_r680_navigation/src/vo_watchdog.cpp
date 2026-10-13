@@ -25,6 +25,7 @@
 #include "tf2_ros/transform_listener.h"
 #include "wla_r680_navigation/relocalization_prior.hpp"
 #include "wla_r680_navigation/recovery_evidence.hpp"
+#include "wla_r680_navigation/map_localization_evidence.hpp"
 
 using namespace std::chrono_literals;
 namespace fs = std::filesystem;
@@ -39,11 +40,21 @@ public:
     degraded_map_grace_ = declare_parameter<double>("degraded_map_grace_s", 2.0);
     if(!std::isfinite(degraded_map_grace_) || degraded_map_grace_<0 || degraded_map_grace_>3)
       throw std::invalid_argument("invalid degraded map grace");
+    if(bounded_degraded_) continuity_sub_=create_subscription<std_msgs::msg::Bool>(
+      declare_parameter<std::string>("continuity_health_topic", "/r680_nav/continuous_odom_healthy"),
+      10,[this](std_msgs::msg::Bool::ConstSharedPtr msg) {
+        continuity_ready_=msg->data; continuity_seen_=Clock::now();
+        if (msg->data) continuity_was_ready_=true;
+        continuity_lost_count_=msg->data ? 0 : continuity_lost_count_+1;
+        if (!fault_latched_ && continuity_was_ready_ && continuity_lost_count_>=lost_limit_)
+          fault("continuous odometry unhealthy");
+      });
     if(bounded_degraded_) degraded_sub_=create_subscription<std_msgs::msg::Bool>(
       "/r680_nav/odom_degraded",10,[this](std_msgs::msg::Bool::ConstSharedPtr msg) {
         degraded_active_=msg->data;degraded_seen_=Clock::now();
       });
     if (frontend_ != "rgbd" && frontend_ != "cuvslam") throw std::invalid_argument("unknown frontend");
+    map_evidence_.reset(get_clock()->now().seconds());
     startup_grace_s_ = declare_parameter<double>("startup_grace_s", 12.0);
     stale_s_ = declare_parameter<double>("stale_s", 1.5);
     lost_limit_ = declare_parameter<int>("lost_limit", 3);
@@ -57,6 +68,7 @@ public:
     restart_enabled_ = declare_parameter<bool>("restart_enabled", true);
     recovery_stable_s_ = declare_parameter<double>("recovery_stable_s", 2.0);
     localization_stale_s_ = declare_parameter<double>("localization_stale_s", 3.0);
+    localization_odom_frame_ = declare_parameter<std::string>("localization_odom_frame", "d455_floor_odom");
     localization_translation_error_m_ =
       declare_parameter<double>("localization_translation_error_m", 0.40);
     localization_yaw_change_rad_ =
@@ -108,6 +120,10 @@ public:
     prior_pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(initial_pose_topic, 1);
     manual_prior_sub_=create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
       initial_pose_topic,10,[this](geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr msg) {
+        if(msg->header.frame_id=="map" && finitePose(msg->pose.pose)) {
+          map_evidence_.reset(get_clock()->now().seconds());
+          pending_localization_.reset();
+        }
         if(staged_search_ && fault_latched_ && search_stage_==4 && !search_pending_ &&
             !search_original_.empty() && search_client_->service_is_ready() &&
             msg->header.frame_id=="map" && finitePose(msg->pose.pose) &&
@@ -132,12 +148,11 @@ public:
           if (fault_latched_ && respawn_seen_.time_since_epoch().count() == 0) return;
           info_seen_ = Clock::now();
           frontend_ready_ = msg->data;
-          if (msg->data) frontend_was_ready_ = true;
+          if (msg->data) {frontend_was_ready_ = true; frontend_last_ready_ = Clock::now();}
           lost_count_ = msg->data ? 0 : lost_count_ + 1;
           // Initial SDK gravity estimation is a waiting state, not tracking loss.
-          if (!fault_latched_ && frontend_was_ready_ && lost_count_ >= lost_limit_)
-            fault(frontend_health_topic_=="/r680_nav/continuous_odom_healthy" ?
-              "continuous odometry unhealthy" : "cuVSLAM inertial tracking unhealthy");
+          if (!bounded_degraded_ && !fault_latched_ && frontend_was_ready_ && lost_count_ >= lost_limit_)
+            fault("cuVSLAM VIO tracking unhealthy");
         });
     }
     wheel_sub_ = create_subscription<nav_msgs::msg::Odometry>(
@@ -178,8 +193,11 @@ public:
             "relocalization geometric match: stage=%s node=%d frame=%d",
             searchName(),msg->loop_closure_id>0 ? msg->loop_closure_id : msg->proximity_detection_id,msg->ref_id);
         }
-        if (msg->loop_closure_id > 0 || msg->proximity_detection_id > 0 || msg->landmark_id > 0) {
-          initial_map_matched_ = true;
+        // Backend match IDs are candidates, never stand-alone localization.
+        if (frontendTracking() && (msg->loop_closure_id > 0 ||
+            msg->proximity_detection_id > 0 || msg->landmark_id > 0)) {
+          map_evidence_.match(rclcpp::Time(msg->header.stamp).seconds(),
+            get_clock()->now().seconds(), localization_stale_s_);
         }
         if (fault_latched_ && respawn_seen_.time_since_epoch().count() != 0 &&
           rclcpp::Time(msg->header.stamp) > respawn_ros_stamp_ &&
@@ -272,7 +290,10 @@ private:
       covariance[0] > 1.0 || covariance[7] > 1.0 || covariance[35] > 1.0) {return;}
     const double stamp_age = (get_clock()->now() - rclcpp::Time(msg.header.stamp)).seconds();
     if (stamp_age < -0.2 || stamp_age > localization_stale_s_) {return;}
-    initial_localization_seen_ = Clock::now();
+    const auto stamp = rclcpp::Time(msg.header.stamp);
+    if (stamp.seconds() <= map_evidence_.epoch() ||
+        (pending_localization_ && stamp <= rclcpp::Time(pending_localization_->header.stamp))) return;
+    pending_localization_ = msg;
     if (fault_latched_) {
       if (respawn_seen_.time_since_epoch().count() != 0 &&
         rclcpp::Time(msg.header.stamp) > respawn_ros_stamp_) {
@@ -286,6 +307,11 @@ private:
   void onInfo(const rtabmap_msgs::msg::OdomInfo & msg)
   {
     if (fault_latched_ && respawn_seen_.time_since_epoch().count() == 0) {return;}
+    const auto stamp = rclcpp::Time(msg.header.stamp);
+    const double source_age = (get_clock()->now()-stamp).seconds();
+    if (fault_latched_ && stamp <= respawn_ros_stamp_) return;
+    if(source_age < -0.2 || source_age > stale_s_ || stamp <= last_info_stamp_) return;
+    last_info_stamp_ = stamp;
     info_seen_ = Clock::now();
     lost_count_ = msg.lost ? lost_count_ + 1 : 0;
     if (!fault_latched_ && lost_count_ >= lost_limit_) {fault("visual tracking lost");}
@@ -300,6 +326,9 @@ private:
       return;
     }
     const auto stamp = rclcpp::Time(msg.header.stamp);
+    const double source_age = (get_clock()->now()-stamp).seconds();
+    if (fault_latched_ && stamp <= respawn_ros_stamp_) return;
+    if (source_age < -0.2 || source_age > stale_s_ || (last_vo_ && stamp <= last_stamp_)) return;
     const auto pose = poseOf(msg);
     if (last_vo_) {
       const double dt = (stamp - last_stamp_).seconds();
@@ -386,6 +415,8 @@ private:
   {
     if (fault_latched_) {return;}
     fault_latched_ = true;
+    map_evidence_.reset(get_clock()->now().seconds());
+    pending_localization_.reset();
     reason_ = why;
     anchor_valid_at_fault_ = anchor_map_pose_.has_value() &&
       age(anchor_map_seen_) < localization_stale_s_ && age(wheel_seen_) < 0.30;
@@ -430,9 +461,9 @@ private:
 
   void tick()
   {
-    if (!fault_latched_ && !degradedActive() && (frontend_ == "rgbd" || frontend_ready_) && age(vo_seen_) <= stale_s_ &&
-      age(info_seen_) <= stale_s_ && age(wheel_seen_) < 0.30 &&
-      initial_map_matched_ && age(initial_localization_seen_)<=localization_stale_s_) {
+    const bool map_ready = updateMapEvidence();
+    if (!fault_latched_ && !degradedActive() && frontendTracking() &&
+      age(vo_seen_) <= stale_s_ && age(wheel_seen_) < 0.30 && map_ready) {
       const auto map_pose = currentMapPose();
       if (map_pose) {
         anchor_map_pose_ = map_pose;
@@ -446,6 +477,8 @@ private:
         if (pids.size() == 1 && pids.front() != vo_pid_) {
           respawn_seen_ = Clock::now();
           respawn_ros_stamp_ = get_clock()->now();
+          map_evidence_.reset(respawn_ros_stamp_.seconds());
+          pending_localization_.reset();
           vo_seen_ = {};
           info_seen_ = {};
           map_matched_after_respawn_ = false;
@@ -455,9 +488,7 @@ private:
             pids.front());
         }
       } else {
-        const bool tracking = age(vo_seen_) <= stale_s_ &&
-          age(info_seen_) <= stale_s_ && lost_count_ == 0 &&
-          (frontend_ == "rgbd" || frontend_ready_);
+        const bool tracking = age(vo_seen_) <= stale_s_ && frontendTracking() && odometryReady();
         const bool stopped = age(wheel_seen_) < 0.30 &&
           std::isfinite(wheel_linear_+wheel_angular_) &&
           std::abs(wheel_linear_) < 0.02 && std::abs(wheel_angular_) < 0.04;
@@ -505,7 +536,7 @@ private:
             distance(wheel_, anchor_wheel_pose_)) <= localization_translation_error_m_ &&
           std::abs(angleDifference(recovery_map_pose_->yaw, anchor_map_pose_->yaw)) <=
             localization_yaw_change_rad_ && age(wheel_seen_) < 0.30;
-        if (tracking && localized) {
+        if (tracking && localized && map_ready) {
           if (recovery_stable_since_.time_since_epoch().count() == 0) {
             recovery_stable_since_ = Clock::now();
           }
@@ -527,18 +558,13 @@ private:
       }
     }
     if (!fault_latched_ && age(started_) > startup_grace_s_ &&
-      (age(vo_seen_) > stale_s_ || age(info_seen_) > stale_s_)) {
+      (age(vo_seen_) > stale_s_ || (!bounded_degraded_ && age(info_seen_) > stale_s_) ||
+       (bounded_degraded_ && age(continuity_seen_) > stale_s_))) {
       fault("VO odometry or tracking status timed out");
     }
-    // Local RGB-D tracking only establishes odometry, not a pose in the saved
-    // map. Both frontends need RTAB-Map match/pose evidence before admitting
-    // navigation. This watchdog is launched only in localization mode; first
-    // mapping does not depend on a match against an existing map.
-    const bool healthy = !fault_latched_ && age(vo_seen_) <= stale_s_ &&
-      age(info_seen_) <= stale_s_ && lost_count_ == 0 &&
-      (frontend_ == "rgbd" || frontend_ready_) && initial_map_matched_ &&
-      age(initial_localization_seen_) <= localization_stale_s_ +
-        (degradedActive() ? degraded_map_grace_ : 0.0) && currentMapPose().has_value();
+    // The selected frontend owns tracking quality. Bounded wheel/IMU
+    // continuity may retain an already verified map, but cannot establish one.
+    const bool healthy = !fault_latched_ && odometryReady() && map_ready;
     std_msgs::msg::Bool health;
     health.data = healthy;
     health_pub_->publish(health);
@@ -547,10 +573,10 @@ private:
       (!anchor_valid_at_fault_ ? "manual_relocalization_required: " :
       respawn_seen_.time_since_epoch().count() == 0 ? "restarting_vo: " :
       "waiting_for_map_relocalization: ") + reason_ :
-      (healthy ? "healthy" : frontend_ == "cuvslam" && !frontend_ready_ ?
+      (healthy ? (frontendTracking() ? "healthy" : "bounded_continuity_vio_unhealthy") : frontend_ == "cuvslam" && !frontend_ready_ ?
         "waiting_for_inertial_initialization" :
         age(vo_seen_) > stale_s_ || age(info_seen_) > stale_s_ ?
-        "waiting_for_vo" : "waiting_for_map_relocalization");
+        (frontend_=="rgbd" ? "waiting_for_rgbd_odometry" : "waiting_for_vio") : "waiting_for_map_relocalization");
     status_pub_->publish(status);
     if (staged_search_ && fault_latched_) {
       std_msgs::msg::String search;
@@ -690,6 +716,64 @@ private:
     return false;
   }
 
+  bool frontendTracking() const {
+    return age(info_seen_) <= stale_s_ && lost_count_ == 0 &&
+      (frontend_ == "rgbd" || frontend_ready_);
+  }
+  bool odometryReady() const {
+    return age(vo_seen_) <= stale_s_ && (bounded_degraded_ ?
+      continuity_ready_ && age(continuity_seen_) < 0.20 &&
+        (frontendTracking() || degradedActive() || age(frontend_last_ready_) < 0.20) : frontendTracking());
+  }
+  bool updateMapEvidence() {
+    const auto now = get_clock()->now();
+    if (now.seconds() < last_map_check_) {
+      map_evidence_.reset(now.seconds()); pending_localization_.reset();
+    }
+    last_map_check_ = now.seconds();
+    if (pending_localization_ && frontendTracking()) {
+      const auto stamp = rclcpp::Time(pending_localization_->header.stamp);
+      if (stamp.seconds() > map_evidence_.epoch() &&
+          (now-stamp).seconds() <= localization_stale_s_) {
+        try {
+          // RTAB-Map broadcasts its current map->odom correction with a TF
+          // tolerance. Apply that correction to odom->base at the observation
+          // time; comparing old localization with latest moving base is wrong.
+          const auto tf = tf_buffer_->lookupTransform("map", rclcpp::Time(0,0,RCL_ROS_TIME),
+            "r680_mapping_floor", stamp, localization_odom_frame_, rclcpp::Duration::from_seconds(0.0));
+          geometry_msgs::msg::Pose pose;
+          pose.position.x=tf.transform.translation.x; pose.position.y=tf.transform.translation.y;
+          pose.orientation=tf.transform.rotation;
+          const auto actual=poseOf(pose), expected=poseOf(pending_localization_->pose.pose);
+          if (!finitePose(pose) || distance(actual,expected)>localization_translation_error_m_ ||
+              std::abs(angleDifference(actual.yaw,expected.yaw))>localization_yaw_change_rad_) {
+            if (map_evidence_.confirmed()) {
+              map_evidence_.reset(now.seconds()); pending_localization_.reset();
+            }
+          } else {
+            map_evidence_.pose(stamp.seconds(),now.seconds(),localization_stale_s_);
+          }
+        } catch (const tf2::TransformException &) {
+          // Async TF may arrive later. It cannot refresh the last verified pose.
+        }
+      }
+    }
+    return map_evidence_.update(now.seconds(),localization_stale_s_,
+      currentMapPose().has_value(),odometryReady(),frontendTracking(),
+      degradedActive() ? degraded_map_grace_ : 0.0);
+  }
+  wla_r680_navigation::MapLocalizationEvidence map_evidence_;
+  std::string localization_odom_frame_;
+  std::optional<geometry_msgs::msg::PoseWithCovarianceStamped> pending_localization_;
+  double last_map_check_{0.};
+  rclcpp::Time last_info_stamp_{0,0,RCL_ROS_TIME};
+  bool continuity_ready_{false}, continuity_was_ready_{false};
+  int continuity_lost_count_{0};
+  Clock::time_point continuity_seen_{};
+  // Permit the continuity node's 10 ms transition to reach us before revoking
+  // the watchdog input it itself needs. This is not a new degradation budget.
+  Clock::time_point frontend_last_ready_{};
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr continuity_sub_;
   double startup_grace_s_{}, stale_s_{}, jump_linear_mps_{}, jump_angular_rps_{};
   bool degradedActive() const {return bounded_degraded_ && degraded_active_ && age(degraded_seen_)<0.20;}
   bool bounded_degraded_{false},degraded_active_{false};double degraded_map_grace_{};
@@ -718,8 +802,7 @@ private:
   bool anchor_valid_at_fault_{false}, map_matched_after_respawn_{false};
   std::string frontend_;
   std::string frontend_health_topic_;
-  bool frontend_ready_{false}, frontend_was_ready_{false}, initial_map_matched_{false};
-  Clock::time_point initial_localization_seen_{};
+  bool frontend_ready_{false}, frontend_was_ready_{false};
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr frontend_health_sub_;
   pid_t vo_pid_{-1};
   std::string reason_;

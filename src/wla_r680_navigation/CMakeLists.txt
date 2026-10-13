@@ -73,6 +73,21 @@ install(DIRECTORY config launch docs web DESTINATION share/${PROJECT_NAME}
 install(FILES README.md DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
+  add_executable(test_map_localization_evidence test/test_map_localization_evidence.cpp)
+  target_include_directories(test_map_localization_evidence PRIVATE include)
+  target_compile_options(test_map_localization_evidence PRIVATE -UNDEBUG)
+  add_test(NAME map_localization_evidence COMMAND test_map_localization_evidence)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_test(NAME frontend_map_watchdog COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_rgbd_watchdog.py)
+  set_tests_properties(frontend_map_watchdog PROPERTIES
+    ENVIRONMENT "ROS_DOMAIN_ID=198;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST;WLA_WATCHDOG_EXECUTABLE=$<TARGET_FILE:vo_watchdog>"
+    RUN_SERIAL TRUE TIMEOUT 150)
+  add_test(NAME frontend_interface COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_frontend_interface.py)
+  set_tests_properties(frontend_interface PROPERTIES
+    ENVIRONMENT "ROS_DOMAIN_ID=198;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST;WLA_MONITOR_EXECUTABLE=$<TARGET_FILE:interface_monitor>"
+    RUN_SERIAL TRUE TIMEOUT 20)
   add_executable(test_degraded_odometry test/test_degraded_odometry.cpp)
   target_include_directories(test_degraded_odometry PRIVATE include)
   # assertions must stay active in Release builds
@@ -81,9 +96,11 @@ if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   add_executable(test_recovery_evidence test/test_recovery_evidence.cpp)
   target_include_directories(test_recovery_evidence PRIVATE include)
+  target_compile_options(test_recovery_evidence PRIVATE -UNDEBUG)
   add_test(NAME recovery_evidence COMMAND test_recovery_evidence)
   add_executable(test_relocalization_prior test/test_relocalization_prior.cpp)
   target_include_directories(test_relocalization_prior PRIVATE include)
+  target_compile_options(test_relocalization_prior PRIVATE -UNDEBUG)
   add_test(NAME relocalization_prior COMMAND test_relocalization_prior)
   add_executable(test_timed_obstacle_layer test/test_timed_obstacle_layer.cpp)
   ament_target_dependencies(test_timed_obstacle_layer nav2_costmap_2d pluginlib rclcpp sensor_msgs std_msgs tf2_ros)

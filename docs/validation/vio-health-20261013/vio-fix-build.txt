@@ -1,0 +1,20 @@
+Starting >>> wla_r680_navigation
+[0.599s] WARNING:colcon.colcon_core.shell:The following packages are in the workspace but haven't been built:
+- explore_lite_msgs
+- ov_core
+- wla_detection_bridge
+- ov_init
+- ov_msckf
+- wla_openvins_navigation
+They are being used from the following locations instead:
+- /home/orin/ros2_ws/install/explore_lite_msgs
+- /home/orin/ros2_ws/install/ov_core
+- /home/orin/ros2_ws/install/wla_detection_bridge
+- /home/orin/ros2_ws/install/ov_init
+- /home/orin/ros2_ws/install/ov_msckf
+- /home/orin/ros2_ws/install/wla_openvins_navigation
+To suppress this warning ignore these packages in the workspace:
+--packages-ignore explore_lite_msgs ov_core wla_detection_bridge ov_init ov_msckf wla_openvins_navigation
+Finished <<< wla_r680_navigation [4min 37s]
+
+Summary: 1 package finished [4min 37s]

@@ -25,6 +25,7 @@ import yaml
 def main():
     assert os.environ.get('ROS_DOMAIN_ID')=='86', 'use isolated ROS_DOMAIN_ID=86'
     root=Path(sys.argv[1]).resolve()
+    gate_command=[sys.executable,str(root/'scripts/quality_gate.py')]
     rclpy.init();n=Node('openvins_contract_test');statuses=[];odoms=[];tfs=[];permits=[];mapped=[]
     n.create_subscription(EstimatorStatus,'/contract/estimator_status',statuses.append,10)
     n.create_subscription(Odometry,'/contract/odom',odoms.append,qos_profile_sensor_data)
@@ -77,6 +78,8 @@ def main():
             assert not odoms and not tfs, 'no fabricated odom or default TF before initialization'
 
             # Test quality gate using explicit fixture messages in the same isolated domain.
+            tracking=[]
+            n.create_subscription(Bool,'/gate/tracking_healthy',lambda m:tracking.append(m.data),10)
             status=n.create_publisher(EstimatorStatus,'/gate/estimator_status',10)
             contact=n.create_publisher(String,'/gate/contact',10)
             odom=n.create_publisher(Odometry,'/gate/odom',10)
@@ -84,16 +87,16 @@ def main():
             n.create_subscription(Odometry,'/gate/mapping_odom',mapped.append,10)
             map_pose=n.create_publisher(PoseWithCovarianceStamped,'/d455_slam/localization_pose',10)
             map_info=n.create_publisher(Info,'/d455_slam/info',10)
-            processes.append(subprocess.Popen(['ros2','run','wla_openvins_navigation','quality_gate.py',
+            processes.append(subprocess.Popen(gate_command+[
                 '--ros-args','-r','__ns:=/gate','-p','odom_topic:=/gate/odom',
                 '-p','contact_topic:=/gate/contact','-p','mapping_odom_topic:=/gate/mapping_odom'],
                 stdout=log,stderr=log,start_new_session=True))
             spin(2)
-            def fixture(mode,ground,gen=0,seconds=.4,map_kind=None):
+            def fixture(mode,ground,gen=0,seconds=.4,map_kind=None,state_age=0):
                 end=time.monotonic()+seconds
                 while time.monotonic()<end:
                     s=EstimatorStatus();s.header.stamp=n.get_clock().now().to_msg();s.header.frame_id='test_odom'
-                    s.state_stamp=s.header.stamp;s.instance_id='fixture';s.generation=gen;s.mode=mode
+                    s.state_stamp=n.get_clock().now().to_msg();s.state_stamp.sec-=state_age;s.instance_id='fixture';s.generation=gen;s.mode=mode
                     s.initialized=s.state_valid=s.uncertainty_acceptable=True
                     s.visual_update_age_s=.1;s.recovery_updates=3
                     status.publish(s);contact.publish(String(data=ground));spin(.02)
@@ -110,9 +113,14 @@ def main():
                             map_info.publish(info)
                         spin(.02)
             fixture(EstimatorStatus.VIO_TRACKING,'UNKNOWN');assert permits and not permits[-1] and not mapped
+            assert tracking and tracking[-1], 'ground permission must not define VIO health'
             fixture(EstimatorStatus.INERTIAL_ONLY,'GROUNDED');assert not permits[-1] and not mapped
+            assert not tracking[-1], 'inertial propagation is not healthy VIO'
             fixture(EstimatorStatus.VIO_TRACKING,'GROUNDED');assert permits[-1] and mapped
             fixture(EstimatorStatus.VIO_TRACKING,'CARRIED');assert not permits[-1]
+            assert tracking[-1]
+            fixture(EstimatorStatus.VIO_TRACKING,'GROUNDED',state_age=1);assert not permits[-1] and not tracking[-1]
+            fixture(EstimatorStatus.VIO_TRACKING,'GROUNDED');assert permits[-1] and tracking[-1]
             fixture(EstimatorStatus.VIO_TRACKING,'GROUNDED',gen=1);assert not permits[-1]
             fixture(EstimatorStatus.VIO_TRACKING,'GROUNDED');assert not permits[-1], 'generation lock must persist'
             status=n.create_publisher(EstimatorStatus,'/local_gate/estimator_status',10)
@@ -121,7 +129,7 @@ def main():
             local_mapped=[];local_permits=[]
             n.create_subscription(Odometry,'/local_gate/mapping_odom',local_mapped.append,10)
             n.create_subscription(Bool,'/local_gate/motion_ready',lambda m:local_permits.append(m.data),10)
-            processes.append(subprocess.Popen(['ros2','run','wla_openvins_navigation','quality_gate.py',
+            processes.append(subprocess.Popen(gate_command+[
                 '--ros-args','-r','__ns:=/local_gate','-p','mode:=localization','-p','odom_topic:=/local_gate/odom',
                 '-p','contact_topic:=/local_gate/contact','-p','mapping_odom_topic:=/local_gate/mapping_odom'],
                 stdout=log,stderr=log,start_new_session=True))
@@ -144,14 +152,14 @@ def main():
             commission_permits=[];commission_mapped=[]
             n.create_subscription(Bool,'/commission_gate/motion_ready',lambda m:commission_permits.append(m.data),10)
             n.create_subscription(Odometry,'/commission_gate/mapping_odom',commission_mapped.append,10)
-            processes.append(subprocess.Popen(['ros2','run','wla_openvins_navigation','quality_gate.py',
+            processes.append(subprocess.Popen(gate_command+[
                 '--ros-args','-r','__ns:=/commission_gate','-p','motion_output_enabled:=false',
                 '-p','odom_topic:=/commission_gate/odom','-p','contact_topic:=/commission_gate/contact',
                 '-p','mapping_odom_topic:=/commission_gate/mapping_odom'],stdout=log,stderr=log,start_new_session=True))
             spin(2)
             fixture(EstimatorStatus.VIO_TRACKING,'GROUNDED');assert commission_mapped and not commission_permits[-1]
             print(json.dumps({'passed':['initialization_status','stereo_image_and_camera_info_input','startup_silence_waits_without_fault','nonfinite_imu_latched','explicit_reset_generation',
-                'no_fake_odom','no_default_tf','unknown_and_carried_no_drive','inertial_no_mapping',
+                'no_fake_odom','no_default_tf','unknown_and_carried_no_drive','inertial_no_mapping','raw_vio_independent_of_contact','fresh_report_cannot_mask_stale_state',
                 'tracking_grounded_permission','generation_change_latched','recovering_can_relocalize_without_drive',
                 'pose_only_and_stale_info_cannot_confirm_map','matched_pose_confirms_map',
                 'visual_loss_and_backend_timeout_revoke_map','commissioning_never_authorizes_motion']}))

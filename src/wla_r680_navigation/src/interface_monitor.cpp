@@ -22,6 +22,17 @@ public:
     require_chassis_odom_ = declare_parameter<bool>("require_chassis_odom", false);
     require_vo_watchdog_ = declare_parameter<bool>("require_vo_watchdog", false);
     require_vio_health_ = declare_parameter<bool>("require_vio_health", false);
+    require_motion_permission_=declare_parameter<bool>("require_motion_permission",false);
+    allow_bounded_degraded_=declare_parameter<bool>("allow_bounded_degraded",false);
+    motion_permission_sub_=create_subscription<std_msgs::msg::Bool>(
+      declare_parameter<std::string>("motion_permission_topic","/r680_nav/continuous_odom_healthy"),
+      1,[this](std_msgs::msg::Bool::ConstSharedPtr msg) {
+        motion_permission_=msg->data;motion_permission_seen_=now_steady();
+      });
+    degraded_sub_=create_subscription<std_msgs::msg::Bool>("/r680_nav/odom_degraded",1,
+      [this](std_msgs::msg::Bool::ConstSharedPtr msg) {
+        degraded_=msg->data;degraded_seen_=now_steady();
+      });
     require_mapping_odom_ = declare_parameter<bool>("require_mapping_odom", false);
     const auto rgb = declare_parameter<std::string>("rgb_topic", "/r680/d455/color/image_raw");
     const auto depth = declare_parameter<std::string>(
@@ -93,11 +104,18 @@ private:
       (!require_points_ || fresh(points_seen_, stamp)) &&
       (!require_chassis_odom_ || fresh(chassis_odom_seen_, stamp)) &&
       (!require_vo_watchdog_ || (vo_watchdog_healthy_ && fresh(vo_watchdog_seen_, stamp))) &&
-      (!require_vio_health_ || (vio_healthy_ && fresh(vio_seen_, stamp))) &&
+      (!require_vio_health_ || (vio_healthy_ && fresh(vio_seen_, stamp)) ||
+        (allow_bounded_degraded_ && require_motion_permission_ && degraded_ &&
+         fresh(degraded_seen_, stamp) && motion_permission_ && fresh(motion_permission_seen_, stamp))) &&
+      (!require_motion_permission_ || (motion_permission_ && fresh(motion_permission_seen_, stamp))) &&
       (!require_mapping_odom_ || (mapping_healthy_ && fresh(mapping_seen_, stamp)));
     ready_pub_->publish(ready);
   }
 
+  bool require_motion_permission_{false}, motion_permission_{false};
+  bool allow_bounded_degraded_{false}, degraded_{false};
+  Clock::time_point motion_permission_seen_{},degraded_seen_{};
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr motion_permission_sub_,degraded_sub_;
   double freshness_s_{0.5};
   bool require_points_{true};
   bool require_chassis_odom_{false};

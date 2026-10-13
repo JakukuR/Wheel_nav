@@ -187,7 +187,8 @@ def generate_launch_description():
             'frontend': odom_source,
             'vo_topic': PythonExpression(["'/d455_slam/odom' if '", odom_source, "' == 'cuvslam' else '/r680_nav/vo_odom'"]),
             'wheel_topic': chassis_odom_topic,
-            'frontend_health_topic': continuity_health_topic,
+            'frontend_health_topic': '/r680_nav/vio_tracking_healthy',
+            'continuity_health_topic': '/r680_nav/continuous_odom_healthy',
             'allow_bounded_degraded': ParameterValue(continuity_enabled, value_type=bool),
         }])
 
@@ -423,7 +424,10 @@ def generate_launch_description():
             'require_chassis_odom': ParameterValue(enable_motion, value_type=bool),
             'require_vo_watchdog': ParameterValue(PythonExpression(["'", mode, "' == 'localization' and '", odom_source, "' != 'openvins'"]), value_type=bool),
             'require_vio_health': ParameterValue(PythonExpression(["'", odom_source, "' in ('cuvslam', 'openvins')"]), value_type=bool),
-            'vio_health_topic': continuity_health_topic,
+            'vio_health_topic': PythonExpression(["'/openvins/tracking_healthy' if '", odom_source, "' == 'openvins' else '/r680_nav/vio_tracking_healthy'"]),
+            'allow_bounded_degraded': ParameterValue(continuity_enabled, value_type=bool),
+            'require_motion_permission': ParameterValue(PythonExpression(["'", odom_source, "' in ('cuvslam', 'openvins')"]), value_type=bool),
+            'motion_permission_topic': continuity_health_topic,
             'require_mapping_odom': ParameterValue(cuvslam_mapping, value_type=bool),
         }])
     guard = Node(
