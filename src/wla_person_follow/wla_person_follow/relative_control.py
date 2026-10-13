@@ -44,6 +44,9 @@ class RelativeFollower:
                 not 0 < max_linear <= .20 or not 0 < max_angular <= .45 or
                 not .50 <= emergency_distance < approach_distance <= follow_distance):
             raise ValueError('invalid_control_configuration')
+        self.target_label = 'person'
+        self.follow_mode = 'follow'
+        self.approach_mode = 'approach_interact'
         self.local_planner = local_planner
         self.require_estimate = require_estimate
         if not .20 <= lost_target_stop_distance <= approach_distance:
@@ -205,7 +208,7 @@ class RelativeFollower:
                 return False, 'no_matching_active_request'
             self.lease_until = now + lease_duration_s
             return True, 'lease_renewed'
-        if mode not in ('follow', 'approach_interact'):
+        if mode not in (self.follow_mode, self.approach_mode):
             return False, 'invalid_mode'
         if request_id in self.requests:
             if self.requests[request_id] is None:
@@ -222,7 +225,7 @@ class RelativeFollower:
             return False, 'detection_disabled'
         if now >= self.expires_at:
             return False, 'observations_stale'
-        if row is None or not row['detected'] or row['label'] != 'person':
+        if row is None or not row['detected'] or row['label'] != self.target_label:
             return False, 'person_id_not_visible'
         if row['yaw'] is None or row['distance'] is None:
             return False, 'person_geometry_unavailable'
@@ -253,7 +256,7 @@ class RelativeFollower:
         reason = ('detection_disabled' if not self.gate_enabled else
                   'observations_stale' if now >= self.expires_at else
                   'target_estimate_unavailable' if self.require_estimate and not tracked else
-                  'target_not_visible' if not tracked and (row is None or not row['detected'] or row['label'] != 'person') else
+                  'target_not_visible' if not tracked and (row is None or not row['detected'] or row['label'] != self.target_label) else
                   'target_geometry_unavailable' if not tracked and (row['yaw'] is None or row['distance'] is None) else
                   'depth_safety_unavailable' if safety is None or not safety.valid else
                   'emergency_obstacle' if safety.front_distance < self.emergency_distance else
@@ -268,9 +271,9 @@ class RelativeFollower:
             self.state, self.reason = 'waiting', 'target_too_close'
             self.arrival_count = 0
             return self._zero()
-        target_distance = self.follow_distance if self.mode == 'follow' else self.approach_distance
+        target_distance = self.follow_distance if self.mode == self.follow_mode else self.approach_distance
         arrived = distance <= target_distance+.10 and abs(yaw) <= .12
-        if self.mode == 'approach_interact':
+        if self.mode == self.approach_mode:
             if self.last_stamp != self.arrival_stamp:
                 self.arrival_count = self.arrival_count + 1 if arrived and not predicted else 0
                 self.arrival_stamp = self.last_stamp
@@ -314,7 +317,7 @@ class RelativeFollower:
             if not scene.command_clear(v, w):
                 w = 0.
         self.previous_v, self.previous_w = v, w
-        self.state = 'approaching' if self.mode == 'approach_interact' else 'following'
+        self.state = 'approaching' if self.mode == self.approach_mode else 'following'
         self.reason = (('target_prediction_align' if estimate.last_seen_distance <= self.lost_target_stop_distance+.10 else 'target_prediction_last_seen') if predicted else
                        self.local_planner.last.reason if self.local_planner is not None else
                        'obstacle_blocks_forward' if not safety.forward_clear and distance > target_distance+.10 else 'relative_control')

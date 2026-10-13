@@ -18,6 +18,7 @@ constexpr double pi=3.14159265358979323846;
 constexpr double inf=std::numeric_limits<double>::infinity();
 using FloatArray=py::array_t<float,py::array::c_style|py::array::forcecast>;
 using MaskArray=py::array_t<uint8_t,py::array::c_style|py::array::forcecast>;
+#include "object_close.hpp"
 struct Scene {
  int n=0; double resolution=.1,radius=.7;
  std::vector<uint8_t> observed,occupied,free;
@@ -151,6 +152,15 @@ struct Planner {
  }
 };
 PYBIND11_MODULE(_wla_follow_local,m) {
+ py::class_<ObjectCloseResult>(m,"ObjectCloseResult")
+  .def_readonly("v",&ObjectCloseResult::v).def_readonly("w",&ObjectCloseResult::w)
+  .def_readonly("gap",&ObjectCloseResult::gap).def_readonly("valid",&ObjectCloseResult::valid)
+  .def_readonly("arrived",&ObjectCloseResult::arrived).def_readonly("reason",&ObjectCloseResult::reason);
+ m.def("close_object",&close_object,py::arg("points"),py::arg("target_points"),py::arg("yaw"),
+       py::arg("front")=.24,py::arg("rear")=.24,py::arg("half_width")=.24,py::arg("desired_clearance")=.15,
+       py::arg("max_speed")=.20,py::arg("gain")=.8,py::arg("measured_v")=0.,py::arg("measured_w")=0.,
+       py::arg("reaction_s")=.7,py::arg("deceleration")=.3,py::arg("turn_limit")=.25);
+
  py::class_<TargetKalman>(m,"TargetKalman")
   .def(py::init<double,double>(),py::arg("horizon_s")=2.,py::arg("uncertainty_m")=.75)
   .def("reset",&TargetKalman::reset).def_readonly("stamp",&TargetKalman::stamp).def_readonly("reason",&TargetKalman::reason)

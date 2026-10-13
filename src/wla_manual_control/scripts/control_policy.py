@@ -3,6 +3,8 @@ import math
 
 
 class Policy:
+    STATUS_SCHEMA = 'wla-person-status/v1'
+    COMMAND_SCHEMA = 'wla-person-candidate/v1'
     PERSON_COMMAND_AGE = .15
     PERSON_STATUS_AGE = .20
 
@@ -27,6 +29,7 @@ class Policy:
         self.person_fault = False
         self.blocked_person_request_id = ''
         self.blocked_person_session = ''
+        self.object_channel = ObjectChannel(self)
 
     @staticmethod
     def zero(v):
@@ -49,8 +52,8 @@ class Policy:
         self.clear_person()
 
     def set_manual(self):
-        if self.mode == 'AUTO' and self.automatic_source == 'PERSON':
-            self.revoke_person()
+        if self.mode == 'AUTO' and self.automatic_source in ('PERSON','OBJECT'):
+            self.tracking_channel().revoke_person()
         self.mode = 'MANUAL'
 
     def manual_input(self, v, t):
@@ -124,7 +127,7 @@ class Policy:
 
     def person_status_input(self, message, t, now_ns):
         valid = (isinstance(message, dict)
-                 and message.get('schema') == 'wla-person-status/v1'
+                 and message.get('schema') == self.STATUS_SCHEMA
                  and self.valid_stamp(message, now_ns, self.PERSON_STATUS_AGE)
                  and isinstance(message.get('request_id'), str)
                  and isinstance(message.get('follow_session'), str) and bool(message['follow_session'])
@@ -166,7 +169,7 @@ class Policy:
     def person_input(self, message, t, now_ns):
         values = (message.get('linear'), message.get('angular')) if isinstance(message, dict) else ()
         valid = (isinstance(message, dict)
-                 and message.get('schema') == 'wla-person-candidate/v1'
+                 and message.get('schema') == self.COMMAND_SCHEMA
                  and self.valid_stamp(message, now_ns, self.PERSON_COMMAND_AGE)
                  and message.get('request_id') == self.person_request_id
                  and message.get('follow_session') == self.person_session
@@ -195,8 +198,24 @@ class Policy:
     def stopped(self, t):
         return t - self.wheel_at <= .2 and self.zero(self.wheel)
 
+    def tracking_channel(self):
+        return self.object_channel if self.automatic_source=='OBJECT' else self
+
+    def object_status_input(self,message,t,now_ns):
+        return self.object_channel.person_status_input(message,t,now_ns)
+
+    def object_input(self,message,t,now_ns):
+        return self.object_channel.person_input(message,t,now_ns)
+
     def set_person_source(self, enabled, t, now_ns):
-        source = 'PERSON' if enabled else 'NAV'
+        return self.set_tracking_source('PERSON' if enabled else 'NAV',t,now_ns)
+
+    def set_object_source(self, enabled, t, now_ns):
+        return self.set_tracking_source('OBJECT' if enabled else 'NAV',t,now_ns)
+
+    def set_tracking_source(self, source, t, now_ns):
+        if source not in ('NAV','PERSON','OBJECT'):return False,'invalid_automatic_source'
+
         if source == self.automatic_source:
             return True, 'automatic_source_already_' + source.lower()
         if self.estop_latched:
@@ -205,11 +224,11 @@ class Policy:
             return False, 'manual_takeover_active'
         if not self.stopped(t):
             return False, 'chassis_not_stopped'
-        if self.automatic_source == 'PERSON':
-            self.revoke_person()
+        if self.automatic_source in ('PERSON','OBJECT'):
+            self.tracking_channel().revoke_person()
         self.mode = 'MANUAL'; self.automatic_source = source
         self.source_generation += 1; self.source_after = t; self.source_ros_ns = now_ns
-        self.auto = (0., 0.); self.auto_at = -1e9; self.clear_person()
+        self.auto = (0., 0.); self.auto_at = -1e9; self.clear_person(); self.object_channel.clear_person()
         return True, 'automatic_source_' + source.lower() + '; MANUAL; explicit AUTO required'
 
     def set_auto(self, t, now_ns=0):
@@ -219,10 +238,11 @@ class Policy:
             return False, 'manual_takeover_active'
         if not self.stopped(t):
             return False, 'chassis_not_stopped'
-        if self.automatic_source == 'PERSON':
-            if (not self.person_ready(t) or t > self.person_until
-                    or self.person_at <= self.source_after or not self.zero(self.person)):
-                return False, 'person_not_fresh_enabled_and_stopped'
+        if self.automatic_source in ('PERSON','OBJECT'):
+            channel=self.tracking_channel()
+            if (not channel.person_ready(t) or t > channel.person_until
+                    or channel.person_at <= self.source_after or not self.zero(channel.person)):
+                return False, self.automatic_source.lower()+'_not_fresh_enabled_and_stopped'
         elif t - self.auto_at > .15 or self.auto_at <= self.source_after or not self.zero(self.auto):
             return False, 'navigation_not_fresh_and_stopped'
         self.mode = 'AUTO'; self.auto_after = t; self.auto_ros_ns = now_ns
@@ -237,15 +257,16 @@ class Policy:
         if not self.armed:
             self.clear_manual()
         if self.mode == 'AUTO':
-            if self.automatic_source == 'PERSON':
-                if t > self.person_status_until or self.person_fault:
+            if self.automatic_source in ('PERSON','OBJECT'):
+                channel=self.tracking_channel()
+                if t > channel.person_status_until or channel.person_fault:
                     self.set_manual(); return (0., 0.)
-                if not self.person_ready(t):
+                if not channel.person_ready(t):
                     return (0., 0.)
-                if (not self.person_motion_permitted or t > self.person_until
-                        or self.person_at <= self.auto_after or self.person_stamp_ns <= self.auto_ros_ns):
+                if (not channel.person_motion_permitted or t > channel.person_until
+                        or channel.person_at <= self.auto_after or channel.person_stamp_ns <= self.auto_ros_ns):
                     return (0., 0.)
-                v = self.person
+                v = channel.person
             else:
                 if t - self.auto_at > .15 or self.auto_at <= self.auto_after:
                     return (0., 0.)
@@ -256,3 +277,29 @@ class Policy:
             v = self.manual
         forward, reverse, turn = self.limits
         return (max(-reverse, min(forward, v[0])), max(-turn, min(turn, v[1])))
+
+
+class ObjectChannel:
+    """Reuse the exact leased-candidate validation, with independent state.
+
+    The internal person_* names retain the established tested validator API;
+    schemas, sessions, revocations and selected output are object-specific.
+    """
+    STATUS_SCHEMA='wla-object-status/v1'
+    COMMAND_SCHEMA='wla-object-candidate/v1'
+    PERSON_COMMAND_AGE=Policy.PERSON_COMMAND_AGE
+    PERSON_STATUS_AGE=Policy.PERSON_STATUS_AGE
+    valid_stamp=staticmethod(Policy.valid_stamp)
+    clear_person=Policy.clear_person
+    revoke_person=Policy.revoke_person
+    person_ready=Policy.person_ready
+    person_status_input=Policy.person_status_input
+    person_input=Policy.person_input
+
+    def __init__(self,owner):
+        self.owner=owner;self.person_revoke_generation=0
+        self.blocked_person_request_id='';self.blocked_person_session=''
+        self.clear_person()
+
+    @property
+    def source_ros_ns(self):return self.owner.source_ros_ns

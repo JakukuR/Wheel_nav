@@ -1,0 +1,18 @@
+object_follow:
+  ros__parameters:
+    enable_motion: false
+    object_clearance_m: 0.15
+    # Uses the existing collision-monitor envelope, not a measured chassis size.
+    footprint_front_m: 0.24
+    footprint_rear_m: 0.24
+    footprint_half_width_m: 0.24
+    # Maximum during approach; proportional taper may go below 0.05 and reaches zero.
+    close_max_linear_mps: 0.20
+    close_gain: 0.8
+    # Existing Nav config reports ~0.7 s response lag; braking value is unmeasured.
+    response_delay_s: 0.7
+    braking_deceleration_mps2: 0.3
+    max_linear_mps: 0.20
+    max_angular_rps: 0.45
+    obstacle_height_min_m: 0.01
+    obstacle_height_max_m: 0.50

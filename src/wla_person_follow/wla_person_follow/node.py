@@ -32,8 +32,14 @@ def stamp_ns(message):
 
 
 class PersonFollow(Node):
+    NODE_NAME = 'person_follow'
+    PREFIX = '/r680/person_follow'
+    SOURCE = 'PERSON'
+    COMMAND_TYPE = PersonCommand
+    EXTRA_DEFAULTS = {}
+
     def __init__(self):
-        super().__init__('person_follow')
+        super().__init__(self.NODE_NAME)
         defaults = dict(
             relative_topic='/r680/perception/relative_objects',
             detection_status_topic='/r680_nav/perception/status',
@@ -48,6 +54,7 @@ class PersonFollow(Node):
             target_prediction_horizon_s=2., target_prediction_max_std_m=.75,
             lost_target_stop_distance_m=.35,
             enable_motion=False)
+        defaults.update(self.EXTRA_DEFAULTS)
         self.p = {key: self.declare_parameter(key, value).value for key, value in defaults.items()}
         self.local_planner = LocalAvoidance()
         self.target_tracker = TargetTracker(self.p['target_prediction_horizon_s'], self.p['target_prediction_max_std_m'])
@@ -58,10 +65,7 @@ class PersonFollow(Node):
         self.camera_reference_position = None
         self.camera_reference_rotation = None
         self.scene = None
-        self.core = RelativeFollower(self.p['base_frame'], self.p['max_sensor_age_s'],
-            self.p['follow_distance_m'], self.p['approach_distance_m'],
-            self.p['max_linear_mps'], self.p['max_angular_rps'], self.p['emergency_distance_m'], self.local_planner, require_estimate=True,
-            lost_target_stop_distance=self.p['lost_target_stop_distance_m'])
+        self.core = self.make_core()
         if (not 0 < self.p['depth_min_m'] < self.p['depth_max_m'] <= 10 or
                 not 0 < self.p['obstacle_height_min_m'] < self.p['obstacle_height_max_m'] <= 1.5 or
                 not .30 <= self.p['obstacle_inflation_m'] <= .75 or
@@ -82,24 +86,33 @@ class PersonFollow(Node):
         self.retired_control_sessions = set()
         self.follow_session = uuid.uuid4().hex
         self.last_motion_permission = False
-        self.cmd_pub = self.create_publisher(Twist, '/r680/person_follow/cmd_vel_candidate', 1)
-        self.leased_pub = self.create_publisher(String, '/r680/person_follow/command_candidate', 1)
-        self.status_pub = self.create_publisher(String, '/r680/person_follow/status', 5)
-        self.path_pub = self.create_publisher(Path, '/r680/person_follow/local_path', 1)
-        self.grid_pub = self.create_publisher(OccupancyGrid, '/r680/person_follow/local_obstacles', 1)
+        self.cmd_pub = self.create_publisher(Twist, self.PREFIX + '/cmd_vel_candidate', 1)
+        self.leased_pub = self.create_publisher(String, self.PREFIX + '/command_candidate', 1)
+        self.status_pub = self.create_publisher(String, self.PREFIX + '/status', 5)
+        self.path_pub = self.create_publisher(Path, self.PREFIX + '/local_path', 1)
+        self.grid_pub = self.create_publisher(OccupancyGrid, self.PREFIX + '/local_obstacles', 1)
         self.create_subscription(String, self.p['relative_topic'], self.on_relative, 1)
         self.create_subscription(String, self.p['detection_status_topic'], self.on_detection_status, 1)
         self.create_subscription(Image, self.p['depth_topic'], self.on_depth, qos_profile_sensor_data)
         self.create_subscription(CameraInfo, self.p['camera_info_topic'], self.on_info, qos_profile_sensor_data)
         self.create_subscription(String, '/r680_base/control_state', self.on_control_state, 5)
         self.create_subscription(Odometry, '/wheel/odom', self.on_wheel_motion, qos_profile_sensor_data)
-        self.create_service(PersonCommand, '/r680/person_follow/command', self.on_command)
+        self.create_service(self.COMMAND_TYPE, self.PREFIX + '/command', self.on_command)
         self.worker = threading.Thread(target=self.depth_worker, name='relative-depth-safety', daemon=True)
         self.worker.start()
         self.create_timer(.05, self.tick)
         self.get_logger().info('Relative person service ready; waiting for explicit Agent command and detection. '
             + ('Motion candidates enabled; final mux authorization remains required.' if self.p['enable_motion']
                else 'Preview mode: leased motion candidates remain zero.'))
+
+    def make_core(self):
+        return RelativeFollower(self.p['base_frame'], self.p['max_sensor_age_s'],
+            self.p['follow_distance_m'], self.p['approach_distance_m'],
+            self.p['max_linear_mps'], self.p['max_angular_rps'], self.p['emergency_distance_m'], self.local_planner, require_estimate=True,
+            lost_target_stop_distance=self.p['lost_target_stop_distance_m'])
+
+    def on_projected_depth(self, message, info, depth, rotation, translation, points):
+        pass
 
     def ros_ns(self):
         return self.get_clock().now().nanoseconds
@@ -148,10 +161,10 @@ class PersonFollow(Node):
             if not isinstance(data, dict):
                 return
             session = data.get('control_session')
-            if (data.get('automatic_source') not in ('NAV', 'PERSON') or
+            if (data.get('automatic_source') not in ('NAV', 'PERSON', 'OBJECT') or
                     type(data.get('source_generation')) is not int or
-                    type(data.get('person_revoke_generation')) is not int or
-                    data['source_generation'] < 0 or data['person_revoke_generation'] < 0 or
+                    type(data.get(self.SOURCE.lower() + '_revoke_generation')) is not int or
+                    data['source_generation'] < 0 or data[self.SOURCE.lower() + '_revoke_generation'] < 0 or
                     not isinstance(session, str) or not 1 <= len(session) <= 128 or
                     data.get('mode') not in ('AUTO', 'MANUAL')):
                 return
@@ -167,17 +180,17 @@ class PersonFollow(Node):
                 same_session = session == previous.get('control_session')
                 if previous and same_session and (source_stamp <= previous['stamp_ns'] or
                     data['source_generation'] < previous['source_generation'] or
-                    data['person_revoke_generation'] < previous['person_revoke_generation']):
+                    data[self.SOURCE.lower() + '_revoke_generation'] < previous[self.SOURCE.lower() + '_revoke_generation']):
                     return
                 if previous and not same_session:
                     if len(self.retired_control_sessions) >= 1024:
                         return
                     self.retired_control_sessions.add(previous['control_session'])
                 revoked = bool(previous) and (
-                    not same_session and previous['automatic_source'] == 'PERSON' or
-                    same_session and data['person_revoke_generation'] != previous['person_revoke_generation'] or
-                    previous['automatic_source'] == 'PERSON' and data['automatic_source'] != 'PERSON' or
-                    previous['automatic_source'] == 'PERSON' and previous['mode'] == 'AUTO' and data['mode'] != 'AUTO')
+                    not same_session and previous['automatic_source'] == self.SOURCE or
+                    same_session and data[self.SOURCE.lower() + '_revoke_generation'] != previous[self.SOURCE.lower() + '_revoke_generation'] or
+                    previous['automatic_source'] == self.SOURCE and data['automatic_source'] != self.SOURCE or
+                    previous['automatic_source'] == self.SOURCE and previous['mode'] == 'AUTO' and data['mode'] != 'AUTO')
                 self.control_state, self.control_seen = data, time.monotonic()
                 self.control_until = self.control_seen + max(0., .50-max(0., source_age))
                 if revoked and self.core.active:
@@ -258,6 +271,7 @@ class PersonFollow(Node):
                 points = points_to_base(depth, (info.k[0],info.k[4],info.k[2],info.k[5]),
                     rotation, translation, minimum=self.p['depth_min_m'], maximum=self.p['depth_max_m'],
                     height_min=-3., height_max=3., stride=2)
+                self.on_projected_depth(message,info,depth,rotation,translation,points)
                 scene = scene_from_points(points, translation[:2],
                     radius=max(self.p['obstacle_inflation_m'], self.p['emergency_distance_m']+.10),
                     height_min=self.p['obstacle_height_min_m'], height_max=self.p['obstacle_height_max_m'])
@@ -304,7 +318,7 @@ class PersonFollow(Node):
         if key!=tracker.key:tracker.reset(key)
         row=core.objects.get(core.target_id)
         if core.last_stamp!=tracker.frame_stamp:
-            if row is not None and row['detected'] and row['label']=='person' and row['yaw'] is not None:
+            if row is not None and row['detected'] and row['label']==core.target_label and row['yaw'] is not None:
                 pose=self.local_motion.pose_at(core.last_stamp/1e9)
                 if pose is not None:
                     tracker.update(core.last_stamp/1e9,row['yaw'],row['distance'],pose)
@@ -319,7 +333,7 @@ class PersonFollow(Node):
     def motion_permitted(self, now):
         return bool(self.p['enable_motion'] and now < self.control_until and
                     -.05 <= (self.ros_ns()-self.control_state.get('stamp_ns',0))/1e9 <= .50 and
-                    self.control_state.get('automatic_source') == 'PERSON' and
+                    self.control_state.get('automatic_source') == self.SOURCE and
                     self.control_state.get('mode') == 'AUTO')
 
     def tick(self):
@@ -367,7 +381,7 @@ class PersonFollow(Node):
             target_filter_reason=self.target_tracker.filter.reason,
             last_seen_yaw=self.target_estimate.last_seen_yaw if self.target_estimate else None,
             last_seen_distance=self.target_estimate.last_seen_distance if self.target_estimate else None)
-        state.update(schema='wla-person-status/v1', stamp_ns=ros_now,
+        state.update(schema='wla-' + self.SOURCE.lower() + '-status/v1', stamp_ns=ros_now,
             follow_session=self.follow_session,
             base_frame=self.p['base_frame'], candidate_only=not self.p['enable_motion'],
             motion_permitted=permitted and state['enabled'],
@@ -392,7 +406,7 @@ class PersonFollow(Node):
         self.cmd_pub.publish(preview)
         # The final mux independently checks source, mode, task, source age and limits.
         actual = (linear, angular) if permitted and state['enabled'] else (0., 0.)
-        self.leased_pub.publish(String(data=json.dumps(dict(schema='wla-person-candidate/v1',
+        self.leased_pub.publish(String(data=json.dumps(dict(schema='wla-' + self.SOURCE.lower() + '-candidate/v1',
             follow_session=self.follow_session,
             request_id=state['request_id'], stamp_ns=ros_now,
             linear=float(actual[0]), angular=float(actual[1])), allow_nan=False)))

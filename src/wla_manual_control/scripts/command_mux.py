@@ -26,10 +26,13 @@ class Mux(Node):
         self.create_subscription(Twist, '/r680_nav/chassis_cmd_vel', self.auto, 1)
         self.create_subscription(String, '/r680/person_follow/command_candidate', self.person, 1)
         self.create_subscription(String, '/r680/person_follow/status', self.person_status, 1)
+        self.create_subscription(String, '/r680/object_follow/command_candidate', self.object, 1)
+        self.create_subscription(String, '/r680/object_follow/status', self.object_status, 1)
         self.create_subscription(String, '/gamepad_status', self.status, 10)
         self.create_subscription(Odometry, '/wheel/odom', self.wheel, qos_profile_sensor_data)
         self.create_service(SetBool, '/r680_base/set_automatic', self.mode)
         self.create_service(SetBool, '/r680_base/set_person_source', self.source)
+        self.create_service(SetBool, '/r680_base/set_object_source', self.object_source)
         self.create_service(SetBool, '/r680_base/set_estop', self.estop)
         self.cancel = [self.create_client(CancelGoal, '/' + action + '/_action/cancel_goal')
                        for action in ('navigate_to_pose', 'navigate_through_poses')]
@@ -64,6 +67,19 @@ class Mux(Node):
 
     def person_status(self, msg):
         self.p.person_status_input(self.decode(msg), time.monotonic(), self.get_clock().now().nanoseconds)
+
+    def object(self,msg):
+        self.p.object_input(self.decode(msg),time.monotonic(),self.get_clock().now().nanoseconds)
+
+    def object_status(self,msg):
+        self.p.object_status_input(self.decode(msg),time.monotonic(),self.get_clock().now().nanoseconds)
+
+    def object_source(self,req,res):
+        previous=self.p.automatic_source
+        res.success,res.message=self.p.set_object_source(req.data,time.monotonic(),self.get_clock().now().nanoseconds)
+        if res.success and previous!=self.p.automatic_source:
+            self.cancel_navigation();self.last_report=0.
+        return res
 
     def status(self, msg):
         previous = self.p.mode
@@ -121,6 +137,10 @@ class Mux(Node):
                 'automatic_source': self.p.automatic_source,
                 'source_generation': self.p.source_generation,
                 'person_revoke_generation': self.p.person_revoke_generation,
+                'object_revoke_generation': self.p.object_channel.person_revoke_generation,
+                'object_request_id': self.p.object_channel.person_request_id,
+                'object_follow_session': self.p.object_channel.person_session,
+                'object_fresh': self.p.object_channel.person_ready(now) and now <= self.p.object_channel.person_until,
                 'person_request_id': self.p.person_request_id,
                 'follow_session': self.p.person_session,
                 'gamepad': self.p.status, 'linear': v, 'angular': w,
