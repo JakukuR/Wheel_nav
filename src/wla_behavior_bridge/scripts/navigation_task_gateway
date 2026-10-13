@@ -165,6 +165,111 @@ class Gateway(Node):
                     return pose
         raise ValueError('NO_VALID_APPROACH_POSE')
 
+    def target_for(self, feature_id):
+        if feature_id.startswith('nearby-explore:'):
+            from wla_sim.behavior_bridge.nearby_exploration import load_policy, virtual_target
+            return virtual_target(self.map, load_policy(self.policy), feature_id)
+        return self.map.resolve(feature_id=feature_id)
+
+    def nearby_robot_xy(self):
+        transform = self.tf.lookup_transform('map', 'r680_mapping_floor', rclpy.time.Time())
+        age = (self.get_clock().now().nanoseconds -
+               (transform.header.stamp.sec * 10**9 + transform.header.stamp.nanosec)) / 1e9
+        if not 0 <= age <= .5:
+            raise ValueError('robot_tf_stale')
+        tr = transform.transform.translation
+        return finite(tr.x), finite(tr.y)
+
+    async def nearby_approach(self, target):
+        from wla_sim.behavior_bridge.nearby_exploration import load_policy, candidates, path_clear
+        policy = load_policy(self.policy)
+        if (self.core.active or not self.core.healthy() or not self.core.stopped()
+                or self.grid is None or time.monotonic() - self.grid_at > 2.
+                or not self.planner.server_is_ready()):
+            raise ValueError('nearby_navigation_not_ready')
+        # One fixed anchor per selected action. No moving-centre random walk.
+        anchor = self.nearby_robot_xy()
+        self.nearby_paths = {}
+        self.resolved = {k: v for k, v in self.resolved.items() if not k.startswith('nearby-explore:')}
+        choices = candidates(self.grid, anchor, policy)
+        if not choices:
+            raise ValueError('NO_SAFE_CONNECTED_NEARBY_REGION')
+        deadline = time.monotonic() + 9.0  # BT resolver has a 12s deadline.
+        for pose in choices[:policy.max_plans]:
+            if time.monotonic() >= deadline:
+                break
+            completed = Future()
+            job = {'future': completed, 'handle': None, 'deadline': min(deadline, time.monotonic() + 2.)}
+            self.plan_waits.append(job)
+            goal = ComputePathToPose.Goal()
+            goal.goal = self.pose_message(pose)
+            goal.planner_id = 'GridBased'; goal.use_start = False
+
+            def result_done(f, j=job):
+                if j['future'].done(): return
+                try:
+                    wrapped = f.result()
+                    path = wrapped.result.path
+                    if (wrapped.status != GoalStatus.STATUS_SUCCEEDED or path.header.frame_id != 'map'
+                            or not 2 <= len(path.poses) <= 4096
+                            or any(p.header.frame_id not in ('', 'map') for p in path.poses)):
+                        raise ValueError('invalid_nearby_path')
+                    points = [(p.pose.position.x, p.pose.position.y) for p in path.poses]
+                    j['future'].set_result(points)
+                except Exception:
+                    j['future'].set_result(False)
+
+            def accepted(f, j=job):
+                try:
+                    handle = f.result(); j['handle'] = handle
+                    if not handle.accepted:
+                        if not j['future'].done(): j['future'].set_result(False)
+                    elif j['future'].done(): self.request_cancel(handle)
+                    else: handle.get_result_async().add_done_callback(lambda f: result_done(f, j))
+                except Exception:
+                    if not j['future'].done(): j['future'].set_result(False)
+
+            try:
+                self.planner.send_goal_async(goal).add_done_callback(accepted)
+            except Exception:
+                completed.set_result(False)
+            points = await completed
+            if (self.map is None or self.target_for(target.feature_id).fingerprint != target.fingerprint
+                    or not self.core.healthy() or not self.core.stopped()
+                    or math.dist(self.nearby_robot_xy(), anchor) > .20):
+                raise ValueError('nearby_context_changed')
+            if (points and self.grid is not None and time.monotonic() - self.grid_at <= 2.
+                    and path_clear(self.grid, points, anchor, pose, policy)):
+                self.nearby_paths[target.feature_id] = (target.fingerprint, anchor, points)
+                self.resolved[target.feature_id] = (target.fingerprint, pose, time.monotonic())
+                self.get_logger().info(f'Nearby explore goal: x={pose.x:.3f} y={pose.y:.3f}; anchor={anchor}')
+                return pose
+        raise ValueError('NEARBY_PLANNER_EXHAUSTED_OR_UNAVAILABLE')
+
+    def nearby_dispatch_clear(self, request):
+        from wla_sim.behavior_bridge.nearby_exploration import load_policy, path_clear
+        data = getattr(self, 'nearby_paths', {}).get(request.feature_id)
+        cached = self.resolved.get(request.feature_id)
+        return bool(data and cached and data[0] == request.target_fingerprint == cached[0]
+                    and cached[1] == request.pose and time.monotonic() - cached[2] <= 2.
+                    and self.grid is not None and time.monotonic() - self.grid_at <= 2.
+                    and math.dist(self.nearby_robot_xy(), data[1]) <= .20
+                    and path_clear(self.grid, data[2], data[1], request.pose, load_policy(self.policy)))
+
+    def nearby_running_valid(self, request):
+        from wla_sim.behavior_bridge.nearby_exploration import load_policy
+        data = getattr(self, 'nearby_paths', {}).get(request.feature_id)
+        try:
+            policy = load_policy(self.policy)
+            return bool(data and data[0] == request.target_fingerprint
+                        and self.map and self.target_for(request.feature_id).fingerprint == request.target_fingerprint
+                        and self.grid is not None and time.monotonic() - self.grid_at <= 2.
+                        and math.dist(self.nearby_robot_xy(), data[1]) <= policy.max_distance_m
+                        and self.grid.footprint_clear(request.pose, policy.clearance))
+        except Exception:
+            return False
+
+
     def odom(self, msg):
         try:
             stamp = msg.header.stamp.sec * 10**9 + msg.header.stamp.nanosec
@@ -254,15 +359,17 @@ class Gateway(Node):
         try:
             if self.map is None or req.map_id != self.map.map_id:
                 raise ValueError('map_unavailable_or_mismatch')
-            target = self.map.resolve(feature_id=req.feature_id, label=req.label, room=req.room)
+            target = (self.target_for(req.feature_id) if req.feature_id.startswith('nearby-explore:')
+                      else self.map.resolve(feature_id=req.feature_id, label=req.label, room=req.room))
             if self.policy.get('map_revision') != target.map_revision:
                 raise ValueError('policy_map_mismatch')
-            if target.feature_id in self.policy.get('targets', {}):
+            if target.feature_id.startswith('nearby-explore:'):
+                pose = await self.nearby_approach(target)
+            elif target.feature_id in self.policy.get('targets', {}):
                 pose = await self.dynamic_approach(target, reviewed_approach(target, self.policy))
             else:
                 pose = await self.dynamic_approach(target)
-            if (self.map is None or target.feature_id not in self.map.targets
-                    or self.map.targets[target.feature_id].fingerprint != target.fingerprint):
+            if (self.map is None or self.target_for(target.feature_id).fingerprint != target.fingerprint):
                 raise ValueError('target_changed_during_resolution')
             res.success = True
             res.feature_id = target.feature_id; res.semantic_id = target.semantic_id
@@ -282,16 +389,26 @@ class Gateway(Node):
     def binding(self, g):
         if self.map is None or g.map_id != self.map.map_id:
             raise ValueError('map_mismatch')
-        t = self.map.resolve(feature_id=g.feature_id)
+        t = self.target_for(g.feature_id)
         if self.policy.get('map_revision') != t.map_revision:
             raise ValueError('policy_map_mismatch')
         if t.map_revision != g.map_revision or t.fingerprint != g.target_fingerprint:
             raise ValueError('target_binding_changed')
         fields = ('owner', 'action_id', 'package_version', 'phase', 'target_key', 'feature_id')
-        if not any(all(row.get(k) == getattr(g, k) for k in fields)
-                   for row in self.policy.get('routes', [])):
+        nearby = g.feature_id.startswith('nearby-explore:')
+        if nearby:
+            from wla_sim.behavior_bridge.nearby_exploration import load_policy, PHASE
+            config = load_policy(self.policy)
+            allowed = (config is not None and g.owner == config.owner and g.action_id == 'explore'
+                       and g.package_version == 'builtin-1' and g.phase == PHASE and bool(g.target_key))
+        else:
+            allowed = any(all(row.get(k) == getattr(g, k) for k in fields)
+                          for row in self.policy.get('routes', []))
+        if not allowed:
             raise ValueError('route_not_installed')
-        if t.feature_id in self.policy.get('targets', {}):
+        if nearby:
+            radius, pose = config.clearance, None
+        elif t.feature_id in self.policy.get('targets', {}):
             pose = reviewed_approach(t, self.policy)
             radius = finite(self.policy.get('goal_safety', {}).get('robot_radius_m', 0))
         else:
@@ -307,6 +424,8 @@ class Gateway(Node):
         return t, pose
 
     def dispatch_clear(self, request):
+        if request.feature_id.startswith('nearby-explore:'):
+            return self.nearby_dispatch_clear(request)
         section = ('goal_safety' if request.feature_id in self.policy.get('targets', {})
                    else 'dynamic_approach')
         radius = finite(self.policy.get(section, {}).get('robot_radius_m', 0))
@@ -328,7 +447,8 @@ class Gateway(Node):
                 raise ValueError('navigation_busy_or_unavailable')
             t, pose = self.binding(g)
             self.core.submit(TaskRequest(g.request_id, g.instance_id, g.generation, g.owner,
-                g.map_revision, g.feature_id, g.target_fingerprint, pose))
+                g.map_revision, g.feature_id, g.target_fingerprint, pose,
+                timeout_s=60. if g.feature_id.startswith('nearby-explore:') else 120.))
             return GoalResponse.ACCEPT
         except Exception as exc:
             self.get_logger().warning('Task rejected: ' + str(exc))
@@ -394,6 +514,8 @@ class Gateway(Node):
             valid = bool(self.map and self.map.map_revision == q.map_revision
                          and q.feature_id in self.map.targets
                          and self.map.targets[q.feature_id].fingerprint == q.target_fingerprint)
+            if q.feature_id.startswith('nearby-explore:'):
+                valid = self.nearby_running_valid(q)
             if not (lease and lease[0] == (q.request_id, q.owner, q.generation)
                     and lease[2] and time.monotonic() - lease[1] <= .5):
                 self.core.cancel(q.request_id, q.owner, 'executor_lease_expired')
@@ -407,7 +529,7 @@ class Gateway(Node):
                     continue
                 try:
                     clear = self.dispatch_clear(record['request'])
-                except (ValueError, KeyError):
+                except Exception:
                     clear = False
                 if not clear:
                     self.core.result(token, 'failed', 'approach_blocked_before_dispatch')
