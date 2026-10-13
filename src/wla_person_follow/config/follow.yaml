@@ -18,4 +18,7 @@ person_follow:
     depth_max_m: 5.0
     camera_min_valid_fraction: 0.25
     camera_front_min_valid_fraction: 0.35
+    target_prediction_horizon_s: 2.0
+    target_prediction_max_std_m: 0.75
+    lost_target_stop_distance_m: 0.35
     enable_motion: false

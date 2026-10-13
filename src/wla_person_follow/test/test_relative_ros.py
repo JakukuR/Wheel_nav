@@ -99,8 +99,15 @@ class RelativeRosTests(unittest.TestCase):
             self.assertTrue(all(c['linear']==c['angular']==0. for c in candidates))
             self.assertEqual(fixture.count_publishers('/r680_base/cmd_vel'),0)
             self.assertEqual(fixture.count_publishers('/r680_nav/chassis_cmd_vel'),0)
-            pump(.5,publish=True)
-            self.assertTrue(follower.safety.valid,follower.safety_reason)
+            # DDS discovery and first timestamp-aligned wheel/depth pair have
+            # no fixed 500 ms startup guarantee. Wait on the actual readiness
+            # condition with a bounded deadline, retaining failure diagnostics.
+            ready_until=time.monotonic()+2.
+            while time.monotonic()<ready_until:
+                pump(.1,publish=True)
+                if follower.safety.valid and follower.scene is not None:break
+            self.assertTrue(follower.safety.valid,json.dumps(dict(reason=follower.safety_reason,
+                statuses=statuses[-3:],motion=list(follower.local_motion.samples)[-3:]),default=str))
             self.assertTrue(client.wait_for_service(timeout_sec=1.))
             result=command('start','follow-test','follow','ros-test:0:7')
             self.assertTrue(result.accepted,result.reason)
@@ -116,6 +123,13 @@ class RelativeRosTests(unittest.TestCase):
             self.assertEqual((statuses[-1]['linear_mps'],statuses[-1]['angular_rps']),(0.,0.))
             pump(.15,publish=True)
             self.assertTrue(statuses[-1]['local_motion_fresh'])
+            self.assertTrue(command('heartbeat','follow-test').accepted)
+            pump(.12,publish=True,identifier=8)
+            self.assertEqual(statuses[-1]['target_tracking'],'predicted')
+            self.assertEqual(statuses[-1]['reason'],'target_prediction_last_seen')
+            self.assertEqual(follower.core.target_id,'ros-test:0:7')
+            pump(.12,publish=True)
+            self.assertEqual(statuses[-1]['target_tracking'],'measured')
             self.assertTrue(command('heartbeat','follow-test').accepted)
             cancelled=command('stop','late-start')
             self.assertTrue(cancelled.accepted)

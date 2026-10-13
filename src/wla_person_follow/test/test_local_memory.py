@@ -58,3 +58,21 @@ def test_new_obstacle_between_keyframes_is_retained_and_blocks_old_free():
     assert not current.clear(1.,0.)
     later=memory.apply(scene_from_points([]),(0.,0.,0.),10.2,0)
     assert later.occupied[later.cell(1.,0.)]
+
+
+def test_control_time_reprojection_does_not_move_obstacle_with_robot():
+    memory=LocalMemory();raw=scene_from_points([[1.,0.,.2]])
+    memory.apply(raw,(0.,0.,0.),10.,0)
+    moved=memory.project((.2,0.,math.pi/2),10.1,0)
+    assert moved.occupied[moved.cell(0.,-.8)]
+    assert not moved.occupied[moved.cell(1.,0.)]
+    assert memory.project((.4,0.,0.),12.1,0) is None
+    assert memory.project((0.,0.,0.),10.1,1) is None
+
+def test_control_projection_keeps_latest_non_keyframe_free_observation():
+    memory=LocalMemory();memory.apply(scene_from_points([]),(0.,0.,0.),10.,0)
+    latest=scene_from_points([[2.,0.,0.]])
+    memory.apply(latest,(0.,0.,0.),10.1,0)
+    projected=memory.project((.1,0.,0.),10.15,0)
+    assert projected.observed[projected.cell(1.9,0.)]
+    assert memory.project((.1,0.,0.),12.2,0) is None

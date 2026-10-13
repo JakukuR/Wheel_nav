@@ -11,6 +11,7 @@
 #include <queue>
 #include <stdexcept>
 #include <vector>
+#include "target_kalman.hpp"
 namespace py = pybind11;
 using Point = std::pair<double,double>;
 constexpr double pi=3.14159265358979323846;
@@ -101,7 +102,7 @@ struct Plan {std::vector<Point> path;std::string reason="waiting_for_local_scene
 struct Planner {
  int side=0;Plan last;
  void reset(){side=0;last=Plan();}
- Plan plan(const Scene& s,double yaw,double distance,double stand_off) {
+ Plan plan(const Scene& s,double yaw,double distance,double stand_off,bool target_is_person=true) {
   if(!std::isfinite(yaw)||!std::isfinite(distance)||!std::isfinite(stand_off)||distance<=0||stand_off<=0||!s.clear(0,0))return last={{},"footprint_blocked_or_unobserved",side};
   double hx=std::cos(yaw),hy=std::sin(yaw),tx=hx*distance,ty=hy*distance;
   double travel=std::max(0.,distance-stand_off),reach=std::min(travel,s.center()*s.resolution-s.radius-.2);
@@ -124,7 +125,7 @@ struct Planner {
    for(int dy=-1;dy<=1;dy++)for(int dx=-1;dx<=1;dx++) {
     int oy=iy+dy,ox=ix+dx;if((dx==0&&dy==0)||oy<0||ox<0||oy>=s.n||ox>=s.n)continue;
     int other=oy*s.n+ox;if(!s.free[other]||(dy&&dx&&(!s.free[(iy+dy)*s.n+ix]||!s.free[iy*s.n+ix+dx])))continue;
-    auto [px,py]=s.point({oy,ox});if(std::hypot(px-tx,py-ty)<s.radius+.30)continue;
+    auto [px,py]=s.point({oy,ox});if(target_is_person&&std::hypot(px-tx,py-ty)<s.radius+.30)continue;
     double lateral=py*hx-px*hy,penalty=side&&lateral*side<-.10?.2:0.;
     double candidate=cost+s.resolution*std::hypot(dy,dx)*(1+penalty);
     if(candidate<costs[other]){costs[other]=candidate;parents[other]=cell;queue.push({candidate,other});}
@@ -138,9 +139,9 @@ struct Planner {
   if(std::abs(peak)>.10)side=peak>0?1:-1;
   return last={path,"local_detour",side};
  }
- Point command(const Scene& s,double yaw,double distance,double stand_off,double max_v,double max_w) {
+ Point command(const Scene& s,double yaw,double distance,double stand_off,double max_v,double max_w,bool target_is_person=true) {
   if(!(max_v>0&&max_v<=.2&&max_w>0&&max_w<=.45))throw std::invalid_argument("invalid_control_limits");
-  auto p=plan(s,yaw,distance,stand_off);if(p.path.empty())return {0,0};
+  auto p=plan(s,yaw,distance,stand_off,target_is_person);if(p.path.empty())return {0,0};
   if(p.path.size()==1)return {0,std::abs(yaw)>.08?std::clamp(1.2*yaw,-max_w,max_w):0};
   Point carrot=p.path[1];for(size_t i=1;i<p.path.size();i++){carrot=p.path[i];if(std::hypot(carrot.first,carrot.second)>=.45)break;}
   double angle=std::atan2(carrot.second,carrot.first),w=std::clamp(1.4*angle,-max_w,max_w);
@@ -150,6 +151,11 @@ struct Planner {
  }
 };
 PYBIND11_MODULE(_wla_follow_local,m) {
+ py::class_<TargetKalman>(m,"TargetKalman")
+  .def(py::init<double,double>(),py::arg("horizon_s")=2.,py::arg("uncertainty_m")=.75)
+  .def("reset",&TargetKalman::reset).def_readonly("stamp",&TargetKalman::stamp).def_readonly("reason",&TargetKalman::reason)
+  .def("update",&TargetKalman::update,py::call_guard<py::gil_scoped_release>())
+  .def("estimate",&TargetKalman::estimate,py::call_guard<py::gil_scoped_release>());
  py::class_<Scene>(m,"LocalScene")
   .def_property_readonly("observed",[](const Scene&s){return s.mask(s.observed);})
   .def_property_readonly("occupied",[](const Scene&s){return s.mask(s.occupied);})
@@ -161,8 +167,8 @@ PYBIND11_MODULE(_wla_follow_local,m) {
  py::class_<Plan>(m,"LocalPlan").def_readonly("path",&Plan::path).def_readonly("reason",&Plan::reason).def_readonly("side",&Plan::side);
  py::class_<Planner>(m,"LocalAvoidance").def(py::init<>()).def("reset",&Planner::reset)
   .def_readonly("side",&Planner::side).def_readonly("last",&Planner::last)
-  .def("plan",&Planner::plan,py::call_guard<py::gil_scoped_release>())
-  .def("command",&Planner::command,py::call_guard<py::gil_scoped_release>());
+  .def("plan",&Planner::plan,py::arg("scene"),py::arg("yaw"),py::arg("distance"),py::arg("stand_off"),py::arg("target_is_person")=true,py::call_guard<py::gil_scoped_release>())
+  .def("command",&Planner::command,py::arg("scene"),py::arg("yaw"),py::arg("distance"),py::arg("stand_off"),py::arg("max_v"),py::arg("max_w"),py::arg("target_is_person")=true,py::call_guard<py::gil_scoped_release>());
  m.def("scene_from_points",&scene_from_points,py::arg("points"),py::arg("origin")=Point{0,0},py::kw_only(),py::arg("resolution")=.10,py::arg("extent")=3.,py::arg("radius")=.70,py::arg("height_min")=.01,py::arg("height_max")=.50);
  m.def("inflate_scene",&inflate_scene,py::arg("observed"),py::arg("occupied"),py::arg("resolution"),py::arg("radius"));
 }

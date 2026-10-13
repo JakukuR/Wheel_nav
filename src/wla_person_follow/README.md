@@ -39,7 +39,7 @@
 
 `follow` 默认保持 1.40 m；偏角大时只转向；距离过近不倒车。`approach_interact` 默认靠近到 0.95 m，加 0.10 m 到达容差；至少三个不同源帧满足距离且绝对 yaw≤0.12 rad 后进入 `arrived`，锁存停止，后续人走开不会自动追赶。
 
-空检测、目标丢失、源证据过期、无效距离、深度不可用均立即零候选；不会沿预测目标继续走。同一 detector session/epoch、同一 ID 恢复且执行租约仍有效时可以继续。检测只读健康状态不可用或 detector 代际变化会取消任务，恢复后必须重新 start。NAV 检测进程有新鲜图像就持续推理，不提供 Agent 检测启停服务；本包仅消费 `/r680_nav/perception/status`，人物 stop 不会停止 YOLO。
+源证据过期、深度不可用等仍输出零候选。新鲜检测批次中短时缺少指定目标时，允许下述有界 Kalman 丢失恢复；不把预测点当成新观测。同一 detector session/epoch、同一 ID 恢复且执行租约仍有效时可以继续。检测只读健康状态不可用或 detector 代际变化会取消任务，恢复后必须重新 start。NAV 检测进程有新鲜图像就持续推理，不提供 Agent 检测启停服务；本包仅消费 `/r680_nav/perception/status`，人物 stop 不会停止 YOLO。
 
 ## 深度安全与运动权限
 
@@ -68,8 +68,37 @@
 
 诊断输出 `/r680/person_follow/local_path`（Path）和 `/r680/person_follow/local_obstacles`（OccupancyGrid）均为机器人坐标；后者显示原始占据，控制器内部另外膨胀。status 包含规划原因、绕行侧、轮速新鲜度、记忆时间及实际规划净空。20 Hz 是控制定时器配置，不等于实测整链路帧率。
 
-验证：核心/几何/记忆/隔离 ROS 用例以及闭环运动学场景。宽视野场景能绕开箱体；86 度全视野场景出现目标出视野并立即停车，这是功能边界，不算完整绕障成功。未进行真实相机低障碍精度、侧后盲区、底盘制动或动态人物实车验收；默认 enable_motion=false。
+验证：核心/几何/记忆/隔离 ROS 用例以及闭环运动学场景。不使用预测的基线宽视野场景能绕开箱体；86 度全视野场景出现目标出视野并停车。新增 Kalman 层另有机体运动补偿和隔离 ROS 漏检测试；不将这两组测试拼接声称真实相机已完成全程绕障。未进行真实相机低障碍精度、侧后盲区、底盘制动或动态人物实车验收；默认 enable_motion=false。
 
 测试命令（隔离域 198，无底盘）：`RUN_RELATIVE_ROS=1 ROS_DOMAIN_ID=198 python3 -m pytest -q src/wla_person_follow/test/test_relative_control.py src/wla_person_follow/test/test_relative_geometry.py src/wla_person_follow/test/test_local_avoidance.py src/wla_person_follow/test/test_local_memory.py src/wla_person_follow/test/test_local_closed_loop.py src/wla_person_follow/test/test_relative_ros.py`。
 
 车端 Release 构建与安装包验证：58 项测试通过，覆盖原相对控制、几何、C++ 局部规划、轮速短时记忆、闭环场景、隔离 ROS。未启用实车运动。
+
+
+## C++ Kalman 与短时丢失恢复
+
+`wla_follow_local/src/target_kalman.hpp` 实现局部平面匀速状态 [x,y,vx,vy]，Eigen 固定尺寸矩阵预测/更新，Joseph 协方差更新；Python `target_tracking.py` 只负责身份与机体坐标适配。检测采集时刻的轮速局部位姿将相对观测转换到短时运动参考，输出再转换回当前机器人坐标。不是 map 坐标，也不依赖外部 VIO。
+
+默认 `target_prediction_horizon_s=2.0`（可调为 1.0，最大 2.0）；从最后一次被滤波器接受的观测起算，空检测、预测、拒绝的异常值不会续期。位置最大轴标准差门限 `target_prediction_max_std_m=0.75`；协方差先超限时会提前停止，2 秒是上限而非固定放行时间。当前测量噪声标准差 0.08 m、加速度过程噪声模型 1 m/s²、二维创新门限 9.21、目标速度上限 3 m/s，均为待实测标定的模型假设。
+
+行为顺序：
+
+1. 人可见且测量有效：跟踪滤波位置，按 follow / approach_interact 正常执行。
+2. 新鲜检测帧缺少原目标或测量被创新门拒绝：平移目标固定为最后一次可靠观测位置，绝不逐帧前移到外推位置；用现有局部绕障到达该位置附近。默认 `lost_target_stop_distance_m=0.35`，另有 0.10 m 到达容差；感知中的障碍仍保留，可能阻止到达。
+3. 行进朝向遵循绕障路径；到达最后可见位置附近后，朝向滤波器预测的目标方位角。该 yaw 是相对机器人的视线方位，不是人体朝向或行走速度方向。
+4. 同一完整 ID 重现时恢复普通跟随；仅预测的帧不能完成 approach_interact 的到达确认。预测超时或不确定度超限、无安全通路、轮速/深度失效则零输出。轮速代次、请求 ID、人物 ID 或检测器会话变化均清空旧跟踪器。
+
+检测流整体停更超过原 0.30 s 门限时仍停车；2 秒恢复只适用于检测流和深度仍新鲜的目标短时丢失。运动授权与 Agent 租约不能由 Kalman 续期。最大线速度 0.20 m/s，因此 2 秒最多行进约 0.40 m（实际受加速与避障限制），不保证走到较远的消失位置。
+
+status 增加 `target_tracking`、`target_prediction_age_s`、`target_position_std_m`、`target_filter_reason`、`last_seen_yaw`、`last_seen_distance`。Agent 原检测协议和 person_command 接口不变，预测不伪装为 YOLO 识别结果。C++ 数值计算加速不等于硬实时：ROS 任务状态和定时回调仍由 Python 管理。
+
+
+### 坐标参考与相机运动
+
+人物滤波和历史障碍均保存在同一任意原点的局部参考系中；该参考系在同一轮速代次内不随机器人刚性平移/转动。观测链为 `p_local = T_local_base(t_image) * T_base_camera(t_image) * p_camera`，控制使用 `p_base_now = inverse(T_local_base(t_now)) * p_local_predicted`。相机位姿也按 `T_local_camera(t_image)=T_local_base(t_image)*T_base_camera(t_image)` 计算，status 输出相机局部位置、旋转矩阵、采集时间与参考代次。
+
+YOLO 投影和深度绕障均按采集时刻查询相机 TF；相机独立云台运动需要对应的动态 TF 数据，不能用固定安装 TF 冒充。当前 local_base 来自轮速平面运动，补偿平移与偏航；它不是完整六自由度惯性世界系。轮滑、被抱起及未测得的底盘俯仰/横滚仍需可靠 IMU/VIO 或姿态反馈，不能宣称轮速已解决。参考系重置时清空人物与障碍历史，禁止拼接不同代次坐标。
+
+新增合成回归：机器人与相机安装位姿同时变化、人物静止时，局部系人物速度应接近零；机器人和人同时运动时，应恢复人的独立平面速度。未因此改变 Agent 的五个相对检测业务字段。
+
+障碍记忆保存原始观测的局部参考坐标；每次控制 tick 使用当前轮速位姿重新投影到机器人坐标，不复用图像时刻的机体网格。回投影不刷新观测寿命，路径与网格诊断时间为控制时刻，相机参考位姿仍携带原采集时间。

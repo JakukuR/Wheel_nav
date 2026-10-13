@@ -1,5 +1,6 @@
 """Relative person control: explicit identity, bounded leases, no world frame."""
 from dataclasses import dataclass
+from .target_tracking import TargetEstimate
 import json
 import math
 
@@ -38,12 +39,16 @@ class RelativeFollower:
     """All clocks passed explicitly so replay, expiry and mode changes are testable."""
     def __init__(self, base_frame='r680_mapping_floor', max_age=.30,
                  follow_distance=1.4, approach_distance=.95,
-                 max_linear=.20, max_angular=.45, emergency_distance=.60, local_planner=None):
+                 max_linear=.20, max_angular=.45, emergency_distance=.60, local_planner=None, require_estimate=False, lost_target_stop_distance=.35):
         if (not base_frame or not 0 < max_age <= .30 or
                 not 0 < max_linear <= .20 or not 0 < max_angular <= .45 or
                 not .50 <= emergency_distance < approach_distance <= follow_distance):
             raise ValueError('invalid_control_configuration')
         self.local_planner = local_planner
+        self.require_estimate = require_estimate
+        if not .20 <= lost_target_stop_distance <= approach_distance:
+            raise ValueError("invalid_lost_target_stop_distance")
+        self.lost_target_stop_distance = lost_target_stop_distance
         self.base_frame, self.max_age = base_frame, max_age
         self.follow_distance, self.approach_distance = follow_distance, approach_distance
         self.max_linear, self.max_angular = max_linear, max_angular
@@ -232,17 +237,24 @@ class RelativeFollower:
         self._zero()
         return True, 'started'
 
-    def tick(self, now, safety=None, scene=None):
+    def tick(self, now, safety=None, scene=None, estimate=None):
         self._expire(now)
         previous_tick, self.previous_tick = self.previous_tick, now
         dt = .05 if previous_tick is None else max(.001, min(.10, now-previous_tick))
         if not self.active:
             return self._zero()
         row = self.objects.get(self.target_id)
+        tracked = (isinstance(estimate, TargetEstimate) and estimate.target_id == self.target_id and
+                   all(finite(v) for v in (estimate.yaw,estimate.distance,estimate.age,estimate.std)) and
+                   abs(estimate.yaw) <= math.pi and 0 < estimate.distance <= 20 and
+                   0 <= estimate.age <= 2. and 0 <= estimate.std <= 1. and
+                   finite(estimate.last_seen_yaw) and abs(estimate.last_seen_yaw)<=math.pi and
+                   finite(estimate.last_seen_distance) and 0<=estimate.last_seen_distance<=20)
         reason = ('detection_disabled' if not self.gate_enabled else
                   'observations_stale' if now >= self.expires_at else
-                  'target_not_visible' if row is None or not row['detected'] or row['label'] != 'person' else
-                  'target_geometry_unavailable' if row['yaw'] is None or row['distance'] is None else
+                  'target_estimate_unavailable' if self.require_estimate and not tracked else
+                  'target_not_visible' if not tracked and (row is None or not row['detected'] or row['label'] != 'person') else
+                  'target_geometry_unavailable' if not tracked and (row['yaw'] is None or row['distance'] is None) else
                   'depth_safety_unavailable' if safety is None or not safety.valid else
                   'emergency_obstacle' if safety.front_distance < self.emergency_distance else
                   'local_scene_unavailable' if self.local_planner is not None and scene is None else '')
@@ -250,7 +262,8 @@ class RelativeFollower:
             self.state, self.reason = 'waiting', reason
             self.arrival_count = 0
             return self._zero()
-        yaw, distance = row['yaw'], row['distance']
+        yaw, distance = (estimate.yaw, estimate.distance) if tracked else (row['yaw'], row['distance'])
+        predicted = tracked and not estimate.observed
         if distance < self.emergency_distance:
             self.state, self.reason = 'waiting', 'target_too_close'
             self.arrival_count = 0
@@ -259,12 +272,27 @@ class RelativeFollower:
         arrived = distance <= target_distance+.10 and abs(yaw) <= .12
         if self.mode == 'approach_interact':
             if self.last_stamp != self.arrival_stamp:
-                self.arrival_count = self.arrival_count + 1 if arrived else 0
+                self.arrival_count = self.arrival_count + 1 if arrived and not predicted else 0
                 self.arrival_stamp = self.last_stamp
             if self.arrival_count >= 3:
                 self._terminate('arrived', 'interaction_distance_reached')
                 return self._zero()
-        if self.local_planner is not None:
+        if predicted:
+            # Translation goal is the last accepted observation, not an
+            # extrapolated moving point. Orientation goal is predicted bearing.
+            if estimate.last_seen_distance <= self.lost_target_stop_distance+.10:
+                v, w = 0., (max(-self.max_angular,min(self.max_angular,1.2*yaw)) if abs(yaw)>.08 else 0.)
+            elif self.local_planner is None:
+                self.state,self.reason='waiting','prediction_requires_local_planner'
+                return self._zero()
+            else:
+                v,w=self.local_planner.command(scene,estimate.last_seen_yaw,
+                    estimate.last_seen_distance,self.lost_target_stop_distance,
+                    self.max_linear,self.max_angular,target_is_person=False)
+                if not self.local_planner.last.path:
+                    self.state,self.reason='waiting',self.local_planner.last.reason
+                    return self._zero()
+        elif self.local_planner is not None:
             v, w = self.local_planner.command(scene, yaw, distance, target_distance,
                                                self.max_linear, self.max_angular)
             if not self.local_planner.last.path:
@@ -287,7 +315,8 @@ class RelativeFollower:
                 w = 0.
         self.previous_v, self.previous_w = v, w
         self.state = 'approaching' if self.mode == 'approach_interact' else 'following'
-        self.reason = (self.local_planner.last.reason if self.local_planner is not None else
+        self.reason = (('target_prediction_align' if estimate.last_seen_distance <= self.lost_target_stop_distance+.10 else 'target_prediction_last_seen') if predicted else
+                       self.local_planner.last.reason if self.local_planner is not None else
                        'obstacle_blocks_forward' if not safety.forward_clear and distance > target_distance+.10 else 'relative_control')
         return v, w
 

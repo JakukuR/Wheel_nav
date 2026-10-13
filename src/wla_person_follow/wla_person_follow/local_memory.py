@@ -58,10 +58,12 @@ class LocalMemory:
         self.ttl = ttl
         self.frames = deque(maxlen=9)
         self.generation = None
+        self.latest = None
 
     def reset(self):
         self.frames.clear()
         self.generation = None
+        self.latest = None
 
     @staticmethod
     def world_points(scene, mask, pose):
@@ -99,4 +101,42 @@ class LocalMemory:
             combined = np.vstack([old_obstacles,self.world_points(scene,scene.occupied,pose)])
             combined = np.unique(np.rint(combined/scene.resolution),axis=0)*scene.resolution
             self.frames[-1] = (old_stamp,old_known,combined)
+        self.latest=(stamp,self.world_points(scene,scene.observed,pose),
+                     self.world_points(scene,scene.occupied,pose),scene.free.shape,
+                     scene.resolution,scene.radius)
         return inflate_scene(known, obstacles, scene.resolution, scene.radius)
+
+
+    def project(self,pose,stamp,generation):
+        """Re-express raw evidence at control time without renewing its age."""
+        if self.latest is None or generation!=self.generation:return None
+        t,observed,occupied,shape,resolution,radius=self.latest
+        if not 0<=stamp-t<=self.ttl:return None
+        known=np.zeros(shape,dtype=bool);obstacles=known.copy();center=shape[0]//2
+        c,s=math.cos(pose[2]),math.sin(pose[2]);rotation=np.array([[c,-s],[s,c]])
+        evidence=list(self.frames)+[(t,observed,occupied)]
+        for source_stamp,free_points,obstacle_points in evidence:
+            if not 0<=stamp-source_stamp<=self.ttl:continue
+            for values,mask in [(free_points,known),(obstacle_points,obstacles)]:
+                local=(values-np.asarray(pose[:2])) @ rotation
+                cells=np.rint(local/resolution).astype(int)+center
+                valid=(cells>=0).all(axis=1)&(cells<shape[0]).all(axis=1)
+                cells=cells[valid];mask[cells[:,1],cells[:,0]]=True
+        known[center,center]=True
+        known[center-1:center+2,center]=True
+        known[center,center-1:center+2]=True
+        return inflate_scene(known,obstacles,resolution,radius)
+
+
+def camera_in_reference(base_pose, camera_rotation, camera_translation):
+    """Image-time local_reference<-base<-camera SE(3) composition.
+
+    Base motion is currently planar wheel integration. The camera extrinsic
+    may be dynamic and is supplied by the image-time TF lookup, not cached.
+    """
+    x,y,yaw=base_pose
+    c,s=math.cos(yaw),math.sin(yaw)
+    reference_from_base=np.array([[c,-s,0.],[s,c,0.],[0.,0.,1.]])
+    rotation=reference_from_base @ np.asarray(camera_rotation)
+    translation=reference_from_base @ np.asarray(camera_translation)+np.array([x,y,0.])
+    return rotation,translation

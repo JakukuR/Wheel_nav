@@ -23,7 +23,8 @@ from .costmap import LocalCostmap
 from .depth_proc import points_to_base, rotation_from_quaternion
 from .relative_control import RelativeFollower, Safety
 from .local_avoidance import LocalAvoidance, scene_from_points
-from .local_memory import LocalMemory, LocalMotion
+from .local_memory import LocalMemory, LocalMotion, camera_in_reference
+from .target_tracking import TargetTracker
 
 
 def stamp_ns(message):
@@ -44,16 +45,23 @@ class PersonFollow(Node):
             obstacle_inflation_m=.45, obstacle_height_min_m=.01,
             obstacle_height_max_m=.50, depth_min_m=.25, depth_max_m=5.,
             camera_min_valid_fraction=.25, camera_front_min_valid_fraction=.35,
+            target_prediction_horizon_s=2., target_prediction_max_std_m=.75,
+            lost_target_stop_distance_m=.35,
             enable_motion=False)
         self.p = {key: self.declare_parameter(key, value).value for key, value in defaults.items()}
         self.local_planner = LocalAvoidance()
+        self.target_tracker = TargetTracker(self.p['target_prediction_horizon_s'], self.p['target_prediction_max_std_m'])
+        self.target_estimate = None
         self.local_motion = LocalMotion()
         self.local_memory = LocalMemory()
         self.scene_generation = -1
+        self.camera_reference_position = None
+        self.camera_reference_rotation = None
         self.scene = None
         self.core = RelativeFollower(self.p['base_frame'], self.p['max_sensor_age_s'],
             self.p['follow_distance_m'], self.p['approach_distance_m'],
-            self.p['max_linear_mps'], self.p['max_angular_rps'], self.p['emergency_distance_m'], self.local_planner)
+            self.p['max_linear_mps'], self.p['max_angular_rps'], self.p['emergency_distance_m'], self.local_planner, require_estimate=True,
+            lost_target_stop_distance=self.p['lost_target_stop_distance_m'])
         if (not 0 < self.p['depth_min_m'] < self.p['depth_max_m'] <= 10 or
                 not 0 < self.p['obstacle_height_min_m'] < self.p['obstacle_height_max_m'] <= 1.5 or
                 not .30 <= self.p['obstacle_inflation_m'] <= .75 or
@@ -100,7 +108,7 @@ class PersonFollow(Node):
         with self.guard:
             if not self.core.receive(message.data, time.monotonic(), self.ros_ns()):
                 self.publish(0., 0.)
-            elif not self.core.active or not self.core.objects.get(self.core.target_id):
+            elif not self.core.active:
                 self.publish(0., 0.)
 
     def on_detection_status(self, message):
@@ -189,6 +197,7 @@ class PersonFollow(Node):
                     (velocity.linear.x, velocity.linear.y, velocity.angular.z), self.ros_ns()/1e9)
             if self.scene_generation != self.local_motion.generation:
                 self.local_memory.reset()
+                self.camera_reference_position = self.camera_reference_rotation = None
                 self.scene = None
                 self.safety_until = -math.inf
 
@@ -258,6 +267,7 @@ class PersonFollow(Node):
                         raise ValueError('waiting_for_fresh_wheel_motion')
                     generation = self.local_motion.generation
                     scene = self.local_memory.apply(scene, pose, stamp/1e9, generation)
+                    camera_rotation, camera_position = camera_in_reference(pose,rotation,translation)
                 points = points[((points[:, 2] >= self.p['obstacle_height_min_m']) &
                                  (points[:, 2] <= self.p['obstacle_height_max_m'])) | (points[:, 2] < -.10)]
                 grid = LocalCostmap(inflation=self.p['obstacle_inflation_m'])
@@ -273,6 +283,8 @@ class PersonFollow(Node):
                             generation == self.local_motion.generation):
                         self.scene = scene
                         self.scene_generation = generation
+                        self.camera_reference_position = camera_position.tolist()
+                        self.camera_reference_rotation = camera_rotation.ravel().tolist()
                         self.safety, self.safety_stamp, self.safety_until = safety, stamp, valid_until
                         self.safety_reason = 'valid_depth'
             except Exception as exc:
@@ -280,6 +292,29 @@ class PersonFollow(Node):
                     self.scene = None
                     self.safety, self.safety_until = Safety(), -math.inf
                     self.safety_reason = str(exc)[:160]
+
+    def update_target_estimate(self):
+        now_ros=self.ros_ns()/1e9
+        core=self.core
+        key=(core.request_id,core.target_id,core.session,core.epoch,self.local_motion.generation)
+        tracker=self.target_tracker
+        if not core.active or not self.local_motion.healthy(now_ros):
+            tracker.reset();self.target_estimate=None
+            return None
+        if key!=tracker.key:tracker.reset(key)
+        row=core.objects.get(core.target_id)
+        if core.last_stamp!=tracker.frame_stamp:
+            if row is not None and row['detected'] and row['label']=='person' and row['yaw'] is not None:
+                pose=self.local_motion.pose_at(core.last_stamp/1e9)
+                if pose is not None:
+                    tracker.update(core.last_stamp/1e9,row['yaw'],row['distance'],pose)
+                    tracker.frame_stamp=core.last_stamp
+            else:
+                tracker.frame_stamp=core.last_stamp
+        pose=self.local_motion.pose_at(now_ros)
+        self.target_estimate=(tracker.estimate(now_ros,pose,core.target_id,core.last_stamp/1e9)
+                              if pose is not None else None)
+        return self.target_estimate
 
     def motion_permitted(self, now):
         return bool(self.p['enable_motion'] and now < self.control_until and
@@ -298,13 +333,19 @@ class PersonFollow(Node):
                 -.05 <= (self.ros_ns()-self.safety_stamp)/1e9 <= self.p['max_sensor_age_s']) else Safety()
             motion_ready = (self.local_motion.healthy(self.ros_ns()/1e9) and
                             self.scene_generation == self.local_motion.generation)
-            scene = self.scene if safety.valid and motion_ready else None
+            control_ros=self.ros_ns()/1e9
+            control_pose=self.local_motion.pose_at(control_ros) if motion_ready else None
+            scene=(self.local_memory.project(control_pose,control_ros,self.local_motion.generation)
+                   if safety.valid and motion_ready and control_pose is not None else None)
+            self.scene=scene
             if not motion_ready:
                 self.safety_reason = 'waiting_for_fresh_wheel_motion'
-            linear, angular = self.core.tick(now, safety, scene)
+            estimate = self.update_target_estimate()
+            linear, angular = self.core.tick(now, safety, scene, estimate)
             # Planning must not extend a nearly expired frame or task lease.
             finished = time.monotonic()
             if (not self.local_motion.healthy(self.ros_ns()/1e9) or
+                    (estimate is not None and estimate.age+finished-now > self.p['target_prediction_horizon_s']) or
                     finished >= self.safety_until or finished >= self.core.expires_at or
                     finished >= self.core.lease_until or
                     not -.05 <= (self.ros_ns()-self.safety_stamp)/1e9 <= self.p['max_sensor_age_s']):
@@ -315,6 +356,17 @@ class PersonFollow(Node):
         now, ros_now = time.monotonic(), self.ros_ns()
         state = self.core.snapshot(now)
         permitted = self.motion_permitted(now)
+        state.update(tracking_reference='wheel_integrated_local',
+            reference_generation=self.local_motion.generation,
+            camera_reference_position=self.camera_reference_position,
+            camera_reference_rotation=self.camera_reference_rotation,
+            camera_reference_stamp_ns=self.safety_stamp if self.camera_reference_position is not None else None)
+        state.update(target_tracking=('measured' if self.target_estimate.observed else 'predicted') if self.target_estimate else 'unavailable',
+            target_prediction_age_s=self.target_estimate.age if self.target_estimate else None,
+            target_position_std_m=self.target_estimate.std if self.target_estimate else None,
+            target_filter_reason=self.target_tracker.filter.reason,
+            last_seen_yaw=self.target_estimate.last_seen_yaw if self.target_estimate else None,
+            last_seen_distance=self.target_estimate.last_seen_distance if self.target_estimate else None)
         state.update(schema='wla-person-status/v1', stamp_ns=ros_now,
             follow_session=self.follow_session,
             base_frame=self.p['base_frame'], candidate_only=not self.p['enable_motion'],
@@ -348,9 +400,9 @@ class PersonFollow(Node):
     def publish_local_geometry(self, state, ros_now):
         path = Path()
         path.header.frame_id = self.p['base_frame']
-        stamp = self.safety_stamp if self.safety_stamp else ros_now
+        stamp = ros_now  # Local path/grid are reprojected at control time.
         path.header.stamp.sec, path.header.stamp.nanosec = divmod(stamp, 1_000_000_000)
-        if state['enabled'] and state['safety_fresh'] and state['observations_fresh'] and state['state'] in ('following', 'approaching'):
+        if state['enabled'] and state['safety_fresh'] and state['observations_fresh'] and state['state'] in ('following', 'approaching') and state['reason'] != 'target_prediction_align':
             for x, y in self.local_planner.last.path:
                 pose = PoseStamped(); pose.header = path.header
                 pose.pose.position.x, pose.pose.position.y = float(x), float(y)
