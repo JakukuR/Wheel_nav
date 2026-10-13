@@ -1,8 +1,9 @@
 from pathlib import Path
+import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, OpaqueFunction, TimerAction
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, GroupAction, IncludeLaunchDescription, OpaqueFunction, SetEnvironmentVariable, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import AllSubstitution, EqualsSubstitution, IfElseSubstitution, LaunchConfiguration, NotEqualsSubstitution, PathJoinSubstitution, PythonExpression
@@ -13,6 +14,21 @@ from nav2_common.launch import RewrittenYaml
 
 
 def validate_navigation_map(context):
+    if LaunchConfiguration('start_chassis').perform(context) == 'true' and Path('/proc').is_dir():
+        for entry in Path('/proc').iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                executable = os.readlink(entry / 'exe')
+            except OSError:
+                continue
+            if executable.endswith('/wheeltec_robot_node'):
+                raise ValueError('Chassis driver already running; use start_chassis:=false to reuse the independent base service.')
+    if LaunchConfiguration('odom_source').perform(context) == 'openvins':
+        if LaunchConfiguration('enable_hardware_output').perform(context) == 'true':
+            raise ValueError('OpenVINS v1 is a validation frontend; hardware output awaits calibration and carried-motion acceptance.')
+        if not LaunchConfiguration('openvins_config_dir').perform(context):
+            raise ValueError('OpenVINS requires openvins_config_dir; unvalidated configs need explicit commissioning mode.')
     navigation = all(LaunchConfiguration(name).perform(context) == value for name, value in (
         ('mode', 'localization'), ('start_nav2', 'true'), ('start_navigation_servers', 'true')))
     if navigation:
@@ -24,6 +40,21 @@ def validate_navigation_map(context):
             raise ValueError('Navigation requires navigation_map_yaml:=/path/to/map.yaml; '
                              'the RTAB-Map database is used for localization, not the static navigation map.')
     return []
+
+
+
+def shared_realsense_driver(context, camera):
+    """Scope the shared SDK to the camera; preserve all other node environments."""
+    runtime = Path.home() / 'robot_sensors/realsense/current/lib'
+    libraries = [part for part in context.environment.get('LD_LIBRARY_PATH', '').split(':')
+                 if part and part != str(runtime)]
+    if context.environment.get('R680_REALSENSE_BACKEND', 'rsusb') != 'system':
+        if (runtime / 'librealsense2.so.2.58').is_file():
+            libraries.insert(0, str(runtime))
+    return [GroupAction(scoped=True, actions=[
+        SetEnvironmentVariable(name='LD_LIBRARY_PATH', value=':'.join(libraries)),
+        camera,
+    ])]
 
 
 def generate_launch_description():
@@ -45,12 +76,13 @@ def generate_launch_description():
     nav_command_topic = PythonExpression(["'/r680_nav/nav_command_input' if ", init_enabled,
                                           " else '/cmd_vel_nav'"])
     cuvslam_enabled = PythonExpression(["'", start_state_estimation, "' == 'true' and '", odom_source, "' == 'cuvslam'"])
+    openvins_enabled = PythonExpression(["'", start_state_estimation, "' == 'true' and '", odom_source, "' == 'openvins'"])
     cuvslam_mapping = PythonExpression(["'", mode, "' == 'mapping' and '", odom_source, "' == 'cuvslam'"])
     continuity_enabled = PythonExpression(["'", start_state_estimation,
         "' == 'true' and '", mode, "' == 'localization' and '", odom_source, "' == 'cuvslam'"])
     continuity_health_topic = PythonExpression(["'/r680_nav/continuous_odom_healthy' if ",
-        continuity_enabled, " else '/r680_nav/vio_tracking_healthy'"])
-    mapping_odom_topic = PythonExpression(["'/r680_nav/mapping_odom' if ", cuvslam_mapping,
+        continuity_enabled, " else ('/openvins/motion_ready' if '", odom_source, "' == 'openvins' else '/r680_nav/vio_tracking_healthy')"])
+    mapping_odom_topic = PythonExpression(["'/r680_nav/mapping_odom' if ('", odom_source, "' == 'openvins' or ", cuvslam_mapping, ")",
                                            " else '/d455_slam/odom'"])
     legacy_estimation = PythonExpression(["'", start_state_estimation, "' == 'true' and '", odom_source, "' == 'rgbd'"])
     legacy_chassis_imu = PythonExpression(["'", LaunchConfiguration('use_chassis_imu'), "' == 'true' and '", odom_source, "' == 'rgbd'"])
@@ -96,11 +128,11 @@ def generate_launch_description():
             'rgb_camera.color_profile': '640x480x30',
             'enable_depth': 'true',
             'enable_color': 'true',
-            'enable_infra1': PythonExpression(["'true' if '", odom_source, "' == 'cuvslam' else 'false'"]),
-            'enable_infra2': PythonExpression(["'true' if '", odom_source, "' == 'cuvslam' else 'false'"]),
+            'enable_infra1': PythonExpression(["'true' if '", odom_source, "' in ('cuvslam', 'openvins') else 'false'"]),
+            'enable_infra2': PythonExpression(["'true' if '", odom_source, "' in ('cuvslam', 'openvins') else 'false'"]),
             'depth_module.infra_profile': '640x480x30',
             'config_file': PythonExpression(["'", str(config / 'd455_cuvslam.yaml'),
-                                              "' if '", odom_source, "' == 'cuvslam' else \"''\""]),
+                                              "' if '", odom_source, "' in ('cuvslam', 'openvins') else \"''\""]),
             'enable_gyro': use_imu,
             'enable_accel': use_imu,
             'gyro_fps': '200',
@@ -110,6 +142,8 @@ def generate_launch_description():
             'align_depth.enable': 'true',
             'enable_sync': 'true',
         }.items())
+
+    realsense = OpaqueFunction(function=shared_realsense_driver, args=[realsense])
 
     # The RealSense driver owns all optical-frame TFs. This is the only external
     # mount edge and must not run beside publish_r680_d455_floor.py.
@@ -126,7 +160,8 @@ def generate_launch_description():
     # verify the physical mounting before treating this identity as calibrated.
     chassis_imu_tf = Node(
         package='tf2_ros', executable='static_transform_publisher',
-        name='r680_chassis_imu_mount', condition=IfCondition(use_chassis_imu),
+        name='r680_chassis_imu_mount', condition=IfCondition(PythonExpression([
+            "'", use_chassis_imu, "' == 'true' and '", odom_source, "' != 'openvins'"])),
         arguments=['--x', '0', '--y', '0', '--z', '0',
                    '--roll', '0', '--pitch', '0', '--yaw', '0',
                    '--frame-id', 'r680_mapping_floor', '--child-frame-id', 'gyro_link'])
@@ -146,7 +181,8 @@ def generate_launch_description():
 
     vo_watchdog = Node(
         package='wla_r680_navigation', executable='vo_watchdog',
-        name='r680_vo_watchdog', output='screen', condition=IfCondition(localization),
+        name='r680_vo_watchdog', output='screen', condition=IfCondition(PythonExpression([
+            "'", mode, "' == 'localization' and '", odom_source, "' != 'openvins'"])),
         parameters=[str(config / 'vo_watchdog.yaml'), {
             'frontend': odom_source,
             'vo_topic': PythonExpression(["'/d455_slam/odom' if '", odom_source, "' == 'cuvslam' else '/r680_nav/vo_odom'"]),
@@ -177,6 +213,15 @@ def generate_launch_description():
         parameters=[LaunchConfiguration('degraded_odom_params_file'), {
             'wheel_topic': chassis_odom_topic, 'imu_topic': chassis_imu_topic,
         }])
+    openvins = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([
+            FindPackageShare('wla_openvins_navigation'), 'launch', 'openvins.launch.py'])),
+        condition=IfCondition(openvins_enabled), launch_arguments={
+            'config_dir': LaunchConfiguration('openvins_config_dir'),
+            'production_topics': 'true', 'mode': mode,
+            'allow_commissioning': LaunchConfiguration('openvins_allow_commissioning'),
+            'contact_topic': LaunchConfiguration('openvins_contact_topic'),
+        }.items())
     mapping_gate = Node(
         package='wla_r680_navigation', executable='mapping_odom_gate',
         name='r680_mapping_odom_gate', output='screen', condition=IfCondition(cuvslam_mapping),
@@ -232,7 +277,7 @@ def generate_launch_description():
             'rgb_topic': '/r680/d455/color/image_raw',
             'depth_topic': '/r680/d455/aligned_depth_to_color/image_raw',
             'camera_info_topic': '/r680/d455/color/camera_info',
-            'imu_topic': PythonExpression(["'/r680_nav/disabled_rtabmap_imu' if '", odom_source, "' == 'cuvslam' else '", imu_topic, "'"]),
+            'imu_topic': PythonExpression(["'/r680_nav/disabled_rtabmap_imu' if '", odom_source, "' in ('cuvslam', 'openvins') else '", imu_topic, "'"]),
             'subscribe_scan': 'false',
             'approx_sync': 'true',
             'approx_sync_max_interval': '0.025',
@@ -262,6 +307,7 @@ def generate_launch_description():
              '--output', LaunchConfiguration('semantic_output'),
              '--map-id', LaunchConfiguration('semantic_map_id'),
              '--model', LaunchConfiguration('semantic_model'),
+             '--whitelist', LaunchConfiguration('semantic_whitelist'),
              '--hz', '1.0',
              '--mark-home', LaunchConfiguration('semantic_mark_home')],
         name='r680_furniture_semantic', output='screen',
@@ -365,7 +411,8 @@ def generate_launch_description():
         ]),
         Node(package='wla_r680_navigation', executable='navigation_goal_bridge',
              name='r680_navigation_goal_bridge', output='screen',
-             condition=IfCondition(full_navigation)),
+             condition=IfCondition(AllSubstitution(container=[full_navigation,
+                 EqualsSubstitution(LaunchConfiguration('agent_control'), 'false')]))),
     ]
 
     monitor = Node(
@@ -374,8 +421,8 @@ def generate_launch_description():
             'require_obstacle_points': True,
             'chassis_odom_topic': chassis_odom_topic,
             'require_chassis_odom': ParameterValue(enable_motion, value_type=bool),
-            'require_vo_watchdog': ParameterValue(localization, value_type=bool),
-            'require_vio_health': ParameterValue(PythonExpression(["'", odom_source, "' == 'cuvslam'"]), value_type=bool),
+            'require_vo_watchdog': ParameterValue(PythonExpression(["'", mode, "' == 'localization' and '", odom_source, "' != 'openvins'"]), value_type=bool),
+            'require_vio_health': ParameterValue(PythonExpression(["'", odom_source, "' in ('cuvslam', 'openvins')"]), value_type=bool),
             'vio_health_topic': continuity_health_topic,
             'require_mapping_odom': ParameterValue(cuvslam_mapping, value_type=bool),
         }])
@@ -383,6 +430,9 @@ def generate_launch_description():
         package='wla_r680_navigation', executable='command_guard', output='screen',
         parameters=[{
             'hardware_output_enabled': ParameterValue(enable_motion, value_type=bool),
+            'raw_output_topic': ParameterValue(IfElseSubstitution(
+                EqualsSubstitution(LaunchConfiguration('agent_control'), 'true'),
+                '/r680_nav/task_guard_input', '/r680_nav/chassis_cmd_vel'), value_type=str),
             'initialization_mode_enabled': ParameterValue(init_enabled, value_type=bool),
             'forward_max': 1.20,
             'reverse_max': 0.70,
@@ -419,12 +469,16 @@ def generate_launch_description():
         DeclareLaunchArgument('obstacle_scan', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('start_dynamic_obstacles', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('start_navigation_servers', default_value='true', choices=['true', 'false']),
+        DeclareLaunchArgument('agent_control', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('nav_params_file', default_value=str(config / 'nav2.yaml'),
                               description='Complete Nav2 parameters file for this run.'),
         DeclareLaunchArgument('start_state_estimation', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('auto_vio_init', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('vio_init_result_path', default_value='/tmp/r680_vio_init.json'),
-        DeclareLaunchArgument('odom_source', default_value='rgbd', choices=['rgbd', 'cuvslam']),
+        DeclareLaunchArgument('odom_source', default_value='rgbd', choices=['rgbd', 'cuvslam', 'openvins']),
+        DeclareLaunchArgument('openvins_config_dir', default_value=''),
+        DeclareLaunchArgument('openvins_allow_commissioning', default_value='false', choices=['true', 'false']),
+        DeclareLaunchArgument('openvins_contact_topic', default_value='/r680_nav/contact_state'),
         DeclareLaunchArgument('chassis_imu_topic', default_value='/wheel/imu/data_raw'),
         DeclareLaunchArgument('chassis_odom_topic', default_value='/wheel/odom'),
         DeclareLaunchArgument('cuvslam_params_file', default_value=str(config / 'cuvslam.yaml')),
@@ -434,11 +488,12 @@ def generate_launch_description():
         DeclareLaunchArgument('start_semantics', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('semantic_output', default_value='/tmp/wla-semantic.geojson'),
         DeclareLaunchArgument('semantic_map_id', default_value='unassigned'),
+        DeclareLaunchArgument('semantic_whitelist', default_value=str(config / 'yolo_mapping_whitelist.json')),
         DeclareLaunchArgument('semantic_mark_home', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('semantic_python',
-                              default_value='/home/orin/Wheel_Legged_Agent/.venv-perception/bin/python'),
+                              default_value='/usr/bin/python3'),
         DeclareLaunchArgument('semantic_model',
-                              default_value='/home/orin/Wheel_Legged_Agent/models/yolo11s.engine'),
+                              default_value=''),
         DeclareLaunchArgument('web_host', default_value='0.0.0.0'),
         DeclareLaunchArgument('web_port', default_value='8080'),
         DeclareLaunchArgument(
@@ -459,7 +514,7 @@ def generate_launch_description():
         OpaqueFunction(function=validate_navigation_map),
         static_map_server, static_map_lifecycle,
         realsense, mount_tf, chassis_imu_tf, imu_filter, chassis_imu_conditioner,
-        chassis_imu_filter, vo, cuvslam, continuous_odom, mapping_gate, vo_watchdog, ekf, rtabmap,
+        chassis_imu_filter, vo, cuvslam, openvins, continuous_odom, mapping_gate, vo_watchdog, ekf, rtabmap,
         chassis, depth_points, scan_converter, dynamic_obstacles, semantic_collector,
         *nav2_nodes, monitor, guard, initializer, web_gateway,
     ])

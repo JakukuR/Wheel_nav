@@ -50,7 +50,18 @@ fi
 set -u
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-73}"
 export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
-export CYCLONEDDS_URI="${CYCLONEDDS_URI:-file://$HOME/Wheel_Legged_Agent/deploy/r680/cyclonedds-local.xml}"
+export CYCLONEDDS_URI="${CYCLONEDDS_URI:-file://$HOME/ros2_ws/install/wla_manual_control/share/wla_manual_control/config/cyclonedds-local.xml}"
+USE_MANUAL_BASE=false
+START_CHASSIS=true
+if systemctl is-active --quiet r680-manual-base.service; then
+  if [[ -n "${ROS_DOMAIN_ID:-}" && "$ROS_DOMAIN_ID" != 73 ]]; then
+    echo '常驻底盘位于 ROS 域 73；当前域不同，拒绝静默切域。测试请直接使用隔离 launch。' >&2
+    exit 2
+  fi
+  USE_MANUAL_BASE=true; START_CHASSIS=false; export ROS_DOMAIN_ID=73
+  echo '[R680] 复用常驻底盘与手柄，人工移动不依赖 VIO 初始化。'
+fi
+if [[ "$USE_MANUAL_BASE" != true ]]; then
 python3 - <<'PYCHECK'
 from pathlib import Path
 import os
@@ -61,16 +72,29 @@ for p in Path('/proc').iterdir():
     if target.endswith('/wheeltec_robot_node'):
         raise SystemExit('底盘驱动已运行；先停止独立底盘/手柄会话，避免串口冲突。')
 PYCHECK
+fi
+# Navigation and mapping own the same TF/SLAM/control graph.
+source "$(dirname -- "${BASH_SOURCE[0]}")/r680_mode_lock.sh"
+wla_acquire_navigation_lock
+
 ENABLE_HARDWARE=true
 PREPARE_ARGS=(--imu-mode "$(if [[ "$ODOM_SOURCE" == cuvslam ]]; then echo chassis-vio; else echo chassis-full; fi)" --odom-source "$ODOM_SOURCE")
 if [[ "$AUTO_VIO_INIT" == true ]]; then PREPARE_ARGS+=(--auto-vio-init); fi
 COMMAND_TOPIC=/cmd_vel_nav
 if [[ "$AUTO_VIO_INIT" == true ]]; then COMMAND_TOPIC=/r680_nav/nav_command_input; fi
+if [[ "$USE_MANUAL_BASE" == true ]]; then
+  COMMAND_TOPIC=/r680_manual/cmd_vel
+  if [[ "$AUTO_VIO_INIT" == true ]]; then
+    echo '常驻手柄模式请省略 --auto-vio-init，使用手柄人工初始化。' >&2
+    exit 2
+  fi
+fi
 if [[ -n "$STORAGE_CONFIG" ]]; then
   PREPARE_ARGS+=(--storage-config "$STORAGE_CONFIG")
 fi
 if [[ "$DRY_RUN" == true ]]; then
   ENABLE_HARDWARE=false
+  if [[ "$USE_MANUAL_BASE" == true ]]; then echo '[R680] dry-run 关闭导航输出；独立手柄服务仍可人工控制。'; fi
 else
   PREPARE_ARGS+=(--hardware-output)
 fi
@@ -207,11 +231,15 @@ RVIZ_CONFIG="$CONFIG_DIR/r680_mapping.rviz"
 echo "[R680] 本次运行目录：$RUN_DIR"
 echo "[R680] 里程计前端：$ODOM_SOURCE；真实底盘输出：$ENABLE_HARDWARE"
 if [[ "$ODOM_SOURCE" == cuvslam ]]; then
-  echo '[R680] VIO 稳定前不写入地图、不开放手柄；无需旧地图重定位。'
+  if [[ "$USE_MANUAL_BASE" == true ]]; then
+    echo '[R680] VIO 稳定前不写入地图，常驻手柄可用于人工初始化。'
+  else
+    echo '[R680] VIO 稳定前不写入地图、不开放手柄；无需旧地图重定位。'
+  fi
   if [[ "$AUTO_VIO_INIT" == true ]]; then
     echo '[R680] 自动初始化：最高 0.06m/s、0.20rad/s；仅限已确认空旷的起步区。'
   else
-    echo '[R680] 未启用自动激励；可在关闭真实输出的预览下手推完成初始化。'
+    if [[ "$USE_MANUAL_BASE" != true ]]; then echo '[R680] 未启用自动激励；可在关闭真实输出的预览下手推完成初始化。'; fi
   fi
 else
   echo '[R680] 前 5 秒保持车辆和手柄完全静止，正在估计 IMU 零偏……'
@@ -219,7 +247,7 @@ fi
 setsid ros2 launch wla_r680_navigation bringup.launch.py \
   mode:=mapping database_path:="$DB_PATH" \
   start_d455:="$(if [[ "$ODOM_SOURCE" == cuvslam ]]; then echo true; else echo false; fi)" \
-  start_chassis:=true start_nav2:=true start_navigation_servers:=false start_dynamic_obstacles:=false \
+  start_chassis:="$START_CHASSIS" start_nav2:=true start_navigation_servers:=false start_dynamic_obstacles:=false \
   start_state_estimation:=true use_d455_imu:=false use_chassis_imu:=true \
   odom_source:="$ODOM_SOURCE" auto_vio_init:="$AUTO_VIO_INIT" \
   cuvslam_statistics_path:="$RUN_DIR/cuvslam_statistics.json" vio_init_result_path:="$RUN_DIR/vio_init.json" \
@@ -238,7 +266,9 @@ ros2 run wla_r680_navigation wait_mapping_ready "${READY_ARGS[@]}"
 MAPPING_READY=true
 
 echo "[R680] 定位与深度安全链已就绪。"
-if [[ -e /dev/input/js0 ]]; then
+if [[ "$USE_MANUAL_BASE" == true ]]; then
+  echo '[R680] 常驻手柄已运行，建图退出后仍保留人工控制。'
+elif [[ -e /dev/input/js0 ]]; then
   setsid ros2 run gamepad_control gamepad_teleop --ros-args \
     --params-file "$HOME/ros2_ws/install/gamepad_control/share/gamepad_control/config/gamepad_params.yaml" \
     -p device:=/dev/input/js0 -p cmd_vel_topic:="$COMMAND_TOPIC" \
@@ -253,7 +283,7 @@ else
   setsid ros2 topic pub -r 50 "$COMMAND_TOPIC" geometry_msgs/msg/Twist '{}' \
     >"$RUN_DIR/logs/gamepad.log" 2>&1 </dev/null &
 fi
-GAMEPAD_PID=$!
+if [[ "$USE_MANUAL_BASE" != true ]]; then GAMEPAD_PID=$!; fi
 
 # With deadman disabled, refuse to enable chassis motion unless the controller is neutral.
 python3 - "$COMMAND_TOPIC" <<'PY'

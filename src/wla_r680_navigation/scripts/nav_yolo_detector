@@ -1,0 +1,293 @@
+#!/usr/bin/env python3
+"""One nav-owned YOLO worker with robot-relative RGB-D observations.
+
+ROS callbacks never run inference. A single newest-frame slot bounds backlog;
+results keep acquisition time and cannot cross a camera/tracker epoch.
+"""
+import argparse
+from collections import deque
+import fcntl
+import hashlib
+import json
+import math
+import os
+from pathlib import Path
+import threading
+import time
+import uuid
+
+import rclpy
+from rclpy.node import Node
+from rclpy.time import Time
+from rclpy.qos import QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
+from sensor_msgs.msg import CameraInfo, Image
+from std_msgs.msg import String
+from tf2_ros import Buffer, TransformListener
+from wla_detection_bridge.stream import encode_batch, stamp_ns
+from wla_r680_navigation_py.perception_geometry import color_array, depth_array, bbox_point, transform_point
+
+RELATIVE_TOPIC = '/r680/perception/relative_objects'
+HEALTH_TOPIC = '/r680_nav/perception/status'
+
+
+class NavDetector(Node):
+    def __init__(self, args, model):
+        super().__init__('r680_nav_yolo_detector')
+        self.args, self.model = args, model
+        self.session, self.epoch = uuid.uuid4().hex, 0
+        self.last_stamp, self.last_frame, self.last_receive = 0, None, 0.
+        self.pending = self.result = None
+        self.condition = threading.Condition()
+        self.stopping = False
+        self.depths, self.infos = deque(maxlen=24), deque(maxlen=24)
+        self.tf = Buffer()
+        self.listener = TransformListener(self.tf, self)
+        self.raw_pub = self.create_publisher(String, '/r680/perception/detections', 1)
+        self.relative_pub = self.create_publisher(String, RELATIVE_TOPIC, 1)
+        self.status_pub = self.create_publisher(String, HEALTH_TOPIC, 1)
+        self.metrics_pub = self.create_publisher(String, '/r680_nav/perception/timing', 10)
+        image_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
+        self.create_subscription(Image, '/r680/d455/color/image_raw', self.on_image, image_qos)
+        self.create_subscription(Image, '/r680/d455/aligned_depth_to_color/image_raw', lambda m: self.depths.append(m), qos_profile_sensor_data)
+        self.create_subscription(CameraInfo, '/r680/d455/color/camera_info', lambda m: self.infos.append(m), qos_profile_sensor_data)
+        self.previous_ros = self.ros_ns()
+        self.worker = threading.Thread(target=self.infer, name='nav-yolo', daemon=True)
+        self.worker.start()
+        self.create_timer(.01, self.drain)
+        self.create_timer(.05, self.publish_status)
+        self.get_logger().info('YOLO processes fresh camera frames; robot-relative RGB-D only')
+
+    def ros_ns(self):
+        return self.get_clock().now().nanoseconds
+
+    def reset_epoch(self):
+        # Caller owns condition; in-flight inference may finish but cannot publish.
+        self.epoch += 1
+        self.pending = self.result = None
+        self.last_stamp, self.last_frame = 0, None
+        self.depths.clear()
+        self.infos.clear()
+        self.last_receive = 0.
+
+    def empty_relative(self):
+        stamp = self.ros_ns()
+        return dict(schema='wla-relative-detections/v1', stamp_ns=stamp,
+                    stamp=dict(sec=stamp//1_000_000_000,nanosec=stamp%1_000_000_000),
+                    session=self.session, epoch=self.epoch, enabled=True,
+                    base_frame=self.args.base_frame, ttl_s=.30, objects=[])
+
+    def on_image(self, message):
+        now, received = self.ros_ns(), time.monotonic()
+        stamp = stamp_ns(message)
+        if (stamp <= 0 or not -.05 <= (now-stamp)/1e9 <= .3
+                or message.header.frame_id != 'd455_color_optical_frame'
+                or not 0 < message.width*message.height <= 2_000_000):
+            return
+        with self.condition:
+            if self.stopping:
+                return
+            if ((self.last_frame is not None and message.header.frame_id != self.last_frame)
+                    or (self.last_receive and received-self.last_receive > .75)):
+                self.reset_epoch()
+            if stamp <= self.last_stamp:
+                return
+            self.last_stamp, self.last_frame, self.last_receive = stamp, message.header.frame_id, received
+            self.pending = (message, self.epoch, now)
+            self.condition.notify()
+
+    def infer(self):
+        tracker_epoch = -1
+        next_at = 0.
+        fallback_id = 1_000_000_000
+        while True:
+            with self.condition:
+                while not self.stopping and (self.pending is None or time.monotonic() < next_at):
+                    self.condition.wait(timeout=max(.001, next_at-time.monotonic()) if self.pending else None)
+                if self.stopping:
+                    return
+                message, epoch, received_ns = self.pending
+                self.pending = None
+            start_ns = self.ros_ns()
+            if (start_ns-stamp_ns(message))/1e9 > .3:
+                continue
+            timing = dict(stamp_ns=stamp_ns(message), rgb_received_ns=received_ns,
+                          inference_start_ns=start_ns, epoch=epoch, session=self.session)
+            try:
+                if tracker_epoch != epoch:
+                    for tracker in getattr(getattr(self.model, 'predictor', None), 'trackers', []):
+                        tracker.reset()
+                    tracker_epoch = epoch
+                frame = color_array(message)
+                if frame is None:
+                    continue
+                output = self.model.track(frame, persist=True, device=self.args.device,
+                    imgsz=self.args.imgsz, conf=.35, max_det=64, verbose=False,
+                    tracker=self.args.tracker)[0]
+                rows = []
+                for box in output.boxes:
+                    if box.id is None:
+                        fallback_id += 1
+                        identifier = fallback_id
+                    else:
+                        identifier = int(box.id.item())
+                    xyxy = [float(v) for v in box.xyxy[0].tolist()]
+                    xyxy = [max(0., min(v, float(message.width if i%2 == 0 else message.height)))
+                            for i, v in enumerate(xyxy)]
+                    if xyxy[0] >= xyxy[2] or xyxy[1] >= xyxy[3]:
+                        continue
+                    rows.append(dict(track_id=identifier, label=output.names[int(box.cls.item())],
+                                     confidence=float(box.conf.item()), bbox_xyxy=xyxy))
+                batch = json.loads(encode_batch(message, self.session, epoch, rows))
+                timing['inference_end_ns'] = self.ros_ns()
+                with self.condition:
+                    if epoch == self.epoch and not self.stopping:
+                        self.result = (batch, timing)
+            except Exception as exc:
+                self.get_logger().error('YOLO failed: '+str(exc))
+                with self.condition:
+                    if epoch == self.epoch:
+                        self.result = (None, dict(epoch=epoch, error=str(exc)))
+            next_at = time.monotonic()+max(0., 1/self.args.hz-(self.ros_ns()-start_ns)/1e9)
+
+    def publish_status(self):
+        now = self.ros_ns()
+        if now < self.previous_ros-50_000_000:
+            with self.condition:
+                self.reset_epoch()
+        self.previous_ros = now
+        camera_fresh = bool(self.last_receive and time.monotonic()-self.last_receive <= .3)
+        value = dict(schema='wla-relative-perception-status/v1', session=self.session,
+                     epoch=self.epoch, stamp_ns=now, enabled=True,
+                     base_frame=self.args.base_frame, camera_fresh=camera_fresh,
+                     reason='ready' if camera_fresh else 'waiting_for_fresh_camera')
+        self.status_pub.publish(String(data=json.dumps(value, allow_nan=False)))
+
+    def project(self, batch):
+        stamp = batch['stamp_ns']
+        info = min(self.infos, key=lambda m: abs(stamp_ns(m)-stamp), default=None)
+        depth = min(self.depths, key=lambda m: abs(stamp_ns(m)-stamp), default=None)
+        aligned = (info is not None and depth is not None
+            and abs(stamp_ns(info)-stamp) <= 250_000_000 and abs(stamp_ns(depth)-stamp) <= 35_000_000
+            and all(m.header.frame_id == batch['frame_id'] and (m.width,m.height) == (batch['width'],batch['height']) for m in (info,depth)))
+        data = depth_array(depth) if aligned else None
+        tf = None
+        if data is not None:
+            try:
+                tf = self.tf.lookup_transform(self.args.base_frame, batch['frame_id'], Time(nanoseconds=stamp)).transform
+                q = tf.rotation
+                values = [q.x,q.y,q.z,q.w,tf.translation.x,tf.translation.y,tf.translation.z]
+                if not all(math.isfinite(v) for v in values) or not .99 <= sum(v*v for v in values[:4]) <= 1.01:
+                    tf = None
+            except Exception:
+                tf = None
+        rows = []
+        for obj in batch['objects']:
+            yaw, distance = None, None
+            point = bbox_point(obj['bbox_xyxy'], data, info.k) if data is not None else None
+            if point is not None and tf is not None:
+                robot = transform_point(point, tf)
+                if all(math.isfinite(v) for v in robot):
+                    yaw, distance = math.atan2(robot[1], robot[0]), math.hypot(robot[0], robot[1])
+            rows.append(dict(detected=True, label=obj['label'],
+                id=f"{batch['session']}:{batch['epoch']}:{obj['track_id']}", yaw=yaw, distance=distance))
+        return dict(schema='wla-relative-detections/v1', stamp_ns=stamp,
+                    stamp=dict(sec=stamp//1_000_000_000,nanosec=stamp%1_000_000_000),
+                    session=batch['session'], epoch=batch['epoch'], enabled=True,
+                    base_frame=self.args.base_frame, ttl_s=.30, objects=rows)
+
+    def drain(self):
+        with self.condition:
+            result, self.result = self.result, None
+        if result is None:
+            return
+        batch, timing = result
+        if batch is None:
+            with self.condition:
+                if timing['epoch'] == self.epoch:
+                    self.reset_epoch()
+            return
+        now = self.ros_ns()
+        if self.stopping or batch['epoch'] != self.epoch or not -.05 <= (now-batch['stamp_ns'])/1e9 <= .30:
+            timing.update(outcome='expired_or_retired', discarded_ns=now)
+        else:
+            timing['raw_publish_ns'] = now
+            batch['timing'] = timing.copy()
+            self.raw_pub.publish(String(data=json.dumps(batch, allow_nan=False)))
+            try:
+                relative = self.project(batch)
+            except (ValueError, TypeError, IndexError, OverflowError):
+                relative = self.empty_relative()
+                relative.update(stamp_ns=batch['stamp_ns'],
+                    stamp=dict(sec=batch['stamp_ns']//1_000_000_000,nanosec=batch['stamp_ns']%1_000_000_000))
+            timing.update(projection_end_ns=self.ros_ns())
+            if -.05 <= (timing['projection_end_ns']-batch['stamp_ns'])/1e9 <= .30:
+                timing['outcome'] = 'published'
+                relative['timing'] = timing.copy()
+                self.relative_pub.publish(String(data=json.dumps(relative, allow_nan=False)))
+            else:
+                timing['outcome'] = 'expired_in_projection'
+        self.metrics_pub.publish(String(data=json.dumps(timing, allow_nan=False)))
+
+    def stop(self):
+        with self.condition:
+            self.stopping = True
+            self.pending = self.result = None
+            self.condition.notify()
+        self.worker.join(timeout=5.)
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument('--model', required=True)
+    p.add_argument('--tracker', required=True)
+    p.add_argument('--device', default='0')
+    p.add_argument('--imgsz', type=int, default=416)
+    p.add_argument('--hz', type=float, default=5.)
+    p.add_argument('--base-frame', choices=['r680_mapping_floor', 'base_link'], default='r680_mapping_floor')
+    p.add_argument('--check-dependencies', action='store_true')
+    args = p.parse_args()
+    if not .1 <= args.hz <= 30 or not 160 <= args.imgsz <= 1280:
+        p.error('invalid rate/size')
+    if not Path(args.model).is_file() or not Path(args.tracker).is_file():
+        p.error('model and tracker files must exist')
+    lock = None
+    if not args.check_dependencies:
+        workspace = Path(os.environ.get('WLA_ROS_WS', str(Path.home()/'ros2_ws')))
+        (workspace/'.runtime').mkdir(exist_ok=True)
+        # Lock before loading the model, shared with the explicit legacy producer.
+        lock = (workspace/'.runtime'/('agent-perception-'+os.environ.get('ROS_DOMAIN_ID','73')+'.lock')).open('w')
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            p.error('a detector is already running in this ROS domain')
+    import cv2
+    import torch
+    from ultralytics import YOLO
+    torch.set_num_threads(2)
+    cv2.setNumThreads(2)
+    model = YOLO(args.model, task='detect')
+    if args.check_dependencies:
+        print(json.dumps(dict(owner='ros2_ws/wla_r680_navigation', model=args.model,
+            sha256=hashlib.sha256(Path(args.model).read_bytes()).hexdigest(),
+            cuda_available=torch.cuda.is_available(), classes=list(model.names.values()))))
+        return
+    rclpy.init(args=[])
+    node = NavDetector(args, model)
+    try:
+        rclpy.spin(node)
+    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
+        pass
+    finally:
+        node.stop()
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+        lock.close()
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except KeyboardInterrupt:
+        # Imports/model loading can be interrupted before the ROS node exists.
+        pass

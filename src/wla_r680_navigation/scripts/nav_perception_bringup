@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+"""Launch nav detection and an optional Agent consumer; no camera/motion bringup."""
+import argparse
+import sys
+from pathlib import Path
+from ament_index_python.packages import get_package_prefix
+from launch import LaunchDescription, LaunchService
+from launch.actions import ExecuteProcess, RegisterEventHandler, EmitEvent
+from launch.event_handlers import OnProcessExit
+from launch.events import Shutdown
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument('--python', required=True)
+    p.add_argument('--no-agent', action='store_true')
+    args, detector_args = p.parse_known_args()
+    nav = Path(get_package_prefix('wla_r680_navigation'))/'lib/wla_r680_navigation/nav_yolo_detector'
+    detector = ExecuteProcess(cmd=[args.python,str(nav),*detector_args],output='screen')
+    processes = [detector]
+    if not args.no_agent:
+        bridge = Path(get_package_prefix('wla_behavior_bridge'))/'lib/wla_behavior_bridge/nav_perception_adapter'
+        processes.append(ExecuteProcess(cmd=['/usr/bin/python3',str(bridge)],output='screen'))
+    if not args.no_agent:
+        person = Path(get_package_prefix('wla_behavior_bridge'))/'lib/wla_behavior_bridge/agent_person_api'
+        processes.append(ExecuteProcess(cmd=['/usr/bin/python3',str(person)],output='screen'))
+    actions = []
+    failures = []
+    def exited(event, context):
+        if event.returncode not in (0, -2, 130):
+            failures.append(event.returncode)
+        return [EmitEvent(event=Shutdown(reason='perception component exited'))]
+    for process in processes:
+        actions.append(RegisterEventHandler(OnProcessExit(target_action=process,
+            on_exit=exited)))
+    service = LaunchService(noninteractive=not sys.stdin.isatty())
+    service.include_launch_description(LaunchDescription([*actions,*processes]))
+    code = service.run()
+    return 1 if failures else code
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

@@ -62,12 +62,12 @@ ament_target_dependencies(point_to_scan rclcpp sensor_msgs)
 
 install(TARGETS degraded_odometry command_guard vio_initializer mapping_odom_gate imu_conditioner path_speed_profile goal_approach_limiter dynamic_obstacle_memory vo_watchdog interface_monitor depth_to_points point_to_scan DESTINATION lib/${PROJECT_NAME})
 ament_python_install_package(wla_r680_navigation_py)
-install(PROGRAMS scripts/navigation_goal_bridge scripts/web_gateway scripts/furniture_semantic.py
+install(PROGRAMS scripts/navigation_goal_bridge scripts/web_gateway scripts/furniture_semantic.py scripts/nav_yolo_detector scripts/nav_perception_bringup
   DESTINATION lib/${PROJECT_NAME})
 install(PROGRAMS scripts/mapping_mission scripts/prepare_mapping_run scripts/save_manual_map
   scripts/r680_nav.sh scripts/wait_mapping_ready
   scripts/resolve_navigation_map scripts/accept_navigation_map_edit
-  scripts/r680_mapping.sh DESTINATION lib/${PROJECT_NAME})
+  scripts/r680_mapping.sh scripts/r680_mode_lock.sh DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY config launch docs web DESTINATION share/${PROJECT_NAME}
   PATTERN "__pycache__" EXCLUDE PATTERN "*.pyc" EXCLUDE)
 install(FILES README.md DESTINATION share/${PROJECT_NAME})
@@ -89,6 +89,7 @@ if(BUILD_TESTING)
   ament_target_dependencies(test_timed_obstacle_layer nav2_costmap_2d pluginlib rclcpp sensor_msgs std_msgs tf2_ros)
   add_test(NAME timed_obstacle_layer COMMAND test_timed_obstacle_layer)
   set_tests_properties(timed_obstacle_layer PROPERTIES ENVIRONMENT "ROS_DOMAIN_ID=74" TIMEOUT 20)
+  ament_add_pytest_test(test_perception_geometry test/test_perception_geometry.py)
   ament_add_pytest_test(test_storage test/test_storage.py)
   ament_add_pytest_test(test_mapping_run test/test_mapping_run.py)
   ament_add_pytest_test(test_navigation_static_map test/test_navigation_static_map.py)

@@ -8,6 +8,7 @@ usage() {
   --map NAME             选择 maps 下的地图目录；默认读取 storage.yaml 的 active_map
   --storage-config PATH  指定存储配置文件
   --initial-pose "X Y Z R P Y"  给 RTAB-Map 提供出生点初值（米、弧度）
+  --agent-control        Agent task gateway owns navigation; RViz/Web goal bridge disabled
   --enable-motion        显式开放真实底盘导航输出（默认仅定位、规划和预览）
   --cuvslam              使用 cuVSLAM 双目 + 车身 IMU（试验前端，初始化前禁止运动）
   --no-degraded-odom      禁用短时轮速+IMU降级，恢复视觉失效即停车的行为
@@ -43,6 +44,7 @@ SCAN_OBSTACLES=false
 TEST_SCAN_ONLY=false
 TEST_RECOVERY=false
 START_RVIZ=true
+AGENT_CONTROL=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --map)
@@ -54,6 +56,7 @@ while [[ $# -gt 0 ]]; do
     --initial-pose)
       [[ $# -ge 2 ]] || { echo '--initial-pose 缺少六维位姿' >&2; exit 2; }
       INITIAL_POSE="$2"; shift 2 ;;
+    --agent-control) AGENT_CONTROL=true; shift ;;
     --enable-motion) ENABLE_MOTION=true; shift ;;
     --auto-vio-init) AUTO_VIO_INIT=true; shift ;;
     --cuvslam) ODOM_SOURCE=cuvslam; shift ;;
@@ -87,6 +90,18 @@ if [[ "$ODOM_SOURCE" == cuvslam ]]; then
 fi
 set -u
 # A second driver cannot share this serial port. Do not terminate operator sessions.
+USE_MANUAL_BASE=false
+START_CHASSIS=true
+if systemctl is-active --quiet r680-manual-base.service; then
+  if [[ -n "${ROS_DOMAIN_ID:-}" && "$ROS_DOMAIN_ID" != 73 ]]; then
+    echo '常驻底盘位于 ROS 域 73；当前域不同，拒绝静默切域。测试请直接使用隔离 launch。' >&2
+    exit 2
+  fi
+  USE_MANUAL_BASE=true; START_CHASSIS=false; export ROS_DOMAIN_ID=73
+  echo '[R680 NAV] 复用常驻底盘，手柄可随时接管；自动模式需显式授权。'
+  echo '[R680 NAV] 导航预览/失败不关闭独立手柄；停稳后可调用 /r680_base/set_automatic 显式切换。'
+fi
+if [[ "$USE_MANUAL_BASE" != true ]]; then
 python3 - <<'PYCHECK'
 from pathlib import Path
 import os
@@ -98,9 +113,14 @@ for entry in Path('/proc').iterdir():
     if target.endswith('/wheeltec_robot_node'):
         raise SystemExit('底盘驱动已在运行；请先停止独立底盘/手柄启动会话，再运行导航，避免串口冲突。')
 PYCHECK
+fi
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-73}"
 export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
-export CYCLONEDDS_URI="${CYCLONEDDS_URI:-file://$HOME/Wheel_Legged_Agent/deploy/r680/cyclonedds-local.xml}"
+export CYCLONEDDS_URI="${CYCLONEDDS_URI:-file://$HOME/ros2_ws/install/wla_manual_control/share/wla_manual_control/config/cyclonedds-local.xml}"
+
+# Navigation and mapping own the same TF/SLAM/control graph.
+source "$(dirname -- "${BASH_SOURCE[0]}")/r680_mode_lock.sh"
+wla_acquire_navigation_lock
 
 CONFIG_DIR=$(ros2 pkg prefix wla_r680_navigation)/share/wla_r680_navigation/config
 NAV2_PARAMS_FILE="$CONFIG_DIR/nav2.yaml"
@@ -369,11 +389,11 @@ LAUNCH_ARGS=(
   nav_params_file:="$NAV2_PARAMS_FILE"
   obstacle_scan:="$SCAN_OBSTACLES"
   start_dynamic_obstacles:="$START_DYNAMIC_OBSTACLES"
-  start_d455:="$(if [[ "$ODOM_SOURCE" == cuvslam ]]; then echo true; else echo false; fi)" start_chassis:=true start_nav2:=true start_navigation_servers:=true
+  start_d455:="$(if [[ "$ODOM_SOURCE" == cuvslam ]]; then echo true; else echo false; fi)" start_chassis:="$START_CHASSIS" start_nav2:=true start_navigation_servers:=true
   start_state_estimation:=true use_d455_imu:=false use_chassis_imu:=true
   odom_source:="$ODOM_SOURCE" cuvslam_statistics_path:="$NAV_RUN_DIR/cuvslam_statistics.json"
   auto_vio_init:="$AUTO_VIO_INIT" vio_init_result_path:="$NAV_RUN_DIR/vio_init.json"
-  publish_mount_tf:=true enable_hardware_output:="$ENABLE_MOTION"
+  publish_mount_tf:=true enable_hardware_output:="$ENABLE_MOTION" agent_control:="$AGENT_CONTROL"
   start_semantics:=false semantic_output:="$MAP_DIR/semantic.geojson"
   semantic_map_id:="$(basename "$MAP_DIR")" semantic_mark_home:=false
 )

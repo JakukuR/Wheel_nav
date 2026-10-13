@@ -1,0 +1,5 @@
+{
+  "schema": "wla-yolo-whitelist/v1",
+  "purpose": "mapping",
+  "classes": ["chair", "dining table", "couch", "bed"]
+}

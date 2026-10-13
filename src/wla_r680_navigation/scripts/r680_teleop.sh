@@ -9,7 +9,7 @@ set -u
 
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-73}"
 export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
-export CYCLONEDDS_URI="${CYCLONEDDS_URI:-file://$HOME/Wheel_Legged_Agent/deploy/r680/cyclonedds-local.xml}"
+export CYCLONEDDS_URI="${CYCLONEDDS_URI:-file://$(ros2 pkg prefix wla_manual_control)/share/wla_manual_control/config/cyclonedds-local.xml}"
 
 PORT=/dev/serial/by-id/usb-WCH.CN_USB_Single_Serial_0002-if00
 GAMEPAD=/dev/input/js0
@@ -81,13 +81,19 @@ trap cleanup EXIT
 trap 'exit 130' INT TERM HUP
 
 [[ -e "$PORT" ]] || { echo "[R680 TELEOP] 找不到底盘串口：$PORT" >&2; exit 1; }
-[[ -e "$GAMEPAD" ]] || { echo "[R680 TELEOP] 找不到手柄：$GAMEPAD" >&2; exit 1; }
+[[ -e "$GAMEPAD" ]] || echo "[R680 TELEOP] 手柄未接入，节点启动后将等待并自动连接。"
 [[ -r "${CYCLONEDDS_URI#file://}" ]] || { echo '[R680 TELEOP] DDS 配置不可读' >&2; exit 1; }
 command -v fuser >/dev/null || { echo '[R680 TELEOP] 缺少 fuser' >&2; exit 1; }
 
 echo "[R680 TELEOP] ROS_DOMAIN_ID=$ROS_DOMAIN_ID 串口=$PORT 手柄=$GAMEPAD"
 if [[ "$DRY_RUN" == true ]]; then
   echo '[R680 TELEOP] dry-run：配置检查通过，未启动节点。'
+  exit 0
+fi
+
+if systemctl is-active --quiet r680-manual-base.service; then
+  echo '[R680 TELEOP] 开机底盘与手柄服务已运行（ROS_DOMAIN_ID=73），摇杆归中约 1 秒后可使用。'
+  echo '[R680 TELEOP] 手动输入会锁定人工接管；本脚本退出不停止常驻服务。'
   exit 0
 fi
 

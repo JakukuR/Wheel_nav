@@ -14,7 +14,8 @@ from pathlib import Path
 import tempfile
 import time
 
-import numpy as np
+from wla_r680_navigation_py.perception_geometry import (
+    color_array, depth_array, transform_point, bbox_point)
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
@@ -23,9 +24,17 @@ from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import Bool, String
 from visualization_msgs.msg import Marker, MarkerArray
 from tf2_ros import Buffer, TransformListener
-from ultralytics import YOLO
+from wla_detection_bridge.stream import TOPIC, DetectionInbox, select
 
-FURNITURE = ('chair', 'dining table', 'couch', 'bed')
+def mapping_classes(path):
+    value = json.loads(Path(path).read_text(encoding='utf-8'))
+    names = value.get('classes')
+    if (value.get('schema') != 'wla-yolo-whitelist/v1' or value.get('purpose') != 'mapping'
+            or not isinstance(names, list) or not names or len(names) > 256
+            or any(not isinstance(n, str) or not n.strip() or n != n.strip() for n in names)
+            or len(set(names)) != len(names)):
+        raise ValueError('invalid_mapping_whitelist')
+    return tuple(names)
 
 
 def yaw(q):
@@ -33,13 +42,7 @@ def yaw(q):
                       1 - 2 * (q.y * q.y + q.z * q.z))
 
 
-def transform_point(point, tf):
-    q = tf.rotation
-    vector = np.array([q.x, q.y, q.z], dtype=float)
-    p = np.array(point, dtype=float)
-    rotated = p + 2 * (q.w * np.cross(vector, p) + np.cross(vector, np.cross(vector, p)))
-    return (rotated + np.array([tf.translation.x, tf.translation.y,
-                                tf.translation.z])).tolist()
+
 
 
 def stamp(message):
@@ -61,25 +64,10 @@ def atomic_json(path, value):
             os.unlink(name)
 
 
-def color_array(msg):
-    channels = {'rgb8': 3, 'bgr8': 3}.get(msg.encoding)
-    if channels is None or msg.step < msg.width * channels:
-        return None
-    raw = np.frombuffer(msg.data, dtype=np.uint8)
-    if raw.size < msg.step * msg.height:
-        return None
-    frame = raw[:msg.step * msg.height].reshape(msg.height, msg.step)[:, :msg.width * channels]
-    frame = frame.reshape(msg.height, msg.width, channels)
-    return np.ascontiguousarray(frame[:, :, ::-1] if msg.encoding == 'rgb8' else frame)
 
 
-def depth_array(msg):
-    if (msg.encoding != '16UC1' or msg.step < msg.width * 2
-            or len(msg.data) < msg.step * msg.height):
-        return None
-    dtype = '>u2' if msg.is_bigendian else '<u2'
-    return np.ndarray((msg.height, msg.width), dtype=dtype,
-                      buffer=msg.data, strides=(msg.step, 2))
+
+
 
 
 class FurnitureSemantic(Node):
@@ -94,14 +82,22 @@ class FurnitureSemantic(Node):
         else:
             self.map = {'type': 'FeatureCollection', 'schema': 'wla-semantic-map-v1',
                         'map_id': args.map_id, 'revision': 0, 'features': []}
-        self.model = YOLO(args.model, task='detect')
-        self.class_ids = [key for key, name in self.model.names.items() if name in FURNITURE]
-        if len(self.class_ids) != len(FURNITURE):
-            raise ValueError('furniture class missing from model')
+        self.classes = mapping_classes(args.whitelist)
+        self.inbox = DetectionInbox(max_age_s=.5, sync_s=.035)
+        self.health_received = 0.
+        self.model = None
+        if args.detection_backend == 'local_yolo':
+            from ultralytics import YOLO
+            if not args.model or not Path(args.model).is_file():
+                raise ValueError('explicit local model file required')
+            self.model = YOLO(args.model, task='detect')
+            self.class_ids = [key for key, name in self.model.names.items() if name in self.classes]
+            if len(self.class_ids) != len(self.classes):
+                raise ValueError('furniture class missing from model')
         self.tf = Buffer()
         self.listener = TransformListener(self.tf, self)
-        self.depths = deque(maxlen=5)
-        self.infos = deque(maxlen=5)
+        self.depths = self.inbox.depth
+        self.infos = self.inbox.info
         self.healthy = False
         self.healthy_count = 0
         self.last_frame = None
@@ -112,6 +108,7 @@ class FurnitureSemantic(Node):
             MarkerArray, '/r680_nav/semantic_markers',
             QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
                        durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        self.create_subscription(String, args.detections_topic, self.on_detections, 1)
         self.create_subscription(Image, '/r680/d455/color/image_raw', self.on_color,
                                  qos_profile_sensor_data)
         self.create_subscription(Image, '/r680/d455/aligned_depth_to_color/image_raw',
@@ -123,8 +120,19 @@ class FurnitureSemantic(Node):
         self.get_logger().info(f'furniture map={args.map_id}, output={self.path}')
 
     def on_health(self, msg):
+        if time.monotonic()-self.health_received > .5:
+            self.healthy_count = 0
+        self.health_received = time.monotonic()
         self.healthy = msg.data
         self.healthy_count = self.healthy_count + 1 if msg.data else 0
+
+    def on_detections(self, msg):
+        if self.args.detection_backend not in ('shared', 'agent'):
+            return
+        try:
+            self.inbox.push(msg.data, self.get_clock().now().nanoseconds, time.monotonic())
+        except (ValueError, TypeError, KeyError):
+            self.inbox.batch = None
 
     def on_color(self, msg):
         self.last_frame = msg
@@ -218,54 +226,58 @@ class FurnitureSemantic(Node):
         if not hasattr(self, 'last_marker_pub') or time.monotonic() - self.last_marker_pub > 1.0:
             self.publish_markers()
             self.last_marker_pub = time.monotonic()
-        if not self.healthy:
+        if not self.healthy or time.monotonic()-self.health_received > .5:
             return
         self.record_home()
-        if self.healthy_count < 10 or self.last_frame is None or not self.depths or not self.infos:
+        if self.healthy_count < 10 or not self.depths or not self.infos:
             return
         if time.monotonic() - self.last_inference < 1.0 / self.args.hz:
             return
-        image = self.last_frame
-        self.last_frame = None
-        depth = min(self.depths, key=lambda x: abs(stamp(x) - stamp(image)))
-        info = min(self.infos, key=lambda x: abs(stamp(x) - stamp(image)))
-        if abs(stamp(depth) - stamp(image)) > 0.08 or abs(stamp(info) - stamp(image)) > 0.25:
-            return
-        frame = color_array(image)
+        if self.args.detection_backend in ('shared', 'agent'):
+            matched = self.inbox.take(self.get_clock().now().nanoseconds,
+                                      time.monotonic(), require_rgb=False)
+            if matched is None:
+                return
+            batch, _, depth, info, _ = matched
+            image_stamp = Time(nanoseconds=batch['stamp_ns']).to_msg()
+            objects = select(batch, self.classes, .35)
+            source_frame = batch['frame_id']
+        else:
+            image = self.last_frame
+            self.last_frame = None
+            if image is None or not -.05 <= self.get_clock().now().nanoseconds/1e9-stamp(image) <= .5:
+                return
+            depth = min(self.depths, key=lambda x: abs(stamp(x)-stamp(image)))
+            info = min(self.infos, key=lambda x: abs(stamp(x)-stamp(image)))
+            if abs(stamp(depth)-stamp(image)) > .035 or abs(stamp(info)-stamp(image)) > .25:
+                return
+            frame = color_array(image)
+            if frame is None or frame.shape[:2] != (depth.height, depth.width):
+                return
+            image_stamp, source_frame = image.header.stamp, info.header.frame_id
+            try:
+                result = self.model.predict(frame, imgsz=416, conf=.35,
+                    classes=self.class_ids, max_det=20, verbose=False)[0]
+                objects = [dict(label=self.model.names[int(b.cls.item())],
+                    bbox_xyxy=[float(x) for x in b.xyxy[0].tolist()],
+                    confidence=float(b.conf.item())) for b in result.boxes]
+            except Exception as exc:
+                self.get_logger().warning(f'furniture inference failed: {exc}')
+                return
         depth_data = depth_array(depth)
-        if frame is None or depth_data is None or frame.shape[:2] != depth_data.shape:
+        if depth_data is None:
             return
-        source_frame = info.header.frame_id or 'd455_color_optical_frame'
-        tf = self.transform(source_frame, image.header.stamp)
+        tf = self.transform(source_frame, image_stamp)
         if tf is None or info.k[0] <= 0 or info.k[4] <= 0:
             return
         self.last_inference = time.monotonic()
-        try:
-            result = self.model.predict(frame, imgsz=416, conf=0.35,
-                                        classes=self.class_ids, max_det=20,
-                                        verbose=False)[0]
-        except Exception as exc:
-            self.get_logger().warning(f'furniture inference failed: {exc}')
-            return
         changed = False
         view = [tf.translation.x, tf.translation.y]
-        for box in result.boxes:
-            label = self.model.names[int(box.cls.item())]
-            x1, y1, x2, y2 = [float(x) for x in box.xyxy[0].tolist()]
-            width, height = x2 - x1, y2 - y1
-            if width < 12 or height < 12:
+        for obj in objects:
+            label = obj['label']
+            xyz_camera = bbox_point(obj['bbox_xyxy'], depth_data, info.k)
+            if xyz_camera is None:
                 continue
-            cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
-            radius = max(3, int(min(width, height) * 0.08))
-            u, v = int(cx), int(cy)
-            patch = depth_data[max(0, v-radius):min(depth.height, v+radius+1),
-                               max(0, u-radius):min(depth.width, u+radius+1)]
-            valid = patch[(patch >= 250) & (patch <= 4000)]
-            if valid.size < 10:
-                continue
-            distance_m = float(np.median(valid)) * .001
-            xyz_camera = [(cx - info.k[2]) * distance_m / info.k[0],
-                          (cy - info.k[5]) * distance_m / info.k[4], distance_m]
             xyz_map = transform_point(xyz_camera, tf)
             matched = None
             for feature in self.map['features']:
@@ -275,7 +287,7 @@ class FurnitureSemantic(Node):
                     if math.dist(old[:2], xyz_map[:2]) <= 0.6:
                         matched = feature
                         break
-            confidence = float(box.conf.item())
+            confidence = obj['confidence']
             if matched is None:
                 matched = {'type': 'Feature', 'id': f'furniture-{len(self.map["features"])+1:04d}',
                            'geometry': {'type': 'Point', 'coordinates': xyz_map},
@@ -306,7 +318,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', required=True)
     parser.add_argument('--map-id', required=True)
-    parser.add_argument('--model', required=True)
+    parser.add_argument('--model', default='')
+    parser.add_argument('--detection-backend', choices=('shared', 'agent', 'local_yolo'), default='shared')
+    parser.add_argument('--detections-topic', default=TOPIC)
+    parser.add_argument('--whitelist', required=True,
+                        help='Mapping-only class configuration; independent of Agent realtime classes')
     parser.add_argument('--hz', type=float, default=1.0)
     parser.add_argument('--mark-home', choices=('true', 'false'), default='false')
     args = parser.parse_args()

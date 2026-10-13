@@ -51,6 +51,7 @@
   <exec_depend>nav2_waypoint_follower</exec_depend>
   <exec_depend>realsense2_camera</exec_depend>
   <exec_depend>robot_localization</exec_depend>
+  <exec_depend>wla_openvins_navigation</exec_depend>
   <exec_depend>rtabmap_launch</exec_depend>
   <exec_depend>rtabmap_odom</exec_depend>
   <exec_depend>rviz2</exec_depend>
@@ -58,4 +59,5 @@
   <test_depend>ament_cmake_pytest</test_depend>
 
   <export><build_type>ament_cmake</build_type></export>
+  <exec_depend>wla_detection_bridge</exec_depend>
 </package>
