@@ -1,3 +1,5 @@
-#!/usr/bin/env bash
-set -euo pipefail
-exec /home/orin/Wheel_Legged_Agent/.venv-perception/bin/python -m wla_person_follow.node "$@"
+#!/usr/bin/env python3
+from wla_person_follow.node import main
+
+if __name__ == '__main__':
+    main()

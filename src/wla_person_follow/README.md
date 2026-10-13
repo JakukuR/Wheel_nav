@@ -1,65 +1,56 @@
-# R680 D455 视觉人物跟随
+# Relative person approach and follow
 
-安装路径：`/home/orin/ros2_ws/src/wla_person_follow`。本包复用已运行的 D455 ROS 2 驱动，不独占 USB 相机。RGB、已对齐彩色的深度和 CameraInfo 来自 `/r680/d455/*`；检测模型为现有 `/home/orin/Wheel_Legged_Agent/models/yolo11n.pt`。YOLO11 仅检测 COCO `person`，Ultralytics ByteTrack 维护候选 ID，锁定目标再叠加躯干颜色、三维位置与 odom 平面 Kalman 门控。
+人物执行仅使用机器人相对位置，提供 `follow` 与 `approach_interact` 两种模式。人物路径不再包含 map/odom 转换、Nav2 目标、世界坐标预测、自动换 ID、地图拐角搜索或 MPC。家具语义建图由导航侧独立维护，不受此包影响。
 
-## 工作方式
+## 运行与数据
 
-- D455 驱动负责深度对齐；感知线程取最新同步 RGB-D 帧，3×3 空间中值与稳定像素时域滤波；车端只读测试中预热约 4 s、稳定单帧 40–45 ms（约 22–25 FPS）；不承诺 40 FPS。超过 0.30 s 的帧直接丢弃。
-- 框内中央躯干的有效深度中值投影到 `r680_mapping_floor`。需要有效的相机光学坐标系到该基坐标系 TF，以及新鲜的 `/wheel/odom`；缺任一项时不产生跟随速度。
-- 深度点按 `z=0.10–1.50 m` 高度带投影，形成 6×6 m、0.10 m 栅格和 0.45 m 膨胀。发布的未观察格为 unknown；单前向相机无法认证侧后方为空。
-- 控制定时器 20 Hz。目标消失后最多 1.2 s 用 odom 平面匀速 Kalman 预测，线速封顶 0.08 m/s、角速封顶 0.25 rad/s。只在相机、TF、里程计、深度覆盖仍有效且前方畅通时继续。超时、身份歧义、双侧阻挡或障碍过近输出零。
-- 不能保证衣着相同、长时间完全遮挡或穿越人群时零误认。本包遇到相近候选会停下；超出预测窗后不自动重新获取目标，须人工重选。ByteTrack ID 本身不作为身份的唯一证据。
+`/home/orin/ros2_ws/r680_person_follow.sh check` 检查依赖，`run` 启动服务。启动仅等待命令；不会自动选人。`indoor`/`outdoor` 旧 shell 别名均转入同一相对执行模式。旧 `autonomous_follow.launch.py` 与 `voxel_mpc_follow.launch.py` 已移除。
 
-本包**仅**发布 `/r680/person_follow/cmd_vel_candidate`。默认 `enable_motion=false`，即使选中人物也只输出零速度；未接到 `/cmd_vel` 或 `/r680_nav/chassis_cmd_vel`。将来接入底盘时，应由现有唯一命令仲裁、安全监督、碰撞监测、速度守卫与硬件急停链审查后接线；不能直接把候选话题重映射到 `/cmd_vel`。
+唯一检测来源为 nav 侧 YOLO；本包不加载模型、不订阅 RGB。输入 `/r680/perception/relative_objects` 使用 `wla-relative-detections/v1`：
 
-## 构建与观察
-
-车端已有 Jazzy 和 `.venv-perception`（包含 CUDA PyTorch、Ultralytics、cv_bridge），无需安装其他模型：
-
-```bash
-cd /home/orin/ros2_ws
-source /opt/ros/jazzy/setup.bash
-colcon build --packages-select wla_person_follow
-source install/local_setup.bash
-ros2 launch wla_person_follow follow.launch.py publish_mount_tf:=true
+```json
+{
+  "schema": "wla-relative-detections/v1",
+  "stamp_ns": 10000000000,
+  "session": "camera-session",
+  "epoch": 0,
+  "enabled": true,
+  "base_frame": "r680_mapping_floor",
+  "objects": [
+    {"detected": true, "label": "person", "id": "camera-session:0:7", "yaw": 0.2, "distance": 2.0}
+  ]
+}
 ```
 
-仅在没有其他发布者负责该外参时使用 `publish_mount_tf:=true`；它复用车上已通过几何门限的外参脚本。
-独立终端先确认 `/wheel/odom` 和 `r680_mapping_floor <- d455_color_optical_frame` TF 新鲜，再看：
+业务字段只有是否识别、类别、ID、yaw、distance。外壳时间戳与 session/epoch 是时效和身份安全元数据。yaw 使用 rad，机器人左侧为正；distance 是机器人平面距离，单位 m。无有效深度或安装 TF 时 yaw/distance 同时为 null，不伪造坐标。输入源龄最多 0.30 s，传输时间计入此预算；检测状态 heartbeat 不会刷新目标证据。
 
-```bash
-ros2 topic echo /r680/person_follow/status
-ros2 topic echo /r680/person_follow/detections
-ros2 topic hz /r680/person_follow/debug/compressed
-```
+## Agent 执行接口
 
-`detections` 给出当前 `id`、`bbox_xyxy` 和米制相对坐标；订阅 `debug/compressed` 时生成带框图像。绿色框是已锁定目标，青色框是其他人。局部障碍图在 `/r680/person_follow/obstacles`。
+内部服务 `/r680/person_follow/command` 类型 `wla_behavior_interfaces/srv/PersonCommand`。Agent 应经正式桥接 facade 调用；内部契约如下。
 
-## 选择和清除目标
+| command | 作用 |
+| --- | --- |
+| start | 原子设置 request_id、mode、target_id、lease_duration_s；需要当前可见且相对位置有效的 person |
+| heartbeat | 仅为匹配且尚未到期的 request_id 续租 |
+| stop | 停止匹配 request_id；空 request_id 全停 |
+| status | 只读当前任务 |
 
-在实时检测列表中选择一个 ID，或使用当前 RGB 图像的像素坐标点击单个人框。仅接受当前可见且深度有效的候选，不会自动选择最近者：
+租约范围 0.1–2.0 s，建议 1 s 并约每 0.3 s 续租。重复同 request_id、mode、target_id 的 start 幂等且不续租；终止/到期的 request_id 不可复活，新任务需新 ID。同 request_id 携带不同参数会被拒绝。具名 stop 即使先于同 ID 的 start 到达，也会记录取消，阻止迟到 start；不会停止其他 ID 的当前任务。新 request_id 可以原子切换目标/模式。识别到多人时只执行完整 target_id 匹配者，绝不自动改跟另一 ID。
 
-```bash
-ros2 topic pub --once /r680/person_follow/select_track_id std_msgs/msg/Int32 '{data: 7}'
-ros2 topic pub --once /r680/person_follow/select_pixel geometry_msgs/msg/Point '{x: 320.0, y: 240.0, z: 0.0}'
-ros2 topic pub --once /r680/person_follow/clear std_msgs/msg/Empty '{}'
-```
+`follow` 默认保持 1.40 m；偏角大时只转向；距离过近不倒车。`approach_interact` 默认靠近到 0.95 m，加 0.10 m 到达容差；至少三个不同源帧满足距离且绝对 yaw≤0.12 rad 后进入 `arrived`，锁存停止，后续人走开不会自动追赶。
 
-`/r680/person_follow/status` 包含 `mode`（idle/tracking/predicting/recovering/ambiguous/lost）、停驶原因、传感器新鲜度、推理耗时和实际候选速度。仅在已完成隔离/仲裁及有人值守的实机验收后，才考虑启用候选输出：
+空检测、目标丢失、源证据过期、无效距离、深度不可用均立即零候选；不会沿预测目标继续走。同一 detector session/epoch、同一 ID 恢复且执行租约仍有效时可以继续。检测只读健康状态不可用或 detector 代际变化会取消任务，恢复后必须重新 start。NAV 检测进程有新鲜图像就持续推理，不提供 Agent 检测启停服务；本包仅消费 `/r680_nav/perception/status`，人物 stop 不会停止 YOLO。
 
-```bash
-ros2 topic pub --once /r680/person_follow/enable std_msgs/msg/Bool '{data: true}'
-```
+## 深度安全与运动权限
 
-该使能在进程内有效；启动默认关闭，`clear` 也会关闭。它本身不会连接或启动车轮。驱动端必须具备独立的命令超时与停止通道。
+本包保留本地 D455 aligned depth 安全门：深度、内参匹配，图像时刻 camera→`r680_mapping_floor` TF；无 map/odom 要求。无新鲜深度、深度覆盖不足、附近可见障碍、前进走廊占用时停止相应候选。人物本身仍是障碍。这是前向相机局部安全门，不提供完整屋内路径规划，也未建立侧后方完整可观测性或台阶通行能力。
 
-## 参数与依赖
+默认 `enable_motion=false`，`/r680/person_follow/cmd_vel_candidate` Twist 仅用于预览；正式 `/r680/person_follow/command_candidate` String 始终为零。`enable_motion:=true` 只允许生成正式候选，仍需要底盘显式选择 PERSON 自动源和 AUTO 授权；不会直接发布 `/r680_base/cmd_vel`。正式候选和 status 都有进程级 follow_session 与 request_id，防止跨重启/任务迟到速度。手动接管、切回 NAV 或运动控制状态失效会撤销执行。
 
-参数见 `config/follow.yaml`。默认使用导航栈的 `/wheel/odom`；独立运行原始驱动只提供 `/odom` 时，把 `odom_topic` 改为 `/odom`；里程计消息必须表示与 `base_frame` 一致的车体平面位姿。相机外参和高度必须经过现场核对，尤其是深度高度带与真正可碰撞物的关系。D455 盲区、低矮障碍、玻璃及逆光不受此格图覆盖。
+默认最大候选速度 0.20 m/s、0.45 rad/s；内部加速斜率有限，任何安全停立即置零。启动、退出、没有 Agent 命令时都持续零输出。现有相机/底盘实测制动、障碍和手动接管需在分级实车验收中验证，隔离回放不能代替。
 
-测试：
+底盘控制状态正常约 5 Hz；最多允许源时间 0.50 s，传输时间从这 0.50 s 预算扣除。迟到 AUTO 状态不得覆盖新 MANUAL，跨底盘进程旧会话状态也不得重新授权。
 
-```bash
-cd /home/orin/ros2_ws/src/wla_person_follow
-PYTHONPATH=. /home/orin/Wheel_Legged_Agent/.venv-perception/bin/python -m unittest discover -s test -v
-```
+## 测试
+
+`python3 -m unittest discover -s test -p 'test_relative_control.py' -v` 验证：无输入、安全门、源时间 TTL、检测健康兼容状态、会话/epoch、指定 ID、租约、原子模式切换、接近完成锁存、角度正负号和失目标立即停。

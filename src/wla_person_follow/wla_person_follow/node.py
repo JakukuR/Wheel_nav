@@ -1,411 +1,298 @@
-"""R680 D455 person follow node. Only publishes an isolated candidate Twist."""
+"""Relative approach/follow service with local depth safety and leased candidates."""
+from collections import deque
 import json
 import math
 import threading
 import time
+import uuid
 
-import cv2
 import numpy as np
 import rclpy
-from geometry_msgs.msg import Point, PointStamped, Twist
-from nav_msgs.msg import OccupancyGrid, Odometry
-from rclpy.duration import Duration
+from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
-from sensor_msgs.msg import CameraInfo, CompressedImage, Image
-from std_msgs.msg import Bool, Empty, Int32, String
+from rclpy.time import Time
+from sensor_msgs.msg import CameraInfo, Image
+from std_msgs.msg import String
 from tf2_ros import Buffer, TransformListener
+from wla_behavior_interfaces.srv import PersonCommand
 
-from .camera import DepthFilter, color_array, depth_meters
-from .controller import FollowController
+from .camera import depth_meters
 from .costmap import LocalCostmap
-from .depth_proc import points_to_map, rotation_from_quaternion, target_pose
-from .detector import PersonDetector
-from .target_lock import Observation, TargetLock
+from .depth_proc import points_to_base, rotation_from_quaternion
+from .relative_control import RelativeFollower, Safety
 
 
-def stamp_seconds(stamp):
-    return float(stamp.sec) + float(stamp.nanosec) * 1e-9
-
-
-def quaternion_yaw(q):
-    return math.atan2(2 * (q.w*q.z + q.x*q.y), 1 - 2 * (q.y*q.y + q.z*q.z))
-
-
-def base_to_world(xy, odom):
-    x, y, yaw = odom
-    c, s = math.cos(yaw), math.sin(yaw)
-    return np.array([x + c*xy[0] - s*xy[1], y + s*xy[0] + c*xy[1]])
-
-
-def world_to_base(xy, odom):
-    x, y, yaw = odom
-    dx, dy = xy[0]-x, xy[1]-y
-    c, s = math.cos(yaw), math.sin(yaw)
-    return np.array([c*dx + s*dy, -s*dx + c*dy])
+def stamp_ns(message):
+    return message.header.stamp.sec * 1_000_000_000 + message.header.stamp.nanosec
 
 
 class PersonFollow(Node):
     def __init__(self):
         super().__init__('person_follow')
-        defaults = {
-            'rgb_topic': '/r680/d455/color/image_raw',
-            'depth_topic': '/r680/d455/aligned_depth_to_color/image_raw',
-            'camera_info_topic': '/r680/d455/color/camera_info',
-            'odom_topic': '/wheel/odom',
-            'base_frame': 'r680_mapping_floor',
-            'output_topic': '/r680/person_follow/cmd_vel_candidate',
-            'model_path': '/home/orin/Wheel_Legged_Agent/models/yolo11n.pt',
-            'confidence': .35, 'image_size': 640,
-            'camera_sync_tolerance_s': .035, 'max_sensor_age_s': .30,
-            'max_odom_age_s': .30, 'target_distance_m': 1.4,
-            'max_linear_mps': .20, 'max_angular_rps': .45,
-            'prediction_horizon_s': 1.2, 'prediction_linear_mps': .08,
-            'obstacle_height_min_m': .10, 'obstacle_height_max_m': 1.50,
-            'obstacle_inflation_m': .45, 'emergency_distance_m': .60,
-            'camera_min_valid_fraction': .25, 'camera_front_min_valid_fraction': .35,
-            'depth_min_m': .25,
-            'depth_max_m': 5., 'enable_motion': False,
-        }
-        for key, value in defaults.items():
-            self.declare_parameter(key, value)
-        self.p = {key: self.get_parameter(key).value for key in defaults}
-        if self.p['output_topic'] != '/r680/person_follow/cmd_vel_candidate':
-            raise ValueError('output must remain the isolated person-follow candidate topic')
-        if not 0 < self.p['max_linear_mps'] <= .30 or not 0 < self.p['max_angular_rps'] <= .50:
-            raise ValueError('configured speed exceeds R680 commissioning limits')
-        if not 0 < self.p['prediction_horizon_s'] <= 1.5:
-            raise ValueError('prediction horizon must be <= 1.5 s')
-        self.detector = PersonDetector(self.p['model_path'], self.p['confidence'],
-                                       self.p['image_size'])
-        self.depth_filter = DepthFilter()
-        self.locked = TargetLock(self.p['prediction_horizon_s'])
-        self.controller = FollowController(
-            self.p['target_distance_m'], self.p['max_linear_mps'],
-            self.p['max_angular_rps'], self.p['prediction_linear_mps'],
-            self.p['emergency_distance_m'])
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
+        defaults = dict(
+            relative_topic='/r680/perception/relative_objects',
+            detection_status_topic='/r680_nav/perception/status',
+            depth_topic='/r680/d455/aligned_depth_to_color/image_raw',
+            camera_info_topic='/r680/d455/color/camera_info',
+            base_frame='r680_mapping_floor', max_sensor_age_s=.30,
+            follow_distance_m=1.4, approach_distance_m=.95,
+            max_linear_mps=.20, max_angular_rps=.45, emergency_distance_m=.60,
+            obstacle_inflation_m=.45, obstacle_height_min_m=.10,
+            obstacle_height_max_m=1.50, depth_min_m=.25, depth_max_m=5.,
+            camera_min_valid_fraction=.25, camera_front_min_valid_fraction=.35,
+            enable_motion=False)
+        self.p = {key: self.declare_parameter(key, value).value for key, value in defaults.items()}
+        self.core = RelativeFollower(self.p['base_frame'], self.p['max_sensor_age_s'],
+            self.p['follow_distance_m'], self.p['approach_distance_m'],
+            self.p['max_linear_mps'], self.p['max_angular_rps'], self.p['emergency_distance_m'])
+        if (not 0 < self.p['depth_min_m'] < self.p['depth_max_m'] <= 10 or
+                not 0 <= self.p['obstacle_height_min_m'] < self.p['obstacle_height_max_m'] or
+                not .30 <= self.p['obstacle_inflation_m'] <= .75 or
+                not .25 <= self.p['camera_min_valid_fraction'] <= 1 or
+                not .35 <= self.p['camera_front_min_valid_fraction'] <= 1):
+            raise ValueError('invalid_depth_safety_configuration')
         self.guard = threading.RLock()
         self.event = threading.Event()
-        self.done = False
-        self.rgb = None
-        self.depth = None
-        self.pending = None
-        self.last_pair_stamp = -1.
-        self.intrinsics = None
-        self.odom = None
-        self.odom_received = 0.
-        self.odom_stamp = 0.
-        self.grid = None
-        self.grid_received = 0.
-        self.grid_stamp = 0.
-        self.valid_fraction = 0.
-        self.front_valid_fraction = 0.
-        self.observations = []
-        self.observations_received = 0.
-        self.inference_ms = 0.
-        self.last_error_log = 0.
-        self.enabled = bool(self.p['enable_motion'])
-        self.last_tick = time.monotonic()
-
-        self.cmd_pub = self.create_publisher(Twist, self.p['output_topic'], 1)
+        self.done, self.pending = False, None
+        self.infos = deque(maxlen=24)
+        self.last_depth_stamp, self.safety_stamp, self.safety_until = 0, 0, -math.inf
+        self.safety = Safety()
+        self.safety_reason = 'waiting_for_depth'
+        self.tf = Buffer()
+        self.listener = TransformListener(self.tf, self)
+        self.control_state, self.control_seen = {}, -math.inf
+        self.control_until = -math.inf
+        self.retired_control_sessions = set()
+        self.follow_session = uuid.uuid4().hex
+        self.last_motion_permission = False
+        self.cmd_pub = self.create_publisher(Twist, '/r680/person_follow/cmd_vel_candidate', 1)
+        self.leased_pub = self.create_publisher(String, '/r680/person_follow/command_candidate', 1)
         self.status_pub = self.create_publisher(String, '/r680/person_follow/status', 5)
-        self.box_pub = self.create_publisher(String, '/r680/person_follow/detections', 5)
-        self.debug_pub = self.create_publisher(CompressedImage, '/r680/person_follow/debug/compressed', 1)
-        self.grid_pub = self.create_publisher(OccupancyGrid, '/r680/person_follow/obstacles', 1)
-        self.target_pub = self.create_publisher(PointStamped, '/r680/person_follow/target_base', 1)
-        self.create_subscription(Image, self.p['rgb_topic'], self._on_rgb, qos_profile_sensor_data)
-        self.create_subscription(Image, self.p['depth_topic'], self._on_depth, qos_profile_sensor_data)
-        self.create_subscription(CameraInfo, self.p['camera_info_topic'], self._on_info,
-                                 qos_profile_sensor_data)
-        self.create_subscription(Odometry, self.p['odom_topic'], self._on_odom,
-                                 qos_profile_sensor_data)
-        self.create_subscription(Int32, '/r680/person_follow/select_track_id',
-                                 self._select_id, 5)
-        self.create_subscription(Point, '/r680/person_follow/select_pixel',
-                                 self._select_pixel, 5)
-        self.create_subscription(Empty, '/r680/person_follow/clear', self._clear, 5)
-        self.create_subscription(Bool, '/r680/person_follow/enable', self._enable, 5)
-        self.create_timer(.05, self._control)
-        self.worker = threading.Thread(target=self._process_loop, name='person_follow_perception',
-                                       daemon=True)
+        self.create_subscription(String, self.p['relative_topic'], self.on_relative, 1)
+        self.create_subscription(String, self.p['detection_status_topic'], self.on_detection_status, 1)
+        self.create_subscription(Image, self.p['depth_topic'], self.on_depth, qos_profile_sensor_data)
+        self.create_subscription(CameraInfo, self.p['camera_info_topic'], self.on_info, qos_profile_sensor_data)
+        self.create_subscription(String, '/r680_base/control_state', self.on_control_state, 5)
+        self.create_service(PersonCommand, '/r680/person_follow/command', self.on_command)
+        self.worker = threading.Thread(target=self.depth_worker, name='relative-depth-safety', daemon=True)
         self.worker.start()
-        self.get_logger().warn(
-            f"Person follow starts {'ENABLED' if self.enabled else 'DISABLED'}; "
-            f"publishes candidate velocity only to {self.p['output_topic']}")
+        self.create_timer(.05, self.tick)
+        self.get_logger().info('Relative person service ready; waiting for explicit Agent command and detection. '
+            + ('Motion candidates enabled; final mux authorization remains required.' if self.p['enable_motion']
+               else 'Preview mode: leased motion candidates remain zero.'))
 
-    def _stamp_fresh(self, stamp, maximum):
-        if stamp <= 0:
-            return False
-        age = self.get_clock().now().nanoseconds * 1e-9 - stamp
-        return -.10 <= age <= maximum
+    def ros_ns(self):
+        return self.get_clock().now().nanoseconds
 
-    def _on_rgb(self, msg):
+    def on_relative(self, message):
         with self.guard:
-            self.rgb = (msg, time.monotonic())
-            self._pair()
+            if not self.core.receive(message.data, time.monotonic(), self.ros_ns()):
+                self.publish(0., 0.)
+            elif not self.core.active or not self.core.objects.get(self.core.target_id):
+                self.publish(0., 0.)
 
-    def _on_depth(self, msg):
+    def on_detection_status(self, message):
         with self.guard:
-            self.depth = (msg, time.monotonic())
-            self._pair()
+            self.core.receive_status(message.data, time.monotonic(), self.ros_ns())
+            if not self.core.active:
+                self.publish(0., 0.)
 
-    def _pair(self):
-        if self.rgb is None or self.depth is None:
+    def on_command(self, request, response):
+        with self.guard:
+            accepted, reason = self.core.command(request.command, request.request_id, request.mode,
+                request.target_id, request.lease_duration_s, time.monotonic())
+            state = self.core.snapshot(time.monotonic())
+            acknowledgement = dict(state)
+            terminal_for_caller = (request.request_id == state['request_id'] and
+                state['state'] in ('arrived', 'stopped', 'cancelled', 'expired'))
+            if not accepted and request.command != 'status' and not terminal_for_caller:
+                acknowledgement.update(request_id=request.request_id, state='rejected', enabled=False,
+                                       mode=request.mode, target_id=request.target_id)
+            elif (accepted and request.command == 'stop' and request.request_id and
+                  request.request_id != state['request_id']):
+                # The service acknowledges the requested cancellation. Current
+                # task state continues on the status stream without any change.
+                acknowledgement.update(request_id=request.request_id, state='stopped', enabled=False,
+                                       mode='', target_id='')
+            response.accepted, response.reason = accepted, reason
+            for field in ('request_id', 'state', 'mode', 'target_id', 'enabled'):
+                setattr(response, field, acknowledgement[field])
+            if accepted and (request.command == 'start' or request.command == 'stop' and
+                             (not request.request_id or request.request_id == state['request_id'])):
+                self.publish(0., 0.)
+        return response
+
+    def on_control_state(self, message):
+        try:
+            data = json.loads(message.data)
+            if not isinstance(data, dict):
+                return
+            session = data.get('control_session')
+            if (data.get('automatic_source') not in ('NAV', 'PERSON') or
+                    type(data.get('source_generation')) is not int or
+                    type(data.get('person_revoke_generation')) is not int or
+                    data['source_generation'] < 0 or data['person_revoke_generation'] < 0 or
+                    not isinstance(session, str) or not 1 <= len(session) <= 128 or
+                    data.get('mode') not in ('AUTO', 'MANUAL')):
+                return
+            source_stamp = data.get('stamp_ns')
+            source_age = (self.ros_ns()-source_stamp)/1e9 if type(source_stamp) is int else math.inf
+            if (type(source_stamp) is not int or source_stamp <= 0 or
+                    not -.05 <= source_age <= .50):
+                return
+            with self.guard:
+                previous = self.control_state
+                if session in self.retired_control_sessions:
+                    return
+                same_session = session == previous.get('control_session')
+                if previous and same_session and (source_stamp <= previous['stamp_ns'] or
+                    data['source_generation'] < previous['source_generation'] or
+                    data['person_revoke_generation'] < previous['person_revoke_generation']):
+                    return
+                if previous and not same_session:
+                    if len(self.retired_control_sessions) >= 1024:
+                        return
+                    self.retired_control_sessions.add(previous['control_session'])
+                revoked = bool(previous) and (
+                    not same_session and previous['automatic_source'] == 'PERSON' or
+                    same_session and data['person_revoke_generation'] != previous['person_revoke_generation'] or
+                    previous['automatic_source'] == 'PERSON' and data['automatic_source'] != 'PERSON' or
+                    previous['automatic_source'] == 'PERSON' and previous['mode'] == 'AUTO' and data['mode'] != 'AUTO')
+                self.control_state, self.control_seen = data, time.monotonic()
+                self.control_until = self.control_seen + max(0., .50-max(0., source_age))
+                if revoked and self.core.active:
+                    self.core._terminate('cancelled', 'motion_authority_revoked')
+                    self.publish(0., 0.)
+        except (ValueError, TypeError, KeyError):
             return
-        rgb, rgb_time = self.rgb
-        depth, depth_time = self.depth
-        r_stamp = stamp_seconds(rgb.header.stamp)
-        d_stamp = stamp_seconds(depth.header.stamp)
-        if (abs(r_stamp - d_stamp) <= self.p['camera_sync_tolerance_s']
-                and r_stamp > self.last_pair_stamp
-                and rgb.width == depth.width and rgb.height == depth.height):
-            self.pending = (rgb, depth, min(rgb_time, depth_time), r_stamp)
-            self.last_pair_stamp = r_stamp
+
+    def on_info(self, message):
+        with self.guard:
+            self.infos.append(message)
+
+    def on_depth(self, message):
+        stamp = stamp_ns(message)
+        now = self.ros_ns()
+        if (stamp <= 0 or not -.05 <= (now-stamp)/1e9 <= self.p['max_sensor_age_s'] or
+                not 0 < message.width*message.height <= 2_000_000):
+            return
+        with self.guard:
+            if stamp <= self.last_depth_stamp:
+                return
+            self.last_depth_stamp = stamp
+            self.pending = (message, now, time.monotonic())
             self.event.set()
 
-    def _on_info(self, msg):
-        if msg.k[0] <= 0 or msg.k[4] <= 0:
-            return
-        with self.guard:
-            self.intrinsics = (msg.k[0], msg.k[4], msg.k[2], msg.k[5])
-
-    def _on_odom(self, msg):
-        if msg.child_frame_id.lstrip('/') != self.p['base_frame']:
-            return
-        pose = msg.pose.pose
-        values = (pose.position.x, pose.position.y, quaternion_yaw(pose.orientation))
-        if not all(math.isfinite(v) for v in values):
-            return
-        with self.guard:
-            self.odom = values
-            self.odom_received = time.monotonic()
-            self.odom_stamp = stamp_seconds(msg.header.stamp)
-
-    def _odom_fresh(self, now):
-        return (self.odom is not None
-                and now - self.odom_received <= self.p['max_odom_age_s']
-                and self._stamp_fresh(self.odom_stamp, self.p['max_odom_age_s']))
-
-    def _select(self, candidates):
-        with self.guard:
-            if time.monotonic() - self.observations_received > .40 or not self._odom_fresh(time.monotonic()):
-                self.get_logger().warn('selection rejected: observations or odometry stale')
-                return
-            if len(candidates) != 1 or not np.all(np.isfinite(candidates[0].world_xy)):
-                self.get_logger().warn('selection rejected: expected exactly one visible valid-depth person')
-                return
-            self.locked.select(candidates[0], time.monotonic())
-            self.controller.reset()
-            self.get_logger().info(f'selected person track ID {candidates[0].track_id}')
-
-    def _select_id(self, msg):
-        with self.guard:
-            candidates = [o for o in self.observations if o.track_id == msg.data]
-        self._select(candidates)
-
-    def _select_pixel(self, msg):
-        with self.guard:
-            candidates = [o for o in self.observations
-                          if o.box[0] <= msg.x <= o.box[2] and o.box[1] <= msg.y <= o.box[3]]
-        # Overlapping person boxes are ambiguous; require explicit ID or a new click.
-        self._select(candidates)
-
-    def _clear(self, _msg):
-        with self.guard:
-            self.locked.clear()
-            self.enabled = False
-            self.controller.reset()
-
-    def _enable(self, msg):
-        with self.guard:
-            self.enabled = bool(msg.data)
-            self.controller.reset()
-
-    def _process_loop(self):
-        while not self.done:
+    def depth_worker(self):
+        while True:
             self.event.wait(.1)
-            if self.done:
-                break
             with self.guard:
-                item = self.pending
-                self.pending = None
+                if self.done:
+                    return
+                pending, self.pending = self.pending, None
                 self.event.clear()
-                intrinsics = self.intrinsics
-                odom = self.odom if self._odom_fresh(time.monotonic()) else None
-            if item is None or intrinsics is None:
+                infos = tuple(self.infos)
+            if pending is None:
                 continue
-            rgb_msg, depth_msg, received, source_stamp = item
-            if (time.monotonic() - received > self.p['max_sensor_age_s']
-                    or not self._stamp_fresh(source_stamp, self.p['max_sensor_age_s'])):
+            message, ros_received, received = pending
+            stamp = stamp_ns(message)
+            valid_until = received + self.p['max_sensor_age_s'] - max(0., (ros_received-stamp)/1e9)
+            if time.monotonic() >= valid_until:
                 continue
             try:
-                frame = color_array(rgb_msg)
-                depth = self.depth_filter.apply(depth_meters(depth_msg))
-                valid = (depth >= self.p['depth_min_m']) & (depth <= self.p['depth_max_m'])
-                valid_fraction = float(np.mean(valid))
-                h, w = valid.shape
-                front_valid_fraction = float(np.mean(valid[int(h*.35):int(h*.80),
-                                                          int(w*.30):int(w*.70)]))
-                started = time.monotonic()
-                tracks = self.detector.track(frame)
-                inference_ms = (time.monotonic() - started) * 1000.
-                self._publish_boxes(tracks, rgb_msg.header)
-                self._publish_debug(frame, tracks, rgb_msg.header)
-                transform = self.tf_buffer.lookup_transform(
-                    self.p['base_frame'], rgb_msg.header.frame_id,
-                    rclpy.time.Time(), timeout=Duration(seconds=.05))
-                q = transform.transform.rotation
+                info = min(infos, key=lambda m: abs(stamp_ns(m)-stamp), default=None)
+                if (info is None or abs(stamp_ns(info)-stamp) > 250_000_000 or
+                        info.header.frame_id != message.header.frame_id or
+                        (info.width, info.height) != (message.width, message.height) or
+                        not np.isfinite(info.k).all() or info.k[0] <= 0 or info.k[4] <= 0):
+                    raise ValueError('depth_calibration_unavailable')
+                transform = self.tf.lookup_transform(self.p['base_frame'], message.header.frame_id,
+                                                      Time(nanoseconds=stamp)).transform
+                q, t = transform.rotation, transform.translation
                 rotation = rotation_from_quaternion((q.x, q.y, q.z, q.w))
-                t = transform.transform.translation
                 translation = np.array([t.x, t.y, t.z], dtype=np.float32)
-                observations = []
-                for track in tracks:
-                    optical = target_pose(depth, track.box, intrinsics,
-                                          self.p['depth_min_m'], self.p['depth_max_m'])
-                    if optical is None:
-                        continue
-                    base = rotation @ optical + translation
-                    if base[0] <= .15 or not np.all(np.isfinite(base)):
-                        continue
-                    world = (base_to_world(base[:2], odom) if odom is not None
-                             else np.array([float('nan'), float('nan')]))
-                    observations.append(Observation(track.track_id, track.box, track.appearance,
-                                                    world, base[:2], track.confidence))
-                with self.guard:
-                    if odom is not None:
-                        _, mode = self.locked.update(observations, time.monotonic())
-                    else:
-                        mode = self.locked.mode
-                    exclusion = self.locked.last_box if odom is not None and mode == 'tracking' else None
-                points = points_to_map(
-                    depth, intrinsics, rotation, translation, exclusion=exclusion,
-                    minimum=self.p['depth_min_m'], maximum=self.p['depth_max_m'],
-                    height_min=self.p['obstacle_height_min_m'],
-                    height_max=self.p['obstacle_height_max_m'])
+                if not np.isfinite(translation).all():
+                    raise ValueError('invalid_mount_transform')
+                depth = depth_meters(message)
+                valid = np.isfinite(depth) & (depth >= self.p['depth_min_m']) & (depth <= self.p['depth_max_m'])
+                h, w = valid.shape
+                front = valid[int(h*.35):max(int(h*.80),int(h*.35)+1), int(w*.30):max(int(w*.70),int(w*.30)+1)]
+                if (float(np.mean(valid)) < self.p['camera_min_valid_fraction'] or not front.size or
+                        float(np.mean(front)) < self.p['camera_front_min_valid_fraction']):
+                    raise ValueError('insufficient_depth_coverage')
+                points = points_to_base(depth, (info.k[0],info.k[4],info.k[2],info.k[5]),
+                    rotation, translation, minimum=self.p['depth_min_m'], maximum=self.p['depth_max_m'],
+                    height_min=self.p['obstacle_height_min_m'], height_max=self.p['obstacle_height_max_m'])
                 grid = LocalCostmap(inflation=self.p['obstacle_inflation_m'])
                 grid.update(points)
+                # Radius checks also stop rotation near visible side obstacles. The
+                # forward sweep extends to .45 m plus footprint inflation; a 1 m
+                # interaction target must not be treated as a wall 1.3 m away.
+                nearest = float(np.min(np.hypot(points[:, 0], points[:, 1]))) if len(points) else math.inf
+                safety = Safety(True, min(grid.front_distance(), nearest),
+                                not any(grid.collision_at(x, 0.) for x in (.25,.35,.45)))
                 with self.guard:
-                    self.grid = grid
-                    self.grid_received = time.monotonic()
-                    self.grid_stamp = source_stamp
-                    self.valid_fraction = valid_fraction
-                    self.front_valid_fraction = front_valid_fraction
-                    self.observations = observations
-                    self.observations_received = time.monotonic()
-                    self.inference_ms = inference_ms
-                self._publish_grid(grid, rgb_msg.header.stamp)
+                    if not self.done and time.monotonic() < valid_until:
+                        self.safety, self.safety_stamp, self.safety_until = safety, stamp, valid_until
+                        self.safety_reason = 'valid_depth'
             except Exception as exc:
-                if time.monotonic() - self.last_error_log > 5.:
-                    self.get_logger().error(f'perception frame rejected: {exc}')
-                    self.last_error_log = time.monotonic()
                 with self.guard:
-                    self.grid = None
-                    self.valid_fraction = 0.
-                    self.front_valid_fraction = 0.
+                    self.safety, self.safety_until = Safety(), -math.inf
+                    self.safety_reason = str(exc)[:160]
 
-    def _publish_boxes(self, observations, header):
-        data = [{'id': o.track_id, 'bbox_xyxy': [round(v, 1) for v in o.box],
-                 'confidence': round(o.confidence, 3),
-                 'base_xy_m': None} for o in observations]
-        msg = String()
-        msg.data = json.dumps({'stamp': stamp_seconds(header.stamp), 'people': data})
-        self.box_pub.publish(msg)
+    def motion_permitted(self, now):
+        return bool(self.p['enable_motion'] and now < self.control_until and
+                    -.05 <= (self.ros_ns()-self.control_state.get('stamp_ns',0))/1e9 <= .50 and
+                    self.control_state.get('automatic_source') == 'PERSON' and
+                    self.control_state.get('mode') == 'AUTO')
 
-    def _publish_debug(self, frame, observations, header):
-        if self.debug_pub.get_subscription_count() == 0:
-            return
-        with self.guard:
-            selected = self.locked.track_id
-            mode = self.locked.mode
-        annotated = frame.copy()
-        for obs in observations:
-            x1, y1, x2, y2 = (int(v) for v in obs.box)
-            color = (0, 255, 0) if obs.track_id == selected else (255, 255, 0)
-            cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
-            cv2.putText(annotated, f'ID {obs.track_id} {obs.confidence:.2f}',
-                        (x1, max(20, y1-8)), cv2.FONT_HERSHEY_SIMPLEX, .55, color, 2)
-        cv2.putText(annotated, f'Target {selected} | {mode}', (12, 25),
-                    cv2.FONT_HERSHEY_SIMPLEX, .65, (0, 255, 0), 2)
-        ok, encoded = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 78])
-        if ok:
-            msg = CompressedImage()
-            msg.header = header
-            msg.format = 'jpeg'
-            msg.data = encoded.tobytes()
-            self.debug_pub.publish(msg)
-
-    def _publish_grid(self, grid, stamp):
-        msg = OccupancyGrid()
-        msg.header.stamp = stamp
-        msg.header.frame_id = self.p['base_frame']
-        msg.info.resolution = grid.resolution
-        msg.info.width = msg.info.height = grid.cells
-        msg.info.origin.position.x = msg.info.origin.position.y = -grid.size/2
-        msg.info.origin.orientation.w = 1.
-        # Unknown cells stay unknown: a single forward camera cannot observe all 360 degrees.
-        values = np.full(grid.occupied.shape, -1, dtype=np.int8)
-        values[grid.occupied > 0] = 100
-        msg.data = values.ravel().tolist()
-        self.grid_pub.publish(msg)
-
-    def _control(self):
+    def tick(self):
         now = time.monotonic()
-        dt = now - self.last_tick
-        self.last_tick = now
         with self.guard:
-            enabled = self.enabled
-            sensor_ok = (self.grid is not None
-                         and now - self.grid_received <= self.p['max_sensor_age_s']
-                         and self._stamp_fresh(self.grid_stamp, self.p['max_sensor_age_s'])
-                         and self.valid_fraction >= self.p['camera_min_valid_fraction']
-                         and self.front_valid_fraction >= self.p['camera_front_min_valid_fraction'])
-            odom_ok = self._odom_fresh(now)
-            mode = self.locked.mode
-            target_world = self.locked.position(now) if odom_ok else None
-            target = world_to_base(target_world, self.odom) if target_world is not None else None
-            if enabled and sensor_ok and odom_ok and mode in ('tracking', 'predicting'):
-                linear, angular, reason = self.controller.command(
-                    target, self.grid, dt, predicting=(mode == 'predicting'))
-            else:
-                self.controller.reset()
-                linear, angular = 0., 0.
-                reason = ('disabled' if not enabled else 'sensor_stale' if not sensor_ok
-                          else 'odom_stale' if not odom_ok else mode)
-            selected_id = self.locked.track_id
-            missing = None if self.locked.last_seen is None else round(now-self.locked.last_seen, 2)
-            valid_fraction = self.valid_fraction
-            front_valid_fraction = self.front_valid_fraction
-            inference_ms = self.inference_ms
-        twist = Twist()
-        twist.linear.x = float(linear)
-        twist.angular.z = float(angular)
-        self.cmd_pub.publish(twist)
-        if target is not None:
-            point = PointStamped()
-            point.header.stamp = self.get_clock().now().to_msg()
-            point.header.frame_id = self.p['base_frame']
-            point.point.x, point.point.y = float(target[0]), float(target[1])
-            self.target_pub.publish(point)
-        status = String()
-        status.data = json.dumps({
-            'mode': mode, 'selected_track_id': selected_id, 'enabled': enabled,
-            'reason': reason, 'missing_s': missing,
-            'target_base_xy_m': None if target is None else [round(float(v), 2) for v in target],
-            'linear_mps': round(linear, 3), 'angular_rps': round(angular, 3),
-            'camera_valid_fraction': round(valid_fraction, 3),
-            'front_valid_fraction': round(front_valid_fraction, 3),
-            'inference_ms': round(inference_ms, 1),
-            'sensor_fresh': sensor_ok, 'odom_fresh': odom_ok,
-        })
-        self.status_pub.publish(status)
+            permitted = self.motion_permitted(now)
+            if self.last_motion_permission and not permitted and self.core.active:
+                self.core._terminate('cancelled', 'motion_authority_lost')
+            self.last_motion_permission = permitted
+            safety = self.safety if (now < self.safety_until and
+                -.05 <= (self.ros_ns()-self.safety_stamp)/1e9 <= self.p['max_sensor_age_s']) else Safety()
+            linear, angular = self.core.tick(now, safety)
+            self.publish(linear, angular)
+
+    def publish(self, linear, angular):
+        now, ros_now = time.monotonic(), self.ros_ns()
+        state = self.core.snapshot(now)
+        permitted = self.motion_permitted(now)
+        state.update(schema='wla-person-status/v1', stamp_ns=ros_now,
+            follow_session=self.follow_session,
+            base_frame=self.p['base_frame'], candidate_only=not self.p['enable_motion'],
+            motion_permitted=permitted and state['enabled'],
+            linear_mps=linear, angular_rps=angular, safety_reason=self.safety_reason,
+            safety_fresh=now < self.safety_until)
+        state['fault'] = bool(state['request_id'] and state['state'] == 'cancelled' and
+            state['reason'] in ('detector_generation_changed', 'detection_disabled',
+                               'motion_authority_revoked', 'motion_authority_lost'))
+        self.status_pub.publish(String(data=json.dumps(state, allow_nan=False)))
+        preview = Twist()
+        preview.linear.x, preview.angular.z = float(linear), float(angular)
+        self.cmd_pub.publish(preview)
+        # The final mux independently checks source, mode, task, source age and limits.
+        actual = (linear, angular) if permitted and state['enabled'] else (0., 0.)
+        self.leased_pub.publish(String(data=json.dumps(dict(schema='wla-person-candidate/v1',
+            follow_session=self.follow_session,
+            request_id=state['request_id'], stamp_ns=ros_now,
+            linear=float(actual[0]), angular=float(actual[1])), allow_nan=False)))
 
     def close(self):
-        self.done = True
+        with self.guard:
+            self.done = True
+            self.core._terminate('stopped', 'node_shutdown')
+            if self.context.ok():
+                self.publish(0., 0.)
         self.event.set()
         self.worker.join(timeout=2.)
-        self.cmd_pub.publish(Twist())
+        if self.context.ok():
+            self.publish(0., 0.)
 
 
 def main(args=None):
@@ -414,13 +301,13 @@ def main(args=None):
     try:
         node = PersonFollow()
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
         pass
     finally:
         if node is not None:
             node.close()
             node.destroy_node()
-        rclpy.shutdown()
+        rclpy.try_shutdown()
 
 
 if __name__ == '__main__':
