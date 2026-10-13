@@ -1,0 +1,6 @@
+# JSON operations: list_map, list_visible, navigate_near, heartbeat, status, cancel.
+# navigate_near is an approved installed action route, not untrusted model text.
+string request_json
+---
+bool success
+string response_json

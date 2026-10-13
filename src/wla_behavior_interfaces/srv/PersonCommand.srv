@@ -1,0 +1,14 @@
+# Atomic relative person task. A start never enables perception implicitly.
+string command
+string request_id
+string mode
+string target_id
+float64 lease_duration_s
+---
+bool accepted
+string reason
+string request_id
+string state
+string mode
+string target_id
+bool enabled

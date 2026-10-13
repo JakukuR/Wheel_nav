@@ -1,0 +1,24 @@
+# Goal supplied by the validated Agent adapter; never raw motor commands or XML.
+string request_id
+string instance_id
+uint64 generation
+string owner
+string action_id
+string package_version
+string phase
+string target_key
+string map_id
+string map_revision
+string feature_id
+string target_fingerprint
+---
+string request_id
+uint64 generation
+string state
+string reason
+---
+string request_id
+uint64 generation
+string state
+string reason
+float32 distance_remaining

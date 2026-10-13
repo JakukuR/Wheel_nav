@@ -1,0 +1,13 @@
+string map_id
+string feature_id
+string label
+string room
+---
+bool success
+string reason
+string feature_id
+string semantic_id
+string map_revision
+uint64 semantic_revision
+string target_fingerprint
+geometry_msgs/PoseStamped approach_pose
