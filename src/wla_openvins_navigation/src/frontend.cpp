@@ -66,7 +66,6 @@ class Frontend final : public rclcpp::Node {
     visual_timeout_=positive("visual_timeout_s",0.50);
     max_delay_=positive("max_input_age_s",0.50);
     sync_tol_=positive("stereo_tolerance_s",0.003);
-    propagation_lag_=positive("camera_holdback_s",0.20);
     max_accel_=positive("max_acceleration_mps2",150.);
     max_gyro_=positive("max_angular_rate_rps",30.);
     pos_limit_=positive("max_position_std_m",0.5);
@@ -217,10 +216,7 @@ class Frontend final : public rclcpp::Node {
         accepted_,camera.timestamp+dt,visual_timeout_,last_visual_,recovery_);
     }
     if(!estimator_->initialized()) return;
-    // Advance the same posterior during camera stop, at bounded 10 Hz. Keep a
-    // holdback for delayed images; late images older than this posterior are rejected.
-    double target=t-dt-propagation_lag_;
-    if(target-estimator_->get_state()->_timestamp>0.1) estimator_->propagate_without_camera(target);
+    // Predict output at IMU rate without advancing the camera-update posterior.
     wla_openvins::State x; wla_openvins::Covariance P;
     if(!estimator_->get_propagator()->fast_state_propagate(estimator_->get_state(),t,x,P)) {
       state_valid_=false; return;
@@ -277,7 +273,7 @@ class Frontend final : public rclcpp::Node {
   ov_msckf::VioManagerOptions params_;std::shared_ptr<ov_msckf::VioManager> estimator_;
   Eigen::Isometry3d T_IB_;std::string world_,body_,imu_frame_,left_frame_,right_frame_,left_info_frame_,right_info_frame_,instance_,fault_;
   bool publish_tf_=false,state_valid_=false,require_info_=true,info_valid_[2]={false,false},startup_clock_wait_=false;
-  double imu_timeout_,imu_gap_,visual_timeout_,max_delay_,sync_tol_,propagation_lag_,max_accel_,max_gyro_;
+  double imu_timeout_,imu_gap_,visual_timeout_,max_delay_,sync_tol_,max_accel_,max_gyro_;
   double pos_limit_,rot_limit_,vel_limit_,pos_std_=1e9,rot_std_=1e9,vel_std_=1e9;
   double last_imu_=-1,last_image_=-1,last_visual_=-1,state_stamp_=-1,last_left_=-1,last_right_=-1;
   uint64_t generation_=0,rejected_imu_=0,rejected_images_=0;unsigned recovery_=0,accepted_=0;

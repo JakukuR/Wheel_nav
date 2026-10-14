@@ -31,7 +31,6 @@ void propagation(ov_msckf::VioManagerOptions o,bool black) {
         vio.feed_measurement_camera(c);
       }
     }
-    if(t-offset-.2-vio.get_state()->_timestamp>.1)vio.propagate_without_camera(t-offset-.2);
     wla_openvins::State x;wla_openvins::Covariance p;
     assert(vio.get_propagator()->fast_state_propagate(vio.get_state(),t,x,p));
     ++outputs;assert(x.allFinite()&&p.allFinite());
@@ -41,7 +40,14 @@ void propagation(ov_msckf::VioManagerOptions o,bool black) {
   }
   assert(max_error<1e-5);assert(final_cov>initial_cov);assert(vio.msckf_update_sequence()==0);
   assert(outputs==4000);
-  assert(vio.get_propagator()->buffered_imu_count()<400);
+  if(black) {
+    assert(vio.get_propagator()->buffered_imu_count()<400);
+    assert(vio.get_state()->_timestamp>start-offset+19.9);
+  } else {
+    // With no camera callbacks the posterior stays fixed; output prediction alone advances.
+    assert(vio.get_state()->_timestamp==start-offset);
+    assert(vio.get_propagator()->buffered_imu_count()<=4003);
+  }
   std::cout<<"PASS "<<(black?"black_images":"camera_stop")<<" 20s/4000 propagated states, offset="<<offset
     <<", max XYZ numerical error="<<max_error<<", covariance="<<initial_cov<<" -> "<<final_cov
     <<", buffered IMU="<<vio.get_propagator()->buffered_imu_count()<<"\n";
@@ -68,7 +74,6 @@ void recovery(ov_msckf::VioManagerOptions o,bool drop) {
         if(tc>vio.get_state()->_timestamp)vio.feed_measurement_simulation(tc,{0,1},features);
       }
     }
-    if(t-offset-.2-vio.get_state()->_timestamp>.1)vio.propagate_without_camera(t-offset-.2);
     wla_openvins::State x;wla_openvins::Covariance p;
     assert(vio.get_propagator()->fast_state_propagate(vio.get_state(),t,x,p));assert(x.allFinite()&&p.allFinite());
     if(n==999)before=vio.msckf_update_sequence();if(n==2999)after_gap=vio.msckf_update_sequence();

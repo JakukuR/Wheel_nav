@@ -169,20 +169,6 @@ size_t VioManager::last_msckf_update_count() const {
   return updaterMSCKF->last_update_count();
 }
 
-void VioManager::propagate_without_camera(double camera_time) {
-  // Same filter and covariance, no invented image or measurement update.
-  // Caller serializes all estimator access and supplies bracketed IMU history.
-  if (!is_initialized_vio || camera_time <= state->_timestamp) return;
-  propagator->propagate_and_clone(state, camera_time);
-  propagator->invalidate_cache();
-  updaterSLAM->change_anchors(state);
-  if ((int)state->_clones_IMU.size() > state->_options.max_clone_size) {
-    trackFEATS->get_feature_database()->cleanup_measurements(state->margtimestep());
-    if (trackARUCO) trackARUCO->get_feature_database()->cleanup_measurements(state->margtimestep());
-  }
-  StateHelper::marginalize_old_clone(state);
-}
-
 void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
 
   // The oldest time we need IMU with is the last clone

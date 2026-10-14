@@ -139,7 +139,6 @@ public:
   // Instrument actual MSCKF updates; supported by the fixed-calibration, MSCKF-only adapter.
   size_t last_msckf_update_count() const;
   size_t msckf_update_sequence() const;
-  void propagate_without_camera(double camera_time);
 
 protected:
   /**

@@ -125,10 +125,9 @@ index eacffbb..41783b2 100644
  install(DIRECTORY launch/ DESTINATION share/${PROJECT_NAME}/launch/)
  install(DIRECTORY ../config/ DESTINATION share/${PROJECT_NAME}/config/)
 diff --git a/ov_msckf/src/core/VioManager.cpp b/ov_msckf/src/core/VioManager.cpp
-index 6a0d7b9..46b67d1 100644
 --- a/ov_msckf/src/core/VioManager.cpp
 +++ b/ov_msckf/src/core/VioManager.cpp
-@@ -163,6 +163,26 @@ VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false),
+@@ -163,6 +163,12 @@
    }
  }
  
@@ -138,24 +137,10 @@ index 6a0d7b9..46b67d1 100644
 +  return updaterMSCKF->last_update_count();
 +}
 +
-+void VioManager::propagate_without_camera(double camera_time) {
-+  // Same filter and covariance, no invented image or measurement update.
-+  // Caller serializes all estimator access and supplies bracketed IMU history.
-+  if (!is_initialized_vio || camera_time <= state->_timestamp) return;
-+  propagator->propagate_and_clone(state, camera_time);
-+  propagator->invalidate_cache();
-+  updaterSLAM->change_anchors(state);
-+  if ((int)state->_clones_IMU.size() > state->_options.max_clone_size) {
-+    trackFEATS->get_feature_database()->cleanup_measurements(state->margtimestep());
-+    if (trackARUCO) trackARUCO->get_feature_database()->cleanup_measurements(state->margtimestep());
-+  }
-+  StateHelper::marginalize_old_clone(state);
-+}
-+
  void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
  
    // The oldest time we need IMU with is the last clone
-@@ -174,6 +194,7 @@ void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
+@@ -174,6 +180,7 @@
    if (!is_initialized_vio) {
      oldest_time = message.timestamp - params.init_options.init_window_time + state->_calib_dt_CAMtoIMU->value()(0) - 0.10;
    }
@@ -164,17 +149,15 @@ index 6a0d7b9..46b67d1 100644
  
    // Push back to our initializer
 diff --git a/ov_msckf/src/core/VioManager.h b/ov_msckf/src/core/VioManager.h
-index 3fd7089..fccf68d 100644
 --- a/ov_msckf/src/core/VioManager.h
 +++ b/ov_msckf/src/core/VioManager.h
-@@ -136,6 +136,11 @@ public:
+@@ -136,6 +136,10 @@ public:
      feat_tracks_uvd = active_tracks_uvd;
    }
  
 +  // Instrument actual MSCKF updates; supported by the fixed-calibration, MSCKF-only adapter.
 +  size_t last_msckf_update_count() const;
 +  size_t msckf_update_sequence() const;
-+  void propagate_without_camera(double camera_time);
 +
  protected:
    /**
