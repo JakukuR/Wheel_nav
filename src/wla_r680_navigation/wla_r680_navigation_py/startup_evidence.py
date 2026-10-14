@@ -1,11 +1,13 @@
 """Read startup completion from the lifecycle owner, not the static-map manager."""
+import os
 from pathlib import Path
 
 
 class StartupEvidence:
-    def __init__(self, path, odom_source):
+    def __init__(self, path, odom_source, bringup_pid=None):
         self.path = Path(path)
         self.odom_source = odom_source
+        self.bringup_pid = bringup_pid
         self.offset = 0
         self.tail = ''
         self.completed = False
@@ -21,13 +23,31 @@ class StartupEvidence:
             if not line.endswith(('\n', '\r')):
                 self.tail = line
                 continue
-            if 'Failed to bring up all requested nodes' in line or 'OpenVINS Nav2 startup failed:' in line:
-                self.failure = 'Nav2 启动失败；查看本次 logs/bringup.log: ' + line.strip()
+            if any(marker in line for marker in (
+                    'Failed to bring up all requested nodes',
+                    'OpenVINS Nav2 startup failed:',
+                    'malformed launch argument',
+                    '[ERROR] [launch]: Caught exception in launch')):
+                self.failure = '导航启动失败；查看本次 logs/bringup.log: ' + line.strip()
             if self.odom_source == 'openvins':
                 if '[openvins_nav_startup]' in line and 'OpenVINS Nav2 startup completed;' in line:
                     self.completed = True
             elif '[lifecycle_manager_navigation]' in line and 'Managed nodes are active' in line:
                 self.completed = True
+        if self.bringup_pid is not None and not self._bringup_alive():
+            # Even a silent exit (or an exit after a success line) must fail closed.
+            detail = self.path.read_text(errors='replace')[-2000:].strip()
+            self.failure = (self.failure or
+                f'导航主进程已退出 (pid={self.bringup_pid})；查看 {self.path}\n{detail}')
         if self.failure:
             raise SystemExit(self.failure)
         return self.completed
+
+    def _bringup_alive(self):
+        try:
+            os.kill(self.bringup_pid, 0)
+            # kill(pid, 0) also succeeds for a zombie whose parent has not reaped it.
+            stat = Path(f'/proc/{self.bringup_pid}/stat').read_text()
+            return stat.rpartition(')')[2].split()[0] not in ('Z', 'X')
+        except (ProcessLookupError, FileNotFoundError):
+            return False

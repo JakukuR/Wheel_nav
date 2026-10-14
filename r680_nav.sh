@@ -452,13 +452,16 @@ LAUNCH_ARGS=(
   start_dynamic_obstacles:="$START_DYNAMIC_OBSTACLES"
   start_d455:="$(if [[ "$ODOM_SOURCE" == cuvslam || "$ODOM_SOURCE" == openvins ]]; then echo true; else echo false; fi)" start_chassis:="$START_CHASSIS" start_nav2:=true start_navigation_servers:=true
   start_state_estimation:=true use_d455_imu:="$USE_D455_IMU" use_chassis_imu:=true
-  openvins_config_dir:="$OPENVINS_CONFIG" openvins_allow_commissioning:="$OPENVINS_ALLOW_COMMISSIONING"
   odom_source:="$ODOM_SOURCE" cuvslam_statistics_path:="$NAV_RUN_DIR/cuvslam_statistics.json"
   auto_vio_init:="$AUTO_VIO_INIT" vio_init_result_path:="$NAV_RUN_DIR/vio_init.json"
   publish_mount_tf:=true enable_hardware_output:="$(if [[ "$ODOM_SOURCE" == openvins ]]; then echo false; else echo "$ENABLE_MOTION"; fi)" agent_control:="$AGENT_CONTROL"
   start_semantics:=false semantic_output:="$MAP_DIR/semantic.geojson"
   semantic_map_id:="$(basename "$MAP_DIR")" semantic_mark_home:=false
 )
+# ROS 2 CLI rejects name:= with an empty value. Other frontends use launch defaults.
+if [[ "$ODOM_SOURCE" == openvins ]]; then
+  LAUNCH_ARGS+=(openvins_config_dir:="$OPENVINS_CONFIG" openvins_allow_commissioning:="$OPENVINS_ALLOW_COMMISSIONING")
+fi
 if [[ "$ODOM_SOURCE" == cuvslam ]]; then
   LAUNCH_ARGS+=(degraded_odom_params_file:="$NAV_RUN_DIR/degraded_odometry.yaml")
 fi
@@ -489,7 +492,7 @@ if [[ "$START_RVIZ" == true ]]; then
   fi
 fi
 
-WLA_INIT_MOTION_RESULT="$NAV_RUN_DIR/init_motion.json" WLA_OPENVINS_MOTION_INIT="$OPENVINS_MOTION_INIT" WLA_BRINGUP_LOG="$NAV_RUN_DIR/logs/bringup.log" WLA_REQUIRE_SCAN="$SCAN_OBSTACLES" WLA_ODOM_SOURCE="$ODOM_SOURCE" WLA_AUTO_VIO_INIT="$AUTO_VIO_INIT" python3 - <<'PY'
+WLA_BRINGUP_PID="$BRINGUP_PID" WLA_INIT_MOTION_RESULT="$NAV_RUN_DIR/init_motion.json" WLA_OPENVINS_MOTION_INIT="$OPENVINS_MOTION_INIT" WLA_BRINGUP_LOG="$NAV_RUN_DIR/logs/bringup.log" WLA_REQUIRE_SCAN="$SCAN_OBSTACLES" WLA_ODOM_SOURCE="$ODOM_SOURCE" WLA_AUTO_VIO_INIT="$AUTO_VIO_INIT" python3 - <<'PY'
 import json
 import math
 import os
@@ -570,7 +573,8 @@ startup_timeout = 450.0 if os.environ['WLA_ODOM_SOURCE'] == 'openvins' else 120.
 deadline = time.monotonic() + startup_timeout
 last_report = 0.0
 bringup_log = Path(os.environ['WLA_BRINGUP_LOG'])
-startup = StartupEvidence(bringup_log, os.environ['WLA_ODOM_SOURCE'])
+startup = StartupEvidence(bringup_log, os.environ['WLA_ODOM_SOURCE'],
+                          bringup_pid=int(os.environ['WLA_BRINGUP_PID']))
 while time.monotonic() < deadline:
     manager_active = startup.read()
     rclpy.spin_once(node, timeout_sec=0.2)
