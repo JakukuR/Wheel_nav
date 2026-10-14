@@ -125,9 +125,10 @@ index eacffbb..41783b2 100644
  install(DIRECTORY launch/ DESTINATION share/${PROJECT_NAME}/launch/)
  install(DIRECTORY ../config/ DESTINATION share/${PROJECT_NAME}/config/)
 diff --git a/ov_msckf/src/core/VioManager.cpp b/ov_msckf/src/core/VioManager.cpp
+index 6a0d7b9..c86c5fd 100644
 --- a/ov_msckf/src/core/VioManager.cpp
 +++ b/ov_msckf/src/core/VioManager.cpp
-@@ -163,6 +163,12 @@
+@@ -163,6 +163,12 @@ VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false),
    }
  }
  
@@ -140,7 +141,7 @@ diff --git a/ov_msckf/src/core/VioManager.cpp b/ov_msckf/src/core/VioManager.cpp
  void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
  
    // The oldest time we need IMU with is the last clone
-@@ -174,6 +180,7 @@
+@@ -174,6 +180,7 @@ void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
    if (!is_initialized_vio) {
      oldest_time = message.timestamp - params.init_options.init_window_time + state->_calib_dt_CAMtoIMU->value()(0) - 0.10;
    }
@@ -148,20 +149,57 @@ diff --git a/ov_msckf/src/core/VioManager.cpp b/ov_msckf/src/core/VioManager.cpp
    propagator->feed_imu(message, oldest_time);
  
    // Push back to our initializer
+@@ -224,6 +231,10 @@ void VioManager::feed_measurement_simulation(double timestamp, const std::vector
+       did_zupt_update = updaterZUPT->try_update(state, timestamp);
+     }
+     if (did_zupt_update) {
++      if (state->_timestamp > last_zupt_update_timestamp_) {
++        ++zupt_update_sequence_;
++        last_zupt_update_timestamp_ = state->_timestamp;
++      }
+       assert(state->_timestamp == timestamp);
+       propagator->clean_old_imu_measurements(timestamp + state->_calib_dt_CAMtoIMU->value()(0) - 0.10);
+       updaterZUPT->clean_old_imu_measurements(timestamp + state->_calib_dt_CAMtoIMU->value()(0) - 0.10);
+@@ -297,6 +308,10 @@ void VioManager::track_image_and_update(const ov_core::CameraData &message_const
+       did_zupt_update = updaterZUPT->try_update(state, message.timestamp);
+     }
+     if (did_zupt_update) {
++      if (state->_timestamp > last_zupt_update_timestamp_) {
++        ++zupt_update_sequence_;
++        last_zupt_update_timestamp_ = state->_timestamp;
++      }
+       assert(state->_timestamp == message.timestamp);
+       propagator->clean_old_imu_measurements(message.timestamp + state->_calib_dt_CAMtoIMU->value()(0) - 0.10);
+       updaterZUPT->clean_old_imu_measurements(message.timestamp + state->_calib_dt_CAMtoIMU->value()(0) - 0.10);
 diff --git a/ov_msckf/src/core/VioManager.h b/ov_msckf/src/core/VioManager.h
+index 3fd7089..1332971 100644
 --- a/ov_msckf/src/core/VioManager.h
 +++ b/ov_msckf/src/core/VioManager.h
-@@ -136,6 +136,10 @@ public:
+@@ -96,7 +96,7 @@ public:
+   void initialize_with_gt(Eigen::Matrix<double, 17, 1> imustate);
+
+   /// If we are initialized or not
+-  bool initialized() { return is_initialized_vio && timelastupdate != -1; }
++  bool initialized() { return is_initialized_vio && (timelastupdate != -1 || zupt_update_sequence_ > 0); }
+
+   /// Timestamp that the system was initialized at
+   double initialized_time() { return startup_time; }
+@@ -136,7 +136,15 @@ public:
      feat_tracks_uvd = active_tracks_uvd;
    }
- 
+
 +  // Instrument actual MSCKF updates; supported by the fixed-calibration, MSCKF-only adapter.
 +  size_t last_msckf_update_count() const;
 +  size_t msckf_update_sequence() const;
++  size_t zupt_update_sequence() const { return zupt_update_sequence_; }
++  double last_zupt_update_timestamp() const { return last_zupt_update_timestamp_; }
 +
  protected:
++  size_t zupt_update_sequence_ = 0;
++  double last_zupt_update_timestamp_ = -1.0;
    /**
     * @brief Given a new set of camera images, this will track them.
+    *
 diff --git a/ov_msckf/src/ros/ROS2Visualizer.h b/ov_msckf/src/ros/ROS2Visualizer.h
 index a737f80..f04c614 100644
 --- a/ov_msckf/src/ros/ROS2Visualizer.h

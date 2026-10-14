@@ -4,7 +4,7 @@
 
 ## 实现范围
 
-- C++ 前端直接调用 OpenVINS VioManager / Propagator；单线程串行访问估计器，关闭后台初始化并发、在线标定、运行期 ZUPT 和 SLAM 特征状态。MSCKF 的视觉更新仍正常启用。
+- C++ 前端直接调用 OpenVINS VioManager / Propagator；单线程串行访问估计器，关闭后台初始化并发、在线标定和 SLAM 特征状态；支持上游运行期 ZUPT。MSCKF 的视觉更新仍正常启用。
 - 双目输入检查时间戳、帧名、尺寸、编码和同步偏差，并比对 CameraInfo.P 与固定内参；队列有界。IMU 检查时间顺序、间隔、有限值及量程配置。异常 IMU 将故障锁存，需显式 reset。
 - 每个有效 IMU 采样驱动快速传播，保留 XYZ、完整姿态和三轴速度。图像持续到达但无有效特征时，由正常图像回调推进主状态，缺少视觉纠正仍可惯性输出；快速输出预测不额外推进主状态。完全停流时主状态不再周期性推进，IMU 历史可能增长，暂不承诺长期停流的有界缓存；没有伪造图像、没有第二套 ESKF。
 - IMU 原点转为机身原点，包括杆臂旋转速度及协方差雅可比；位置姿态协方差使用全局扰动，twist 使用 child frame。输出仍继承上游快速协方差中角速度/偏置相关项的近似，并非完整联合误差模型。
@@ -100,3 +100,18 @@ ros2 launch wla_r680_navigation bringup.launch.py \
 - `stereo_fault_injector.py`：回放用黑图/停流注入，保留真实时间戳。默认读取 `/replay/infra{1,2}/image_rect_raw`，输出 `/openvins_fault/infra{1,2}/image_rect_raw`；用独立回放标定目录将 frontend.yaml 的左右输入指向该输出，原标定几何不变。`fault:=black/drop`、`start_after_s` 和 `duration_s` 通过 ROS 参数设置。不要对生产传感器话题进行同名重发布。
 
 实际试验仍需完成：充足初始化 → 正常跟踪 → 1/3/5/10 秒遮挡与搬运 → 恢复；分别录制图像黑屏和相机停流，使用独立真值测量位姿误差。低延迟、低资源占用与真实精度均以本机测量为准。
+
+## D455 静止更新与偏置诊断
+
+`r680_d455_20261013` 开启 `try_zupt`，`zupt_only_at_beginning=false`。
+使用上游 IMU 残差检验（`zupt_chi2_multipler=1`、噪声倍率 10、速度上限 0.1 m/s），
+`zupt_max_disparity=0` 禁用可绕过 IMU/速度检查的图像位移覆盖判定。
+这些是候选检测参数；静止/运动辨识和抱起精度仍需实车验收。匀速运动存在不可观测性，不能承诺仅靠 IMU 总能区分静止。
+开启 ZUPT 时，上游允许满足条件的静止初始化，不需要主动制造运动；不启动任何自动移动。
+
+`estimator_status` 单独报告 `STATIONARY`、实际接受的 ZUPT 次数和时间，
+不改写 `last_visual_update_stamp` 或 MSCKF 更新计数。新鲜、低不确定度的静止状态可作为局部里程计输入；
+地图匹配仍由 RTAB-Map 的真实匹配与位姿确认，接地/运动授权规则保持原有要求。
+`imu_diagnostics` 以状态报告频率发布实际内部 `gyro_bias/accel_bias`、当前原始测量、
+扣偏置/内参后的角速度、世界系去重力加速度。`header.stamp` 是当前 IMU 时刻，
+`bias_stamp` 是偏置所处主状态时刻；仅 `valid=true` 可用于分析。不会反写原始 IMU 话题。

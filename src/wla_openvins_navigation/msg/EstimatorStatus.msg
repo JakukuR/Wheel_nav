@@ -9,6 +9,7 @@ uint8 VIO_TRACKING=1
 uint8 INERTIAL_ONLY=2
 uint8 RECOVERING=3
 uint8 INVALID=4
+uint8 STATIONARY=5
 uint8 mode
 bool initialized
 bool state_valid
@@ -24,3 +25,8 @@ float64 position_std_max
 float64 orientation_std_max
 float64 velocity_std_max
 string reason
+# Accepted stationary constraints are separate from visual matching evidence.
+bool zupt_enabled
+uint64 zupt_updates
+builtin_interfaces/Time last_zupt_update_stamp
+float64 zupt_update_age_s

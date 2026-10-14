@@ -21,6 +21,7 @@
 #include "wla_openvins_navigation/adapter.hpp"
 #include "wla_openvins_navigation/visual_evidence.hpp"
 #include "wla_openvins_navigation/msg/estimator_status.hpp"
+#include "wla_openvins_navigation/msg/imu_diagnostics.hpp"
 
 using namespace std::chrono_literals;
 using Status=wla_openvins_navigation::msg::EstimatorStatus;
@@ -35,11 +36,11 @@ class Frontend final : public rclcpp::Node {
     if(!parser->successful()) throw std::invalid_argument("OpenVINS configuration incomplete");
     // Fixed calibration + MSCKF-only makes update evidence and fast covariance explicit.
     if(params_.state_options.num_cameras!=2 || !params_.use_stereo || params_.state_options.max_slam_features!=0 ||
-       params_.try_zupt || params_.use_aruco || params_.use_mask || params_.downsample_cameras ||
+       params_.use_aruco || params_.use_mask || params_.downsample_cameras ||
        params_.init_options.init_dyn_use || params_.state_options.do_calib_camera_pose ||
        params_.state_options.do_calib_camera_intrinsics || params_.state_options.do_calib_camera_timeoffset ||
        params_.state_options.do_calib_imu_intrinsics)
-      throw std::invalid_argument("v1 requires stereo, MSCKF only, fixed calibration and ZUPT off");
+      throw std::invalid_argument("v1 requires stereo, MSCKF only, fixed calibration");
     params_.use_multi_threading_subs=false; params_.use_multi_threading_pubs=false;
     params_.num_opencv_threads=1;
     estimator_=std::make_shared<ov_msckf::VioManager>(params_);
@@ -79,6 +80,7 @@ class Frontend final : public rclcpp::Node {
     odom_pub_=create_publisher<nav_msgs::msg::Odometry>("odom",10);
     raw_pub_=create_publisher<nav_msgs::msg::Odometry>("odom_imu",10);
     status_pub_=create_publisher<Status>("estimator_status",10);
+    imu_diag_pub_=create_publisher<wla_openvins_navigation::msg::ImuDiagnostics>("imu_diagnostics",10);
     tf_=std::make_unique<tf2_ros::TransformBroadcaster>(*this);
     imu_sub_=create_subscription<sensor_msgs::msg::Imu>(
       declare_parameter<std::string>("imu_topic","/wheel/imu/data_raw"),rclcpp::SensorDataQoS().keep_last(1000),
@@ -227,6 +229,22 @@ class Frontend final : public rclcpp::Node {
       const auto raw=wla_openvins::adapt(x,P,Eigen::Isometry3d::Identity());
       auto odom=message(b,t,body_);
       state_stamp_=t; state_valid_=true;
+      const auto state=estimator_->get_state();
+      const auto bg=state->_imu->bias_g(), ba=state->_imu->bias_a();
+      const auto Da=ov_msckf::State::Dm(state->_options.imu_model,state->_calib_imu_da->value());
+      const auto Dw=ov_msckf::State::Dm(state->_options.imu_model,state->_calib_imu_dw->value());
+      const auto Tg=ov_msckf::State::Tg(state->_calib_imu_tg->value());
+      const Eigen::Vector3d a=state->_calib_imu_ACCtoIMU->Rot()*Da*(imu.am-ba);
+      const Eigen::Vector3d w=state->_calib_imu_GYROtoIMU->Rot()*Dw*(imu.wm-bg-Tg*a);
+      const Eigen::Vector3d world_a=raw.q.toRotationMatrix()*a-Eigen::Vector3d(0,0,params_.gravity_mag);
+      imu_diag_.header.stamp=stamp(t);imu_diag_.header.frame_id=imu_frame_;
+      imu_diag_.bias_stamp=stamp(state->_timestamp+dt);
+      imu_diag_.world_frame=world();
+      for(int k=0;k<3;++k) {
+        imu_diag_.gyro_bias[k]=bg[k];imu_diag_.accel_bias[k]=ba[k];
+        imu_diag_.raw_angular_velocity[k]=imu.wm[k];imu_diag_.raw_linear_acceleration[k]=imu.am[k];
+        imu_diag_.corrected_angular_velocity[k]=w[k];imu_diag_.world_linear_acceleration[k]=world_a[k];
+      }
       pos_std_=std::sqrt(std::max(0.,b.covariance.diagonal().segment<3>(0).maxCoeff()));
       rot_std_=std::sqrt(std::max(0.,b.covariance.diagonal().segment<3>(3).maxCoeff()));
       vel_std_=std::sqrt(std::max(0.,b.covariance.diagonal().segment<3>(6).maxCoeff()));
@@ -259,16 +277,29 @@ class Frontend final : public rclcpp::Node {
     s.uncertainty_acceptable=pos_std_<=pos_limit_&&rot_std_<=rot_limit_&&vel_std_<=vel_limit_;
     s.accepted_msckf_features=accepted_;s.recovery_updates=recovery_;
     s.rejected_imu=rejected_imu_;s.rejected_images=rejected_images_;
+    s.zupt_enabled=params_.try_zupt;
+    s.zupt_updates=estimator_->zupt_update_sequence();
+    const double zupt_stamp=estimator_->last_zupt_update_timestamp();
+    s.last_zupt_update_stamp=stamp(zupt_stamp<0?-1:zupt_stamp+params_.calib_camimu_dt);
+    s.zupt_update_age_s=zupt_stamp<0?-1:t-zupt_stamp-params_.calib_camimu_dt;
+    const bool stationary=s.zupt_enabled && s.zupt_updates>0 &&
+      s.zupt_update_age_s>=0 && s.zupt_update_age_s<=visual_timeout_ &&
+      s.image_age_s>=0 && s.image_age_s<=visual_timeout_;
     s.mode=wla_openvins::mode(!fault_.empty(),s.initialized,s.state_valid,s.visual_update_age_s,
-      visual_timeout_,s.uncertainty_acceptable,recovery_,required_updates_);
+      visual_timeout_,s.uncertainty_acceptable,recovery_,required_updates_,stationary);
     s.reason=!fault_.empty()?fault_:s.mode==Status::INITIALIZING?"waiting_for_static_initialization_and_excitation":
       s.mode==Status::INERTIAL_ONLY?"no_recent_accepted_visual_update":s.mode==Status::RECOVERING?
       "waiting_for_visual_consistency_and_uncertainty":"ok";
+    if(s.mode==Status::STATIONARY) s.reason="stationary_zupt";
     if(fault_.empty()&&require_info_&&(!info_valid_[0]||!info_valid_[1]||
        elapsed(info_seen_[0])>2.||elapsed(info_seen_[1])>2.)) s.reason="waiting_for_matching_camera_info";
     if(fault_.empty()&&!s.initialized&&(last_imu_<0||t-last_imu_>imu_timeout_)) s.reason="waiting_for_fresh_imu";
     if(fault_.empty()&&!s.initialized&&startup_clock_wait_) s.reason="waiting_for_imu_clock_stability";
     status_pub_->publish(s);
+    imu_diag_.valid=fault_.empty() && s.initialized && s.state_valid;
+    imu_diag_.zupt_active=stationary && imu_diag_.valid;
+    imu_diag_.zupt_updates=s.zupt_updates;
+    imu_diag_pub_->publish(imu_diag_);
   }
   ov_msckf::VioManagerOptions params_;std::shared_ptr<ov_msckf::VioManager> estimator_;
   Eigen::Isometry3d T_IB_;std::string world_,body_,imu_frame_,left_frame_,right_frame_,left_info_frame_,right_info_frame_,instance_,fault_;
@@ -283,6 +314,8 @@ class Frontend final : public rclcpp::Node {
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_,raw_pub_;
   rclcpp::Publisher<Status>::SharedPtr status_pub_;
+  wla_openvins_navigation::msg::ImuDiagnostics imu_diag_;
+  rclcpp::Publisher<wla_openvins_navigation::msg::ImuDiagnostics>::SharedPtr imu_diag_pub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr left_sub_,right_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub_[2];

@@ -81,7 +81,7 @@ class Startup(Node):
         s, o = self.status, self.odom
         if s is None or o is None:
             return
-        if not (s.initialized and s.state_valid and s.mode in (s.VIO_TRACKING, s.RECOVERING)):
+        if not (s.initialized and s.state_valid and s.mode in (s.VIO_TRACKING, s.RECOVERING, s.STATIONARY)):
             return
         if not (time.monotonic()-self.status_seen <= 0.5 and time.monotonic()-self.odom_seen <= 0.2
                 and self.fresh(s.header.stamp, 0.5) and self.fresh(s.state_stamp, 0.2)

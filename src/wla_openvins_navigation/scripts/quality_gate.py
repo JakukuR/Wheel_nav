@@ -47,7 +47,7 @@ class Gate(Node):
         if (self.status is not None and identity==self.identity and
                 self.stamp(s.header.stamp)<=self.stamp(self.status.header.stamp)): return
         self.status=s;self.status_seen=time.monotonic()
-        if not self.visual_ready(): self.invalidate_map(self.stamp(s.header.stamp))
+        if not self.local_estimate_ready(): self.invalidate_map(self.stamp(s.header.stamp))
 
     def invalidate_map(self,stamp):
         self.last_degraded_stamp=max(self.last_degraded_stamp,stamp)
@@ -56,7 +56,7 @@ class Gate(Node):
     def confirm_map(self):
         # Match and pose must belong to the same recent backend update, after
         # the last visual loss. Callback delivery order does not matter.
-        if (self.visual_ready() and self.last_match_stamp>self.last_degraded_stamp and
+        if (self.local_estimate_ready() and self.last_match_stamp>self.last_degraded_stamp and
                 self.last_map_stamp>self.last_degraded_stamp and
                 abs(self.last_map_stamp-self.last_match_stamp)<=.05):
             self.map_confirmed=True
@@ -64,7 +64,7 @@ class Gate(Node):
     def on_info(self,m):
         stamp=self.stamp(m.header.stamp)
         age=self.get_clock().now().nanoseconds*1e-9-stamp
-        if (self.visual_ready() and -.05<=age<=.5 and stamp>max(self.last_degraded_stamp,self.last_match_stamp) and
+        if (self.local_estimate_ready() and -.05<=age<=.5 and stamp>max(self.last_degraded_stamp,self.last_match_stamp) and
                 (m.loop_closure_id>0 or m.proximity_detection_id>0)):
             self.last_match_stamp=stamp;self.confirm_map()
 
@@ -90,8 +90,17 @@ class Gate(Node):
                 s.state_valid)
 
     def local_ok(self):
-        return (self.visual_ready() and self.status.mode==self.status.VIO_TRACKING and
-                self.status.uncertainty_acceptable)
+        return ((self.visual_ready() and self.status.mode==self.status.VIO_TRACKING or
+                 self.stationary_ready()) and self.status.uncertainty_acceptable)
+
+    def stationary_ready(self):
+        s=self.status
+        return (self.recent_status() and s.mode==s.STATIONARY and s.zupt_enabled and
+                s.zupt_updates>0 and 0<=s.zupt_update_age_s<=.5 and
+                0<=s.image_age_s<=.5 and s.uncertainty_acceptable)
+
+    def local_estimate_ready(self):
+        return self.visual_ready() or self.stationary_ready()
 
     def visual_ready(self):
         # Permit global relocalization with a recovered visual update even when
@@ -105,7 +114,7 @@ class Gate(Node):
     def on_odom(self,m):
         t=self.stamp(m.header.stamp);now=self.get_clock().now().nanoseconds*1e-9
         s=self.status
-        allow_input=self.local_ok() and self.grounded() if self.mode=='mapping' else self.visual_ready()
+        allow_input=self.local_ok() and self.grounded() if self.mode=='mapping' else self.local_estimate_ready()
         if (not allow_input or
                 not -.05<=now-t<=.2 or t<=self.last_odom_stamp or m.header.frame_id!=s.header.frame_id or
                 abs(t-self.stamp(s.state_stamp))>.2): return
