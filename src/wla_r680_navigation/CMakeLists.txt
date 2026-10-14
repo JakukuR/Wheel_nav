@@ -79,6 +79,8 @@ if(BUILD_TESTING)
   target_compile_options(test_map_localization_evidence PRIVATE -UNDEBUG)
   add_test(NAME map_localization_evidence COMMAND test_map_localization_evidence)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_test(NAME navigation_startup_evidence COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_navigation_startup_evidence.py)
   add_test(NAME navigation_motion_session COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/test/test_navigation_motion_session.py)
   set_tests_properties(navigation_motion_session PROPERTIES

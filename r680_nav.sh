@@ -504,6 +504,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profi
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Bool, String
 from tf2_ros import Buffer, TransformListener
+from wla_r680_navigation_py.startup_evidence import StartupEvidence
 
 rclpy.init()
 node = Node('r680_navigation_ready_waiter')
@@ -569,26 +570,15 @@ startup_timeout = 450.0 if os.environ['WLA_ODOM_SOURCE'] == 'openvins' else 120.
 deadline = time.monotonic() + startup_timeout
 last_report = 0.0
 bringup_log = Path(os.environ['WLA_BRINGUP_LOG'])
-log_offset = 0
-log_tail = ''
-manager_active = False
+startup = StartupEvidence(bringup_log, os.environ['WLA_ODOM_SOURCE'])
 while time.monotonic() < deadline:
-    with bringup_log.open(errors='replace') as stream:
-        stream.seek(log_offset)
-        new_log = stream.read()
-        log_offset = stream.tell()
-    if 'Failed to bring up all requested nodes' in log_tail + new_log:
-        raise SystemExit('Nav2 生命周期启动失败；查看本次 logs/bringup.log')
-    if 'OpenVINS Nav2 startup failed:' in log_tail + new_log:
-        raise SystemExit('OpenVINS 初始化或 Nav2 分阶段启动失败；查看本次 logs/bringup.log')
-    if 'Managed nodes are active' in log_tail + new_log:
-        manager_active = True
-    log_tail = (log_tail + new_log)[-80:]
+    manager_active = startup.read()
     rclpy.spin_once(node, timeout_sec=0.2)
     if auto_init and init_state == 'failed':
         raise SystemExit('自动 VIO 初始化失败并已锁定；查看本次 vio_init.json，退出后可用 --rgbd 回退')
     states = {name: 0 for name in names}
-    # The lifecycle manager owns these services during bringup. Poll only after activation.
+    # OpenVINS STARTUP must have returned success before polling lifecycle services.
+    # The static-map manager's success cannot authorize navigation readiness.
     if manager_active:
         for name, client in clients.items():
             if not client.service_is_ready():
@@ -612,6 +602,9 @@ while time.monotonic() < deadline:
             motion_ok = motion_result.get('state') in ('succeeded', 'already_initialized')
     interface_ok = ready_count >= 5 and time.monotonic() - last_ready < 0.5
     if motion_ok and interface_ok and map_ok and tf_ok and scan_ok and (not auto_init or init_state == 'succeeded') and all(v == 3 for v in states.values()):
+        # A failure may have arrived while the blocking lifecycle queries ran.
+        if not startup.read():
+            continue
         node.destroy_node()
         rclpy.shutdown()
         raise SystemExit(0)
