@@ -11,7 +11,7 @@ usage() {
   --agent-control        Agent task gateway owns navigation; RViz/Web goal bridge disabled
   --enable-motion        显式开放真实底盘导航输出（默认仅定位、规划和预览）
   --openvins             OpenVINS 双目 VIO，默认 D455 内置 IMU 标定候选
-  --openvins-motion-init 无需手柄的一次实车初始化：静置 5 秒，0.2m/s + 0.5rad/s 最多 1 秒，停稳回 MANUAL；不开放 Nav2 输出
+  --openvins-motion-init 无需手柄的一次实车初始化：静置 5 秒，0.2m/s + 0.5rad/s 最多 1 秒，停稳回 MANUAL；配合 --enable-motion 可随后导航
   --openvins-imu d455|wheel  选择成套 IMU 标定（默认 d455）
   --openvins-config PATH  使用指定的完整 OpenVINS 配置目录
   --cuvslam              使用 cuVSLAM 双目 + 车身 IMU（试验前端，初始化前禁止运动）
@@ -100,10 +100,14 @@ if [[ -n "$OPENVINS_CONFIG" && "$ODOM_SOURCE" != openvins ]]; then
   echo '--openvins-config requires --openvins' >&2; exit 2
 fi
 if [[ "$OPENVINS_MOTION_INIT" == true ]]; then
-  if [[ "$ODOM_SOURCE" != openvins || "$ENABLE_MOTION" == true || "$AUTO_VIO_INIT" == true || "$AGENT_CONTROL" == true ]]; then
-    echo '--openvins-motion-init requires --openvins and cannot combine with --enable-motion, --auto-vio-init or --agent-control' >&2; exit 2
+  if [[ "$ODOM_SOURCE" != openvins || "$AUTO_VIO_INIT" == true || "$AGENT_CONTROL" == true ]]; then
+    echo '--openvins-motion-init requires --openvins and cannot combine with --auto-vio-init or --agent-control' >&2; exit 2
   fi
   systemctl is-active --quiet r680-manual-base.service || { echo 'One-shot initialization requires the independent manual-base service' >&2; exit 2; }
+fi
+if [[ "$ODOM_SOURCE" == openvins && "$ENABLE_MOTION" == true ]]; then
+  [[ "$AGENT_CONTROL" == false ]] || { echo 'OpenVINS standalone motion session cannot own Agent control' >&2; exit 2; }
+  systemctl is-active --quiet r680-manual-base.service || { echo 'OpenVINS navigation requires the independent manual-base service' >&2; exit 2; }
 fi
 WORKSPACE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source /opt/ros/jazzy/setup.bash
@@ -432,7 +436,7 @@ elif [[ "$ODOM_SOURCE" == openvins ]]; then
   else
     echo '[R680 NAV] OpenVINS：先静置至少 3 秒，再给出运动激励；未初始化时不发布 odom。'
   fi
-  echo '[R680 NAV] 当前成套标定为联调候选，导航输出关闭，独立手柄不受影响。'
+  echo '[R680 NAV] 当前成套标定为联调候选；--enable-motion 明确授权导航，标定验收状态保持原样。'
   if [[ "$AUTO_VIO_INIT" == true ]]; then
     cp "$CONFIG_DIR/vio_initializer.yaml" "$NAV_RUN_DIR/vio_initializer.yaml"
     echo '[R680 NAV] 自动初始化仅预览；还需真实接地状态、有效深度和安全链就绪。'
@@ -451,7 +455,7 @@ LAUNCH_ARGS=(
   openvins_config_dir:="$OPENVINS_CONFIG" openvins_allow_commissioning:="$OPENVINS_ALLOW_COMMISSIONING"
   odom_source:="$ODOM_SOURCE" cuvslam_statistics_path:="$NAV_RUN_DIR/cuvslam_statistics.json"
   auto_vio_init:="$AUTO_VIO_INIT" vio_init_result_path:="$NAV_RUN_DIR/vio_init.json"
-  publish_mount_tf:=true enable_hardware_output:="$ENABLE_MOTION" agent_control:="$AGENT_CONTROL"
+  publish_mount_tf:=true enable_hardware_output:="$(if [[ "$ODOM_SOURCE" == openvins ]]; then echo false; else echo "$ENABLE_MOTION"; fi)" agent_control:="$AGENT_CONTROL"
   start_semantics:=false semantic_output:="$MAP_DIR/semantic.geojson"
   semantic_map_id:="$(basename "$MAP_DIR")" semantic_mark_home:=false
 )
@@ -610,7 +614,7 @@ while time.monotonic() < deadline:
         raise SystemExit(0)
     if time.monotonic() - last_report > 10.0:
         print('[R680 NAV] 等待就绪:', f'接口={ready_count >= 5}', f'地图={map_ok}',
-              f'TF={tf_ok}', f'Scan={scan_ok}', f'前端={frontend_status}', f'自动运动初始化={init_state if auto_init or motion_init else "关闭，需手柄激励"}',
+              f'TF={tf_ok}', f'Scan={scan_ok}', f'前端诊断={frontend_status}', f'自动运动初始化={init_state if auto_init or motion_init else "关闭，需手柄激励"}',
               f'估计器={estimator_state}',
               '生命周期=' + ','.join(f'{k}:{v}' for k, v in states.items()),
               flush=True)
@@ -625,7 +629,23 @@ if ! kill -0 "$BRINGUP_PID" 2>/dev/null; then
   exit 1
 fi
 
-if [[ "$ENABLE_MOTION" == true ]]; then
+if [[ "$ENABLE_MOTION" == true && "$ODOM_SOURCE" == openvins ]]; then
+  if [[ -n "$INIT_MOTION_PID" ]]; then wait "$INIT_MOTION_PID"; INIT_MOTION_PID=""; fi
+  setsid ros2 run wla_r680_navigation navigation_motion_session.py \
+    >"$NAV_RUN_DIR/logs/navigation_motion_session.log" 2>&1 </dev/null &
+  PERMISSION_PID=$!
+  echo '[R680 NAV] 初始化与 Nav2 已就绪，正在自动交接 AUTO/NAV，并取消交接前提交的旧目标。'
+  for ((i=0; i<300; i++)); do
+    grep -q 'navigation_enabled;' "$NAV_RUN_DIR/logs/navigation_motion_session.log" && break
+    kill -0 "$PERMISSION_PID" 2>/dev/null || break
+    sleep 0.1
+  done
+  if ! grep -q 'navigation_enabled;' "$NAV_RUN_DIR/logs/navigation_motion_session.log"; then
+    tail -10 "$NAV_RUN_DIR/logs/navigation_motion_session.log" >&2
+    echo '[R680 NAV] 导航控制交接失败，退出清理。' >&2; exit 1
+  fi
+  echo '[R680 NAV] navigation_enabled：已接管 AUTO/NAV，现在可以发送新的导航点。'
+elif [[ "$ENABLE_MOTION" == true ]]; then
   setsid ros2 topic pub -r 10 /r680_nav/mission_motion_allowed \
     std_msgs/msg/Bool '{data: true}' >"$NAV_RUN_DIR/logs/motion_permission.log" 2>&1 </dev/null &
   PERMISSION_PID=$!
@@ -633,7 +653,7 @@ if [[ "$ENABLE_MOTION" == true ]]; then
 else
   echo '[R680 NAV] 当前为安全预览：定位、规划和碰撞链已启动，真实底盘输出保持关闭。'
   if [[ "$ODOM_SOURCE" == openvins ]]; then
-    echo '[R680 NAV] OpenVINS 仍为未验收候选，暂不支持 --enable-motion；人工控制继续使用独立手柄。'
+    echo '[R680 NAV] 下次加 --enable-motion 可在初始化完成后自动接管导航；可与 --openvins-motion-init 合用。'
   else
     echo '[R680 NAV] 需要实车运动时停止本脚本，再显式加 --enable-motion 启动。'
   fi

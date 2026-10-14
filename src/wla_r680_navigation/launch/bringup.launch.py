@@ -25,8 +25,6 @@ def validate_navigation_map(context):
             if executable.endswith('/wheeltec_robot_node'):
                 raise ValueError('Chassis driver already running; use start_chassis:=false to reuse the independent base service.')
     if LaunchConfiguration('odom_source').perform(context) == 'openvins':
-        if LaunchConfiguration('enable_hardware_output').perform(context) == 'true':
-            raise ValueError('OpenVINS v1 is a validation frontend; hardware output awaits calibration and carried-motion acceptance.')
         if not LaunchConfiguration('openvins_config_dir').perform(context):
             raise ValueError('OpenVINS requires openvins_config_dir; unvalidated configs need explicit commissioning mode.')
     navigation = all(LaunchConfiguration(name).perform(context) == value for name, value in (
@@ -438,7 +436,9 @@ def generate_launch_description():
         package='wla_r680_navigation', executable='command_guard', output='screen',
         parameters=[{
             'hardware_output_enabled': ParameterValue(enable_motion, value_type=bool),
-            'require_frontend_motion_permission': ParameterValue(openvins_enabled, value_type=bool),
+            # Localization already checks live VIO health via interface_monitor.
+            # Do not additionally require absent contact sensing or commissioning approval.
+            'require_frontend_motion_permission': ParameterValue(PythonExpression([openvins_enabled, " and '", mode, "' != 'localization'"]), value_type=bool),
             'frontend_motion_permission_topic': '/openvins/motion_ready',
             'raw_output_topic': ParameterValue(IfElseSubstitution(
                 EqualsSubstitution(LaunchConfiguration('agent_control'), 'true'),

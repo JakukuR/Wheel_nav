@@ -14,7 +14,7 @@ cd ~/ros2_ws
 
 正常结束、手柄输入、急停、前端代次变化、传感器报告中断、SIGINT/SIGTERM 或异常均归零并撤销本次 AUTO 请求。仲裁已有命令超时兜底 0.15 秒。已由其他任务接走控制源时不改写该任务权限。每轮最多一次弧线，初始化不成功也不自动重试；若前端已初始化则不再移动。
 
-初始化运动通过原 `/r680_nav/chassis_cmd_vel` → 独立 command_mux → `/r680_base/cmd_vel`；不创建第二个底盘驱动，不修改底盘仲裁，不开启 Nav2 的普通输出门。`--enable-motion`、`--auto-vio-init`、`--agent-control` 与此实验参数互斥。原 `--auto-vio-init` 仍是此前的安全链预览，与此一次性实验不同。
+初始化运动通过原 `/r680_nav/chassis_cmd_vel` → 独立 command_mux → `/r680_base/cmd_vel`；不创建第二个底盘驱动，不修改底盘仲裁，初始化期间普通 Nav2 输出关闭。可以同时指定 `--enable-motion`，初始化和 Nav2 就绪后自动交接导航，详见 [初始化后导航](openvins_navigation_motion.md)。`--auto-vio-init`、`--agent-control` 与此实验参数互斥。原 `--auto-vio-init` 仍是此前的安全链预览，与此一次性实验不同。
 
 结果在本轮 `init_motion.json`，详细日志在 `logs/init_motion.log`。根入口现分别显示自动运动初始化状态和 OpenVINS 的 initialized/mode/reason，避免将“自动运动初始化关闭”误认为“估计器初始化关闭”。本工具静默结束不代表视觉健康、历史地图匹配或导航精度验收；须查看结果及里程计。
 

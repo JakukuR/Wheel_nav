@@ -75,6 +75,8 @@ public:
       });
     permission_sub_ = create_subscription<std_msgs::msg::Bool>(
       permission_topic, 1, [this](std_msgs::msg::Bool::ConstSharedPtr msg) {
+        // A newly granted session must receive a new collision-checked command.
+        if (msg->data && !mission_allowed_) {command_received_ = {}; command_ = {};}
         mission_allowed_ = msg->data;
         permission_received_ = std::chrono::steady_clock::now();
       });
@@ -107,6 +109,12 @@ public:
 private:
   void tick()
   {
+    const bool requested_output = get_parameter("hardware_output_enabled").as_bool();
+    if (requested_output != hardware_output_enabled_) {
+      command_received_ = {}; command_ = {};
+      if (!requested_output) {raw_pub_->publish(geometry_msgs::msg::Twist());}
+      hardware_output_enabled_ = requested_output;
+    }
     const auto now = std::chrono::steady_clock::now();
     const auto command_age = std::chrono::duration<double>(now - command_received_).count();
     const auto health_age = std::chrono::duration<double>(now - health_received_).count();

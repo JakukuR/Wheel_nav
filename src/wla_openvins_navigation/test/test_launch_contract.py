@@ -33,7 +33,7 @@ assert params['vio_health_topic']=='/openvins/tracking_healthy'
 assert params['require_motion_permission'] is False
 guard=next(e for e in ld.entities if 'command_guard' in node_name(e))
 gp=evaluate_parameters(c,guard._Node__parameters)[0]
-assert gp['require_frontend_motion_permission'] is True
+assert gp['require_frontend_motion_permission'] is False
 assert gp['frontend_motion_permission_topic']=='/openvins/motion_ready'
 assert gp['hardware_output_enabled'] is False
 assert params['motion_permission_topic']=='/openvins/motion_ready'
@@ -54,10 +54,8 @@ assert perform_substitutions(c,[args['odom_topic']])=='/r680_nav/mapping_odom'
 assert perform_substitutions(c,[args['imu_topic']])=='/r680_nav/disabled_rtabmap_imu'
 mod.validate_navigation_map(c)
 c.launch_configurations['enable_hardware_output']='true'
-try:mod.validate_navigation_map(c)
-except ValueError:pass
-else:raise AssertionError('experimental hardware output must be rejected')
-print('PASS OpenVINS exclusive odom, no plane fallback/restart watchdog, quality gate and hardware-output rejection')
+mod.validate_navigation_map(c)
+print('PASS OpenVINS exclusive odom, live VIO health, explicit hardware output accepted without duplicate contact/commissioning gate')
 
 for frontend in ('rgbd','cuvslam'):
     for mode in ('mapping','localization'):
