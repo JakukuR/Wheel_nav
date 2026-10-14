@@ -1,7 +1,7 @@
 {
   "kind": "commissioning",
   "calibration_validated": false,
-  "provenance": "Kalibr d455_20261013_153541; 90min conditional random walk, not validated. Base mount retained from bringup; camera geometry rectified.",
+  "provenance": "Kalibr d455_20261013_153541; 90min conditional random walk, not validated. Base mount retained from bringup; camera geometry rectified. Estimator settings updated 2026-10-14 by 2c16e2e: enable built-in ZUPT with IMU residual gating and disable disparity override; calibration and IMU noise parameters unchanged.",
   "source_sha256": "caf076c7a7fa92af83ec181e522ff6d80ee165e500eb0166ae7c066dfbc7dfac",
   "sensor": "d455",
   "source_run": "d455_20261013_153541",
@@ -9,7 +9,7 @@
   "deployment_allowed": false,
   "config_sha256": {
     "frontend.yaml": "68ea6c76bf931fd21551afbb4030e0a67f742728eadc53d9ac63a7e9d2f2d3fc",
-    "estimator_config.yaml": "1b31e3f58649b68a137fed7d3393974d5ce3468d8d0b7dd13c21c6d8cfb40dce",
+    "estimator_config.yaml": "b2cc373a2fa24f7862eef204d0c88c4b226c0d160951c2839a36804a32a6dc48",
     "kalibr_imucam_chain.yaml": "5af85740e3ceb4fb59b72a02027aa38beb17f296ceefffacac9be6f44dea70bc",
     "kalibr_imu_chain.yaml": "379e62243d054ffc6e0ea74a3fecae0c44735bfe16f8f4581e374e050022787b"
   }
