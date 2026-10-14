@@ -5,6 +5,7 @@
 #include "state/State.h"
 #include "utils/print.h"
 #include "wla_openvins_navigation/adapter.hpp"
+#include "wla_openvins_navigation/visual_evidence.hpp"
 
 ov_msckf::VioManagerOptions config(const std::string &path) {
   auto p=std::make_shared<ov_core::YamlParser>(path);ov_msckf::VioManagerOptions o;
@@ -76,8 +77,51 @@ void recovery(ov_msckf::VioManagerOptions o,bool drop) {
   std::cout<<"PASS simulated-feature recovery after 10s "<<(drop?"camera stop":"empty visual constraints")
     <<", update sequences "<<before<<" / "<<after_gap<<" / "<<vio.msckf_update_sequence()<<"\n";
 }
+void sparse_corrections(ov_msckf::VioManagerOptions o,bool slow_camera) {
+  ov_msckf::VioManager vio(o);const double start=200,offset=o.calib_camimu_dt;
+  Eigen::Matrix<double,17,1> init=Eigen::Matrix<double,17,1>::Zero();
+  init(0)=start-offset;init(4)=1;init(8)=.1;vio.initialize_with_gt(init);
+  double last=-1;unsigned updates=0,sparse=0,tracking=0;bool saw_loss=false,saw_recovery=false;
+  // At 30 Hz the shared track lifetime fits the existing 0.5 s visual timeout.
+  // At 20 Hz these deliberately identical lifetimes produce ~0.55 s gaps;
+  // that is a negative timing control, even though every correction is valid.
+  for(int n=-2;n<=2160;n++) {
+    const double t=start+n/240.,elapsed=n/240.;
+    ov_core::ImuData imu;imu.timestamp=t;imu.wm.setZero();imu.am<<0,0,o.gravity_mag;
+    vio.feed_measurement_imu(imu);
+    if(n<1)continue;
+    if(n%(slow_camera?12:8)==0) {
+      const double tc=t-offset-.01,ti=tc+offset;
+      std::vector<std::vector<std::pair<size_t,Eigen::VectorXf>>> features(2);
+      if(elapsed<3. || elapsed>=5.)for(int k=0;k<2;k++)for(int j=0;j<7;j++) {
+        Eigen::Vector3d point((j%4-1.5)*.5,(j/4-.5)*.5,4.+(j%3)*.5);
+        point-=Eigen::Vector3d(.1*(ti-start)+k*.095,0,0);
+        Eigen::VectorXf uv(2);uv<<400*point.x()/point.z()+320,400*point.y()/point.z()+240;
+        features[k].emplace_back(j,uv);
+      }
+      const auto before=vio.msckf_update_sequence();
+      vio.feed_measurement_simulation(tc,{0,1},features);
+      const auto after=vio.msckf_update_sequence();
+      const unsigned accepted=after>before?vio.last_msckf_update_count():0;
+      const bool corrected=wla_openvins::record_visual_correction(before,after,accepted,ti,.5,last,updates);
+      if(corrected) {assert(accepted>0 && accepted<8);++sparse;}
+      const auto mode=wla_openvins::mode(false,true,true,last<0?-1:t-last,.5,true,updates,3);
+      if(mode==wla_openvins::VIO_TRACKING)++tracking;
+      if(elapsed>=4. && elapsed<5.) {assert(mode==wla_openvins::INERTIAL_ONLY);saw_loss=true;}
+      if(elapsed>5. && mode==wla_openvins::VIO_TRACKING)saw_recovery=true;
+    }
+  }
+  std::cerr<<"camera_hz="<<(slow_camera?20:30)<<" sparse="<<sparse<<" tracking="<<tracking<<" saw_loss="<<saw_loss
+    <<" saw_recovery="<<saw_recovery<<" last="<<last<<" updates="<<updates<<"\n";
+  assert(sparse>=6 && saw_loss);
+  if(slow_camera) {assert(tracking==0 && !saw_recovery);}
+  else {assert(tracking>0 && saw_recovery);}
+  std::cout<<"PASS actual MSCKF sparse corrections (<8 features): "<<sparse
+    <<", tracking frames="<<tracking<<", camera_hz="<<(slow_camera?20:30)<<"\n";
+}
 int main(int argc,char**argv) {
-  assert(argc==2);ov_core::Printer::setPrintLevel("ERROR");auto o=config(argv[1]);
+  assert(argc==2 || argc==3);ov_core::Printer::setPrintLevel("ERROR");auto o=config(argv[1]);
+  if(argc==3) {assert(std::string(argv[2])=="--sparse-updates");sparse_corrections(o,false);sparse_corrections(o,true);return 0;}
   for(double offset:{0.,.007,-.007}) {o.calib_camimu_dt=offset;propagation(o,false);}
   propagation(o,true);recovery(o,false);recovery(o,true);
 }

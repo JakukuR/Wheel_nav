@@ -19,6 +19,7 @@
 #include "state/State.h"
 #include "utils/print.h"
 #include "wla_openvins_navigation/adapter.hpp"
+#include "wla_openvins_navigation/visual_evidence.hpp"
 #include "wla_openvins_navigation/msg/estimator_status.hpp"
 
 using namespace std::chrono_literals;
@@ -71,9 +72,8 @@ class Frontend final : public rclcpp::Node {
     pos_limit_=positive("max_position_std_m",0.5);
     rot_limit_=positive("max_orientation_std_rad",0.3);
     vel_limit_=positive("max_velocity_std_mps",0.5);
-    min_features_=declare_parameter<int>("min_accepted_features",8);
     required_updates_=declare_parameter<int>("recovery_updates",3);
-    if(min_features_<1 || required_updates_<1) throw std::invalid_argument("invalid recovery thresholds");
+    if(required_updates_<1) throw std::invalid_argument("invalid recovery threshold");
     std::random_device rd; std::ostringstream id;
     id << std::hex << rd() << rd() << std::chrono::system_clock::now().time_since_epoch().count();
     instance_=id.str();
@@ -213,11 +213,8 @@ class Frontend final : public rclcpp::Node {
       if(camera_duration>0.05) RCLCPP_WARN_THROTTLE(get_logger(),*get_clock(),2000,
         "Camera update took %.1f ms; inspect callback latency",1000.*camera_duration);
       accepted_=estimator_->msckf_update_sequence()>sequence?estimator_->last_msckf_update_count():0;
-      if(accepted_>=unsigned(min_features_)) {
-        double current=camera.timestamp+dt;
-        recovery_=(last_visual_>=0 && current-last_visual_<=visual_timeout_)?recovery_+1:1;
-        last_visual_=current;
-      }
+      wla_openvins::record_visual_correction(sequence,estimator_->msckf_update_sequence(),
+        accepted_,camera.timestamp+dt,visual_timeout_,last_visual_,recovery_);
     }
     if(!estimator_->initialized()) return;
     // Advance the same posterior during camera stop, at bounded 10 Hz. Keep a
@@ -284,7 +281,7 @@ class Frontend final : public rclcpp::Node {
   double pos_limit_,rot_limit_,vel_limit_,pos_std_=1e9,rot_std_=1e9,vel_std_=1e9;
   double last_imu_=-1,last_image_=-1,last_visual_=-1,state_stamp_=-1,last_left_=-1,last_right_=-1;
   uint64_t generation_=0,rejected_imu_=0,rejected_images_=0;unsigned recovery_=0,accepted_=0;
-  int min_features_,required_updates_;Clock::time_point imu_seen_{};
+  int required_updates_;Clock::time_point imu_seen_{};
   Clock::time_point info_seen_[2]{};
   std::deque<sensor_msgs::msg::Image::ConstSharedPtr> images_[2];std::deque<ov_core::CameraData> cameras_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_;
