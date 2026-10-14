@@ -39,16 +39,17 @@ def spin(seconds,callback):
     while time.monotonic()<end:callback();ex.spin_once(timeout_sec=.005)
 
 results=[]
+cases=os.environ.get('WLA_HANDOFF_CASES','normal,manual_takeover,estop,process_killed,delayed_health,cancel_health_drop,waiting_health,stale_health').split(',')
 try:
- for case in ('normal','manual_takeover','estop','process_killed'):
+ for case in cases:
     states.clear();base.clear();cancelled.clear();permissions.clear();mux.p=Policy(1.,.3,1.5)
     guard=subprocess.Popen([str(Path(os.environ['WLA_NAV_BIN'])/'command_guard'),'--ros-args',
         '-p','hardware_output_enabled:=false','-p','require_frontend_motion_permission:=false'],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
     session=subprocess.Popen([sys.executable,str(root/'scripts/navigation_motion_session.py')],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
-    start=time.monotonic();enabled=None;triggered=False;health_stopped=False
+    start=time.monotonic();enabled=None;triggered=False;health_stopped=False;stale_sent=False
     try:
      def fixture():
-        global enabled,triggered,health_stopped
+        global enabled,triggered,health_stopped,stale_sent
         now=time.monotonic()
         hits=[t for t,s in states if s.startswith('navigation_enabled;')]
         if hits and enabled is None:enabled=hits[0]
@@ -57,7 +58,17 @@ try:
         o=Odometry();o.header.stamp=stamp;o.pose.pose.orientation.w=1.
         v,w=base[-1][1:] if base else (0.,0.)
         o.twist.twist.linear.x=v;o.twist.twist.angular.z=w;wheel.publish(o)
-        h=not(case=='normal' and .6<age<1.2);health.publish(Bool(data=h))
+        h=not(case=='normal' and .6<age<1.2)
+        if case=='delayed_health':h=now-start>6.5
+        if case=='cancel_health_drop' and cancelled:h=now-cancelled[0]>1.2
+        if case=='waiting_health':h=False
+        if case=='stale_health':
+            if not stale_sent:
+                # Send one true after discovery, then go silent. A never-received
+                # sample would only duplicate waiting_health, not test freshness.
+                send_true=bool(permissions) and now-start>1.2
+                health.publish(Bool(data=send_true));stale_sent=send_true
+        else:health.publish(Bool(data=h))
         # Old commands exist before handoff, but must not leak through. Once
         # canceled, no new goal is sent until 0.3 seconds after authorization.
         if not cancelled or age>.3:
@@ -66,7 +77,9 @@ try:
         m=Twist()
         if case=='manual_takeover' and .6<age<.72:m.linear.x=.05
         manual.publish(m)
-        status=GoalStatus();status.goal_info=goal;status.status=5 if cancelled else 2
+        status=GoalStatus();status.goal_info=goal
+        finished=bool(cancelled) and (case!='cancel_health_drop' or now-cancelled[0]>.4)
+        status.status=5 if finished else 2
         statuses.publish(GoalStatusArray(status_list=[status]))
         if case=='estop' and age>.65 and not triggered:
             mux.p.latch_stop('test_estop');triggered=True
@@ -75,16 +88,29 @@ try:
         if case=='normal' and 1.0<age<1.15:
             recent=[r for r in base if r[0]>now-.08]
             if recent and all(abs(r[1])<1e-8 for r in recent):health_stopped=True
-     spin(6.,fixture)
+     spin(10. if case=='delayed_health' else 6.,fixture)
+     if case in ('waiting_health','stale_health'):
+        assert session.poll() is None,(case,'waiting session exited',states)
+        assert enabled is None and mux.p.mode=='MANUAL',(case,'authorized without current health')
+        assert permissions and not any(v for _,v in permissions),(case,'permission granted while waiting')
+        assert base and all(abs(v)+abs(w)<1e-8 for _,v,w in base),(case,'waiting output nonzero')
+        if case=='stale_health':
+            assert stale_sent and any('localization_report_stale' in s for _,s in states),(case,'stale true was not observed',states)
+        session.send_signal(signal.SIGTERM);spin(.8,fixture)
+        assert session.poll() is not None,(case,'waiting did not cancel')
+        results.append(dict(case=case,waited_without_exit=True,no_permission=True,final_zero=True))
+        continue
      assert enabled is not None,(case,states,session.poll(),session.stderr.read().decode() if session.poll() is not None else '')
      assert cancelled and cancelled[0]<enabled,(case,'old goal not canceled')
      before=[r for r in base if r[0]<enabled+.25]
      assert before and all(abs(r[1])<1e-8 for r in before),(case,'stale command replay')
      assert any(r[1]>.1 for r in base),(case,'new navigation did not pass guard and mux')
+     if case=='delayed_health':assert enabled-start>6.5,(case,'enabled before health recovery')
+     if case=='cancel_health_drop':assert enabled-cancelled[0]>1.2,(case,'enabled during cancellation health loss')
      if case=='normal':
         assert health_stopped,'Invalid localization did not stop output'
         assert any(r[1]>.1 for r in base if r[0]>enabled+1.4),'Healthy fresh stream did not recover'
-        session.send_signal(signal.SIGTERM)
+     if case in ('normal','delayed_health','cancel_health_drop'):session.send_signal(signal.SIGTERM)
      spin(.8,fixture)
      if case!='process_killed':
         assert session.poll() is not None,(case,'session did not exit')
@@ -98,7 +124,7 @@ try:
             try:p.wait(timeout=3.)
             except subprocess.TimeoutExpired:p.kill();p.wait()
  print(json.dumps(results,indent=2))
- print('PASS no-gamepad handoff, cancel old goal, fresh command, localization loss/recovery, takeover, estop, SIGTERM and killed heartbeat')
+ print('PASS handoff cases: '+','.join(cases))
 finally:
  for n in (mux,node):ex.remove_node(n);n.destroy_node()
  ex.shutdown();rclpy.shutdown()

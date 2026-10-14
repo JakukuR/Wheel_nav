@@ -27,6 +27,7 @@ class Session(Node):
         self.cancelled=False;self.control=None;self.control_at=0.;self.wheel=None;self.wheel_at=0.
         self.healthy=False;self.health_at=0.;self.identity=None;self.requested=False;self.guard_open=False
         self.goals={};self.authorized=False;self.owns_permission=False
+        self.frontend='not_received';self.next_wait_report=0.
         self.permit=self.create_publisher(Bool,'/r680_nav/mission_motion_allowed',1)
         self.report=self.create_publisher(String,'/r680_nav/navigation_motion_state',10)
         self.auto=self.create_client(SetBool,'/r680_base/set_automatic')
@@ -34,6 +35,7 @@ class Session(Node):
         self.create_subscription(String,'/r680_base/control_state',self.on_control,10)
         self.create_subscription(Odometry,'/wheel/odom',self.on_wheel,qos_profile_sensor_data)
         self.create_subscription(Bool,'/r680_nav/localization_ready',self.on_health,10)
+        self.create_subscription(String,'/openvins/gate_status',self.on_frontend,10)
         self.cancels={}
         for name in ('navigate_to_pose','navigate_through_poses'):
             self.cancels[name]=self.create_client(CancelGoal,f'/{name}/_action/cancel_goal')
@@ -51,6 +53,8 @@ class Session(Node):
         if -.05<=age<=.2:self.wheel=m;self.wheel_at=time.monotonic()
 
     def on_health(self,m):self.healthy=m.data;self.health_at=time.monotonic()
+    def on_frontend(self,m):self.frontend=m.data
+    def health_ready(self):return self.healthy and time.monotonic()-self.health_at<.5
     def on_goals(self,m):
         for s in m.status_list:self.goals[bytes(s.goal_info.goal_id.uuid)]=s.status
     def emit(self,state):
@@ -99,28 +103,47 @@ class Session(Node):
             pending={g for g in pending if self.goals.get(g) not in (4,5,6)}
         if pending:raise RuntimeError('old_goal_still_active')
 
+    def wait_for_health_and_stop(self):
+        # Readiness may drop between the outer startup probe and this process.
+        # Keep permission false and wait for recovery; never repeat motion init.
+        stable_since=None
+        while not self.cancelled and rclpy.ok():
+            self.permission();self.spin();self.check_control('MANUAL')
+            now=time.monotonic()
+            if (self.wheel is None or now-self.wheel_at>.2 or
+                    not abs(self.wheel.twist.twist.linear.x)<.01 or not abs(self.wheel.twist.twist.angular.z)<.01):
+                raise RuntimeError('chassis_not_stopped')
+            if self.health_ready():
+                if stable_since is None:stable_since=now
+                if now-stable_since>=.5:return
+            else:stable_since=None
+            if now>=self.next_wait_report:
+                reason=('localization_not_ready' if not self.healthy else
+                        'localization_report_stale' if not self.health_ready() else 'zero_speed_handshake')
+                self.emit(f'waiting_for_navigation_handoff: {reason}; frontend_last={self.frontend}; motion_permission=false')
+                self.next_wait_report=now+5.
+        raise RuntimeError('cancelled')
+
     def run(self):
         self.emit('waiting_for_navigation_handoff')
         until=time.monotonic()+5.
         while time.monotonic()<until:
             if self.cancelled:raise RuntimeError('cancelled')
             self.permission();self.spin()
-            if self.control and self.wheel and self.healthy and time.monotonic()-self.health_at<.5:break
+            if self.control and self.wheel:break
         self.check_control('MANUAL');self.identity=self.key()
         owners=self.get_publishers_info_by_topic('/r680_nav/mission_motion_allowed')
         if any(p.node_name!=self.get_name() or p.node_namespace!='/' for p in owners) or len(owners)!=1:
             raise RuntimeError('another_mission_permission_owner')
         self.owns_permission=True
-        self.cancel_old_goals()
         self.set_output(True) # Permission is still false: guard emits zero only.
-        until=time.monotonic()+.5
-        while time.monotonic()<until:
-            self.permission();self.spin();self.check_control('MANUAL')
-            if (self.wheel is None or time.monotonic()-self.wheel_at>.2 or
-                    not abs(self.wheel.twist.twist.linear.x)<.01 or not abs(self.wheel.twist.twist.angular.z)<.01):
-                raise RuntimeError('chassis_not_stopped')
-        if not self.healthy or time.monotonic()-self.health_at>.5:raise RuntimeError('localization_not_ready')
         if not self.auto.wait_for_service(timeout_sec=2.):raise RuntimeError('chassis_mode_service_missing')
+        while True:
+            self.wait_for_health_and_stop()
+            # Cancel again if recovery allowed more goals to arrive while waiting.
+            self.cancel_old_goals()
+            self.check_control('MANUAL')
+            if self.health_ready():break
         self.requested=True
         result=self.wait(self.auto.call_async(SetBool.Request(data=True)))
         if not result.success:raise RuntimeError('auto_rejected:'+result.message)

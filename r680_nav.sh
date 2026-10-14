@@ -508,6 +508,7 @@ from tf2_ros import Buffer, TransformListener
 rclpy.init()
 node = Node('r680_navigation_ready_waiter')
 ready_count = 0
+last_ready = 0.0
 map_ok = False
 require_scan = os.environ['WLA_REQUIRE_SCAN'] == 'true'
 last_scan = 0.0
@@ -526,8 +527,9 @@ def frontend_cb(msg):
     frontend_status = msg.data
 
 def ready_cb(msg):
-    global ready_count
+    global ready_count, last_ready
     ready_count = ready_count + 1 if msg.data else 0
+    last_ready = time.monotonic()
 
 def map_cb(msg):
     global map_ok
@@ -608,12 +610,13 @@ while time.monotonic() < deadline:
             if motion_result.get('state') == 'failed':
                 raise SystemExit('一次性初始化已停止: ' + motion_result.get('reason', 'unknown') + '; 查看 logs/init_motion.log')
             motion_ok = motion_result.get('state') in ('succeeded', 'already_initialized')
-    if motion_ok and ready_count >= 5 and map_ok and tf_ok and scan_ok and (not auto_init or init_state == 'succeeded') and all(v == 3 for v in states.values()):
+    interface_ok = ready_count >= 5 and time.monotonic() - last_ready < 0.5
+    if motion_ok and interface_ok and map_ok and tf_ok and scan_ok and (not auto_init or init_state == 'succeeded') and all(v == 3 for v in states.values()):
         node.destroy_node()
         rclpy.shutdown()
         raise SystemExit(0)
     if time.monotonic() - last_report > 10.0:
-        print('[R680 NAV] 等待就绪:', f'接口={ready_count >= 5}', f'地图={map_ok}',
+        print('[R680 NAV] 等待就绪:', f'接口={interface_ok}', f'地图={map_ok}',
               f'TF={tf_ok}', f'Scan={scan_ok}', f'前端诊断={frontend_status}', f'自动运动初始化={init_state if auto_init or motion_init else "关闭，需手柄激励"}',
               f'估计器={estimator_state}',
               '生命周期=' + ','.join(f'{k}:{v}' for k, v in states.items()),
@@ -634,11 +637,15 @@ if [[ "$ENABLE_MOTION" == true && "$ODOM_SOURCE" == openvins ]]; then
   setsid ros2 run wla_r680_navigation navigation_motion_session.py \
     >"$NAV_RUN_DIR/logs/navigation_motion_session.log" 2>&1 </dev/null &
   PERMISSION_PID=$!
-  echo '[R680 NAV] 初始化与 Nav2 已就绪，正在自动交接 AUTO/NAV，并取消交接前提交的旧目标。'
-  for ((i=0; i<300; i++)); do
+  echo '[R680 NAV] 初始化与 Nav2 启动检查通过；正在确认当前健康状态并交接 AUTO/NAV。状态暂未就绪时保持零速等待，不重复运动初始化。'
+  handoff_reports=0
+  while kill -0 "$PERMISSION_PID" 2>/dev/null && kill -0 "$BRINGUP_PID" 2>/dev/null; do
     grep -q 'navigation_enabled;' "$NAV_RUN_DIR/logs/navigation_motion_session.log" && break
-    kill -0 "$PERMISSION_PID" 2>/dev/null || break
-    sleep 0.1
+    if (( handoff_reports % 10 == 0 )); then
+      tail -1 "$NAV_RUN_DIR/logs/navigation_motion_session.log"
+    fi
+    handoff_reports=$((handoff_reports + 1))
+    sleep 1
   done
   if ! grep -q 'navigation_enabled;' "$NAV_RUN_DIR/logs/navigation_motion_session.log"; then
     tail -10 "$NAV_RUN_DIR/logs/navigation_motion_session.log" >&2
@@ -661,6 +668,12 @@ fi
 echo '[R680 NAV] 就绪检查只证明传感器、地图、TF 与 Nav2 正常，不等同于视觉重定位已匹配正确。'
 echo '[R680 NAV] 按 Ctrl+C 将撤销运动授权、发送零速、关闭本次节点并恢复原定位服务。'
 
-while kill -0 "$BRINGUP_PID" 2>/dev/null; do sleep 1; done
+while kill -0 "$BRINGUP_PID" 2>/dev/null; do
+  if [[ -n "$PERMISSION_PID" ]] && ! kill -0 "$PERMISSION_PID" 2>/dev/null; then
+    echo '[R680 NAV] 导航授权进程已结束，退出清理。' >&2
+    exit 1
+  fi
+  sleep 1
+done
 echo '[R680 NAV] 导航主进程意外退出。' >&2
 exit 1
