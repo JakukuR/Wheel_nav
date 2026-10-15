@@ -8,8 +8,12 @@ class Policy:
     PERSON_COMMAND_AGE = .15
     PERSON_STATUS_AGE = .20
 
-    def __init__(self, linear=.3, reverse=.3, angular=.5):
+    def __init__(self, linear=.3, reverse=.3, angular=.5, *, nav_manual_coexist=False):
         self.limits = (linear, reverse, angular)
+        self.nav_manual_coexist = nav_manual_coexist
+        self.nav_manual_active = False
+        self.nav_resume_after = -1e9
+        self.output_source = "NONE"
         self.mode = 'MANUAL'; self.armed = False
         self.manual_ready_after = -1e9
         self.estop_latched = False; self.estop_reason = ''
@@ -61,6 +65,9 @@ class Policy:
             self.latch_stop('invalid_manual_input'); return False
         self.manual = v; self.manual_at = t
         takeover = self.mode == 'AUTO' and self.manual_ready(t) and not self.zero(v)
+        if takeover and self.nav_manual_coexist and self.automatic_source == 'NAV':
+            # Keep NAV authorization; manual control temporarily owns the output.
+            return False
         if takeover:
             self.set_manual()
         return takeover
@@ -275,17 +282,29 @@ class Policy:
         elif t - self.auto_at > .15 or self.auto_at <= self.source_after or not self.zero(self.auto):
             return False, 'navigation_not_fresh_and_stopped'
         self.mode = 'AUTO'; self.auto_after = t; self.auto_ros_ns = now_ns
+        if self.nav_manual_coexist and self.automatic_source == 'NAV':
+            return True, 'AUTO NAV: manual override; fresh NAV resumes on release; estop stops both'
         return True, 'AUTO ' + self.automatic_source + ': stick input or A stop returns to MANUAL'
 
     def output(self, t):
+        self.output_source = "NONE"
         if self.estop_latched:
+            self.nav_manual_active = False
             # Retain new manual samples so reset can reject a held joystick.
             self.armed = False
             return (0., 0.)
         self.armed = self.manual_ready(t)  # Compatibility field: manual readiness only.
         if not self.armed:
             self.clear_manual()
-        if self.mode == 'AUTO':
+        shared = self.nav_manual_coexist and self.mode == 'AUTO' and self.automatic_source == 'NAV'
+        manual_override = shared and self.manual_requested(t)
+        if self.nav_manual_active and not manual_override:
+            # A release/disconnect never replays a NAV command from the override.
+            self.nav_resume_after = t
+        self.nav_manual_active = manual_override
+        if manual_override:
+            v = self.manual; self.output_source = 'MANUAL'
+        elif self.mode == 'AUTO':
             if self.automatic_source in ('PERSON','OBJECT'):
                 channel=self.tracking_channel()
                 if t > channel.person_status_until or channel.person_fault:
@@ -295,15 +314,15 @@ class Policy:
                 if (not channel.person_motion_permitted or t > channel.person_until
                         or channel.person_at <= self.auto_after or channel.person_stamp_ns <= self.auto_ros_ns):
                     return (0., 0.)
-                v = channel.person
+                v = channel.person; self.output_source = self.automatic_source
             else:
-                if t - self.auto_at > .15 or self.auto_at <= self.auto_after:
+                if t - self.auto_at > .15 or self.auto_at <= max(self.auto_after, self.nav_resume_after):
                     return (0., 0.)
-                v = self.auto
+                v = self.auto; self.output_source = 'NAV'
         else:
             if not self.armed:
                 return (0., 0.)
-            v = self.manual
+            v = self.manual; self.output_source = 'MANUAL'
         forward, reverse, turn = self.limits
         return (max(-reverse, min(forward, v[0])), max(-turn, min(turn, v[1])))
 

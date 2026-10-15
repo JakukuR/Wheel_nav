@@ -158,6 +158,15 @@ def main():
             assert fixture.states[-1]['automatic_source'] == 'NAV'
             fixture.call(fixture.automatic, True); fixture.feed(.4, nav=.21)
             assert abs(fixture.outputs[-1][0] - .21) < 1e-6
+            cancellations = fixture.cancellations
+            fixture.feed(.4, manual=.08, nav=.21)
+            assert abs(fixture.outputs[-1][0] - .08) < 1e-6, 'shared manual output, no sum'
+            assert fixture.states[-1]['mode'] == 'AUTO'
+            assert fixture.states[-1]['nav_manual_coexist']
+            assert fixture.states[-1]['output_source'] == 'MANUAL'
+            fixture.feed(.4, nav=.21)
+            assert abs(fixture.outputs[-1][0] - .21) < 1e-6, 'fresh NAV resumes after release'
+            assert fixture.cancellations == cancellations, 'shared input must not cancel Nav2'
             # Retained from the retired NAV-only test, using current mux limits.
             fixture.feed(.4, send_nav=False)
             assert fixture.outputs[-1] == (0., 0.), 'stale NAV must stop'

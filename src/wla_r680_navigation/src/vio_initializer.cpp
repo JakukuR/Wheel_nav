@@ -61,6 +61,7 @@ public:
     if (freshness_ > 0.5 || min_valid_ > 1) throw std::invalid_argument("invalid input gate");
     imu_frame_ = declare_parameter<std::string>("imu_frame", "gyro_link");
     base_ = declare_parameter<std::string>("base_frame", "r680_mapping_floor");
+    nav_manual_coexist_ = declare_parameter<bool>("nav_manual_coexist", true);
     require_base_authorization_ = declare_parameter<bool>("require_base_authorization", false);
     base_authorization_sub_ = create_subscription<std_msgs::msg::Bool>(
       "/r680_nav/vio_init_base_authorized", 1, [this](std_msgs::msg::Bool::ConstSharedPtr m) {
@@ -154,10 +155,14 @@ public:
     }
     manual_sub_ = create_subscription<geometry_msgs::msg::Twist>(
       "/r680_manual/cmd_vel", 1, [this](geometry_msgs::msg::Twist::ConstSharedPtr m) {
-        if (!std::isfinite(m->linear.x + m->angular.z) ||
-          std::abs(m->linear.x) > 1e-6 || std::abs(m->angular.z) > 1e-6) {
+        if (!std::isfinite(m->linear.x) || !std::isfinite(m->angular.z)) {
+          policy_->fail("invalid_manual_input"); nav_seen_ = {};
+        } else if (!nav_manual_coexist_ &&
+          (std::abs(m->linear.x) >= 0.01 || std::abs(m->angular.z) >= 0.01)) {
           policy_->fail("manual_takeover"); nav_seen_ = {};
         }
+        // Shared NAV keeps the initializer alive. Measured wheel motion still
+        // consumes its original travel/yaw/time budget and overspeed limits.
       });
     localization_sub_ = create_subscription<std_msgs::msg::Bool>(
       "/r680_nav/localization_ready", 1, [this](std_msgs::msg::Bool::ConstSharedPtr m) {
@@ -363,6 +368,7 @@ private:
     mux_pub_->publish(output);
     if (policy_->state() != previous || ++ticks_ % 20 == 0) writeResult();
   }
+  bool nav_manual_coexist_{true};
   bool require_base_authorization_{false}, base_authorized_{false};
   Clock::time_point base_authorization_seen_{};
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr base_authorization_sub_;

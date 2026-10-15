@@ -20,7 +20,8 @@ class Mux(Node):
     def __init__(self):
         super().__init__('r680_command_mux')
         self.p = Policy(*[self.declare_parameter(k, v).value for k, v in
-                         [('max_forward_mps', 1.0), ('max_reverse_mps', .3), ('max_turn_rps', 1.5)]])
+                         [('max_forward_mps', 1.0), ('max_reverse_mps', .3), ('max_turn_rps', 1.5)]],
+                        nav_manual_coexist=self.declare_parameter('nav_manual_coexist', True).value)
         self.control_session = uuid.uuid4().hex
         self.out = self.create_publisher(Twist, '/r680_base/cmd_vel', 1)
         self.report = self.create_publisher(String, '/r680_base/control_state', 10)
@@ -149,6 +150,8 @@ class Mux(Node):
             self.report.publish(String(data=json.dumps({
                 'control_session': self.control_session, 'stamp_ns': self.get_clock().now().nanoseconds,
                 'mode': self.p.mode, 'armed': self.p.armed,
+                'nav_manual_coexist': self.p.nav_manual_coexist,
+                'output_source': self.p.output_source,
                 'manual_ready': self.p.manual_ready(now),
                 'automatic_authorized': self.p.mode == 'AUTO' and not self.p.estop_latched,
                 'estop_latched': self.p.estop_latched, 'estop_reason': self.p.estop_reason,

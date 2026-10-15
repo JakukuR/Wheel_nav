@@ -20,6 +20,8 @@ import struct
 
 
 def run(case, base_authority=False, guard_delay=0.):
+    successful = case in ('success', 'manual_shared')
+    manual_sources = []
     prefix = Path(get_package_prefix('wla_r680_navigation')) / 'lib/wla_r680_navigation'
     result = Path('/tmp') / ('vio-init-regression-' + ('base-' if base_authority else '') + case + '.json')
     commands = [
@@ -37,6 +39,8 @@ def run(case, base_authority=False, guard_delay=0.):
         commands[1].extend(['-p','hardware_output_enabled:=true'])
         if case != 'startup_no_authority':
             commands.append([sys.executable,str(root/'scripts/navigation_motion_session.py'),'--cuvslam-init'])
+    if case == 'manual_legacy':
+        commands[0].extend(['-p', 'nav_manual_coexist:=false'])
     if guard_delay:
         assert base_authority
         commands[1] = [sys.executable, '-c',
@@ -93,6 +97,7 @@ def run(case, base_authority=False, guard_delay=0.):
         ('/r680/d455/aligned_depth_to_color/image_raw', Image), ('/r680_nav/d455/points_safety', PointCloud2),
         ('/r680_nav/vio_status', String), ('/r680_nav/vio_tracking_healthy', Bool),
         ('/r680_nav/localization_ready', Bool), ('/r680_nav/mission_motion_allowed', Bool),
+        ('/r680_manual/cmd_vel', Twist), ('/gamepad_status', String),
         ('/r680_nav/nav_command_input', Twist), ('/r680_nav/vio_init_cancel', Bool)]
         if not (base_authority and name == '/r680_nav/mission_motion_allowed')}
     def service_cb(req, res):
@@ -111,10 +116,10 @@ def run(case, base_authority=False, guard_delay=0.):
             current = time.monotonic(); dt = min(current-previous, 0.05); previous = current
             if any(p.poll() is not None for i,p in enumerate(processes)
                    if not ((case == 'node_exit' and i == 0 and state['fault_at'] is not None) or
-                           (base_authority and i == 2 and case != 'success'))):
+                           (base_authority and i == 2 and not successful))):
                 raise AssertionError('node exited: inspect /tmp/vio-init logs')
             moving_time = 0 if state['moving_at'] is None else current-state['moving_at']
-            if case not in ['success', 'timeout'] and state['moving_at'] and moving_time > 0.25:
+            if not successful and case != 'timeout' and state['moving_at'] and moving_time > 0.25:
                 if state['fault_at'] is None:
                     state['fault_at'] = current
                     if case == 'node_exit': processes[0].terminate()
@@ -122,6 +127,14 @@ def run(case, base_authority=False, guard_delay=0.):
                     if case == 'base_estop': mux.p.latch_stop('fixture_estop')
                     if case == 'base_takeover': mux.p.set_manual()
             fault = state['fault_at'] is not None or case == 'startup_obstacle'
+            if case in ('manual_shared', 'manual_invalid', 'manual_legacy'):
+                manual = Twist()
+                if state['name'] == 'moving' and .15 < moving_time < .35:
+                    manual.linear.x = float('nan') if case == 'manual_invalid' else .04
+                publishers['/gamepad_status'].publish(String(data='[ACTIVE] synthetic'))
+                publishers['/r680_manual/cmd_vel'].publish(manual)
+                if mux is not None: manual_sources.append(mux.p.output_source)
+
             if case == 'cancel' and fault:
                 publishers['/r680_nav/vio_init_cancel'].publish(Bool(data=True))
             preview = base_commands[-1][1] if base_authority and base_commands else state['preview']
@@ -152,7 +165,7 @@ def run(case, base_authority=False, guard_delay=0.):
                 if case == 'pose_jump' and fault: vo.pose.pose.position.x += 0.30
                 publishers['/d455_slam/odom'].publish(vo)
                 last_vo = current
-            inertial = case == 'success' and state['moving_at'] is not None and moving_time > 0.5
+            inertial = successful and state['moving_at'] is not None and moving_time > 0.5
             publishers['/r680_nav/vio_status'].publish(String(data='tracking_inertial_ready' if inertial else 'waiting_for_stable_inertial_initialization'))
             publishers['/r680_nav/vio_tracking_healthy'].publish(Bool(data=inertial))
             localized = inertial and state['name'] in ['waiting_localization', 'succeeded']
@@ -194,11 +207,15 @@ def run(case, base_authority=False, guard_delay=0.):
                 return
             assert grants and nonzero, (case,'no actual mux output',session_states)
             assert nonzero[0][0]>=grants[0], 'output preceded authorization'
-            if case=='success':
+            if successful:
                 assert any(v.startswith('navigation_enabled;') for v in session_states), session_states
             else:
                 assert abs(base_commands[-1][1].linear.x)+abs(base_commands[-1][1].angular.z)<1e-8
                 assert len([v for v in session_states if v.startswith('initialization_enabled;')])==1
+            if case == 'manual_shared':
+                assert 'MANUAL' in manual_sources, 'manual override was never exercised'
+                assert 'NAV' in manual_sources[manual_sources.index('MANUAL') + 1:], 'NAV did not resume'
+                assert not mux.p.estop_latched and mux.p.mode == 'AUTO'
             assert not any(n in ('wheeltec_robot','wheeltec_robot_node') for n in node.get_node_names())
         if case == 'startup_obstacle':
             assert not bootstrap_values, 'blocked startup issued a motion request'
@@ -211,7 +228,7 @@ def run(case, base_authority=False, guard_delay=0.):
         else:
             assert bootstrap_values and any(v > 0 for v,w in bootstrap_values), 'bootstrap never moved in synthetic test'
         assert all(0 <= v <= 0.060001 and abs(w) <= 0.200001 for v,w in bootstrap_values)
-        if case == 'success':
+        if successful:
             assert state['name'] == 'succeeded', states
             assert normal_values and max(normal_values) > 0.09, 'normal control did not resume'
         else:
@@ -224,7 +241,7 @@ def run(case, base_authority=False, guard_delay=0.):
             deadline=time.monotonic()+2.
             while processes[2].poll() is None and time.monotonic()<deadline:
                 spin();time.sleep(.005)
-            if case=='success':assert mux.p.mode=='MANUAL','session exit did not release AUTO'
+            if successful:assert mux.p.mode=='MANUAL','session exit did not release AUTO'
         if executor is not None:
             executor.remove_node(node);executor.remove_node(mux);executor.shutdown()
             mux.destroy_node()
