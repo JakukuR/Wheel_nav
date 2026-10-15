@@ -99,7 +99,7 @@ colcon build --symlink-install --executor sequential \
   --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
 ```
 
-## 本轮验证边界
+## 源码迁移阶段验证边界（启动测试之前）
 
 按用户“别测试”要求，只做源码比较、静态接口/语法检查、编译和 ELF 依赖检查。
 没有启动 ROS 节点、隔离 ROS 样例、传感器、仿真、服务切换或实车运动。
@@ -130,3 +130,88 @@ QoS 静态契约：官方 IMU 为 SensorDataQoS；官方立体图像为 message_
 构建和静态检查记录保存在工作区 `.runtime/openvins_official/`：
 `build.log`、`integration.log`、`final-source-audit.json`、`final-install-audit.json`、
 `official-node-ldd.txt`。这些机器运行产物不纳入源码提交。
+
+## 用户授权后的启动预览测试（2026-10-15）
+
+用户随后要求“启动测试一下”，故进行两次不启用运动输出的实机传感器预览。
+上节“没有启动 ROS 节点”仅描述此前源码迁移阶段；本节是后续运行证据。
+源码提交为 `0a4fe19`。未执行单元测试或运动验收，没有新增估计器逻辑。
+
+### 测试命令及退出
+
+第一次：
+
+```sh
+./r680_nav.sh --openvins --map map-2026-10-08-1 --test-scan-only
+```
+
+日志目录：`/home/orin/nav_run/nav-20261015-143247-1928057`。
+官方节点与坐标转换器启动，地图和 Scan 可用，但官方位姿/里程计无输出，
+在现有 300 秒初始化等待超时后退出。初期特征历史不足的日志不能解释持续失败。
+
+第二次使用同一命令，额外指定：
+
+```sh
+--openvins-config /home/orin/ros2_ws/.runtime/openvins_official/debug_config
+```
+
+日志目录：`/home/orin/nav_run/nav-20261015-144053-2002219`。
+此运行配置只是既有配置的副本，把官方 verbosity 改为 DEBUG，并更新副本的配置哈希。
+未改生产配置、算法或阈值。收集证据后 Ctrl-C 退出；脚本报告已清理并恢复原定位服务。
+随后进程检查未发现本次官方节点、转换器或导航启动脚本；`r680-manual-base.service` 为 active。
+脚本恢复消息不等于原定位服务恢复了有效定位，本次没有对此做额外验收。
+
+### 20 秒只读采样结果
+
+第二次预览的 `startup_probe.json`：
+
+| 项目 | 结果 |
+| --- | --- |
+| 左目图像 | 598 条，约 29.9 Hz |
+| 右目图像 | 599 条，约 29.9 Hz |
+| D455 IMU `/r680/d455/imu` | 3861 条，约 193.0 Hz |
+| Scan | 165 条 |
+| 官方 `/openvins/poseimu` | 0 条 |
+| 官方 `/openvins/odomimu` | 0 条 |
+| 坐标转换输出 `/d455_slam/odom` | 0 条 |
+| map/odom 到底盘 TF | 均不可用 |
+| hardware_output_enabled | false |
+| `/r680_nav/chassis_cmd_vel` | 1000 条，非零 0 条 |
+
+实际相机发布端与官方立体图像订阅端均为 RELIABLE，兼容。
+末条消息在探针收到时的年龄约为：IMU 14 ms，左右目 73–80 ms。
+探针收到数据不等于官方回调收到全部消息；官方日志另行证实图像追踪和静态初始化在执行。
+探针未保存完整时间戳序列，因此这些末条年龄不能证明期间没有乱序、跳变或缺口。
+第一次探针与关闭过程重叠，不把其消息计数当作稳态频率。
+
+### 已确认阻塞位置及未决问题
+
+第二次 `logs/bringup.log` 持续出现：
+
+```text
+InertialInitializer.cpp:139 [init]: USING STATIC INITIALIZER METHOD!
+StaticInitializer.cpp:51 [init-s]: unable to select window of IMU readings, not enough readings
+```
+
+实际固定版本的官方源码 `src/open_vins/ov_init/src/static/StaticInitializer.cpp:49-52`：
+
+```cpp
+if (newesttime - oldesttime < params.init_window_time) {
+  PRINT_INFO(YELLOW "[init-s]: unable to select window of IMU readings, not enough readings\n" RESET);
+  return false;
+}
+```
+
+运行日志显示 `init_window_time = 2.00`。这里检查的是初始化缓冲区最后与第一条 IMU 的
+时间戳跨度，既不是“单帧超过 100 ms 就杀死节点”，也不是累计运行时长。
+判定返回本次初始化失败，官方节点继续接收数据并重试。下游因无里程计而无法就绪。
+该判定来自官方代码，不是已删除的私有健康门控。
+
+官方 `VioManager.cpp` 的 IMU 接收路径和 `ov_init/src/init/InertialInitializer.cpp`
+的图像初始化路径都会按各自时间基准清理旧 IMU。当前证据尚不能解释为什么保留数据的
+跨度长期不足 2 秒：未测量官方内部缓冲区首尾具体值，不能断言低频、缺乏运动激励、
+时间戳乱序或上游缓冲区缺陷是根因。此轮没有改官方源码、标定时间偏移或窗口阈值。
+下一步应只读采集完整相机/IMU 时间戳序列，核对到达顺序、时间基准与官方缓存清理路径。
+
+结论：官方源码集成和构建已完成，启动预览未通过；未达到定位/导航或实车运动验收。
+运行日志及探针 JSON 保存在上述 nav_run 目录，不纳入源码 Git。
