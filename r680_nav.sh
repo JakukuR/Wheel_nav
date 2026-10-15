@@ -127,6 +127,21 @@ if [[ "$ODOM_SOURCE" == openvins ]]; then
   OPENVINS_CONFIG=$(realpath -e -- "$OPENVINS_CONFIG")
   OPENVINS_FLAGS=$(ros2 run wla_openvins_navigation inspect_config.py "$OPENVINS_CONFIG" --hardware-output "$ENABLE_MOTION")
   read -r OPENVINS_ALLOW_COMMISSIONING USE_D455_IMU <<<"$OPENVINS_FLAGS"
+  if [[ "$USE_D455_IMU" == true ]]; then
+    # Scope the one-line RealSense 4.58.1 IMU dispatch fix to OpenVINS.
+    REALSENSE_IMU_SETUP="$WORKSPACE/.runtime/realsense_openvins/install/local_setup.bash"
+    [[ -f "$REALSENSE_IMU_SETUP" ]] || {
+      echo 'Build the IMU fix first: bash src/wla_openvins_navigation/scripts/build_realsense_imu_fix.sh' >&2
+      exit 1
+    }
+    source "$REALSENSE_IMU_SETUP"
+    REALSENSE_IMU_PREFIX="$(ros2 pkg prefix realsense2_camera)"
+    [[ "$REALSENSE_IMU_PREFIX" == "$WORKSPACE/.runtime/realsense_openvins/install/realsense2_camera" ]] || {
+      echo "Unexpected RealSense package: $REALSENSE_IMU_PREFIX" >&2
+      exit 1
+    }
+    echo "[OpenVINS] RealSense IMU mode fix: $REALSENSE_IMU_PREFIX"
+  fi
   echo "[OpenVINS] 配置: $OPENVINS_CONFIG；候选标定=$OPENVINS_ALLOW_COMMISSIONING；D455 IMU=$USE_D455_IMU"
 fi
 set -u

@@ -1,7 +1,7 @@
 {
   "kind": "commissioning",
   "calibration_validated": false,
-  "provenance": "Kalibr d455_20261013_153541; 90min conditional random walk, not validated. Base mount retained from bringup; camera geometry rectified. Estimator settings updated 2026-10-14 by 2c16e2e: enable built-in ZUPT with IMU residual gating and disable disparity override; calibration and IMU noise parameters unchanged. 2026-10-15: removed legacy threading overrides; use official ROS node threading defaults. Calibration unchanged.",
+  "provenance": "Kalibr d455_20261013_153541; 90min conditional random walk, not validated. Base mount retained from bringup; camera geometry rectified. Estimator settings updated 2026-10-14 by 2c16e2e: enable built-in ZUPT with IMU residual gating and disable disparity override; calibration and IMU noise parameters unchanged. 2026-10-15: removed legacy threading overrides; use official ROS node threading defaults. Calibration unchanged. 2026-10-15: restore pinned upstream rs_d455 estimator defaults; sole estimator override max_cameras=2 for calibrated IR stereo. Camera/IMU calibration and 200 Hz rate retained.",
   "source_sha256": "caf076c7a7fa92af83ec181e522ff6d80ee165e500eb0166ae7c066dfbc7dfac",
   "sensor": "d455",
   "source_run": "d455_20261013_153541",
@@ -9,8 +9,17 @@
   "deployment_allowed": false,
   "config_sha256": {
     "frontend.yaml": "68ea6c76bf931fd21551afbb4030e0a67f742728eadc53d9ac63a7e9d2f2d3fc",
-    "estimator_config.yaml": "89205a0f1396eb7a8e031de808914108ce0a281d48decbc38666c87ae3d43104",
+    "estimator_config.yaml": "4dbb14ad61902fcdef96176ccf5074fccec226ab5649844424b0a9ee5ebc54c2",
     "kalibr_imucam_chain.yaml": "5af85740e3ceb4fb59b72a02027aa38beb17f296ceefffacac9be6f44dea70bc",
     "kalibr_imu_chain.yaml": "379e62243d054ffc6e0ea74a3fecae0c44735bfe16f8f4581e374e050022787b"
+  },
+  "estimator_reference": {
+    "repository": "https://github.com/rpng/open_vins",
+    "commit": "69488123ed9362dd44b6f28e7f4680abbff1442b",
+    "path": "config/rs_d455/estimator_config.yaml",
+    "sha256": "6f63de02e0d766ac2dfb1abd679edefddea1c25225218c8186ef13c1be27111f",
+    "overrides": {
+      "max_cameras": 2
+    }
   }
 }
