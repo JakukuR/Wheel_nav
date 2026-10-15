@@ -671,7 +671,8 @@ elif [[ "$ENABLE_MOTION" == true ]]; then
   setsid ros2 topic pub -r 10 /r680_nav/mission_motion_allowed \
     std_msgs/msg/Bool '{data: true}' >"$NAV_RUN_DIR/logs/motion_permission.log" 2>&1 </dev/null &
   PERMISSION_PID=$!
-  echo '[R680 NAV] 实车底盘输出已开放。确认 RViz 中机器人位置正确后再下发 Nav2 Goal。'
+  echo '[R680 NAV] 导航侧速度输出已允许；此步骤未切换底盘 AUTO 模式。'
+  echo '[R680 NAV] 停稳后调用 /r680_base/set_automatic（data: true），确认 control_state 为 AUTO/NAV，再下发新的导航点。'
 else
   echo '[R680 NAV] 当前为安全预览：定位、规划和碰撞链已启动，真实底盘输出保持关闭。'
   if [[ "$ODOM_SOURCE" == openvins ]]; then
