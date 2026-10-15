@@ -59,6 +59,11 @@ public:
     if (frontend_ != "cuvslam" && frontend_ != "openvins") throw std::invalid_argument("unknown frontend");
     imu_frame_ = declare_parameter<std::string>("imu_frame", "gyro_link");
     base_ = declare_parameter<std::string>("base_frame", "r680_mapping_floor");
+    require_base_authorization_ = declare_parameter<bool>("require_base_authorization", false);
+    base_authorization_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/r680_nav/vio_init_base_authorized", 1, [this](std_msgs::msg::Bool::ConstSharedPtr m) {
+        base_authorized_ = m->data; base_authorization_seen_ = Clock::now();
+      });
     result_ = declare_parameter<std::string>("result_path", "/tmp/r680_vio_init.json");
     auto qos = rclcpp::SensorDataQoS();
     vo_sub_ = create_subscription<nav_msgs::msg::Odometry>(
@@ -266,6 +271,8 @@ private:
     }
   }
   std::string inputBlocker() const {
+    if (require_base_authorization_ && (!base_authorized_ || !fresh(base_authorization_seen_, .2)))
+      return "base_initialization_not_authorized";
     if (frontend_ == "openvins" && (!grounded_ || !fresh(contact_seen_, .3))) return "contact_missing_or_not_grounded";
     if (!last_inputs_.sensors) return "sensor_missing_stale_or_invalid";
     if (!last_inputs_.services) return "safety_lifecycle_not_active";
@@ -319,7 +326,8 @@ private:
     input.sensors = (frontend_ == "openvins" || fresh(vo_seen_)) && fresh(wheel_seen_) && fresh(imu_seen_) && fresh(sdk_seen_) &&
       fresh(depth_seen_) && fresh(points_seen_) && fresh(inertial_seen_) && imu_rate_ >= min_rate_ &&
       (frontend_ != "openvins" || (grounded_ && fresh(contact_seen_, .3)));
-    input.services = true;
+    input.services = !require_base_authorization_ ||
+      (base_authorized_ && fresh(base_authorization_seen_, .2));
     for (size_t i = 0; i < service_seen_.size(); ++i) input.services &= service_active_[i] && fresh(service_seen_[i], 1.0);
     input.clear = !blocked_ && depth_ratio_ >= min_valid_;
     input.stopped = std::abs(wheel_v_) < stopped_linear_ && std::abs(wheel_w_) < stopped_angular_;
@@ -358,6 +366,9 @@ private:
     mux_pub_->publish(output);
     if (policy_->state() != previous || ++ticks_ % 20 == 0) writeResult();
   }
+  bool require_base_authorization_{false}, base_authorized_{false};
+  Clock::time_point base_authorization_seen_{};
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr base_authorization_sub_;
   Clock::time_point boot_, vo_seen_{}, wheel_seen_{}, imu_seen_{}, sdk_seen_{}, depth_seen_{}, points_seen_{};
   Clock::time_point inertial_seen_{}, localized_seen_{}, nav_seen_{};
   wla::InitConfig config_; std::unique_ptr<wla::InitPolicy> policy_;

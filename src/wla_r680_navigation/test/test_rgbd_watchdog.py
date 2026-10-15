@@ -10,11 +10,11 @@ from ament_index_python.packages import get_package_prefix
 from geometry_msgs.msg import PoseWithCovarianceStamped, TransformStamped
 from nav_msgs.msg import Odometry
 from rtabmap_msgs.msg import Info, OdomInfo
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 from tf2_ros import TransformBroadcaster
 
 
-def exercise(frontend, bounded=False, initial_match=False):
+def exercise(frontend, bounded=False, initial_match=False, startup_timeout_case=None):
     # This test owns synthetic navigation input names and must never join the
     # production ROS domain. The watchdog cannot terminate any frontend here.
     domain = int(os.environ.get('ROS_DOMAIN_ID', '0'))
@@ -34,6 +34,9 @@ def exercise(frontend, bounded=False, initial_match=False):
     }
     broadcaster = TransformBroadcaster(node)
     received = []
+    statuses = []
+    node.create_subscription(String, "/r680_nav/vo_watchdog_status",
+                             lambda msg: statuses.append(msg.data), 10)
     node.create_subscription(Bool, '/r680_nav/vo_watchdog_healthy',
                              lambda msg: received.append((time.monotonic(), msg.data)), 10)
     executable = (Path(get_package_prefix('wla_r680_navigation')) /
@@ -43,13 +46,14 @@ def exercise(frontend, bounded=False, initial_match=False):
         str(executable), '--ros-args', '-p', 'frontend:='+frontend,
         '-p', 'allow_bounded_degraded:='+str(bounded).lower(),
         '-p', 'lost_limit:=10000',
-        '-p', 'restart_enabled:=false', '-p', 'startup_grace_s:=120.0',
+        '-p', 'restart_enabled:=false', '-p', 'startup_grace_s:='+('1.0' if startup_timeout_case else '120.0'),
         '-p', 'localization_stale_s:=0.4', '-p', 'stale_s:=1.5',
     ], stdout=subprocess.DEVNULL)
 
     def tick(*, matched=False, pose=False, transform=True, vio=True, continuity=True,
              degraded=False, info_offset=0., pose_offset=0., tf_x=2., prior=False,
-             rgbd_quality=True, odom_offset=0.):
+             rgbd_quality=True, odom_offset=0., publish_vo=True,
+             publish_vio=True, publish_continuity=True):
         assert process.poll() is None, 'watchdog exited unexpectedly'
         stamp = node.get_clock().now().to_msg()
         odometry = Odometry()
@@ -57,13 +61,13 @@ def exercise(frontend, bounded=False, initial_match=False):
         odometry.header.frame_id = 'd455_floor_odom'
         odometry.child_frame_id = 'r680_mapping_floor'
         odometry.pose.pose.orientation.w = 1.
-        publishers['vo'].publish(odometry)
+        if publish_vo: publishers['vo'].publish(odometry)
         quality = OdomInfo()
         quality.header.stamp = stamp
         quality.lost = False
         if rgbd_quality: publishers['odom_info'].publish(quality)
-        publishers['vio'].publish(Bool(data=vio))
-        publishers['continuous'].publish(Bool(data=continuity))
+        if publish_vio: publishers['vio'].publish(Bool(data=vio))
+        if publish_continuity: publishers['continuous'].publish(Bool(data=continuity))
         publishers['degraded'].publish(Bool(data=degraded))
         info = Info()
         info.header.stamp = (rclpy.time.Time.from_msg(stamp)-rclpy.duration.Duration(seconds=info_offset)).to_msg()
@@ -115,6 +119,22 @@ def exercise(frontend, bounded=False, initial_match=False):
         raise AssertionError(label + ': matching map did not admit navigation')
 
     try:
+        if startup_timeout_case:
+            phase(.5, vio=False, continuity=False, publish_vo=False)
+            if startup_timeout_case == 'live':
+                expect_closed('live warmup stays closed without odometry', vio=False,
+                              continuity=False, publish_vo=False, matched=True, pose=True)
+                assert statuses and statuses[-1] == 'waiting_for_inertial_initialization', statuses[-3:]
+                expect_open('live warmup can initialize without restart', matched=True, pose=True)
+                expect_closed('odometry loss after readiness still faults', publish_vo=False, pose=True)
+                assert 'timed out' in statuses[-1], statuses[-3:]
+            else:
+                expect_closed('missing warmup heartbeat faults', vio=False, continuity=False,
+                    publish_vo=False, publish_vio=startup_timeout_case != 'frontend_dead',
+                    publish_continuity=startup_timeout_case != 'continuity_dead')
+                assert statuses and 'timed out' in statuses[-1], statuses[-3:]
+            print('PASS startup timeout '+startup_timeout_case+' bounded='+str(bounded), flush=True)
+            return
         if initial_match:
             assert frontend == 'cuvslam'
             phase(1.0, vio=False, continuity=False)

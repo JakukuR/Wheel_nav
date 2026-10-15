@@ -459,6 +459,7 @@ def generate_launch_description():
         bootstrap = []
         overrides = {
             'frontend': frontend,
+            'require_base_authorization': frontend == 'cuvslam' and enable_motion.perform(context).lower() == 'true',
             'imu_topic': chassis_imu_topic.perform(context),
             'wheel_odom_topic': chassis_odom_topic.perform(context),
             'result_path': LaunchConfiguration('vio_init_result_path').perform(context),

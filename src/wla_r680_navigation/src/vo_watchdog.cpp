@@ -558,9 +558,19 @@ private:
         }
       }
     }
+    // Before the first VIO-ready state, warmup poses may be withheld by the
+    // continuity freshness gate. A live uninitialized frontend is not a lost
+    // running estimator. Still detect missing frontend/continuity heartbeats;
+    // normal odometry timeout applies as soon as either path has been ready.
+    const bool waiting_first_vio = frontend_ == "cuvslam" &&
+      !frontend_was_ready_ && !continuity_was_ready_;
     if (!fault_latched_ && age(started_) > startup_grace_s_ &&
-      (age(vo_seen_) > stale_s_ || (!bounded_degraded_ && age(info_seen_) > stale_s_) ||
+      ((!waiting_first_vio && age(vo_seen_) > stale_s_) ||
+       ((!bounded_degraded_ || waiting_first_vio) && age(info_seen_) > stale_s_) ||
        (bounded_degraded_ && age(continuity_seen_) > stale_s_))) {
+      RCLCPP_ERROR(get_logger(),
+        "VO timeout inputs: waiting_first_vio=%d vo_age=%.3f frontend_age=%.3f continuity_age=%.3f",
+        waiting_first_vio, age(vo_seen_), age(info_seen_), age(continuity_seen_));
       fault("VO odometry or tracking status timed out");
     }
     // The selected frontend owns tracking quality. Bounded wheel/IMU

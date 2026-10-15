@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Isolated synthetic closed-loop bootstrap test. Hardware output ALWAYS false."""
+"""Synthetic bootstrap: preview by default; optional real mux without a driver."""
 import math
 import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import time
 
 from ament_index_python.packages import get_package_prefix
@@ -18,9 +19,9 @@ from std_msgs.msg import Bool, String
 import struct
 
 
-def run(case):
+def run(case, base_authority=False, guard_delay=0.):
     prefix = Path(get_package_prefix('wla_r680_navigation')) / 'lib/wla_r680_navigation'
-    result = Path('/tmp') / ('vio-init-regression-' + case + '.json')
+    result = Path('/tmp') / ('vio-init-regression-' + ('base-' if base_authority else '') + case + '.json')
     commands = [
         [str(prefix / 'vio_initializer'), '--ros-args', '-p', 'stationary_time_s:=0.2',
          '-p', 'stopping_time_s:=0.2', '-p', 'startup_timeout_s:=5.0',
@@ -29,9 +30,44 @@ def run(case):
         [str(prefix / 'command_guard'), '--ros-args', '-p', 'hardware_output_enabled:=false',
          '-p', 'initialization_mode_enabled:=true'],
     ]
-    files = [open('/tmp/vio-init-' + case + '-' + str(i) + '.log', 'w') for i in range(2)]
+    root=Path(__file__).resolve().parents[1]
+    if base_authority:
+        assert os.environ.get('ROS_DOMAIN_ID') == '198'
+        commands[0].extend(['-p','require_base_authorization:=true'])
+        commands[1].extend(['-p','hardware_output_enabled:=true'])
+        if case != 'startup_no_authority':
+            commands.append([sys.executable,str(root/'scripts/navigation_motion_session.py'),'--cuvslam-init'])
+    if guard_delay:
+        assert base_authority
+        commands[1] = [sys.executable, '-c',
+            'import os,sys,time;time.sleep(float(sys.argv[1]));os.execv(sys.argv[2],sys.argv[2:])',
+            str(guard_delay)] + commands[1]
+    files = [open('/tmp/vio-init-' + ('base-' if base_authority else '') + case + '-' + str(i) + '.log', 'w') for i in range(len(commands))]
     processes = [subprocess.Popen(c, stdout=f, stderr=subprocess.STDOUT) for c, f in zip(commands, files)]
     node = Node('vio_init_synthetic_' + case)
+    mux=None; executor=None; base_commands=[]; authorizations=[]; session_states=[]
+    if base_authority:
+        from rclpy.executors import SingleThreadedExecutor
+        from action_msgs.srv import CancelGoal
+        sys.path.insert(0,str(root.parent/'wla_manual_control/scripts'))
+        from command_mux import Mux
+        mux=Mux();executor=SingleThreadedExecutor()
+        executor.add_node(node);executor.add_node(mux)
+        node.create_subscription(Twist,'/r680_base/cmd_vel',
+            lambda m: base_commands.append((time.monotonic(),m)),10)
+        node.create_subscription(Bool,'/r680_nav/vio_init_base_authorized',
+            lambda m: authorizations.append((time.monotonic(),m.data)),10)
+        node.create_subscription(String,'/r680_nav/navigation_motion_state',
+            lambda m: session_states.append(m.data),10)
+        def cancel(req,res):
+            res.return_code=CancelGoal.Response.ERROR_NONE
+            return res
+        node.create_service(CancelGoal,'/navigate_to_pose/_action/cancel_goal',cancel)
+    def spin():
+        if executor is None:rclpy.spin_once(node,timeout_sec=0)
+        else:
+            for _ in range(12):executor.spin_once(timeout_sec=0)
+
     state = {'name': '', 'preview': Twist(), 'raw': 0, 'moving_at': None, 'fault_at': None}
     states, bootstrap_values, normal_values = [], [], []
     def state_cb(m):
@@ -57,7 +93,8 @@ def run(case):
         ('/r680/d455/aligned_depth_to_color/image_raw', Image), ('/r680_nav/d455/points_safety', PointCloud2),
         ('/r680_nav/vio_status', String), ('/r680_nav/vio_tracking_healthy', Bool),
         ('/r680_nav/localization_ready', Bool), ('/r680_nav/mission_motion_allowed', Bool),
-        ('/r680_nav/nav_command_input', Twist), ('/r680_nav/vio_init_cancel', Bool)]}
+        ('/r680_nav/nav_command_input', Twist), ('/r680_nav/vio_init_cancel', Bool)]
+        if not (base_authority and name == '/r680_nav/mission_motion_allowed')}
     def service_cb(req, res):
         active = not (case == 'lifecycle' and state['fault_at'] is not None)
         res.current_state.id = 3 if active else 2
@@ -69,27 +106,40 @@ def run(case):
     last_image = last_vo = 0.0
     held_failure = 0.0
     try:
-        while time.monotonic() - begin < 7:
+        imu_stamp_ns = node.get_clock().now().nanoseconds
+        while time.monotonic() - begin < 7 + guard_delay:
             current = time.monotonic(); dt = min(current-previous, 0.05); previous = current
             if any(p.poll() is not None for i,p in enumerate(processes)
-                   if not (case == 'node_exit' and i == 0 and state['fault_at'] is not None)):
+                   if not ((case == 'node_exit' and i == 0 and state['fault_at'] is not None) or
+                           (base_authority and i == 2 and case != 'success'))):
                 raise AssertionError('node exited: inspect /tmp/vio-init logs')
             moving_time = 0 if state['moving_at'] is None else current-state['moving_at']
             if case not in ['success', 'timeout'] and state['moving_at'] and moving_time > 0.25:
                 if state['fault_at'] is None:
                     state['fault_at'] = current
                     if case == 'node_exit': processes[0].terminate()
+                    if case == 'authority_exit': processes[2].kill()
+                    if case == 'base_estop': mux.p.latch_stop('fixture_estop')
+                    if case == 'base_takeover': mux.p.set_manual()
             fault = state['fault_at'] is not None or case == 'startup_obstacle'
             if case == 'cancel' and fault:
                 publishers['/r680_nav/vio_init_cancel'].publish(Bool(data=True))
-            preview = state['preview']
+            preview = base_commands[-1][1] if base_authority and base_commands else state['preview']
             x += preview.linear.x * math.cos(yaw)*dt
             y += preview.linear.x * math.sin(yaw)*dt
             yaw += preview.angular.z*dt
             stamp = node.get_clock().now().to_msg()
-            imu = Imu(); imu.header.stamp = stamp; imu.header.frame_id = 'gyro_link'
-            imu.linear_acceleration.z = 9.81; imu.angular_velocity.z = preview.angular.z
-            if not (case == 'imu_gap' and fault): publishers['/wheel/imu/data_raw'].publish(imu)
+            # Generate 200 Hz sensor samples independently of fixture-loop jitter.
+            # This is synthetic sensor coverage, not a host timing benchmark.
+            now_ns = node.get_clock().now().nanoseconds
+            while imu_stamp_ns + 5_000_000 <= now_ns:
+                imu_stamp_ns += 5_000_000
+                imu = Imu()
+                imu.header.stamp = rclpy.time.Time(nanoseconds=imu_stamp_ns).to_msg()
+                imu.header.frame_id = 'gyro_link'
+                imu.linear_acceleration.z = 9.81; imu.angular_velocity.z = preview.angular.z
+                if not (case == 'imu_gap' and fault):
+                    publishers['/wheel/imu/data_raw'].publish(imu)
             wheel = Odometry(); wheel.header.stamp = stamp; wheel.header.frame_id = 'wheel_odom'
             wheel.child_frame_id = 'r680_mapping_floor'
             wheel.pose.pose.position.x = x; wheel.pose.pose.position.y = y
@@ -107,7 +157,8 @@ def run(case):
             publishers['/r680_nav/vio_tracking_healthy'].publish(Bool(data=inertial))
             localized = inertial and state['name'] in ['waiting_localization', 'succeeded']
             publishers['/r680_nav/localization_ready'].publish(Bool(data=localized))
-            publishers['/r680_nav/mission_motion_allowed'].publish(Bool(data=state['name'] == 'succeeded'))
+            if not base_authority:
+                publishers['/r680_nav/mission_motion_allowed'].publish(Bool(data=state['name'] == 'succeeded'))
             nav = Twist(); nav.linear.x = 0.10 if state['name'] == 'succeeded' else 0.60
             publishers['/r680_nav/nav_command_input'].publish(nav)
             if current-last_image > 0.08:
@@ -124,13 +175,31 @@ def run(case):
                     cloud.width = 1; cloud.row_step = 12; cloud.data = b'\0' # Incomplete point buffer.
                 publishers['/r680_nav/d455/points_safety'].publish(cloud)
                 last_image = current
-            rclpy.spin_once(node, timeout_sec=0)
+            spin()
             if case == 'node_exit' and fault and current-state['fault_at'] > 0.6: break
             if state['name'] in ['failed', 'succeeded']:
                 if held_failure == 0: held_failure = current
-                if current-held_failure > 0.6: break
+                if current-held_failure > (1.5 if base_authority else .6): break
             time.sleep(max(0, 0.007-(time.monotonic()-current)))
-        assert state['raw'] == 0, 'hardware-disabled test published chassis commands'
+        if not base_authority:
+            assert state['raw'] == 0, 'hardware-disabled test published chassis commands'
+        else:
+            assert base_commands, 'base mux produced no observations'
+            grants=[t for t,value in authorizations if value]
+            nonzero=[(t,m) for t,m in base_commands if abs(m.linear.x)+abs(m.angular.z)>1e-8]
+            if case == 'startup_no_authority':
+                assert not grants and not nonzero, 'movement without base authorization'
+                assert state['name']=='failed'
+                print(case,'PASS no authorization means no motion',flush=True)
+                return
+            assert grants and nonzero, (case,'no actual mux output',session_states)
+            assert nonzero[0][0]>=grants[0], 'output preceded authorization'
+            if case=='success':
+                assert any(v.startswith('navigation_enabled;') for v in session_states), session_states
+            else:
+                assert abs(base_commands[-1][1].linear.x)+abs(base_commands[-1][1].angular.z)<1e-8
+                assert len([v for v in session_states if v.startswith('initialization_enabled;')])==1
+            assert not any(n in ('wheeltec_robot','wheeltec_robot_node') for n in node.get_node_names())
         if case == 'startup_obstacle':
             assert not bootstrap_values, 'blocked startup issued a motion request'
             diagnostics = json.loads(result.read_text())
@@ -148,8 +217,17 @@ def run(case):
         else:
             if case != 'node_exit': assert state['name'] == 'failed', states
             assert abs(state['preview'].linear.x) < 1e-9 and abs(state['preview'].angular.z) < 1e-9, 'smoother residual bypassed failure stop'
-        print(case, 'PASS', states, 'raw messages:', state['raw'], flush=True)
+        print(case, 'PASS', states, 'raw messages:', state['raw'], 'guard_delay:', guard_delay, flush=True)
     finally:
+        if base_authority and len(processes)>2:
+            processes[2].terminate()
+            deadline=time.monotonic()+2.
+            while processes[2].poll() is None and time.monotonic()<deadline:
+                spin();time.sleep(.005)
+            if case=='success':assert mux.p.mode=='MANUAL','session exit did not release AUTO'
+        if executor is not None:
+            executor.remove_node(node);executor.remove_node(mux);executor.shutdown()
+            mux.destroy_node()
         node.destroy_node()
         for p in processes:
             p.terminate()

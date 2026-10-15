@@ -472,6 +472,12 @@ setsid ros2 launch wla_r680_navigation bringup.launch.py "${LAUNCH_ARGS[@]}" \
   >"$NAV_RUN_DIR/logs/bringup.log" 2>&1 </dev/null &
 BRINGUP_PID=$!
 STARTED=true
+if [[ "$ODOM_SOURCE" == cuvslam && "$AUTO_VIO_INIT" == true && "$ENABLE_MOTION" == true ]]; then
+  setsid ros2 run wla_r680_navigation navigation_motion_session.py --cuvslam-init \
+    >"$NAV_RUN_DIR/logs/navigation_motion_session.log" 2>&1 </dev/null &
+  PERMISSION_PID=$!
+  echo '[R680 NAV] 初始化授权：停稳后先切入底盘 AUTO/NAV，再允许受限激励；失败或手柄接管即撤销。'
+fi
 if [[ "$OPENVINS_MOTION_INIT" == true ]]; then
   setsid ros2 run wla_r680_navigation openvins_motion_init.py --execute \
     --result "$NAV_RUN_DIR/init_motion.json" >"$NAV_RUN_DIR/logs/init_motion.log" 2>&1 </dev/null &
@@ -649,6 +655,17 @@ if [[ "$ENABLE_MOTION" == true && "$ODOM_SOURCE" == openvins ]]; then
     echo '[R680 NAV] 导航控制交接失败，退出清理。' >&2; exit 1
   fi
   echo '[R680 NAV] navigation_enabled：已接管 AUTO/NAV，现在可以发送新的导航点。'
+elif [[ "$ENABLE_MOTION" == true && "$ODOM_SOURCE" == cuvslam && "$AUTO_VIO_INIT" == true ]]; then
+  handoff_deadline=$((SECONDS + 30))
+  while (( SECONDS < handoff_deadline )) && kill -0 "$PERMISSION_PID" 2>/dev/null && kill -0 "$BRINGUP_PID" 2>/dev/null; do
+    grep -q 'navigation_enabled;' "$NAV_RUN_DIR/logs/navigation_motion_session.log" && break
+    sleep 0.2
+  done
+  if ! grep -q 'navigation_enabled;' "$NAV_RUN_DIR/logs/navigation_motion_session.log"; then
+    tail -10 "$NAV_RUN_DIR/logs/navigation_motion_session.log" >&2
+    echo '[R680 NAV] 初始化后的导航授权交接失败。' >&2; exit 1
+  fi
+  echo '[R680 NAV] 初始化完成且 AUTO/NAV 已确认，现在可以发送新的导航点。'
 elif [[ "$ENABLE_MOTION" == true ]]; then
   setsid ros2 topic pub -r 10 /r680_nav/mission_motion_allowed \
     std_msgs/msg/Bool '{data: true}' >"$NAV_RUN_DIR/logs/motion_permission.log" 2>&1 </dev/null &

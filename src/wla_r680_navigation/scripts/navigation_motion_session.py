@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """One explicit navigation authorization after startup; never reclaim takeover.
 
-The root entry runs this only with --enable-motion, after initialization and
-Nav2 readiness. This node publishes permission, not chassis velocity.
+The root entry runs this only with --enable-motion. --cuvslam-init authorizes
+bounded initialization before localization; ordinary navigation waits for readiness.
+This node publishes permission, not chassis velocity.
 """
+import argparse
 import json
 import signal
 import time
@@ -22,8 +24,13 @@ from std_srvs.srv import SetBool
 
 
 class Session(Node):
-    def __init__(self):
+    def __init__(self, cuvslam_init=False):
         super().__init__('navigation_motion_session')
+        self.cuvslam_init=cuvslam_init;self.init_authorized=False;self.init_state='';self.init_at=0.
+        self.init_permission=None
+        if cuvslam_init:
+            self.init_permission=self.create_publisher(Bool,'/r680_nav/vio_init_base_authorized',1)
+            self.create_subscription(String,'/r680_nav/vio_init_state',self.on_init,10)
         self.cancelled=False;self.control=None;self.control_at=0.;self.wheel=None;self.wheel_at=0.
         self.healthy=False;self.health_at=0.;self.identity=None;self.requested=False;self.guard_open=False
         self.goals={};self.authorized=False;self.owns_permission=False
@@ -42,6 +49,8 @@ class Session(Node):
             qos=QoSProfile(depth=10,durability=DurabilityPolicy.TRANSIENT_LOCAL)
             self.create_subscription(GoalStatusArray,f'/{name}/_action/status',self.on_goals,qos)
 
+    def on_init(self,m):self.init_state=m.data;self.init_at=time.monotonic()
+
     def on_control(self,m):
         try:
             c=json.loads(m.data);age=(self.get_clock().now().nanoseconds-c['stamp_ns'])*1e-9
@@ -59,7 +68,10 @@ class Session(Node):
         for s in m.status_list:self.goals[bytes(s.goal_info.goal_id.uuid)]=s.status
     def emit(self,state):
         self.report.publish(String(data=state));self.get_logger().info(state)
-    def spin(self):rclpy.spin_once(self,timeout_sec=.02)
+    def spin(self):
+        if self.init_permission is not None:
+            self.init_permission.publish(Bool(data=self.init_authorized))
+        rclpy.spin_once(self,timeout_sec=.02)
     def permission(self,value=False):
         if self.owns_permission:self.permit.publish(Bool(data=value))
     def key(self):
@@ -103,17 +115,17 @@ class Session(Node):
             pending={g for g in pending if self.goals.get(g) not in (4,5,6)}
         if pending:raise RuntimeError('old_goal_still_active')
 
-    def wait_for_health_and_stop(self):
+    def wait_for_health_and_stop(self, mode="MANUAL", require_health=True):
         # Readiness may drop between the outer startup probe and this process.
         # Keep permission false and wait for recovery; never repeat motion init.
         stable_since=None
         while not self.cancelled and rclpy.ok():
-            self.permission();self.spin();self.check_control('MANUAL')
+            self.permission();self.spin();self.check_control(mode)
             now=time.monotonic()
             if (self.wheel is None or now-self.wheel_at>.2 or
                     not abs(self.wheel.twist.twist.linear.x)<.01 or not abs(self.wheel.twist.twist.angular.z)<.01):
                 raise RuntimeError('chassis_not_stopped')
-            if self.health_ready():
+            if not require_health or self.health_ready():
                 if stable_since is None:stable_since=now
                 if now-stable_since>=.5:return
             else:stable_since=None
@@ -136,8 +148,18 @@ class Session(Node):
         if any(p.node_name!=self.get_name() or p.node_namespace!='/' for p in owners) or len(owners)!=1:
             raise RuntimeError('another_mission_permission_owner')
         self.owns_permission=True
+        if self.cuvslam_init:
+            # This session starts alongside bringup, before guard discovery.
+            deadline=time.monotonic()+30.
+            while not self.guard.service_is_ready():
+                if self.cancelled:raise RuntimeError('cancelled')
+                self.permission();self.spin();self.check_control('MANUAL')
+                if time.monotonic()>=deadline:raise RuntimeError('command_guard_missing')
         self.set_output(True) # Permission is still false: guard emits zero only.
         if not self.auto.wait_for_service(timeout_sec=2.):raise RuntimeError('chassis_mode_service_missing')
+        if self.cuvslam_init:
+            self.run_initialization()
+            return
         while True:
             self.wait_for_health_and_stop()
             # Cancel again if recovery allowed more goals to arrive while waiting.
@@ -152,6 +174,41 @@ class Session(Node):
             self.permission();self.spin()
             if self.control and self.control.get('mode')=='AUTO':break
         self.check_control('AUTO');self.authorized=True
+        self.maintain_navigation()
+
+    def run_initialization(self):
+        # Explicit authorization covers bounded initialization before map readiness.
+        # The guard emits zero until the initializer sees our live authorization.
+        self.wait_for_health_and_stop(require_health=False)
+        deadline=time.monotonic()+5.
+        while time.monotonic()<deadline:
+            if self.cancelled:raise RuntimeError('cancelled')
+            self.permission();self.spin();self.check_control('MANUAL')
+            if self.init_state=='waiting_inputs' and time.monotonic()-self.init_at<.3:break
+        else:raise RuntimeError('initializer_not_waiting_for_base_authorization')
+        self.requested=True
+        result=self.wait(self.auto.call_async(SetBool.Request(data=True)))
+        if not result.success:raise RuntimeError('auto_rejected:'+result.message)
+        deadline=time.monotonic()+1.
+        while time.monotonic()<deadline:
+            self.permission();self.spin()
+            if self.control and self.control.get('mode')=='AUTO':break
+        self.check_control('AUTO');self.init_authorized=True
+        self.emit('initialization_enabled; AUTO/NAV; bounded initialization only')
+        deadline=time.monotonic()+120.
+        while not self.cancelled and time.monotonic()<deadline:
+            self.permission();self.spin();self.check_control('AUTO')
+            if time.monotonic()-self.init_at>.3:raise RuntimeError('initializer_report_stale')
+            if self.init_state=='failed':raise RuntimeError('initialization_failed')
+            if self.init_state=='succeeded':break
+        else:raise RuntimeError('initialization_cancelled_or_timed_out')
+        self.init_authorized=False
+        self.cancel_old_goals()
+        self.wait_for_health_and_stop(mode='AUTO')
+        self.check_control('AUTO');self.authorized=True
+        self.maintain_navigation()
+
+    def maintain_navigation(self):
         self.emit('navigation_enabled; send a new goal; manual takeover will not be reclaimed')
         next_heartbeat=0.
         while not self.cancelled and rclpy.ok():
@@ -160,7 +217,7 @@ class Session(Node):
                 self.permission(True);next_heartbeat=time.monotonic()+.05
 
     def cleanup(self):
-        self.authorized=False
+        self.authorized=False;self.init_authorized=False
         # Cleanup must run even after SIGINT/SIGTERM.
         self.cancelled=False
         for _ in range(15):self.permission();self.spin()
@@ -174,7 +231,11 @@ class Session(Node):
 
 
 def main():
-    rclpy.init(signal_handler_options=SignalHandlerOptions.NO);node=Session()
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--cuvslam-init',action='store_true')
+    args,ros_args=parser.parse_known_args()
+    rclpy.init(args=ros_args,signal_handler_options=SignalHandlerOptions.NO)
+    node=Session(cuvslam_init=args.cuvslam_init)
     for sig in (signal.SIGINT,signal.SIGTERM):signal.signal(sig,lambda *_:setattr(node,'cancelled',True))
     code=0
     try:node.run()

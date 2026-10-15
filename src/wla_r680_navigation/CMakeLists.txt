@@ -85,7 +85,7 @@ if(BUILD_TESTING)
     ${CMAKE_CURRENT_SOURCE_DIR}/test/test_navigation_motion_session.py)
   set_tests_properties(navigation_motion_session PROPERTIES
     ENVIRONMENT "ROS_DOMAIN_ID=198;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST;WLA_NAV_BIN=$<TARGET_FILE_DIR:command_guard>"
-    RUN_SERIAL TRUE TIMEOUT 60)
+    RUN_SERIAL TRUE TIMEOUT 90)
   add_test(NAME openvins_motion_init COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/test/test_openvins_motion_init.py)
   set_tests_properties(openvins_motion_init PROPERTIES
@@ -111,6 +111,16 @@ if(BUILD_TESTING)
   set_tests_properties(visual_odom_sensor_independence PROPERTIES
     ENVIRONMENT "ROS_DOMAIN_ID=198;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST;WLA_CONTINUITY_EXECUTABLE=$<TARGET_FILE:degraded_odometry>"
     RUN_SERIAL TRUE TIMEOUT 40)
+  add_test(NAME cuvslam_startup_timeout COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_cuvslam_startup_timeout.py)
+  set_tests_properties(cuvslam_startup_timeout PROPERTIES
+    ENVIRONMENT "ROS_DOMAIN_ID=198;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST;WLA_WATCHDOG_EXECUTABLE=$<TARGET_FILE:vo_watchdog>"
+    RUN_SERIAL TRUE TIMEOUT 60)
+  add_test(NAME cuvslam_initialization_authority COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_cuvslam_initialization_authority.py)
+  set_tests_properties(cuvslam_initialization_authority PROPERTIES
+    ENVIRONMENT "ROS_DOMAIN_ID=198;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST"
+    RUN_SERIAL TRUE TIMEOUT 60)
   add_test(NAME frontend_interface COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/test/test_frontend_interface.py)
   set_tests_properties(frontend_interface PROPERTIES
