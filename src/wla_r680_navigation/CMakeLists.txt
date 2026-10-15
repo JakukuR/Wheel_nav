@@ -101,6 +101,16 @@ if(BUILD_TESTING)
   set_tests_properties(frontend_map_watchdog PROPERTIES
     ENVIRONMENT "ROS_DOMAIN_ID=198;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST;WLA_WATCHDOG_EXECUTABLE=$<TARGET_FILE:vo_watchdog>"
     RUN_SERIAL TRUE TIMEOUT 150)
+  add_test(NAME cuvslam_startup_match COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_cuvslam_startup_match.py)
+  set_tests_properties(cuvslam_startup_match PROPERTIES
+    ENVIRONMENT "ROS_DOMAIN_ID=198;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST;WLA_WATCHDOG_EXECUTABLE=$<TARGET_FILE:vo_watchdog>"
+    RUN_SERIAL TRUE TIMEOUT 60)
+  add_test(NAME visual_odom_sensor_independence COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_visual_odom_sensor_independence.py)
+  set_tests_properties(visual_odom_sensor_independence PROPERTIES
+    ENVIRONMENT "ROS_DOMAIN_ID=198;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST;WLA_CONTINUITY_EXECUTABLE=$<TARGET_FILE:degraded_odometry>"
+    RUN_SERIAL TRUE TIMEOUT 40)
   add_test(NAME frontend_interface COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/test/test_frontend_interface.py)
   set_tests_properties(frontend_interface PROPERTIES

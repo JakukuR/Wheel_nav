@@ -7,8 +7,9 @@ namespace wla_r680_navigation {
 // and agreement with TF at the pose's source timestamp. Times are ROS seconds.
 class MapLocalizationEvidence {
 public:
-  void reset(double epoch) {
+  void reset(double epoch, bool retain_initial_match = false) {
     epoch_ = epoch; match_ = pose_ = 0.; confirmed_ = false;
+    retain_initial_match_ = retain_initial_match;
   }
   void match(double stamp, double now, double stale) {
     if (fresh(stamp, now, stale) && stamp > epoch_ && stamp > match_) match_ = stamp;
@@ -23,11 +24,18 @@ public:
     if (confirmed_ && (!tf_fresh || !odometry_ok || !fresh(pose_, now, stale + degraded_grace))) {
       reset(now); return false;
     }
+    // cuVSLAM can finish inertial initialization after the backend's first
+    // map match. During initial admission only, retain a match that was fresh
+    // when received; a fresh verified pose, TF and odometry are still required.
+    const bool matched = retain_initial_match_ ? match_ > epoch_ :
+      fresh(match_, now, stale) && std::abs(match_ - pose_) <= 0.05;
     if (!confirmed_ && visual_tracking && odometry_ok && tf_fresh &&
-        fresh(match_, now, stale) && fresh(pose_, now, stale) &&
-        std::abs(match_ - pose_) <= 0.05) confirmed_ = true;
+        matched && fresh(pose_, now, stale)) {
+      confirmed_ = true; retain_initial_match_ = false;
+    }
     return confirmed_;
   }
+  bool retainsInitialMatch() const {return retain_initial_match_;}
   bool confirmed() const {return confirmed_;}
   double epoch() const {return epoch_;}
 private:
@@ -35,6 +43,6 @@ private:
     return stamp > 0. && std::isfinite(stamp) && now-stamp >= -0.2 && now-stamp <= stale;
   }
   double epoch_{0.}, match_{0.}, pose_{0.};
-  bool confirmed_{false};
+  bool confirmed_{false}, retain_initial_match_{false};
 };
 }  // namespace wla_r680_navigation

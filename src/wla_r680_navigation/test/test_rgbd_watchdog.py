@@ -14,7 +14,7 @@ from std_msgs.msg import Bool
 from tf2_ros import TransformBroadcaster
 
 
-def exercise(frontend, bounded=False):
+def exercise(frontend, bounded=False, initial_match=False):
     # This test owns synthetic navigation input names and must never join the
     # production ROS domain. The watchdog cannot terminate any frontend here.
     domain = int(os.environ.get('ROS_DOMAIN_ID', '0'))
@@ -115,6 +115,24 @@ def exercise(frontend, bounded=False):
         raise AssertionError(label + ': matching map did not admit navigation')
 
     try:
+        if initial_match:
+            assert frontend == 'cuvslam'
+            phase(1.0, vio=False, continuity=False)
+            phase(1.0, matched=True, pose=True, vio=False, continuity=False,
+                  info_offset=2.)
+            expect_closed('stale initial match rejected', pose=True)
+            phase(1.0, matched=True, pose=True, vio=False, continuity=False)
+            phase(.8, vio=False, continuity=False)
+            expect_closed('early match still requires fresh pose')
+            expect_closed('early match still requires consistent TF', pose=True, tf_x=5.)
+            expect_open('early match survives inertial initialization', pose=True)
+            expect_closed('initial admission expires without fresh pose')
+            expect_closed('startup match cannot reopen after loss', pose=True)
+            expect_open('fresh paired match recovers after loss', matched=True, pose=True)
+            forbidden=('/cmd_vel','/wheel/cmd_vel','/cmd_vel_nav','/cmd_vel_safe')
+            assert all(not node.get_publishers_info_by_topic(t) for t in forbidden)
+            print('PASS cuVSLAM early map match bounded='+str(bounded), flush=True)
+            return
         # Discovery first, then assertions require actual received health.
         phase(1.0)
         expect_closed('local odometry and map TF without localization')

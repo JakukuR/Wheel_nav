@@ -26,4 +26,24 @@ int main() {
   e.match(14.2,14.2,.4);assert(ready(14.2));
   e.reset(15.);e.pose(15.1,15.1,.4);assert(!ready(15.1)); // reset/manual prior
   e.match(16.,15.1,.4);assert(!ready(15.1)); // future evidence
+
+  // Retain an early startup match through a long cuVSLAM warmup, but never
+  // treat it as sufficient localization or permit it across a reset.
+  e.reset(20., true);
+  e.match(19.,20.1,.4); e.pose(20.1,20.1,.4);
+  assert(!ready(20.1)); // old evidence rejected even during initial admission
+  e.match(20.2,20.2,.4);
+  assert(!ready(20.2,true,true,false)); // no VIO yet
+  assert(!ready(80.)); // the old pose is not enough after initialization
+  e.pose(80.,80.,.4);
+  assert(!ready(80.,false));
+  assert(!ready(80.,true,false));
+  assert(!ready(80.,true,true,false));
+  assert(ready(80.)); // fresh pose/TF/odom plus the retained initial match
+  assert(!e.retainsInitialMatch());
+  assert(!ready(81.)); // expiry revokes admission
+  e.pose(81.1,81.1,.4); assert(!ready(81.1));
+  e.match(81.1,81.1,.4); assert(ready(81.1));
+  e.reset(90.,true); e.match(90.1,90.1,.4);
+  e.reset(91.); e.pose(91.1,91.1,.4); assert(!ready(91.1));
 }

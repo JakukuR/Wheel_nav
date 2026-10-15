@@ -54,7 +54,7 @@ public:
         degraded_active_=msg->data;degraded_seen_=Clock::now();
       });
     if (frontend_ != "rgbd" && frontend_ != "cuvslam") throw std::invalid_argument("unknown frontend");
-    map_evidence_.reset(get_clock()->now().seconds());
+    map_evidence_.reset(get_clock()->now().seconds(), frontend_ == "cuvslam");
     startup_grace_s_ = declare_parameter<double>("startup_grace_s", 12.0);
     stale_s_ = declare_parameter<double>("stale_s", 1.5);
     lost_limit_ = declare_parameter<int>("lost_limit", 3);
@@ -194,7 +194,8 @@ public:
             searchName(),msg->loop_closure_id>0 ? msg->loop_closure_id : msg->proximity_detection_id,msg->ref_id);
         }
         // Backend match IDs are candidates, never stand-alone localization.
-        if (frontendTracking() && (msg->loop_closure_id > 0 ||
+        if ((frontendTracking() || map_evidence_.retainsInitialMatch()) &&
+            (msg->loop_closure_id > 0 ||
             msg->proximity_detection_id > 0 || msg->landmark_id > 0)) {
           map_evidence_.match(rclcpp::Time(msg->header.stamp).seconds(),
             get_clock()->now().seconds(), localization_stale_s_);
