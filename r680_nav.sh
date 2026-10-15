@@ -422,8 +422,8 @@ print(f"[R680 NAV] 短时降级：{'启用' if p['enabled'] else '禁用'}；"
       f"{p['max_degraded_turn_rad']}rad；配置：{sys.argv[1]}")
 PY
   if [[ "$AUTO_VIO_INIT" == true ]]; then
-    cp "$CONFIG_DIR/vio_initializer.yaml" "$NAV_RUN_DIR/vio_initializer.yaml"
-    echo "[R680 NAV] 自动初始化：最大请求 0.06m/s、0.20rad/s，路径预算 0.25m；真实输出=$ENABLE_MOTION"
+    cp "$CONFIG_DIR/vio_initializer_cuvslam.yaml" "$NAV_RUN_DIR/vio_initializer.yaml"
+    echo "[R680 NAV] 自动初始化：最大请求 0.20m/s、0.50rad/s，运动最长 2s，路径预算 0.25m；真实输出=$ENABLE_MOTION"
     echo '[R680 NAV] 此选项用于已确认空旷的起步区；初始化失败将停车锁定，不自动重试。'
   else
     echo '[R680 NAV] cuVSLAM 初始化前运动锁定；需纹理场景和适量真实运动激励，预览时可手推。'

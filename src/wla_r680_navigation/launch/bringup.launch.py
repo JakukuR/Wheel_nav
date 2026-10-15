@@ -444,6 +444,10 @@ def generate_launch_description():
                 EqualsSubstitution(LaunchConfiguration('agent_control'), 'true'),
                 '/r680_nav/task_guard_input', '/r680_nav/chassis_cmd_vel'), value_type=str),
             'initialization_mode_enabled': ParameterValue(init_enabled, value_type=bool),
+            'initialization_linear_max': ParameterValue(PythonExpression([
+                "0.20 if '", odom_source, "' == 'cuvslam' else 0.08"]), value_type=float),
+            'initialization_angular_max': ParameterValue(PythonExpression([
+                "0.50 if '", odom_source, "' == 'cuvslam' else 0.20"]), value_type=float),
             'initialization_checked_topic': PythonExpression([
                 "'/r680_nav/vio_init_checked' if '", odom_source,
                 "' == 'openvins' else '/r680_nav/cmd_vel_collision_checked'"]),
@@ -495,7 +499,7 @@ def generate_launch_description():
             ]
         return bootstrap + [Node(package='wla_r680_navigation', executable='vio_initializer',
             name='r680_vio_initializer', output='screen',
-            parameters=[str(config/'vio_initializer.yaml'), overrides])]
+            parameters=[str(config/('vio_initializer_cuvslam.yaml' if frontend == 'cuvslam' else 'vio_initializer.yaml')), overrides])]
     initializer = OpaqueFunction(function=make_initializer, condition=IfCondition(init_enabled))
     web_gateway = Node(
         package='wla_r680_navigation', executable='web_gateway',

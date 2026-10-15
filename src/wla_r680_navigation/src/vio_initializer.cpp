@@ -29,6 +29,8 @@ namespace wla = wla_r680_navigation;
 class VioInitializer final : public rclcpp::Node {
 public:
   VioInitializer() : Node("r680_vio_initializer"), boot_(Clock::now()) {
+    frontend_ = declare_parameter<std::string>("frontend", "cuvslam");
+    if (frontend_ != "cuvslam" && frontend_ != "openvins") throw std::invalid_argument("unknown frontend");
     config_.startup_timeout = parameter("startup_timeout_s", 45);
     config_.init_timeout = parameter("initialization_timeout_s", 20);
     config_.stationary_time = parameter("stationary_time_s", 0.8);
@@ -42,9 +44,11 @@ public:
     config_.angular = parameter("angular_speed", 0.20);
     config_.max_measured_linear = parameter("max_measured_linear", 0.12);
     config_.max_measured_angular = parameter("max_measured_angular", 0.35);
-    if (config_.linear > 0.08 || config_.angular > 0.20 ||
+    const bool cuvslam = frontend_ == "cuvslam";
+    if (config_.linear > (cuvslam ? 0.20 : 0.08) || config_.angular > (cuvslam ? 0.50 : 0.20) ||
       config_.target_travel >= config_.max_travel || config_.max_radius > 0.25 ||
-      config_.max_travel > 0.25 || config_.max_yaw > 0.35 || config_.init_timeout > 20 ||
+      config_.max_travel > 0.25 || config_.max_yaw > 0.35 ||
+      config_.init_timeout > 20 ||
       config_.motion_duration > config_.init_timeout) throw std::invalid_argument("initialization envelope exceeds trial limits");
     policy_ = std::make_unique<wla::InitPolicy>(config_);
     freshness_ = parameter("sensor_timeout_s", 0.35);
@@ -55,8 +59,6 @@ public:
     stopped_linear_ = parameter("stopped_linear", 0.015);
     stopped_angular_ = parameter("stopped_angular", 0.04);
     if (freshness_ > 0.5 || min_valid_ > 1) throw std::invalid_argument("invalid input gate");
-    frontend_ = declare_parameter<std::string>("frontend", "cuvslam");
-    if (frontend_ != "cuvslam" && frontend_ != "openvins") throw std::invalid_argument("unknown frontend");
     imu_frame_ = declare_parameter<std::string>("imu_frame", "gyro_link");
     base_ = declare_parameter<std::string>("base_frame", "r680_mapping_floor");
     require_base_authorization_ = declare_parameter<bool>("require_base_authorization", false);
@@ -188,7 +190,9 @@ public:
     service_seen_.resize(2); service_active_.resize(2, false); pending_.resize(2, false);
     poll_ = create_wall_timer(250ms, [this]() {pollServices();});
     tick_ = create_wall_timer(50ms, [this]() {tick();});
-    RCLCPP_WARN(get_logger(), "Automatic VIO initialization trial: requests <=0.08m/s, <=0.20rad/s, no reverse; only final guard owns chassis output");
+    RCLCPP_WARN(get_logger(),
+      "Automatic VIO initialization: requests <=%.2fm/s, <=%.2frad/s for <=%.2fs; no reverse; only final guard owns chassis output",
+      config_.linear, config_.angular, config_.motion_duration);
   }
 private:
   using Clock = std::chrono::steady_clock;

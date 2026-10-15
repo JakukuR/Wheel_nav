@@ -35,6 +35,12 @@ public:
         frontend_permission_ = msg->data; frontend_permission_seen_ = std::chrono::steady_clock::now();
       });
     init_mode_enabled_ = declare_parameter<bool>("initialization_mode_enabled", false);
+    init_linear_max_ = declare_parameter<double>("initialization_linear_max", 0.08);
+    init_angular_max_ = declare_parameter<double>("initialization_angular_max", 0.20);
+    if (!std::isfinite(init_linear_max_ + init_angular_max_) ||
+      init_linear_max_ <= 0 || init_linear_max_ > 0.20 ||
+      init_angular_max_ <= 0 || init_angular_max_ > 0.50)
+      throw std::invalid_argument("invalid initialization motion envelope");
     degraded_enabled_ = declare_parameter<bool>("degraded_mode_enabled", false);
     degraded_v_ = declare_parameter<double>("degraded_linear_max", 0.15);
     degraded_w_ = declare_parameter<double>("degraded_angular_max", 0.30);
@@ -144,9 +150,9 @@ private:
         std::chrono::duration<double>(now - init_checked_received_).count() <= 0.20;
       if (bootstrap_permitted) {
         output.linear.x = std::max(0.0, wla_r680_navigation::bound_init_component(
-          init_checked_.linear.x, init_request_.twist.linear.x, 0.08));
+          init_checked_.linear.x, init_request_.twist.linear.x, init_linear_max_));
         output.angular.z = wla_r680_navigation::bound_init_component(
-          init_checked_.angular.z, init_request_.twist.angular.z, 0.20);
+          init_checked_.angular.z, init_request_.twist.angular.z, init_angular_max_);
       }
     }
     if(degraded_enabled_) {
@@ -183,6 +189,7 @@ private:
   std::chrono::steady_clock::time_point init_checked_received_{};
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr init_checked_sub_;
   std::chrono::steady_clock::time_point init_state_received_{}, init_permit_received_{}, init_request_received_{};
+  double init_linear_max_{0.08}, init_angular_max_{0.20};
   bool require_mission_permission_{true};
   bool mission_allowed_{false};
   bool healthy_{false};
