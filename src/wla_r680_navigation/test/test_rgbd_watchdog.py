@@ -14,7 +14,8 @@ from std_msgs.msg import Bool, String
 from tf2_ros import TransformBroadcaster
 
 
-def exercise(frontend, bounded=False, initial_match=False, startup_timeout_case=None):
+def exercise(frontend, bounded=False, initial_match=False, startup_timeout_case=None,
+             continuity_recovery=False):
     # This test owns synthetic navigation input names and must never join the
     # production ROS domain. The watchdog cannot terminate any frontend here.
     domain = int(os.environ.get('ROS_DOMAIN_ID', '0'))
@@ -45,8 +46,8 @@ def exercise(frontend, bounded=False, initial_match=False, startup_timeout_case=
     process = subprocess.Popen([
         str(executable), '--ros-args', '-p', 'frontend:='+frontend,
         '-p', 'allow_bounded_degraded:='+str(bounded).lower(),
-        '-p', 'lost_limit:=10000',
-        '-p', 'restart_enabled:=false', '-p', 'startup_grace_s:='+('1.0' if startup_timeout_case else '120.0'),
+        '-p', 'lost_limit:='+('3' if continuity_recovery else '10000'),
+        '-p', 'restart_enabled:=false', '-p', 'startup_grace_s:='+('1.0' if startup_timeout_case or continuity_recovery else '120.0'),
         '-p', 'localization_stale_s:=0.4', '-p', 'stale_s:=1.5',
     ], stdout=subprocess.DEVNULL)
 
@@ -119,6 +120,28 @@ def exercise(frontend, bounded=False, initial_match=False, startup_timeout_case=
         raise AssertionError(label + ': matching map did not admit navigation')
 
     try:
+        if continuity_recovery:
+            assert frontend == 'cuvslam' and bounded
+            phase(1.)
+            expect_open('initially healthy', matched=True, pose=True)
+            start = time.monotonic()
+            phase(.4, continuity=False, publish_vo=False, matched=True, pose=True)
+            closed = [v for t, v in received if t >= start + .2]
+            assert closed and not any(closed), 'unavailable odometry admitted motion'
+            assert not any('continuous odometry unhealthy' in s or 'timed out' in s
+                           for s in statuses), statuses[-5:]
+            expect_open('short interruption recovers without restart', matched=True, pose=True)
+            expect_closed('continuity false with live frontend', continuity=False,
+                          matched=True, pose=True)
+            assert not any('relocalization_required' in s or 'restarting_vo' in s
+                           for s in statuses), statuses[-5:]
+            expect_open('continuity return recovers without restart', matched=True, pose=True)
+            expect_closed('genuine odometry silence still detected', publish_vo=False, pose=True)
+            assert 'timed out' in statuses[-1], statuses[-5:]
+            assert all(not node.get_publishers_info_by_topic(t) for t in
+                       ('/cmd_vel', '/wheel/cmd_vel', '/cmd_vel_nav', '/cmd_vel_safe'))
+            print('PASS continuity loss does not latch/restart; recovery and real timeout checked', flush=True)
+            return
         if startup_timeout_case:
             phase(.5, vio=False, continuity=False, publish_vo=False)
             if startup_timeout_case == 'live':

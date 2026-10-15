@@ -45,9 +45,8 @@ public:
       10,[this](std_msgs::msg::Bool::ConstSharedPtr msg) {
         continuity_ready_=msg->data; continuity_seen_=Clock::now();
         if (msg->data) continuity_was_ready_=true;
-        continuity_lost_count_=msg->data ? 0 : continuity_lost_count_+1;
-        if (!fault_latched_ && continuity_was_ready_ && continuity_lost_count_>=lost_limit_)
-          fault("continuous odometry unhealthy");
+        // Output availability is not evidence of an estimator fault.
+        // Keep admission closed while unavailable; do not restart the frontend.
       });
     if(bounded_degraded_) degraded_sub_=create_subscription<std_msgs::msg::Bool>(
       "/r680_nav/odom_degraded",10,[this](std_msgs::msg::Bool::ConstSharedPtr msg) {
@@ -779,7 +778,6 @@ private:
   double last_map_check_{0.};
   rclcpp::Time last_info_stamp_{0,0,RCL_ROS_TIME};
   bool continuity_ready_{false}, continuity_was_ready_{false};
-  int continuity_lost_count_{0};
   Clock::time_point continuity_seen_{};
   // Permit the continuity node's 10 ms transition to reach us before revoking
   // the watchdog input it itself needs. This is not a new degradation budget.

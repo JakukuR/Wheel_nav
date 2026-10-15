@@ -463,7 +463,8 @@ if [[ "$ODOM_SOURCE" == openvins ]]; then
   LAUNCH_ARGS+=(openvins_config_dir:="$OPENVINS_CONFIG" openvins_allow_commissioning:="$OPENVINS_ALLOW_COMMISSIONING")
 fi
 if [[ "$ODOM_SOURCE" == cuvslam ]]; then
-  LAUNCH_ARGS+=(degraded_odom_params_file:="$NAV_RUN_DIR/degraded_odometry.yaml")
+  LAUNCH_ARGS+=(degraded_odom_params_file:="$NAV_RUN_DIR/degraded_odometry.yaml"
+    enable_degraded_odom:="$(if [[ "$DISABLE_DEGRADED_ODOM" == true ]]; then echo false; else echo true; fi)")
 fi
 if [[ -n "$INITIAL_POSE" ]]; then
   LAUNCH_ARGS+=(initial_pose:="$INITIAL_POSE")

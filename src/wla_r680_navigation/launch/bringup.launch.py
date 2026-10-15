@@ -77,7 +77,8 @@ def generate_launch_description():
     openvins_enabled = PythonExpression(["'", start_state_estimation, "' == 'true' and '", odom_source, "' == 'openvins'"])
     cuvslam_mapping = PythonExpression(["'", mode, "' == 'mapping' and '", odom_source, "' == 'cuvslam'"])
     continuity_enabled = PythonExpression(["'", start_state_estimation,
-        "' == 'true' and '", mode, "' == 'localization' and '", odom_source, "' == 'cuvslam'"])
+        "' == 'true' and '", mode, "' == 'localization' and '", odom_source,
+        "' == 'cuvslam' and '", LaunchConfiguration('enable_degraded_odom'), "' == 'true'"])
     continuity_health_topic = PythonExpression(["'/r680_nav/continuous_odom_healthy' if ",
         continuity_enabled, " else '/r680_nav/vio_tracking_healthy'"])
     mapping_odom_topic = PythonExpression(["'/r680_nav/mapping_odom' if ", cuvslam_mapping,
@@ -532,6 +533,7 @@ def generate_launch_description():
         DeclareLaunchArgument('chassis_imu_topic', default_value='/wheel/imu/data_raw'),
         DeclareLaunchArgument('chassis_odom_topic', default_value='/wheel/odom'),
         DeclareLaunchArgument('cuvslam_params_file', default_value=str(config / 'cuvslam.yaml')),
+        DeclareLaunchArgument('enable_degraded_odom', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('degraded_odom_params_file', default_value=str(config / 'degraded_odometry.yaml')),
         DeclareLaunchArgument('cuvslam_statistics_path', default_value='/tmp/cuvslam_navigation_statistics.json'),
         DeclareLaunchArgument('start_web', default_value='true', choices=['true', 'false']),
