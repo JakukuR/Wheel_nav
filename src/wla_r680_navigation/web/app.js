@@ -1,146 +1,112 @@
-'use strict';
-const canvas=document.getElementById('mapCanvas'),ctx=canvas.getContext('2d');
-const wrap=document.getElementById('mapWrap'),mapImage=new Image(),userMapImage=new Image(),robotSticker=new Image();
-let state=null,mapVersion=-1,scale=1,panX=0,panY=0,fitted=false,mode='goal';
-let view='nav';
-robotSticker.src='/robot-sticker.png';
-robotSticker.onload=()=>draw();
-let drag=null,panning=null,dpr=window.devicePixelRatio||1,drawQueued=false;
-const enabled={global_path:true,local_path:true,near_obstacles:true,confirmed_obstacles:true,home:true,semantic_furniture:true};
-const $=id=>document.getElementById(id);
-const velocityCanvas=$('velocityCanvas'),velocityCtx=velocityCanvas.getContext('2d');
-const velocityHistory=[];
-let velocityMode='vx';
-function velocitySample(){
-  if(!state)return;
-  const age=state.ages||{},commands=state.velocity_commands||{},t=state.server_time;
-  const valid=key=>age['velocity_'+key]<1&&commands[key]?
-    {vx:commands[key].vx,wz:commands[key].wz}:null;
-  velocityHistory.push({t,cmd:valid('cmd'),smoothed:valid('smoothed')});
-  while(velocityHistory.length&&velocityHistory[0].t<t-30)velocityHistory.shift();
-  const unit=velocityMode==='vx'?'m/s':'rad/s';
-  $('rawVelocity').textContent=velocityHistory.at(-1).cmd?
-    '原始：'+velocityHistory.at(-1).cmd[velocityMode].toFixed(2)+' '+unit:'原始：无新数据';
-  $('smoothVelocity').textContent=velocityHistory.at(-1).smoothed?
-    '平滑：'+velocityHistory.at(-1).smoothed[velocityMode].toFixed(2)+' '+unit:'平滑：无新数据';
-  drawVelocity();
+import {toLngLat, toRos, mapCorners, headingDegrees} from './coordinates.js';
+const $ = id => document.getElementById(id), sdk = window.bicMap;
+let map, state, cloud, cloudKey='', dimension=2, mapKey='', userMap=false, fitted=false;
+let robot, selectedMarker, semanticMarkers=[], semanticKey='', mode=null, selection=null, lastReceived=0;
+let velocityHistory=[], cameraUrl=null, toastTimer;
+const empty = () => ({type:'FeatureCollection',features:[]});
+function toast(message){$('toast').textContent=message;$('toast').style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').style.display='none',5000);}
+function fresh(key, seconds=2){return state && (state.ages?.[key]??Infinity)<seconds;}
+function setGeo(id, data, color, width=3){
+  if(map.getSource(id))map.getSource(id).setData(data);
+  else{map.addSource(id,{type:'geojson',data});map.addLayer({id,type:'line',source:id,paint:{'line-color':color,'line-width':width},layout:{'line-join':'round','line-cap':'round'}});}
 }
-function drawVelocity(){
-  const box=velocityCanvas.parentElement.getBoundingClientRect(),w=box.width,h=box.height;
-  if(w<1||h<1)return;
-  const ratio=window.devicePixelRatio||1;
-  const pixelWidth=Math.floor(w*ratio),pixelHeight=Math.floor(h*ratio);
-  if(velocityCanvas.width!==pixelWidth)velocityCanvas.width=pixelWidth;
-  if(velocityCanvas.height!==pixelHeight)velocityCanvas.height=pixelHeight;
-  velocityCtx.setTransform(ratio,0,0,ratio,0,0);
-  velocityCtx.clearRect(0,0,w,h);
-  const left=38,right=w-8,top=10,bottom=h-19,now=velocityHistory.at(-1)?.t||Date.now()/1000;
-  const values=velocityHistory.flatMap(p=>[p.cmd?.[velocityMode],p.smoothed?.[velocityMode]]).filter(Number.isFinite);
-  const limit=Math.max(velocityMode==='vx'?0.5:0.5,...values.map(Math.abs))*1.15;
-  velocityCtx.font='10px ui-monospace,monospace';
-  velocityCtx.fillStyle='#8292a0';
-  velocityCtx.fillText('+'+limit.toFixed(1),3,top+5);
-  velocityCtx.fillText('0',20,(top+bottom)/2+3);
-  velocityCtx.fillText('-'+limit.toFixed(1),3,bottom+3);
-  velocityCtx.fillText('-30s',left,bottom+14);
-  velocityCtx.fillText('now',right-22,bottom+14);
-  velocityCtx.strokeStyle='#2b3947';velocityCtx.lineWidth=1;
-  for(const y of [top,(top+bottom)/2,bottom]){
-    velocityCtx.beginPath();velocityCtx.moveTo(left,y);velocityCtx.lineTo(right,y);velocityCtx.stroke();
-  }
-  const trace=(key,color)=>{
-    velocityCtx.strokeStyle=color;velocityCtx.lineWidth=2;velocityCtx.beginPath();
-    let drawing=false;
-    for(const sample of velocityHistory){
-      const v=sample[key]?.[velocityMode];
-      if(!Number.isFinite(v)){drawing=false;continue}
-      const x=left+(sample.t-(now-30))/30*(right-left);
-      const y=(top+bottom)/2-v/limit*(bottom-top)/2;
-      if(!drawing)velocityCtx.moveTo(x,y);else velocityCtx.lineTo(x,y);
-      drawing=true;
-    }
-    velocityCtx.stroke();
-  };
-  trace('cmd','#27a7ff');trace('smoothed','#ffad32');
+function lineData(points){return points?.length>1?{type:'Feature',properties:{},geometry:{type:'LineString',coordinates:points.map(p=>toLngLat(...p))}}:empty();}
+function fit(){
+  let points=state?.map?mapCorners(state.map):getCloudPoints().map(p=>p.slice(0,2));
+  if(!points.length && state?.robot)points=[toLngLat(state.robot.x-5,state.robot.y-5),toLngLat(state.robot.x+5,state.robot.y+5)];
+  if(!points.length)return;
+  const b=new sdk.maplibregl.LngLatBounds();points.forEach(p=>b.extend(p));map.fitBounds(b,{padding:60,maxZoom:22,pitch:dimension===3?55:0,duration:500});fitted=true;
 }
-new ResizeObserver(drawVelocity).observe(velocityCanvas.parentElement);
-$('linearVelocity').onclick=()=>{
-  velocityMode='vx';$('linearVelocity').classList.add('active');
-  $('angularVelocity').classList.remove('active');drawVelocity();
-};
-$('angularVelocity').onclick=()=>{
-  velocityMode='wz';$('angularVelocity').classList.add('active');
-  $('linearVelocity').classList.remove('active');drawVelocity();
-};
-function resize(){const r=wrap.getBoundingClientRect();dpr=window.devicePixelRatio||1;canvas.width=Math.max(1,Math.floor(r.width*dpr));canvas.height=Math.max(1,Math.floor(r.height*dpr));canvas.style.width=r.width+'px';canvas.style.height=r.height+'px';draw();}
-new ResizeObserver(resize).observe(wrap);
-function fit(){if(!state?.map)return;const w=state.map.width,h=state.map.height,rect=wrap.getBoundingClientRect();scale=Math.min((rect.width-36)/w,(rect.height-36)/h);panX=(rect.width-w*scale)/2;panY=(rect.height-h*scale)/2;fitted=true;draw();}
-function worldToScreen(x,y){const m=state.map;return[panX+(x-m.origin_x)/m.resolution*scale,panY+(m.height-(y-m.origin_y)/m.resolution)*scale];}
-function screenToWorld(x,y){const m=state.map;return[m.origin_x+(x-panX)/scale*m.resolution,m.origin_y+(m.height-(y-panY)/scale)*m.resolution];}
-function path(points,color,width){if(!points?.length||!state?.map)return;ctx.beginPath();points.forEach((p,i)=>{const s=worldToScreen(p[0],p[1]);i?ctx.lineTo(...s):ctx.moveTo(...s)});ctx.strokeStyle=color;ctx.lineWidth=width;ctx.lineJoin='round';ctx.lineCap='round';ctx.stroke();}
-function points(items,color,size){if(!items?.length||!state?.map)return;ctx.fillStyle=color;for(const p of items){const s=worldToScreen(p[0],p[1]);ctx.fillRect(s[0]-size/2,s[1]-size/2,size,size)}}
-function arrow(x,y,yaw,color,label){const p=worldToScreen(x,y),len=28;ctx.save();ctx.translate(...p);ctx.rotate(-yaw);ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(len,0);ctx.lineTo(len-8,-6);ctx.moveTo(len,0);ctx.lineTo(len-8,6);ctx.stroke();ctx.beginPath();ctx.arc(0,0,5,0,Math.PI*2);ctx.fill();ctx.restore();if(label){ctx.fillStyle=color;ctx.font='600 11px system-ui';ctx.fillText(label,p[0]+9,p[1]-9)}}
-function drawSemantic(){
-  const semantic=state?.semantic;
-  if(!semantic||!state?.map)return;
-  if(enabled.semantic_furniture){
-    for(const item of semantic.furniture||[]){
-      if(item.status!=='confirmed')continue;
-      const [x,y]=worldToScreen(item.x,item.y);
-      ctx.save();ctx.beginPath();ctx.arc(x,y,7,0,Math.PI*2);
-      ctx.fillStyle='#287dff';
-      ctx.strokeStyle='#071421';ctx.lineWidth=2;ctx.fill();ctx.stroke();
-      ctx.fillStyle='#fff';ctx.font='bold 10px system-ui';ctx.textAlign='center';
-      ctx.fillText('✓',x,y+3.5);ctx.restore();
-      if(scale>0.75&&item.label){ctx.save();ctx.font='600 11px system-ui';
-        ctx.fillStyle='#fff';ctx.strokeStyle='#071421';ctx.lineWidth=3;
-        ctx.strokeText(item.label,x+10,y-7);ctx.fillText(item.label,x+10,y-7);ctx.restore();}
-    }
-  }
-  if(enabled.home&&semantic.home){const [x,y]=worldToScreen(semantic.home.x,semantic.home.y);
-    ctx.save();ctx.translate(x,y);ctx.fillStyle='#30dc9b';ctx.strokeStyle='#06291c';ctx.lineWidth=2;
-    ctx.beginPath();ctx.moveTo(0,-11);ctx.lineTo(11,-2);ctx.lineTo(8,-2);ctx.lineTo(8,8);
-    ctx.lineTo(-8,8);ctx.lineTo(-8,-2);ctx.lineTo(-11,-2);ctx.closePath();ctx.fill();ctx.stroke();
-    ctx.restore();ctx.save();ctx.font='600 11px system-ui';ctx.fillStyle='#30dc9b';
-    ctx.strokeStyle='#071421';ctx.lineWidth=3;ctx.strokeText('出生点',x+13,y-9);
-    ctx.fillText('出生点',x+13,y-9);ctx.restore();}
+function getCloudPoints(){
+  const pts=[];
+  for(const k of ['confirmed_obstacles','near_obstacles'])if(fresh(k,2))for(const p of state[k]||[]){if(p.length>=3&&p.every(Number.isFinite))pts.push([...toLngLat(p[0],p[1]),p[2]]);}
+  return pts;
 }
-function robot(){if(!state?.robot||!state?.map)return;const r=state.robot,p=worldToScreen(r.x,r.y),metersToPx=scale/state.map.resolution;ctx.save();ctx.translate(...p);ctx.rotate(-r.yaw);ctx.fillStyle='#16d5b244';ctx.strokeStyle='#28f3cd';ctx.lineWidth=2;ctx.fillRect(-.2*metersToPx,-.2*metersToPx,.4*metersToPx,.4*metersToPx);ctx.strokeRect(-.2*metersToPx,-.2*metersToPx,.4*metersToPx,.4*metersToPx);ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(.32*metersToPx,0);ctx.stroke();ctx.restore()}
-function userRobot(){
-  if(!state?.connected?.robot||!state.robot||!robotSticker.naturalWidth)return;
-  const r=state.robot,p=worldToScreen(r.x,r.y),size=Math.max(58,Math.min(92,scale/state.map.resolution*.60));
-  ctx.save();ctx.translate(...p);ctx.rotate(Math.PI/2-r.yaw);
-  ctx.drawImage(robotSticker,-size/2,-size/2,size,size);ctx.restore();
+function renderCloud(force=false){
+  const key=JSON.stringify([state?.cloud_versions,dimension,$('pointSize').value,$('cloudLayer').checked,fresh('near_obstacles'),fresh('confirmed_obstacles')]);
+  if(key===cloudKey&&!force)return;cloudKey=key;
+  const pts=$('cloudLayer').checked?getCloudPoints():[];
+  const options={pointSize:Number($('pointSize').value),heightScale:1,pointOpacity:.85,is3D:false,useColorMap:true,zRange:[0,2],pointColor:'#ef9b3b'};
+  if(!cloud)cloud=dimension===3?sdk.createPointCloud3D(map,pts,options):sdk.createPointCloud(map,pts,options);
+  else cloud.update(pts,options);
+  $('cloudInfo').textContent=`${dimension}D · ${pts.length.toLocaleString()} 点${pts.length?'':' · 等待新鲜点云'}`;
+  if(!fitted&&pts.length)fit();
 }
-function draw(){if(drawQueued)return;drawQueued=true;requestAnimationFrame(paintMap)}
-function paintMap(){drawQueued=false;const rect=wrap.getBoundingClientRect();ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,rect.width,rect.height);ctx.fillStyle=view==='user'?'#eef3f3':'#080b0f';ctx.fillRect(0,0,rect.width,rect.height);if(!state?.map||!mapImage.naturalWidth)return;
-  if(view==='user'){
-    const image=state.map.user_map&&userMapImage.naturalWidth?userMapImage:mapImage;
-    ctx.imageSmoothingEnabled=image===userMapImage;
-    ctx.drawImage(image,panX,panY,state.map.width*scale,state.map.height*scale);
-    userRobot();return;
-  }
-  ctx.imageSmoothingEnabled=false;ctx.drawImage(mapImage,panX,panY,state.map.width*scale,state.map.height*scale);if(enabled.confirmed_obstacles)points(state.confirmed_obstacles,'#d75cffcc',3);if(enabled.near_obstacles)points(state.near_obstacles,'#ffad32cc',3);drawSemantic();if(enabled.global_path)path(state.global_path,'#279fff',3);if(enabled.local_path)path(state.local_path,'#ff4057',4);if(state.goal)arrow(state.goal.x,state.goal.y,state.goal.yaw,'#69d0ff','目标');robot();if(drag&&drag.end){const yaw=Math.atan2(drag.end[1]-drag.start[1],drag.end[0]-drag.start[0]);arrow(drag.start[0],drag.start[1],yaw,mode==='goal'?'#69d0ff':'#ffcd5d',mode==='goal'?'新目标':'初始位姿')}}
-function chip(id,ok){const e=$(id);e.classList.toggle('ok',ok);e.classList.toggle('bad',!ok)}
-function updateUi(){if(!state)return;const semantic=state.semantic||{};const furniture=semantic.furniture||[];const confirmed=furniture.filter(item=>item.status==='confirmed').length;$('semanticInfo').textContent=`语义地图：${semantic.home?'出生点已标记':'无出生点'} · 已确认家具 ${confirmed}`;$('returnHome').disabled=!(semantic.home&&state.connected.map&&state.connected.robot);chip('mapChip',state.connected.map);chip('tfChip',state.connected.robot);chip('odomChip',state.connected.odom);$('goalChip').textContent=state.goal_status;$('goalStatus').textContent=state.goal_status;$('vx').textContent=(state.odom?.vx??0).toFixed(2);$('wz').textContent=(state.odom?.wz??0).toFixed(2);$('pose').textContent=state.robot?`${state.robot.x.toFixed(2)}, ${state.robot.y.toFixed(2)}`:'—';$('clock').textContent=`网关在线 · ${new Date(state.server_time*1000).toLocaleTimeString()}`;if(state.map){const id=state.map.map_id?`${state.map.map_id} · `:'';$('mapInfo').textContent=`${id}${(state.map.width*state.map.resolution).toFixed(1)} × ${(state.map.height*state.map.resolution).toFixed(1)} m · ${state.map.resolution.toFixed(3)} m/格`;}}
-async function poll(){try{const response=await fetch('/api/state',{cache:'no-store'});if(!response.ok)throw Error(response.status);state=await response.json();if(state.map&&state.map.version!==mapVersion){mapVersion=state.map.version;mapImage.src=`/api/map.png?v=${mapVersion}`;if(state.map.user_map)userMapImage.src=`/api/user_map.png?v=${mapVersion}`;else userMapImage.removeAttribute('src')}updateUi();velocitySample();draw()}catch(e){$('clock').textContent='网关连接中断'}finally{setTimeout(poll,document.hidden?2000:500)}}
-function position(event){const r=canvas.getBoundingClientRect();return[event.clientX-r.left,event.clientY-r.top]}
-canvas.addEventListener('wheel',e=>{if(!state?.map)return;e.preventDefault();const p=position(e),before=screenToWorld(...p),factor=e.deltaY<0?1.15:1/1.15;scale=Math.max(.05,Math.min(20,scale*factor));const after=worldToScreen(...before);panX+=p[0]-after[0];panY+=p[1]-after[1];draw()},{passive:false});
-canvas.addEventListener('contextmenu',e=>e.preventDefault());
-canvas.addEventListener('pointerdown',e=>{if(!state?.map)return;canvas.setPointerCapture(e.pointerId);const p=position(e);if(e.button===2||e.button===1||view==='user'){panning={p,x:panX,y:panY}}else if(e.button===0){drag={start:screenToWorld(...p),end:null}}});
-canvas.addEventListener('pointermove',e=>{if(!state?.map)return;const p=position(e),w=screenToWorld(...p);$('cursorPos').textContent=`x ${w[0].toFixed(2)}　y ${w[1].toFixed(2)}`;if(panning){panX=panning.x+p[0]-panning.p[0];panY=panning.y+p[1]-panning.p[1];draw()}else if(drag){drag.end=w;draw()}});
-canvas.addEventListener('pointerup',async e=>{if(panning){panning=null;return}if(!drag)return;const end=drag.end||drag.start,yaw=Math.atan2(end[1]-drag.start[1],end[0]-drag.start[0]),payload={x:drag.start[0],y:drag.start[1],yaw};drag=null;draw();await post(mode==='goal'?'/api/goal':'/api/initial_pose',payload);toast(mode==='goal'?'导航目标已发送':'初始位姿已发送')});
-async function post(url,body={}){const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!response.ok)throw Error(await response.text())}
-function toast(message){const e=$('toast');e.textContent=message;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),1800)}
-function setMode(value){mode=value;$('goalMode').classList.toggle('active',value==='goal');$('poseMode').classList.toggle('active',value==='initial_pose')}
-function setView(value){view=value;drag=null;panning=null;document.body.classList.toggle('user-view',value==='user');document.body.classList.toggle('nav-view',value==='nav');$('navView').classList.toggle('active',value==='nav');$('userView').classList.toggle('active',value==='user');document.querySelector('.brand b').textContent=value==='user'?'我的地图':'R680 导航网关';$('mapTitle').textContent=value==='user'?'我的地图':'二维导航视图';requestAnimationFrame(()=>{resize();fit()})}
-$('navView').onclick=()=>setView('nav');$('userView').onclick=()=>setView('user');
-$('goalMode').onclick=()=>setMode('goal');$('poseMode').onclick=()=>setMode('initial_pose');$('fitMap').onclick=fit;
-$('cancelGoal').onclick=async()=>{await post('/api/cancel');toast('已请求取消导航')};
-$('returnHome').onclick=async()=>{try{await post('/api/return_home');toast('已发送返回出生点目标')}catch(error){toast('出生点或定位不可用')}};
-$('clearMaps').onclick=async()=>{await post('/api/clear_costmaps');toast('已请求清理代价地图')};
-document.querySelectorAll('[data-layer]').forEach(e=>e.onchange=()=>{enabled[e.dataset.layer]=e.checked;draw()});
-mapImage.onload=()=>{if(!fitted)fit();draw()};
-userMapImage.onload=()=>draw();
-userMapImage.onerror=()=>draw();
-resize();poll();
+function switchDimension(n){dimension=n;cloud?.remove();cloud=null;map.easeTo({pitch:n===3?55:0,bearing:0,duration:500});$('view2d').classList.toggle('active',n===2);$('view3d').classList.toggle('active',n===3);renderCloud(true);}
+function renderMap(){
+  if(!state.map){$('mapInfo').textContent='等待地图数据';if(map.getLayer('occupancy'))map.removeLayer('occupancy');if(map.getSource('occupancy'))map.removeSource('occupancy');mapKey='';return;}
+  const m=state.map,key=JSON.stringify([m.version,m.map_id,m.origin_x,m.origin_y,m.origin_yaw,m.width,m.height,m.resolution,userMap]);
+  if(key===mapKey)return;mapKey=key;
+  const url=`/api/${userMap&&m.user_map?'user_map':'map'}.png?v=${m.version}`,coordinates=mapCorners(m);
+  if(map.getSource('occupancy'))map.getSource('occupancy').updateImage({url,coordinates});
+  else{map.addSource('occupancy',{type:'image',url,coordinates});const before=map.getStyle().layers.find(l=>l.id!=='background')?.id;map.addLayer({id:'occupancy',type:'raster',source:'occupancy',paint:{'raster-opacity':.92,'raster-resampling':'nearest','raster-fade-duration':0}},before);}
+  $('mapInfo').textContent=`${m.map_id||'ROS 地图'} · ${(m.width*m.resolution).toFixed(1)} × ${(m.height*m.resolution).toFixed(1)} m`;
+  if(!fitted)fit();
+}
+function marker(element, xy){return new sdk.maplibregl.Marker({element}).setLngLat(toLngLat(...xy)).addTo(map);}
+function renderRobot(){
+  if(!state.robot)return;
+  if(!robot){const e=document.createElement('div');e.className='robot';e.textContent='↑';robot=marker(e,[state.robot.x,state.robot.y]);robot.setRotationAlignment('map');}
+  robot.setLngLat(toLngLat(state.robot.x,state.robot.y)).setRotation(headingDegrees(state.robot.yaw));robot.getElement().classList.toggle('stale',!state.connected.robot);
+  $('position').textContent=`map · x ${state.robot.x.toFixed(2)}　y ${state.robot.y.toFixed(2)}　${state.connected.robot?'实时位姿':'最后位置 · 定位已过期'}`;
+}
+function renderSemantics(){
+  const sem=state.semantic||{},key=JSON.stringify([sem,$('semanticLayer').checked]);if(key===semanticKey)return;semanticKey=key;
+  semanticMarkers.forEach(m=>m.remove());semanticMarkers=[];if(!$('semanticLayer').checked)return;
+  for(const p of [...(sem.home?[{...sem.home,label:'出生点'}]:[]),...(sem.furniture||[])]){const e=document.createElement('div');e.className='tag';e.textContent=p.label||p.id;semanticMarkers.push(marker(e,[p.x,p.y]).setOffset([0,-30]));}
+}
+function updateControls(){
+  const online=Date.now()-lastReceived<2500,c=state?.controls||{};
+  $('submit').disabled=!online||!selection||selection.yaw==null||!(mode==='goal'?c.goal:c.initial_pose);
+  $('goalMode').disabled=!online||!c.goal;$('poseMode').disabled=!online||!c.initial_pose;
+  $('cancel').disabled=!online||!c.cancel;$('clear').disabled=!online||!c.clear_costmaps;
+  $('home').disabled=!online||!c.goal||!state?.semantic?.home||!state?.connected?.robot;
+  $('controlHint').textContent=!online?'网关连接中断，控制已禁用':state?.read_only?'此端口为只读预览，服务器已禁用控制。':c.goal?'目标通过原有导航网关提交；执行状态以 ROS 回执为准。':'导航目标入口尚无订阅者；Agent 控制模式需使用 Agent 任务入口。';
+}
+function updateUi(){
+  $('connection').textContent=state.read_only?'只读预览在线':'网关在线';$('connection').className='badge ok';
+  $('mapHealth').textContent=`地图 ${state.connected.map?'已加载':'未收到'}`;
+  $('poseHealth').textContent=`位姿 ${state.connected.robot?'新鲜':'丢失 / 未就绪'}`;$('poseHealth').className=state.connected.robot?'ok':'warn';
+  $('motionHealth').textContent=`导航权限 ${fresh('motion_allowed')?(state.motion_allowed?'允许':'禁止'):'未知'}`;
+  $('goalStatus').textContent=state.goal_status||'未知';
+  $('odom').textContent=fresh('odom')?`${state.odom.vx.toFixed(2)} m/s · ${state.odom.wz.toFixed(2)} rad/s`:'速度数据过期';
+  $('mapMessage').textContent=!state.map?'等待 ROS 地图；点云在收到后显示':!state.connected.robot?'定位未就绪；保留最后位置，仅供参考':'';$('mapMessage').hidden=!$('mapMessage').textContent;
+  const objects=fresh('detections')&&Array.isArray(state.detections?.objects)?state.detections.objects:[];
+  $('detections').replaceChildren();if(!objects.length)$('detections').textContent='暂无新鲜识别结果';
+  for(const o of objects.slice(0,30)){const e=document.createElement('div');e.className='object';const l=document.createElement('span'),r=document.createElement('span');l.textContent=`${o.label||'目标'} #${o.track_id??'—'}`;r.textContent=Number.isFinite(o.confidence)?`${Math.round(o.confidence*100)}%`:'';e.append(l,r);$('detections').append(e);}
+  const fs=state.object_follow;$('followStatus').textContent=fresh('object_follow')?`物体跟随：${typeof fs==='object'?(fs.state||fs.status||fs.reason||JSON.stringify(fs).slice(0,120)):fs}`:'物体跟随：状态过期 / 未收到';
+  updateControls();
+}
+function updateVelocity(){
+  const t=state.server_time;velocityHistory.push({t,v:state.velocity_commands,valid:fresh('velocity_cmd',1)&&fresh('velocity_smoothed',1)});velocityHistory=velocityHistory.filter(p=>p.t>t-30);
+  const c=$('velocity'),ctx=c.getContext('2d'),r=c.getBoundingClientRect();c.width=Math.max(300,r.width*devicePixelRatio);c.height=100*devicePixelRatio;
+  const axis=$('velocityAxis').value,limit=Math.max(.2,...velocityHistory.flatMap(p=>[Math.abs(p.v?.cmd?.[axis]||0),Math.abs(p.v?.smoothed?.[axis]||0)]));
+  ctx.clearRect(0,0,c.width,c.height);ctx.strokeStyle='#dce5ed';ctx.beginPath();ctx.moveTo(0,c.height/2);ctx.lineTo(c.width,c.height/2);ctx.stroke();
+  for(const [key,color]of [['cmd','#168ac0'],['smoothed','#ed9c36']]){ctx.strokeStyle=color;ctx.lineWidth=2*devicePixelRatio;ctx.beginPath();let pen=false;for(const p of velocityHistory){if(!p.valid||!p.v?.[key]){pen=false;continue;}const x=(p.t-t+30)/30*c.width,y=c.height/2-p.v[key][axis]/limit*c.height*.42;pen?ctx.lineTo(x,y):ctx.moveTo(x,y);pen=true;}ctx.stroke();}
+}
+function render(){renderMap();renderRobot();renderSemantics();renderCloud();for(const [key,color]of [['global_path','#168ad5'],['local_path','#e35a76']])setGeo(key,lineData($('pathLayer').checked&&fresh(key,3)?state[key]:[]),color);if(state.goal)setGeo('goal-direction',lineData([[state.goal.x,state.goal.y],[state.goal.x+.5*Math.cos(state.goal.yaw),state.goal.y+.5*Math.sin(state.goal.yaw)]]),'#f5a135',4);updateUi();updateVelocity();}
+async function poll(){try{const r=await fetch('/api/state',{cache:'no-store',signal:AbortSignal.timeout(2500)});if(!r.ok)throw Error(r.status);state=await r.json();lastReceived=Date.now();render();}catch(e){$('connection').textContent='连接中断';$('connection').className='badge bad';updateControls();}finally{setTimeout(poll,document.hidden?2000:500);}}
+async function cameraPoll(){try{
+  if(document.hidden)return;
+  const r=await fetch('/api/camera.jpg',{cache:'no-store',signal:AbortSignal.timeout(2500)});if(!r.ok)throw Error('no image');
+  const blob=await r.blob(),url=URL.createObjectURL(blob),old=cameraUrl;cameraUrl=url;$('camera').src=url;$('camera').style.display='block';$('cameraEmpty').style.display='none';if(old)URL.revokeObjectURL(old);
+  $('cameraStatus').textContent=r.headers.get('X-Detection-Matched')==='true'?'图像 + 同帧识别框':'图像 · 暂无同帧检测';
+}catch(e){$('camera').style.display='none';$('cameraEmpty').style.display='grid';$('cameraStatus').textContent='图像未收到 / 已过期';}finally{setTimeout(cameraPoll,document.hidden?2000:350);}}
+async function post(path,body={}){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(3000)});if(!r.ok)throw Error(await r.text());return r.json();}
+function selectMode(value){mode=value;selection=null;selectedMarker?.remove();selectedMarker=null;setGeo('selection-direction',empty(),'#f5a135');$('selection').textContent=value==='goal'?'点击地图选择目标位置，再点击确定朝向。':'点击地图选择初始位置，再点击确定朝向。';$('goalMode').classList.toggle('active',value==='goal');$('poseMode').classList.toggle('active',value==='initial_pose');updateControls();}
+async function init(){
+  await sdk.init();map=sdk.createMap({container:'map',center:[0,0],zoom:19,maxZoom:24,pitch:0,backgroundColor:'#e8eff5',attributionControl:false,renderWorldCopies:false,style:{version:8,sources:{},layers:[{id:'background',type:'background',paint:{'background-color':'#e8eff5'}}]}});
+  sdk.addZoomControl(map,'bottom-right');new ResizeObserver(()=>map.resize()).observe($('map'));
+  map.on('error',e=>{if(e.error)console.error(e.error);});
+  map.on('load',()=>{poll();cameraPoll();});
+  map.on('mousemove',e=>{const [x,y]=toRos(e.lngLat.lng,e.lngLat.lat);$('cursor').textContent=`x ${x.toFixed(2)}　y ${y.toFixed(2)}`;});
+  map.on('click',e=>{if(!mode)return;const [x,y]=toRos(e.lngLat.lng,e.lngLat.lat);if(!selection||selection.yaw!=null){selection={x,y,yaw:null};selectedMarker?.remove();const el=document.createElement('div');el.className='selected';selectedMarker=marker(el,[x,y]);$('selection').textContent=`位置 ${x.toFixed(2)}, ${y.toFixed(2)}；再点击确定朝向。`;}else{if(Math.hypot(x-selection.x,y-selection.y)<.05){toast('请在离目标稍远的位置点击以确定朝向');return;}selection.yaw=Math.atan2(y-selection.y,x-selection.x);setGeo('selection-direction',lineData([[selection.x,selection.y],[x,y]]),'#f5a135',4);$('selection').textContent=`${mode==='goal'?'导航目标':'初始位姿'} (${selection.x.toFixed(2)}, ${selection.y.toFixed(2)}) · ${(selection.yaw*180/Math.PI).toFixed(0)}°`;}updateControls();});
+  $('view2d').onclick=()=>switchDimension(2);$('view3d').onclick=()=>switchDimension(3);$('fit').onclick=fit;
+  $('userMap').onclick=()=>{userMap=!userMap;$('userMap').classList.toggle('active',userMap);if(state)renderMap();};
+  $('goalMode').onclick=()=>selectMode('goal');$('poseMode').onclick=()=>selectMode('initial_pose');
+  $('submit').onclick=async()=>{const target={...selection},kind=mode;$('submit').disabled=true;try{await post(`/api/${kind}`,target);toast('网关已接收，等待 ROS 执行反馈');mode=null;selection=null;selectedMarker?.remove();selectedMarker=null;setGeo('selection-direction',empty(),'#f5a135');$('selection').textContent='已提交。可重新选择目标。';}catch(e){toast(`提交未确认：${e.message}。请先核对任务状态。`);}finally{updateControls();}};
+  for(const [id,path]of [['cancel','cancel'],['home','return_home'],['clear','clear_costmaps']])$(id).onclick=async()=>{try{await post(`/api/${path}`);toast('请求已提交，等待 ROS 回执');}catch(e){toast(`请求未确认：${e.message}`);}};
+  for(const id of ['pointSize','cloudLayer','pathLayer','semanticLayer'])$(id).onchange=()=>{if(state)render();};
+  setInterval(()=>{if(Date.now()-lastReceived>2500){$('connection').textContent='连接中断';$('connection').className='badge bad';$('poseHealth').textContent='定位数据过期';robot?.getElement().classList.add('stale');if(cloud){cloud.update([]);cloudKey='';}updateControls();}},500);
+}
+init().catch(e=>{$('mapMessage').hidden=false;$('mapMessage').textContent=`地图引擎加载失败：${e.message}`;console.error(e);});
