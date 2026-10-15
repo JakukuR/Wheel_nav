@@ -82,7 +82,8 @@ class Session(Node):
         if self.identity is not None and self.key()!=self.identity:raise RuntimeError('authority_generation_changed')
         if c.get('automatic_source')!='NAV':raise RuntimeError('another_source_owns_chassis')
         if c.get('estop_latched') is not False:raise RuntimeError('estop_latched')
-        if c.get('mode')!=mode:raise RuntimeError('manual_takeover' if mode=='AUTO' else 'chassis_not_manual')
+        if c.get('mode_required') is not False and c.get('mode')!=mode:
+            raise RuntimeError('manual_takeover' if mode=='AUTO' else 'chassis_not_manual')
 
     def wait(self,future,limit=3.):
         end=time.monotonic()+limit

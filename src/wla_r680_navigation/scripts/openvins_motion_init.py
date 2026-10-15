@@ -181,7 +181,7 @@ class MotionInit(Node):
             return 'estop_latched'
         if c.get('automatic_source') != 'NAV':
             return 'chassis_source_not_nav'
-        if mode and c.get('mode') != mode:
+        if mode and c.get('mode_required') is not False and c.get('mode') != mode:
             return 'chassis_mode_' + str(c.get('mode'))
         if self.wheel is None or now-self.wheel_at > .2 or not self.stamp_fresh(self.wheel.header.stamp):
             return 'waiting_for_fresh_wheel_odom'

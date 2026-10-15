@@ -88,10 +88,10 @@ try:
         if case=='normal' and 1.0<age<1.15:
             recent=[r for r in base if r[0]>now-.08]
             if recent and all(abs(r[1])<1e-8 for r in recent):health_stopped=True
-     spin(10. if case=='delayed_health' else 6.,fixture)
+     spin(10. if case=='delayed_health' else 8. if case=='stale_health' else 6.,fixture)
      if case in ('waiting_health','stale_health'):
         assert session.poll() is None,(case,'waiting session exited',states)
-        assert enabled is None and mux.p.mode=='MANUAL',(case,'authorized without current health')
+        assert enabled is None,(case,'navigation enabled without current health')
         assert permissions and not any(v for _,v in permissions),(case,'permission granted while waiting')
         assert base and all(abs(v)+abs(w)<1e-8 for _,v,w in base),(case,'waiting output nonzero')
         if case=='stale_health':
@@ -99,6 +99,7 @@ try:
         session.send_signal(signal.SIGTERM);spin(.8,fixture)
         assert session.poll() is not None,(case,'waiting did not cancel')
         results.append(dict(case=case,waited_without_exit=True,no_permission=True,final_zero=True))
+        print('PASS '+case,flush=True)
         continue
      assert enabled is not None,(case,states,session.poll(),session.stderr.read().decode() if session.poll() is not None else '')
      assert cancelled and cancelled[0]<enabled,(case,'old goal not canceled')
@@ -110,13 +111,18 @@ try:
      if case=='normal':
         assert health_stopped,'Invalid localization did not stop output'
         assert any(r[1]>.1 for r in base if r[0]>enabled+1.4),'Healthy fresh stream did not recover'
-     if case in ('normal','delayed_health','cancel_health_drop'):session.send_signal(signal.SIGTERM)
+     if case=='manual_takeover':
+        assert session.poll() is None,(case,'manual input ended the navigation session')
+        assert any(abs(v-.05)<1e-8 for _,v,_ in base),(case,'manual input did not override NAV')
+        assert any(v>.1 for t,v,_ in base if t>enabled+1.0),(case,'NAV did not resume after release')
+     if case in ('normal','manual_takeover','delayed_health','cancel_health_drop'):session.send_signal(signal.SIGTERM)
      spin(.8,fixture)
      if case!='process_killed':
         assert session.poll() is not None,(case,'session did not exit')
-        assert mux.p.mode=='MANUAL',(case,'authorization not released')
+        assert permissions and permissions[-1][1] is False,(case,'navigation permission not released')
      assert base and all(abs(r[1])+abs(r[2])<1e-8 for r in base[-10:]),(case,'nonzero final output')
      results.append(dict(case=case,cancelled_old_goal=True,new_command_passed=True,final_zero=True))
+     print('PASS '+case,flush=True)
     finally:
      for p in (session,guard):
         if p.poll() is None:

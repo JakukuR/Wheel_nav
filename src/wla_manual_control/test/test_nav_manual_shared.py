@@ -7,10 +7,9 @@ from control_policy import Policy
 
 class TestSharedNav(unittest.TestCase):
     def running(self):
-        p = Policy(nav_manual_coexist=True)
+        p = Policy()
         self.manual(p, 1., (0., 0.)); p.wheel_at = 1.
         p.automatic_input((0., 0.), 1.)
-        self.assertTrue(p.set_auto(1.01)[0])
         p.automatic_input((.12, .2), 1.02)
         self.assertEqual(p.output(1.03), (.12, .2))
         return p
@@ -58,7 +57,7 @@ class TestSharedNav(unittest.TestCase):
         self.manual(p, 1.32, (0., 0.))
         self.assertEqual(p.output(1.33), (0., 0.))
 
-    def test_estop_stops_both_and_reset_does_not_restore_auto(self):
+    def test_estop_stops_both_and_reset_requires_new_commands(self):
         p = self.running(); self.manual(p, 1.04, (.08, 0.)); p.output(1.05)
         p.set_estop(True, 1.06); p.automatic_input((.12, .2), 1.07)
         self.assertEqual(p.output(1.08), (0., 0.))
@@ -66,22 +65,34 @@ class TestSharedNav(unittest.TestCase):
         p.wheel_at = 1.09
         self.assertFalse(p.set_estop(False, 1.10)[0])
         self.manual(p, 1.11, (0., 0.)); self.assertTrue(p.set_estop(False, 1.12)[0])
+        self.assertEqual(p.output(1.125), (0., 0.))
         p.automatic_input((.12, .2), 1.13)
-        self.assertEqual(p.output(1.14), (0., 0.)); self.assertEqual(p.mode, 'MANUAL')
+        self.assertEqual(p.output(1.14), (.12, .2))
 
     def test_nonfinite_manual_latches_stop(self):
         p = self.running(); self.manual(p, 1.04, (float('nan'), 0.))
         self.assertTrue(p.estop_latched); self.assertEqual(p.output(1.05), (0., 0.))
 
-    def test_manual_limits_and_explicit_revoke(self):
+    def test_manual_limits_and_legacy_stop_does_not_latch_mode(self):
         p = self.running(); self.manual(p, 1.04, (9., -9.))
         self.assertEqual(p.output(1.05), (.3, -.5))
         p.set_manual(); self.manual(p, 1.06, (0., 0.))
         p.automatic_input((.12, .2), 1.07)
-        self.assertEqual(p.output(1.08), (0., 0.))
+        self.assertEqual(p.output(1.08), (0., 0.))  # First release tick flushes old NAV.
+        p.automatic_input((.12, .2), 1.09)
+        self.assertEqual(p.output(1.10), (.12, .2))
 
-    def test_shared_mode_never_implies_startup_authorization(self):
-        p = Policy(nav_manual_coexist=True); p.automatic_input((.2, .2), 1.)
-        self.assertEqual(p.output(1.01), (0., 0.)); self.assertEqual(p.mode, 'MANUAL')
+    def test_navigation_available_at_startup_without_mode_service_or_gamepad(self):
+        for old_flag in (True, False):
+            p = Policy(nav_manual_coexist=old_flag)
+            self.assertEqual(p.output(.9), (0., 0.))
+            p.automatic_input((.2, .2), 1.)
+            self.assertEqual(p.output(1.01), (.2, .2))
+            self.assertEqual(p.output(1.2), (0., 0.))
+
+    def test_legacy_mode_label_is_not_a_navigation_gate(self):
+        p = Policy(); p.mode = 'MANUAL'
+        p.automatic_input((.2, .2), 1.)
+        self.assertEqual(p.output(1.01), (.2, .2))
 
 if __name__ == '__main__': unittest.main()

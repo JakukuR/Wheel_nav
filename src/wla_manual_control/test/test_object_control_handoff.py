@@ -21,8 +21,10 @@ def test_select_then_bound_zero_candidate_activation_and_release():
     assert command(p,'release',10.09)[0];assert p.output(10.10)==(0.,0.)
     assert p.object_channel.person_revoke_generation==1
 
-def test_select_requires_existing_auto_and_stationary_wheels():
-    p=Policy();p.wheel_at=10.;p.wheel=(0.,0.);assert not command(p,'select')[0]
+def test_select_from_modeless_nav_requires_stationary_wheels():
+    p=Policy();assert not command(p,'select')[0]
+    p.wheel_at=10.;p.wheel=(0.,0.);assert command(p,'select')[0]
+    assert not command(p,'activate',10.03)[0]
     p=ready();p.wheel=(.1,0.);assert not command(p,'select')[0]
 
 def test_old_generations_and_other_task_cannot_activate():

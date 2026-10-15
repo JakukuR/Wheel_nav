@@ -94,7 +94,8 @@ def main():
         try:
             no_gamepad = dict(gamepad=None, send_manual=False)
             fixture.feed(2., nav=.2, **no_gamepad)
-            assert fixture.outputs and all(v == (0., 0.) for v in fixture.outputs), 'no implicit AUTO at boot'
+            assert fixture.outputs and abs(fixture.outputs[-1][0] - .2) < 1e-6, 'fresh NAV at boot without mode service'
+            assert fixture.states[-1]['mode_required'] is False
             fixture.feed(.3, **no_gamepad)
             fixture.call(fixture.automatic, True, **no_gamepad)
             fixture.feed(.4, nav=.18, **no_gamepad)
@@ -106,7 +107,7 @@ def main():
             fixture.call(fixture.automatic, True, expected=False, **no_gamepad)
             fixture.call(fixture.estop, False, **no_gamepad)
             fixture.feed(.3, nav=.18, **no_gamepad)
-            assert fixture.outputs[-1] == (0., 0.) and fixture.states[-1]['mode'] == 'MANUAL'
+            assert abs(fixture.outputs[-1][0] - .18) < 1e-6, 'fresh NAV after explicit estop reset'
             fixture.feed(.4, manual=.2, gamepad='ARMING')
             assert fixture.outputs[-1] == (0., 0.), 'unqualified manual input cannot drive'
             fixture.feed(.5); assert fixture.states[-1]['manual_ready']
@@ -193,7 +194,7 @@ def main():
             publishers = fixture.get_publishers_info_by_topic('/r680_base/cmd_vel')
             assert len(publishers) == 1 and publishers[0].node_name == 'r680_command_mux'
             assert not any('wheeltec_robot' in name for name in fixture.get_node_names())
-            print('PASS: source exclusivity, explicit AUTO, session binding, stale candidate/status, '
+            print('PASS: modeless NAV at boot, source exclusivity, tracking authorization, session binding, stale candidate/status, '
                   'idle-to-new-task, manual revoke, hotplug, Nav2 cancel, stale NAV/manual, '
                   'headless NAV/PERSON, latched estop/reset, forward/reverse limits; isolated sole mux publisher')
         finally:

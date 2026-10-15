@@ -49,13 +49,16 @@ else:raise AssertionError('Wheel path budget ignored')
 # It must never report ready while the arc is running or before failure cleanup.
 entry=(root.parents[1]/'r680_nav.sh').read_text()
 branch=entry[entry.index('    motion_ok = not motion_init'):entry.index('    if time.monotonic() - last_report',entry.index('    motion_ok = not motion_init'))]
-branch=compile(textwrap.dedent(branch),'r680_nav.sh readiness','exec')
+# The real readiness branch can continue its outer polling loop.
+branch=compile('for _ in range(1):\n'+textwrap.indent(textwrap.dedent(branch),'    '),
+               'r680_nav.sh readiness','exec')
 with tempfile.TemporaryDirectory(prefix='init-readiness-') as folder:
     result=Path(folder)/'result.json'
     for state in (None,'waiting_inputs','moving','stopping','failed','succeeded','already_initialized'):
         if state is not None:result.write_text(json.dumps({'state':state,'reason':'test'}))
         env=dict(motion_init=True,Path=Path,os=SimpleNamespace(environ={'WLA_INIT_MOTION_RESULT':str(result)}),json=json,
-                 ready_count=5,map_ok=True,tf_ok=True,scan_ok=True,auto_init=False,init_state='succeeded',states={'controller':3},
+                 ready_count=5,last_ready=time.monotonic(),time=time,startup=SimpleNamespace(read=lambda:True),
+                 map_ok=True,tf_ok=True,scan_ok=True,auto_init=False,init_state='succeeded',states={'controller':3},
                  node=SimpleNamespace(destroy_node=lambda:None),rclpy=SimpleNamespace(shutdown=lambda:None))
         code=None
         try:exec(branch,env)
@@ -108,7 +111,8 @@ def case(name,execute=True,guard_enabled=False):
                 pub_manual.publish(manual)
                 imu_age=-9.489059448242188e-5 if name=='no_gamepad' else .005
                 image_age=.02
-                if name=='future_sensor' and since>.15:imu_age=-.051
+                # Leave transport margin beyond the allowed 50 ms clock lead.
+                if name=='future_sensor' and since>.15:imu_age=-.20
                 if name=='stale_sensor' and since>.15:imu_age=.101
                 if name=='stale_image' and since>.15:image_age=.351
                 ns=probe.get_clock().now().nanoseconds
@@ -131,7 +135,7 @@ def case(name,execute=True,guard_enabled=False):
             commands=[r for r in received if r[1] or r[2]]
             assert all(0<=r[1]<=.2 and 0<=r[2]<=.5 for r in commands),name
             assert base and all(r[1:]==(0.,0.) for r in base[-5:]),name+' nonzero final chassis output'
-            assert mux.p.mode=='MANUAL',name+' authority remained AUTO'
+            assert mux.p.zero(mux.p.auto),name+' buffered initialization command remained nonzero'
             if name in ('positive','no_gamepad','preview'):
                 assert proc.returncode==0 and data['state']=='succeeded',(name,data,proc.stderr.read().decode())
                 if execute:
@@ -145,6 +149,7 @@ def case(name,execute=True,guard_enabled=False):
                 if guard_enabled:assert not commands and not data['motion_requested']
                 else:assert commands and commands[-1][0]-commands[0][0]<1.0
             results.append(dict(case=name,state=data['state'],reason=data['reason'],nonzero=len(commands)))
+            print('PASS '+name,flush=True)
         finally:
             if proc.poll() is None:
                 proc.send_signal(signal.SIGINT)
@@ -152,11 +157,10 @@ def case(name,execute=True,guard_enabled=False):
                 except subprocess.TimeoutExpired:proc.kill();proc.wait()
 
 try:
-    for name in ('positive','no_gamepad','manual_takeover','sensor_report_lost','sigterm',
-                 'future_sensor','stale_sensor','stale_image'):
-        case(name)
-    case('guard_enabled',guard_enabled=True)
-    case('preview',execute=False)
+    cases=os.environ.get('WLA_INIT_CASES',
+        'positive,no_gamepad,manual_takeover,sensor_report_lost,sigterm,future_sensor,stale_sensor,stale_image,guard_enabled,preview').split(',')
+    for name in cases:
+        case(name,execute=name!='preview',guard_enabled=name=='guard_enabled')
     print(json.dumps(results,indent=2));print('PASS one bounded arc, real mux takeover, fault stop, SIGTERM cleanup, disabled Nav2 output and preview isolation')
 finally:
     for n in (mux,guard,probe):executor.remove_node(n);n.destroy_node()

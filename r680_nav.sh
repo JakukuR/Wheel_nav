@@ -139,8 +139,8 @@ if systemctl is-active --quiet r680-manual-base.service; then
     exit 2
   fi
   USE_MANUAL_BASE=true; START_CHASSIS=false; export ROS_DOMAIN_ID=73
-  echo '[R680 NAV] 复用常驻底盘，手柄可随时接管；自动模式需显式授权。'
-  echo '[R680 NAV] 导航预览/失败不关闭独立手柄；停稳后可调用 /r680_base/set_automatic 显式切换。'
+  echo '[R680 NAV] 复用常驻底盘，手柄与导航无需模式切换；手柄有输入时优先。'
+  echo '[R680 NAV] 导航预览/失败不关闭独立手柄；松开摇杆后执行新鲜导航速度，急停停止两路。'
 fi
 if [[ "$USE_MANUAL_BASE" != true ]]; then
 python3 - <<'PYCHECK'
@@ -477,7 +477,7 @@ if [[ "$ODOM_SOURCE" == cuvslam && "$AUTO_VIO_INIT" == true && "$ENABLE_MOTION" 
   setsid ros2 run wla_r680_navigation navigation_motion_session.py --cuvslam-init \
     >"$NAV_RUN_DIR/logs/navigation_motion_session.log" 2>&1 </dev/null &
   PERMISSION_PID=$!
-  echo '[R680 NAV] 初始化授权：停稳后先切入底盘 AUTO/NAV，再允许受限激励；失败或手柄接管即撤销。'
+  echo '[R680 NAV] 初始化激励在停稳后开始；手柄输入优先，原有初始化运动预算保持不变。'
 fi
 if [[ "$OPENVINS_MOTION_INIT" == true ]]; then
   setsid ros2 run wla_r680_navigation openvins_motion_init.py --execute \
@@ -641,7 +641,7 @@ if [[ "$ENABLE_MOTION" == true && "$ODOM_SOURCE" == openvins ]]; then
   setsid ros2 run wla_r680_navigation navigation_motion_session.py \
     >"$NAV_RUN_DIR/logs/navigation_motion_session.log" 2>&1 </dev/null &
   PERMISSION_PID=$!
-  echo '[R680 NAV] 初始化与 Nav2 启动检查通过；正在确认当前健康状态并交接 AUTO/NAV。状态暂未就绪时保持零速等待，不重复运动初始化。'
+  echo '[R680 NAV] 初始化与 Nav2 启动检查通过；正在确认健康状态并开放导航输出，不重复运动初始化。'
   handoff_reports=0
   while kill -0 "$PERMISSION_PID" 2>/dev/null && kill -0 "$BRINGUP_PID" 2>/dev/null; do
     grep -q 'navigation_enabled;' "$NAV_RUN_DIR/logs/navigation_motion_session.log" && break
@@ -655,7 +655,7 @@ if [[ "$ENABLE_MOTION" == true && "$ODOM_SOURCE" == openvins ]]; then
     tail -10 "$NAV_RUN_DIR/logs/navigation_motion_session.log" >&2
     echo '[R680 NAV] 导航控制交接失败，退出清理。' >&2; exit 1
   fi
-  echo '[R680 NAV] navigation_enabled：已接管 AUTO/NAV，现在可以发送新的导航点。'
+  echo '[R680 NAV] navigation_enabled：导航输出已允许，现在可以发送新的导航点；手柄输入优先。'
 elif [[ "$ENABLE_MOTION" == true && "$ODOM_SOURCE" == cuvslam && "$AUTO_VIO_INIT" == true ]]; then
   handoff_deadline=$((SECONDS + 30))
   while (( SECONDS < handoff_deadline )) && kill -0 "$PERMISSION_PID" 2>/dev/null && kill -0 "$BRINGUP_PID" 2>/dev/null; do
@@ -666,13 +666,13 @@ elif [[ "$ENABLE_MOTION" == true && "$ODOM_SOURCE" == cuvslam && "$AUTO_VIO_INIT
     tail -10 "$NAV_RUN_DIR/logs/navigation_motion_session.log" >&2
     echo '[R680 NAV] 初始化后的导航授权交接失败。' >&2; exit 1
   fi
-  echo '[R680 NAV] 初始化完成且 AUTO/NAV 已确认，现在可以发送新的导航点。'
+  echo '[R680 NAV] 初始化完成且导航输出已允许，现在可以发送新的导航点；手柄输入优先。'
 elif [[ "$ENABLE_MOTION" == true ]]; then
   setsid ros2 topic pub -r 10 /r680_nav/mission_motion_allowed \
     std_msgs/msg/Bool '{data: true}' >"$NAV_RUN_DIR/logs/motion_permission.log" 2>&1 </dev/null &
   PERMISSION_PID=$!
-  echo '[R680 NAV] 导航侧速度输出已允许；此步骤未切换底盘 AUTO 模式。'
-  echo '[R680 NAV] 停稳后调用 /r680_base/set_automatic（data: true），确认 control_state 为 AUTO/NAV，再下发新的导航点。'
+  echo '[R680 NAV] 导航侧速度输出已允许；底盘无需切换模式，手柄有输入时优先。'
+  echo '[R680 NAV] 确认地图中的机器人位置正确后即可发送导航点；松开摇杆后恢复新鲜导航速度。'
 else
   echo '[R680 NAV] 当前为安全预览：定位、规划和碰撞链已启动，真实底盘输出保持关闭。'
   if [[ "$ODOM_SOURCE" == openvins ]]; then

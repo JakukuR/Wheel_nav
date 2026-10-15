@@ -20,8 +20,7 @@ class Mux(Node):
     def __init__(self):
         super().__init__('r680_command_mux')
         self.p = Policy(*[self.declare_parameter(k, v).value for k, v in
-                         [('max_forward_mps', 1.0), ('max_reverse_mps', .3), ('max_turn_rps', 1.5)]],
-                        nav_manual_coexist=self.declare_parameter('nav_manual_coexist', True).value)
+                         [('max_forward_mps', 1.0), ('max_reverse_mps', .3), ('max_turn_rps', 1.5)]])
         self.control_session = uuid.uuid4().hex
         self.out = self.create_publisher(Twist, '/r680_base/cmd_vel', 1)
         self.report = self.create_publisher(String, '/r680_base/control_state', 10)
@@ -50,8 +49,9 @@ class Mux(Node):
 
     def manual(self, msg):
         previous = self.p.mode
+        stopped = self.p.estop_latched
         takeover = self.p.manual_input((msg.linear.x, msg.angular.z), time.monotonic())
-        if previous == 'AUTO' and self.p.mode != 'AUTO':
+        if (previous == 'AUTO' and self.p.mode != 'AUTO') or (not stopped and self.p.estop_latched):
             self.cancel_navigation(); self.last_report = 0.
         if takeover:
             self.get_logger().warn('Manual takeover latched; autonomous task revocation requested')
@@ -102,10 +102,11 @@ class Mux(Node):
 
     def status(self, msg):
         previous = self.p.mode
+        stopped = self.p.estop_latched
         previous_status = self.p.status
         status = msg.data.split(']', 1)[0].lstrip('[')
         self.p.gamepad_status_input(status, time.monotonic())
-        if previous == 'AUTO' and self.p.mode != 'AUTO':
+        if (previous == 'AUTO' and self.p.mode != 'AUTO') or (not stopped and self.p.estop_latched):
             self.cancel_navigation()
         if previous_status != status or previous != self.p.mode:
             self.last_report = 0.
@@ -128,7 +129,9 @@ class Mux(Node):
             res.success, res.message = self.p.set_auto(time.monotonic(), self.get_clock().now().nanoseconds)
         else:
             self.p.set_manual(); self.cancel_navigation()
-            res.success = True; res.message = 'MANUAL latched'
+            res.success = True
+            res.message = ('navigation canceled; fresh NAV/manual remain available'
+                           if self.p.automatic_source == 'NAV' else 'MANUAL latched')
         self.last_report = 0.
         return res
 
@@ -150,6 +153,7 @@ class Mux(Node):
             self.report.publish(String(data=json.dumps({
                 'control_session': self.control_session, 'stamp_ns': self.get_clock().now().nanoseconds,
                 'mode': self.p.mode, 'armed': self.p.armed,
+                'mode_required': self.p.automatic_source != 'NAV',
                 'nav_manual_coexist': self.p.nav_manual_coexist,
                 'output_source': self.p.output_source,
                 'manual_ready': self.p.manual_ready(now),

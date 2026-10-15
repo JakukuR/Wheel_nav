@@ -28,15 +28,15 @@ class TestTakeover(unittest.TestCase):
         self.assertEqual(p.output(.62), (0., 0.))
         self.assertEqual(self.ready(p, .63, (.2, 0.)), (.2, 0.))
 
-    def test_navigation_failure_manual_takeover_latches(self):
+    def test_navigation_failure_manual_override_and_resume(self):
         p = Policy(); self.arm(p); p.wheel_at = .8; p.automatic_input((0., 0.), .8)
         self.assertTrue(p.set_auto(.81)[0]); p.automatic_input((.1, .1), .82)
         self.assertEqual(p.output(.83), (.1, .1))
         self.ready(p, .98); self.assertEqual(p.output(1.), (0., 0.))
-        self.assertTrue(p.manual_input((.2, 0.), 1.01)); p.status_at = 1.01
+        self.assertFalse(p.manual_input((.2, 0.), 1.01)); p.status_at = 1.01
         self.assertEqual(p.output(1.02), (.2, 0.)); self.ready(p, 1.1)
-        p.automatic_input((.3, 0.), 1.1); self.assertEqual(p.output(1.11), (0., 0.))
-        self.assertEqual(p.mode, 'MANUAL')
+        p.automatic_input((.3, 0.), 1.11); self.assertEqual(p.output(1.12), (.3, 0.))
+        self.assertEqual(p.output_source, 'NAV')
 
     def test_estop_and_invalid_data(self):
         p = Policy(); self.arm(p); p.gamepad_status_input('ESTOP', .85)
@@ -45,9 +45,9 @@ class TestTakeover(unittest.TestCase):
 
     def test_limits_and_auto_release(self):
         p = Policy(); self.arm(p)
-        self.assertEqual(self.ready(p, .9, (4., -3.)), (.3, -.5)); self.assertFalse(p.set_auto(.91)[0])
+        self.assertEqual(self.ready(p, .9, (4., -3.)), (.3, -.5)); self.assertTrue(p.set_auto(.91)[0])
         self.ready(p, 1.); p.wheel_at = 1.; p.automatic_input((.2, 0.), 1.)
-        self.assertFalse(p.set_auto(1.01)[0])
+        self.assertTrue(p.set_auto(1.01)[0])
         p.automatic_input((0., 0.), 1.01); self.assertTrue(p.set_auto(1.02)[0])
         self.assertEqual(p.output(1.03), (0., 0.))
 
@@ -110,8 +110,8 @@ class TestPersonSource(TestTakeover):
         self.assertFalse(p.set_person_source(False, .89, self.ns(.89))[0])
         p.wheel = (0., 0.); p.automatic_input((0., 0.), .90)
         self.assertTrue(p.set_person_source(False, .91, self.ns(.91))[0])
-        self.assertEqual((p.automatic_source, p.mode), ('NAV', 'MANUAL'))
-        self.assertFalse(p.set_auto(.92, self.ns(.92))[0])
+        self.assertEqual((p.automatic_source, p.mode), ('NAV', 'AUTO'))
+        self.assertEqual(p.output(.92), (0., 0.))  # Source switch clears old commands.
         p.automatic_input((0., 0.), .93); self.assertTrue(p.set_auto(.94, self.ns(.94))[0])
         self.assertEqual(p.output(.945), (0., 0.))
         p.automatic_input((.2, 0.), .95); self.assertEqual(p.output(.96), (.2, 0.))
@@ -254,9 +254,9 @@ class TestAutonomyWithoutGamepad(unittest.TestCase):
         p.automatic_input((.1, .2), 10.02)
         return p
 
-    def test_no_gamepad_does_not_auto_authorize_but_explicit_nav_works(self):
+    def test_no_gamepad_navigation_works_without_mode_switch(self):
         p = Policy(); p.automatic_input((.1, .2), 10.)
-        self.assertEqual(p.output(10.01), (0., 0.))
+        self.assertEqual(p.output(10.01), (.1, .2))
         p = self.nav()
         self.assertEqual(p.output(10.03), (.1, .2))
         self.assertFalse(p.armed); self.assertEqual(p.mode, 'AUTO')
@@ -282,15 +282,17 @@ class TestAutonomyWithoutGamepad(unittest.TestCase):
         self.assertEqual(p.output(1.24), (0., 0.)); self.assertEqual(p.mode, 'MANUAL')
         self.assertEqual(p.person_revoke_generation, 1)
 
-    def test_autonomy_keeps_wheel_stop_freshness_and_zero_command_barriers(self):
+    def test_navigation_does_not_need_a_zero_speed_mode_handshake(self):
         for wheel_at, wheel, command in [(0., (0., 0.), (0., 0.)),
                 (10., (.1, 0.), (0., 0.)), (10., (0., 0.), (.1, 0.))]:
             p = Policy(); p.wheel_at = wheel_at; p.wheel = wheel
             p.automatic_input(command, 10.)
-            self.assertFalse(p.set_auto(10.01)[0])
+            self.assertTrue(p.set_auto(10.01)[0])
+            self.assertEqual(p.output(10.02), command)
         p = self.nav()
         p.set_manual(); p.wheel_at = 10.3
-        self.assertFalse(p.set_auto(10.3)[0])
+        self.assertTrue(p.set_auto(10.3)[0])
+        self.assertEqual(p.output(10.31), (0., 0.))
 
     def test_disconnection_silence_and_arming_do_not_cancel_auto(self):
         for status in ('DISCONNECTED', 'ARMING'):
@@ -302,14 +304,14 @@ class TestAutonomyWithoutGamepad(unittest.TestCase):
         self.assertFalse(p.manual_input((.2, 0.), 10.04))
         self.assertEqual(p.output(10.05), (.1, .2))
 
-    def test_qualified_takeover_latches_manual_and_disconnect_stops_manual(self):
+    def test_qualified_override_disconnect_then_fresh_nav_resumes(self):
         p = self.nav(); p.gamepad_status_input('ACTIVE', 10.03)
-        self.assertTrue(p.manual_input((.2, 0.), 10.04))
+        self.assertFalse(p.manual_input((.2, 0.), 10.04))
         self.assertEqual(p.output(10.05), (.2, 0.))
         p.gamepad_status_input('DISCONNECTED', 10.06)
-        self.assertEqual(p.output(10.07), (0., 0.)); self.assertEqual(p.mode, 'MANUAL')
+        self.assertEqual(p.output(10.07), (0., 0.))
         p.automatic_input((.2, 0.), 10.08)
-        self.assertEqual(p.output(10.09), (0., 0.))
+        self.assertEqual(p.output(10.09), (.2, 0.))
 
     def test_global_estop_latches_without_gamepad_and_reset_never_restarts(self):
         p = self.nav(); self.assertTrue(p.set_estop(True, 10.03)[0])
@@ -321,8 +323,8 @@ class TestAutonomyWithoutGamepad(unittest.TestCase):
         self.assertFalse(p.set_estop(False, 10.51)[0])
         p.wheel = (0., 0.)
         self.assertTrue(p.set_estop(False, 10.52)[0])
-        self.assertEqual(p.output(10.53), (0., 0.)); self.assertEqual(p.mode, 'MANUAL')
-        self.assertFalse(p.set_auto(10.54)[0])  # old NAV command was cleared
+        self.assertEqual(p.output(10.53), (0., 0.))  # old NAV command was cleared
+        self.assertTrue(p.set_auto(10.54)[0])
         p.automatic_input((0., 0.), 10.55)
         self.assertTrue(p.set_auto(10.56)[0])
         self.assertEqual(p.output(10.57), (0., 0.))
@@ -337,12 +339,12 @@ class TestAutonomyWithoutGamepad(unittest.TestCase):
         p.gamepad_status_input('ARMING', 10.07)
         self.assertTrue(p.estop_latched)
         self.assertTrue(p.set_estop(False, 10.08)[0])
-        self.assertEqual(p.mode, 'MANUAL')
+        self.assertEqual(p.output(10.09), (0., 0.))
 
     def test_invalid_manual_input_stops_autonomy(self):
         p = self.nav(); p.manual_input((float('nan'), 0.), 10.03)
         self.assertTrue(p.estop_latched)
-        self.assertEqual(p.output(10.04), (0., 0.)); self.assertEqual(p.mode, 'MANUAL')
+        self.assertEqual(p.output(10.04), (0., 0.))
 
     def test_stop_output_preserves_nonzero_manual_input_for_reset_rejection(self):
         p = self.nav(); p.set_estop(True, 10.03)

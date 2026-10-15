@@ -8,13 +8,15 @@ class Policy:
     PERSON_COMMAND_AGE = .15
     PERSON_STATUS_AGE = .20
 
-    def __init__(self, linear=.3, reverse=.3, angular=.5, *, nav_manual_coexist=False):
+    def __init__(self, linear=.3, reverse=.3, angular=.5, *, nav_manual_coexist=True):
         self.limits = (linear, reverse, angular)
-        self.nav_manual_coexist = nav_manual_coexist
+        # Legacy argument accepted for callers; NAV always shares the output.
+        self.nav_manual_coexist = True
         self.nav_manual_active = False
         self.nav_resume_after = -1e9
         self.output_source = "NONE"
-        self.mode = 'MANUAL'; self.armed = False
+        # AUTO is a compatibility report for NAV, not a navigation permission latch.
+        self.mode = 'AUTO'; self.armed = False
         self.manual_ready_after = -1e9
         self.estop_latched = False; self.estop_reason = ''
         self.gamepad_stop_asserted = False
@@ -58,15 +60,19 @@ class Policy:
     def set_manual(self):
         if self.mode == 'AUTO' and self.automatic_source in ('PERSON','OBJECT'):
             self.tracking_channel().revoke_person()
-        self.mode = 'MANUAL'
+        if self.automatic_source == 'NAV':
+            self.auto = (0., 0.); self.auto_at = -1e9
+            self.mode = 'AUTO'
+        else:
+            self.mode = 'MANUAL'
 
     def manual_input(self, v, t):
         if not all(math.isfinite(x) for x in v):
             self.latch_stop('invalid_manual_input'); return False
         self.manual = v; self.manual_at = t
         takeover = self.mode == 'AUTO' and self.manual_ready(t) and not self.zero(v)
-        if takeover and self.nav_manual_coexist and self.automatic_source == 'NAV':
-            # Keep NAV authorization; manual control temporarily owns the output.
+        if self.automatic_source == 'NAV':
+            # No mode transition or navigation cancellation for manual input.
             return False
         if takeover:
             self.set_manual()
@@ -106,7 +112,7 @@ class Policy:
     def set_estop(self, enabled, t):
         if enabled:
             self.latch_stop('explicit_estop')
-            return True, 'stop_latched; explicit reset and AUTO authorization required'
+            return True, 'stop_latched; explicit reset required'
         if not self.estop_latched:
             return True, 'stop_already_clear'
         if self.gamepad_stop_asserted:
@@ -118,7 +124,8 @@ class Policy:
         if self.estop_latched:
             self.estop_latched = False; self.estop_reason = ''
             self.disarm()
-        return True, 'stop_cleared; MANUAL; explicit AUTO required'
+        return True, ('stop_cleared; waiting for fresh commands' if self.automatic_source == 'NAV'
+                      else 'stop_cleared; MANUAL; explicit AUTO required')
 
     def automatic_input(self, v, t):
         if all(math.isfinite(x) for x in v):
@@ -233,10 +240,11 @@ class Policy:
             return False, 'chassis_not_stopped'
         if self.automatic_source in ('PERSON','OBJECT'):
             self.tracking_channel().revoke_person()
-        self.mode = 'MANUAL'; self.automatic_source = source
+        self.mode = 'AUTO' if source == 'NAV' else 'MANUAL'; self.automatic_source = source
         self.source_generation += 1; self.source_after = t; self.source_ros_ns = now_ns
         self.auto = (0., 0.); self.auto_at = -1e9; self.clear_person(); self.object_channel.clear_person()
-        return True, 'automatic_source_' + source.lower() + '; MANUAL; explicit AUTO required'
+        return True, ('navigation/manual sharing; waiting for fresh commands' if source == 'NAV'
+                      else 'automatic_source_' + source.lower() + '; MANUAL; explicit AUTO required')
 
     def object_control(self, command, source_generation, revoke_generation, request_id, follow_session, t, now_ns):
         channel=self.object_channel
@@ -270,6 +278,8 @@ class Policy:
     def set_auto(self, t, now_ns=0):
         if self.estop_latched:
             return False, 'estop_latched'
+        if self.automatic_source == 'NAV':
+            return True, 'NAV/manual always available; no mode switch required'
         if self.manual_requested(t):
             return False, 'manual_takeover_active'
         if not self.stopped(t):
@@ -279,11 +289,7 @@ class Policy:
             if (not channel.person_ready(t) or t > channel.person_until
                     or channel.person_at <= self.source_after or not self.zero(channel.person)):
                 return False, self.automatic_source.lower()+'_not_fresh_enabled_and_stopped'
-        elif t - self.auto_at > .15 or self.auto_at <= self.source_after or not self.zero(self.auto):
-            return False, 'navigation_not_fresh_and_stopped'
         self.mode = 'AUTO'; self.auto_after = t; self.auto_ros_ns = now_ns
-        if self.nav_manual_coexist and self.automatic_source == 'NAV':
-            return True, 'AUTO NAV: manual override; fresh NAV resumes on release; estop stops both'
         return True, 'AUTO ' + self.automatic_source + ': stick input or A stop returns to MANUAL'
 
     def output(self, t):
@@ -296,7 +302,7 @@ class Policy:
         self.armed = self.manual_ready(t)  # Compatibility field: manual readiness only.
         if not self.armed:
             self.clear_manual()
-        shared = self.nav_manual_coexist and self.mode == 'AUTO' and self.automatic_source == 'NAV'
+        shared = self.automatic_source == 'NAV'
         manual_override = shared and self.manual_requested(t)
         if self.nav_manual_active and not manual_override:
             # A release/disconnect never replays a NAV command from the override.
@@ -304,6 +310,10 @@ class Policy:
         self.nav_manual_active = manual_override
         if manual_override:
             v = self.manual; self.output_source = 'MANUAL'
+        elif shared:
+            if t - self.auto_at > .15 or self.auto_at <= max(self.source_after, self.nav_resume_after):
+                return (0., 0.)
+            v = self.auto; self.output_source = 'NAV'
         elif self.mode == 'AUTO':
             if self.automatic_source in ('PERSON','OBJECT'):
                 channel=self.tracking_channel()
@@ -315,10 +325,6 @@ class Policy:
                         or channel.person_at <= self.auto_after or channel.person_stamp_ns <= self.auto_ros_ns):
                     return (0., 0.)
                 v = channel.person; self.output_source = self.automatic_source
-            else:
-                if t - self.auto_at > .15 or self.auto_at <= max(self.auto_after, self.nav_resume_after):
-                    return (0., 0.)
-                v = self.auto; self.output_source = 'NAV'
         else:
             if not self.armed:
                 return (0., 0.)
