@@ -83,3 +83,63 @@ hardware_interpolation.log, hardware_interpolation_samples.json,
 hardware_interpolation_result.json. No full stereo VIO accuracy or motion
 acceptance was performed. Startup extrapolation and SDK calibration availability
 remain separate follow-ups; the requested driver fix remains one line.
+
+
+## Direct OpenVINS integration retest, 2026-10-15 19:55:56
+
+Run: /home/orin/ros2_ws/.runtime/openvins_official/interpolation-live-20261015-195556
+
+Real D455 serial 260922306083, stereo IR 640x480/30 Hz with emitter off,
+gyro 200 Hz, accel 100 Hz, unite_imu_method=2. The patched wrapper fed the
+official OpenVINS ROS2 node and odometry adapter in isolated ROS domain 219.
+The config was copied from the committed default into the run directory.
+No navigation stack, chassis interface or motion-command publisher was started.
+The user manually moved the rig and explicitly confirmed when it was stationary.
+All test processes were stopped at completion.
+
+The first 120-second attempt (interpolation-live-20261015-195157) did not
+initialize: image-disparity checks never exceeded 10 px (old/new window maxima
+8.674/8.455 px). The message "no accel jerk detected" is issued by the visual
+motion gate in InertialInitializer.cpp; it alone does not prove insufficient IMU
+excitation. The user then requested a restart because the cue had been missed.
+
+The second 180-second attempt initialized and produced 27,355 sampled raw
+OpenVINS odometry messages. All saved poses/velocities were finite. Raw pose
+norm stayed within 0.721 m and peak speed was 0.365 m/s for this manual motion.
+There were no "No IMU measurements", "Missing inertial measurements" or
+"ZERO DT" messages. This bounded trial did not reproduce the earlier rapid
+divergence; it does not establish ground-truth accuracy or isolate which of the
+driver/config changes contributed.
+
+After the user-confirmed stop plus a 2-second settling period:
+- Stationary window: 64.965 s, 13,006 raw odometry samples.
+- Raw endpoint position drift: 0.007489 m; maximum displacement: 0.007955 m.
+- Raw speed median / P95 / max: 0.001176 / 0.002190 / 0.003281 m/s.
+- Adapter endpoint drift: 0.007606 m.
+- Estimated camera-IMU offset: 2.14 to 3.85 ms, ending at 2.20 ms.
+
+After the first second of received IMU data, all 35,100 checked united samples
+matched interpolation from bracketed raw accelerometer measurements (maximum
+vector error 5.33e-15 m/s^2); gyro vectors matched exactly. Median error against
+COPY was 0.0270 m/s^2. Runtime mode-2 behavior is therefore verified during
+stereo/OpenVINS processing as well as in the earlier IMU-only capture.
+
+Arrival rate was approximately 200.2 Hz for IMU and 29.9 Hz for sampled images.
+A 366.7 ms image-header gap in the Python diagnostic was cross-checked against
+the independent rosbag: bag images had a maximum gap of only 40.401 ms.
+Do not attribute the diagnostic gap to camera hardware or the estimator.
+The bag continued briefly during process shutdown, so raw count differences
+also include that additional recording interval.
+
+Remaining observations:
+- During the first 0.11 seconds of received data, IMU headers jumped forward by
+  16.258 s while receive time advanced only 76.8 ms. This was a timestamp
+  discontinuity, not a 16-second delivery stall. After the first 5 seconds,
+  maximum IMU header spacing was 5.005 ms. The earlier attempt also had a
+  startup timestamp jump. No timestamp behavior was changed in the one-line fix.
+- The SDK warning about unavailable factory IMU calibration remained.
+- Full navigation/load testing, long trajectories and externally measured
+  accuracy remain unverified. Device calibration is still marked unvalidated.
+
+Evidence: run/config/, camera.log, openvins.log, bag/, samples.json,
+stationary_marker.json, result.json, analysis.json, bag_crosscheck.json.
