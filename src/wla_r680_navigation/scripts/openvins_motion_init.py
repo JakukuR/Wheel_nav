@@ -15,15 +15,16 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.signals import SignalHandlerOptions
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, PoseWithCovarianceStamped
 from nav_msgs.msg import Odometry
 from std_msgs.msg import String
 from std_srvs.srv import SetBool
 from rcl_interfaces.srv import GetParameters
-from wla_openvins_navigation.msg import EstimatorStatus
+from sensor_msgs.msg import Imu, Image
+import yaml
 
 
-# Same future-stamp allowance as frontend.cpp::fresh() and its clock fault.
+# Existing motion-helper timestamp allowance; does not gate the estimator.
 # Real D455 global-time samples can lead ROS time by fractions of a millisecond.
 CLOCK_LEAD_TOLERANCE_S = .05
 
@@ -69,13 +70,14 @@ class Arc:
 
 
 class MotionInit(Node):
-    def __init__(self, result, execute=False):
+    def __init__(self, result, execute=False, config=None):
         super().__init__('openvins_motion_init')
         self.execute = execute
         self.result = Path(result)
-        self.control = self.status = self.wheel = None
-        self.control_at = self.status_at = self.wheel_at = 0.0
-        self.identity = self.control_identity = None
+        self.control = self.pose = self.wheel = None
+        self.control_at = self.pose_at = self.wheel_at = 0.0
+        self.control_identity = None
+        self.imu_stamp = self.image_stamp = None
         self.manual_event = self.cancelled = False
         self.requested_auto = self.acquired = False
         self.arc = Arc()
@@ -94,7 +96,10 @@ class MotionInit(Node):
         self.create_subscription(String, '/r680_base/control_state', self.on_control, 10)
         self.create_subscription(Twist, '/r680_manual/cmd_vel', self.on_manual, 1)
         self.create_subscription(Odometry, '/wheel/odom', self.on_wheel, qos_profile_sensor_data)
-        self.create_subscription(EstimatorStatus, '/openvins/estimator_status', self.on_status, 10)
+        params = yaml.safe_load((Path(config)/'frontend.yaml').read_text())['/**']['ros__parameters'] if config else {}
+        self.create_subscription(PoseWithCovarianceStamped, '/openvins/poseimu', self.on_pose, qos_profile_sensor_data)
+        self.create_subscription(Imu, params.get('imu_topic','/r680/d455/imu'), self.on_imu, qos_profile_sensor_data)
+        self.create_subscription(Image, params.get('left_topic','/r680/d455/infra1/image_rect_raw'), self.on_image, qos_profile_sensor_data)
         self.mode_client = self.create_client(SetBool, '/r680_base/set_automatic')
         self.guard_client = self.create_client(GetParameters, '/r680_command_guard/get_parameters')
         self.last_wheel_stamp = None
@@ -122,13 +127,21 @@ class MotionInit(Node):
         if not all(math.isfinite(x) for x in values) or any(abs(x) >= .01 for x in values):
             self.manual_event = True
 
-    def on_status(self, message):
-        if not self.stamp_fresh(message.header.stamp, .5):
-            return
-        key = message.instance_id, message.generation
-        if self.identity is not None and key != self.identity:
-            self.fault = 'frontend_generation_changed'
-        self.status, self.status_at = message, time.monotonic()
+    def on_pose(self, message):
+        self.pose, self.pose_at = message, time.monotonic()
+
+    def on_imu(self, message):
+        self.imu_stamp = message.header.stamp
+
+    def on_image(self, message):
+        self.image_stamp = message.header.stamp
+
+    def initialized(self):
+        return (self.pose is not None and time.monotonic()-self.pose_at < .5
+                and self.stamp_fresh(self.pose.header.stamp,.5))
+
+    def sensor_age(self, stamp):
+        return None if stamp is None else self.get_clock().now().nanoseconds*1e-9-stamp.sec-stamp.nanosec*1e-9
 
     def on_wheel(self, message):
         if not self.stamp_fresh(message.header.stamp):
@@ -161,7 +174,7 @@ class MotionInit(Node):
         if self.manual_event:
             return 'manual_takeover'
         now = time.monotonic()
-        c, s = self.control, self.status
+        c = self.control
         if c is None or now-self.control_at > .5:
             return 'waiting_for_chassis_control'
         if c.get('estop_latched') is not False:
@@ -172,17 +185,9 @@ class MotionInit(Node):
             return 'chassis_mode_' + str(c.get('mode'))
         if self.wheel is None or now-self.wheel_at > .2 or not self.stamp_fresh(self.wheel.header.stamp):
             return 'waiting_for_fresh_wheel_odom'
-        if s is None or now-self.status_at > .5 or not self.stamp_fresh(s.header.stamp,.5):
-            return 'waiting_for_frontend_report'
-        if not s.instance_id or s.generation != 0 or s.mode == s.INVALID:
-            return 'frontend_fault_or_reset'
-        if not (-CLOCK_LEAD_TOLERANCE_S <= s.imu_age_s <= .10
-                and -CLOCK_LEAD_TOLERANCE_S <= s.image_age_s <= .35):
+        if (self.imu_stamp is None or self.image_stamp is None or
+                not self.stamp_fresh(self.imu_stamp,.10) or not self.stamp_fresh(self.image_stamp,.35)):
             return 'waiting_for_fresh_camera_imu'
-        if s.reason in ('waiting_for_matching_camera_info','waiting_for_imu_clock_stability'):
-            return s.reason
-        if s.initialized and not s.state_valid:
-            return 'invalid_initialized_state'
         return ''
 
     def stopped(self):
@@ -212,9 +217,9 @@ class MotionInit(Node):
                   maximum_command_duration_s=self.arc.duration,wheel_travel_m=self.arc.travel,
                   wheel_accumulated_yaw_rad=self.arc.yaw,peak_wheel_linear_mps=self.peak_wheel_v,
                   peak_wheel_angular_radps=self.peak_wheel_w,manual_release_confirmed=self.release_confirmed,
-                  frontend_initialized=bool(self.status and self.status.initialized),
-                  imu_age_s=self.status.imu_age_s if self.status else None,
-                  image_age_s=self.status.image_age_s if self.status else None,
+                  frontend_initialized=self.initialized(),
+                  imu_age_s=self.sensor_age(self.imu_stamp),
+                  image_age_s=self.sensor_age(self.image_stamp),
                   nav2_hardware_output_enabled=False,contact_and_obstacle_detection=False)
         self.result.parent.mkdir(parents=True,exist_ok=True)
         temp=self.result.with_suffix('.tmp');temp.write_text(json.dumps(data,indent=2));temp.replace(self.result)
@@ -261,7 +266,7 @@ class MotionInit(Node):
                 if now-last_report>1:
                     self.state_change('waiting_inputs',reason or 'wheel_not_stationary');last_report=now
                 continue
-            if self.status.initialized:
+            if self.initialized():
                 self.state_change('already_initialized');return
             if stable is None:
                 stable=now;self.state_change('stationary','hold_still_5_seconds_then_one_arc')
@@ -269,7 +274,6 @@ class MotionInit(Node):
                 break
         else:
             raise Abort('startup_inputs_timeout')
-        self.identity=self.status.instance_id,self.status.generation
         self.control_identity=self.control['control_session'],self.control['source_generation']
         self.verify_guard()
         if self.blocker() or not self.stopped():
@@ -327,8 +331,7 @@ class MotionInit(Node):
         while time.monotonic()<deadline:
             self.step()
             if self.cancelled or self.fault:raise Abort(self.fault or 'cancelled')
-            if (self.status and time.monotonic()-self.status_at<.5 and self.status.initialized
-                    and self.status.state_valid and self.status.mode in (self.status.VIO_TRACKING,self.status.RECOVERING)):
+            if self.initialized():
                 self.state_change('succeeded','VIO_initialized_navigation_accuracy_not_accepted');return
         raise Abort('motion_finished_but_vio_not_tracking_no_retry')
 
@@ -362,10 +365,11 @@ class MotionInit(Node):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--execute',action='store_true',help='Authorize one real 0.2 m/s, 0.5 rad/s arc, at most 1 second')
+    parser.add_argument('--config',help='Sensor configuration used by the official OpenVINS node')
     parser.add_argument('--result',default='/tmp/openvins_motion_init.json')
     args,ros_args=parser.parse_known_args()
     rclpy.init(args=ros_args,signal_handler_options=SignalHandlerOptions.NO)
-    node=MotionInit(args.result,args.execute)
+    node=MotionInit(args.result,args.execute,args.config)
     for sig in (signal.SIGINT,signal.SIGTERM):
         signal.signal(sig,lambda *_:setattr(node,'cancelled',True))
     code=0

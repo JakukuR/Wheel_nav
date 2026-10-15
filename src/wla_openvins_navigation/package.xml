@@ -1,22 +1,16 @@
 <?xml version="1.0"?>
 <package format="3">
-  <name>wla_openvins_navigation</name><version>0.1.0</version>
-  <description>Experimental stereo OpenVINS adapter with inertial continuity and explicit quality.</description>
+  <name>wla_openvins_navigation</name><version>0.2.0</version>
+  <description>Official OpenVINS ROS 2 launch, sensor configuration and rigid odometry frame conversion.</description>
   <maintainer email="1330367040@qq.com">JakukuR</maintainer>
   <license>GPL-3.0-or-later</license>
   <buildtool_depend>ament_cmake</buildtool_depend>
-  <buildtool_depend>rosidl_default_generators</buildtool_depend>
-  <depend>rclcpp</depend><depend>std_msgs</depend><depend>std_srvs</depend>
-  <depend>builtin_interfaces</depend><depend>geometry_msgs</depend><depend>nav_msgs</depend>
-  <depend>sensor_msgs</depend><depend>tf2_ros</depend>
-  <depend>ov_core</depend><depend>ov_init</depend><depend>ov_msckf</depend>
-  <depend>eigen</depend><depend>libopencv-dev</depend><depend>boost</depend>
-  <exec_depend>rosidl_default_runtime</exec_depend><exec_depend>launch_ros</exec_depend>
-  <exec_depend>launch</exec_depend>
-  <exec_depend>rtabmap_msgs</exec_depend>
+  <depend>rclcpp</depend><depend>geometry_msgs</depend><depend>nav_msgs</depend>
+  <depend>tf2_ros</depend><depend>eigen</depend>
+  <exec_depend>ov_msckf</exec_depend>
+  <exec_depend>launch_ros</exec_depend><exec_depend>launch</exec_depend>
   <exec_depend>ament_index_python</exec_depend><exec_depend>python3-numpy</exec_depend>
   <exec_depend>python3-yaml</exec_depend><exec_depend>rclpy</exec_depend>
-  <member_of_group>rosidl_interface_packages</member_of_group>
-  <test_depend>tf2_msgs</test_depend>
+  <exec_depend>sensor_msgs</exec_depend>
   <export><build_type>ament_cmake</build_type></export>
 </package>

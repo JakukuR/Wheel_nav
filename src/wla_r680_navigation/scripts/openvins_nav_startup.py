@@ -12,15 +12,13 @@ from rclpy.qos import qos_profile_sensor_data
 from nav_msgs.msg import Odometry
 from nav2_msgs.srv import ManageLifecycleNodes
 from tf2_ros import Buffer, TransformListener
-from wla_openvins_navigation.msg import EstimatorStatus
 
 
 class Startup(Node):
     def __init__(self):
         super().__init__('openvins_nav_startup')
-        self.status = self.odom = None
-        self.status_seen = self.odom_seen = 0.0
-        self.identity = None
+        self.odom = None
+        self.odom_seen = 0.0
         self.future = None
         self.done = False
         self.failed = False
@@ -32,24 +30,13 @@ class Startup(Node):
         self.listener = TransformListener(self.buffer, self)
         self.client = self.create_client(ManageLifecycleNodes,
                                         '/lifecycle_manager_navigation/manage_nodes')
-        self.create_subscription(EstimatorStatus, '/openvins/estimator_status', self.on_status, 10)
-        self.create_subscription(Odometry, '/r680_nav/mapping_odom', self.on_odom, qos_profile_sensor_data)
+        self.create_subscription(Odometry, '/d455_slam/odom', self.on_odom, qos_profile_sensor_data)
         self.create_timer(0.1, self.tick)
         self.get_logger().info('Waiting for initialized OpenVINS, mapping odom and map TF before Nav2 startup')
 
     def fail(self, reason):
         self.failed = True
         self.get_logger().error('OpenVINS Nav2 startup failed: ' + reason)
-
-    def on_status(self, msg):
-        if self.done or self.failed or self.future is not None:
-            return
-        identity = (msg.instance_id, msg.generation)
-        if not msg.instance_id or msg.generation != 0 or (self.identity and identity != self.identity):
-            self.fail('frontend generation changed; explicit session restart required')
-            return
-        self.identity = identity
-        self.status, self.status_seen = msg, time.monotonic()
 
     def on_odom(self, msg):
         self.odom, self.odom_seen = msg, time.monotonic()
@@ -78,16 +65,13 @@ class Startup(Node):
         if time.monotonic() - self.begin > self.timeout:
             self.fail('initialization wait timeout')
             return
-        s, o = self.status, self.odom
-        if s is None or o is None:
+        # Official odomimu is published only after upstream initialization.
+        o = self.odom
+        if o is None:
             return
-        if not (s.initialized and s.state_valid and s.mode in (s.VIO_TRACKING, s.RECOVERING, s.STATIONARY)):
+        if not (time.monotonic()-self.odom_seen <= 0.2 and self.fresh(o.header.stamp, 0.2)):
             return
-        if not (time.monotonic()-self.status_seen <= 0.5 and time.monotonic()-self.odom_seen <= 0.2
-                and self.fresh(s.header.stamp, 0.5) and self.fresh(s.state_stamp, 0.2)
-                and self.fresh(o.header.stamp, 0.2)):
-            return
-        if o.header.frame_id != s.header.frame_id or o.child_frame_id != 'r680_mapping_floor':
+        if o.header.frame_id != 'd455_floor_odom' or o.child_frame_id != 'r680_mapping_floor':
             return
         if not self.buffer.can_transform('map', 'r680_mapping_floor', rclpy.time.Time()):
             return

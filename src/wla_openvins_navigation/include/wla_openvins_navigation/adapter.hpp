@@ -39,14 +39,4 @@ inline BodyState adapt(const State &x, const Covariance &P, const Eigen::Isometr
   b.covariance=(0.5*(b.covariance+b.covariance.transpose())).eval();
   return b;
 }
-enum Mode { INITIALIZING, VIO_TRACKING, INERTIAL_ONLY, RECOVERING, INVALID, STATIONARY };
-inline Mode mode(bool fault, bool initialized, bool state_valid, double visual_age,
-                 double visual_timeout, bool uncertainty_ok, unsigned recovery, unsigned required, bool stationary=false) {
-  if (fault) return INVALID;
-  if (!initialized) return INITIALIZING;
-  if (!state_valid) return INVALID;
-  if (stationary && uncertainty_ok) return STATIONARY;
-  if (visual_age<0 || visual_age>visual_timeout) return INERTIAL_ONLY;
-  return uncertainty_ok && recovery>=required ? VIO_TRACKING : RECOVERING;
-}
 }  // namespace wla_openvins

@@ -95,8 +95,6 @@ public:
    */
   void invalidate_cache() { cache_imu_valid = false; }
 
-  size_t buffered_imu_count() { std::lock_guard<std::mutex> lock(imu_data_mtx); return imu_data.size(); }
-
   /**
    * @brief Propagate state up to given timestamp and then clone
    *

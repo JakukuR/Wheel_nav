@@ -16,7 +16,6 @@ from lifecycle_msgs.srv import GetState
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Image, Imu, PointCloud2, PointField
 from std_msgs.msg import Bool, String
-from wla_openvins_navigation.msg import EstimatorStatus
 
 
 assert os.environ.get('ROS_DOMAIN_ID') == '198', 'Only isolated domain 198 is permitted'
@@ -63,8 +62,7 @@ try:
     stop(guard)
 
     imu_pub=pub(Imu,'/test/imu');wheel_pub=pub(Odometry,'/wheel/odom')
-    status_pub=pub(EstimatorStatus,'/openvins/estimator_status')
-    health_pub=pub(Bool,'/openvins/tracking_healthy')
+    image_pub=pub(Image,'/r680/d455/infra1/image_rect_raw')
     depth_pub=pub(Image,'/r680/d455/aligned_depth_to_color/image_raw')
     cloud_pub=pub(PointCloud2,'/r680_nav/d455/points_safety')
     contact_pub=pub(String,'/test/contact');manual_pub=pub(Twist,'/r680_manual/cmd_vel')
@@ -81,10 +79,8 @@ try:
         tick+=1
         if tick%8: return
         m=Odometry();m.header.stamp=stamp;m.header.frame_id='wheel_odom';m.child_frame_id='base';m.pose.pose.orientation.w=1.;wheel_pub.publish(m)
-        m=EstimatorStatus();m.header.stamp=stamp;m.instance_id='fixture';m.image_age_s=.01;m.imu_age_s=.001
-        m.mode=m.INVALID if invalid else m.INITIALIZING
-        m.reason='waiting_for_static_initialization_and_excitation';status_pub.publish(m)
-        health_pub.publish(Bool(data=False))
+        image=Image();image.header.stamp=stamp
+        if not invalid:image_pub.publish(image)
         m=Image();m.header.stamp=stamp;m.width=m.height=32;m.encoding='16UC1';m.step=64;m.data=struct.pack('<H',1000)*1024;depth_pub.publish(m)
         m=PointCloud2();m.header.stamp=stamp;m.header.frame_id='r680_mapping_floor';m.height=1;m.width=1;m.point_step=m.row_step=12
         m.fields=[PointField(name=n,offset=i*4,datatype=7,count=1) for i,n in enumerate(('x','y','z'))]
@@ -99,7 +95,7 @@ try:
         spin(.9,lambda:sensors(contact=False))
         assert requests and not any(requests),'Unknown contact permitted bootstrap'
         spin(.9,sensors)
-        assert 'moving' in states and any(requests),'OpenVINS INITIALIZING without odom must admit bounded preview'
+        assert 'moving' in states and any(requests),'OpenVINS sensor input without odom must admit bounded preview'
         spin(.35,lambda:sensors(manual=True));requests.clear();spin(.3,sensors)
         assert states[-1]=='failed' and not any(requests),'Manual takeover must latch failure and zero requests'
         stop(init)

@@ -1,7 +1,7 @@
 {
   "kind": "commissioning",
   "calibration_validated": false,
-  "provenance": "Kalibr wheel_20261013_153818; 90min conditional random walk, not validated. Base mount retained from bringup; camera geometry rectified.",
+  "provenance": "Kalibr wheel_20261013_153818; 90min conditional random walk, not validated. Base mount retained from bringup; camera geometry rectified. 2026-10-15: removed legacy threading overrides; use official ROS node threading defaults. Calibration unchanged.",
   "source_sha256": "1bcbe7efea9649ff0f29bad9877196d6bd7d374af308e7d56f95e38ec7df9a45",
   "sensor": "wheel",
   "source_run": "wheel_20261013_153818",
@@ -9,7 +9,7 @@
   "deployment_allowed": false,
   "config_sha256": {
     "frontend.yaml": "60be35a7b8d998f7ad929df6f214a31af3858d7b230d1c864735853c318eb37e",
-    "estimator_config.yaml": "1b31e3f58649b68a137fed7d3393974d5ce3468d8d0b7dd13c21c6d8cfb40dce",
+    "estimator_config.yaml": "c18e5b65a4227720ab1ba6486c669f34c4995382c9d2d34f80aafcf3aee4e7f5",
     "kalibr_imucam_chain.yaml": "c6124e219cf2b23372f55e1df690d491176afddd579553b65b5fe4e755fbd3be",
     "kalibr_imu_chain.yaml": "839b9dbd7258ffaeba377d320b514528c85554c6efdb52b37ed1430a2dbf97a6"
   }

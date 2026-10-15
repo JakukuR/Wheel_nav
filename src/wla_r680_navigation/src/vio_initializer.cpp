@@ -22,7 +22,7 @@
 #include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "wla_r680_navigation/vio_init_policy.hpp"
-#include "wla_openvins_navigation/msg/estimator_status.hpp"
+#include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 
 using namespace std::chrono_literals;
 namespace wla = wla_r680_navigation;
@@ -129,28 +129,21 @@ public:
         if (tracking) sdk_seen_ = Clock::now();
         else {sdk_seen_ = {}; reject("frontend_reset_or_tracking_fault");}
       });
-    vio_health_sub_ = create_subscription<std_msgs::msg::Bool>(
-      frontend_ == "openvins" ? "/openvins/tracking_healthy" : "/r680_nav/vio_tracking_healthy", 1, [this](std_msgs::msg::Bool::ConstSharedPtr m) {
+    if (frontend_ == "cuvslam") vio_health_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/r680_nav/vio_tracking_healthy", 1, [this](std_msgs::msg::Bool::ConstSharedPtr m) {
         inertial_ = m->data; inertial_seen_ = Clock::now();
       });
     if (frontend_ == "openvins") {
-      ov_status_sub_ = create_subscription<wla_openvins_navigation::msg::EstimatorStatus>(
-        "/openvins/estimator_status", 10,
-        [this](wla_openvins_navigation::msg::EstimatorStatus::ConstSharedPtr m) {
-          if (instance_.empty()) instance_ = m->instance_id;
-          if (m->instance_id.empty() || m->instance_id != instance_ || m->generation != 0) {
-            policy_->fail("frontend_generation_changed"); sdk_seen_ = {}; return;
-          }
-          const double stamp = rclcpp::Time(m->header.stamp).seconds();
-          if (stamp <= ov_stamp_ || !stampFresh(m->header.stamp)) return;
-          ov_stamp_ = stamp;
-          const bool sensors = m->mode != m->INVALID && m->image_age_s >= 0 &&
-            m->image_age_s <= freshness_ && m->imu_age_s >= 0 && m->imu_age_s <= 0.10 &&
-            m->reason != "waiting_for_matching_camera_info" &&
-            m->reason != "waiting_for_imu_clock_stability" &&
-            (!m->initialized || m->state_valid);
-          if (sensors) sdk_seen_ = Clock::now();
-          else {sdk_seen_ = {}; reject("openvins_sensor_or_state_invalid");}
+      // Observe upstream output; never fabricate private estimator health/state.
+      ov_pose_sub_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+        "/openvins/poseimu", qos,
+        [this](geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr m) {
+          if (stampFresh(m->header.stamp)) {inertial_ = true; inertial_seen_ = Clock::now();}
+        });
+      ov_image_sub_ = create_subscription<sensor_msgs::msg::Image>(
+        declare_parameter<std::string>("left_image_topic", "/r680/d455/infra1/image_rect_raw"), qos,
+        [this](sensor_msgs::msg::Image::ConstSharedPtr m) {
+          if (stampFresh(m->header.stamp)) sdk_seen_ = Clock::now();
         });
       contact_sub_ = create_subscription<std_msgs::msg::String>(
         declare_parameter<std::string>("contact_topic", "/r680_nav/contact_state"), 10,
@@ -316,10 +309,10 @@ private:
         << ",\n    \"vo_fresh\": " << fresh(vo_seen_)
         << ",\n    \"wheel_fresh\": " << fresh(wheel_seen_)
         << ",\n    \"imu_fresh\": " << fresh(imu_seen_)
-        << ",\n    \"sdk_tracking_fresh\": " << fresh(sdk_seen_)
+        << (frontend_ == "openvins" ? ",\n    \"image_fresh\": " : ",\n    \"sdk_tracking_fresh\": ") << fresh(sdk_seen_)
         << ",\n    \"depth_fresh\": " << fresh(depth_seen_)
         << ",\n    \"safety_cloud_fresh\": " << fresh(points_seen_)
-        << ",\n    \"inertial_health_fresh\": " << fresh(inertial_seen_)
+        << (frontend_ == "openvins" ? ",\n    \"official_pose_fresh\": " : ",\n    \"inertial_health_fresh\": ") << fresh(inertial_seen_)
         << "\n  }\n}\n";
       out.close(); std::filesystem::rename(temporary, path);
     } catch (const std::exception & ex) {RCLCPP_ERROR(get_logger(), "cannot save init result: %s", ex.what());}
@@ -328,7 +321,7 @@ private:
     imu_rate_ = imu_stamps_.size() > 2 ? (imu_stamps_.size()-1)/(imu_stamps_.back()-imu_stamps_.front()) : 0;
     wla::InitInput input;
     input.sensors = (frontend_ == "openvins" || fresh(vo_seen_)) && fresh(wheel_seen_) && fresh(imu_seen_) && fresh(sdk_seen_) &&
-      fresh(depth_seen_) && fresh(points_seen_) && fresh(inertial_seen_) && imu_rate_ >= min_rate_ &&
+      fresh(depth_seen_) && fresh(points_seen_) && (frontend_ == "openvins" || fresh(inertial_seen_)) && imu_rate_ >= min_rate_ &&
       (frontend_ != "openvins" || (grounded_ && fresh(contact_seen_, .3)));
     input.services = !require_base_authorization_ ||
       (base_authorized_ && fresh(base_authorization_seen_, .2));
@@ -377,10 +370,11 @@ private:
   Clock::time_point inertial_seen_{}, localized_seen_{}, nav_seen_{};
   wla::InitConfig config_; std::unique_ptr<wla::InitPolicy> policy_;
   wla::InitInput last_inputs_;
-  std::string base_, result_, frontend_, imu_frame_, instance_;
-  double ov_stamp_{-1}; bool grounded_{false}, vo_anchored_{false};
+  std::string base_, result_, frontend_, imu_frame_;
+  bool grounded_{false}, vo_anchored_{false};
   Clock::time_point contact_seen_{};
-  rclcpp::Subscription<wla_openvins_navigation::msg::EstimatorStatus>::SharedPtr ov_status_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr ov_pose_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr ov_image_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr contact_sub_;
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr manual_sub_;
   double freshness_{}, min_rate_{}, min_valid_{}, obstacle_forward_{}, obstacle_width_{}, stopped_linear_{}, stopped_angular_{};

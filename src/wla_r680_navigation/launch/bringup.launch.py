@@ -79,8 +79,8 @@ def generate_launch_description():
     continuity_enabled = PythonExpression(["'", start_state_estimation,
         "' == 'true' and '", mode, "' == 'localization' and '", odom_source, "' == 'cuvslam'"])
     continuity_health_topic = PythonExpression(["'/r680_nav/continuous_odom_healthy' if ",
-        continuity_enabled, " else ('/openvins/motion_ready' if '", odom_source, "' == 'openvins' else '/r680_nav/vio_tracking_healthy')"])
-    mapping_odom_topic = PythonExpression(["'/r680_nav/mapping_odom' if ('", odom_source, "' == 'openvins' or ", cuvslam_mapping, ")",
+        continuity_enabled, " else '/r680_nav/vio_tracking_healthy'"])
+    mapping_odom_topic = PythonExpression(["'/r680_nav/mapping_odom' if ", cuvslam_mapping,
                                            " else '/d455_slam/odom'"])
     legacy_estimation = PythonExpression(["'", start_state_estimation, "' == 'true' and '", odom_source, "' == 'rgbd'"])
     legacy_chassis_imu = PythonExpression(["'", LaunchConfiguration('use_chassis_imu'), "' == 'true' and '", odom_source, "' == 'rgbd'"])
@@ -425,8 +425,8 @@ def generate_launch_description():
             'chassis_odom_topic': chassis_odom_topic,
             'require_chassis_odom': ParameterValue(enable_motion, value_type=bool),
             'require_vo_watchdog': ParameterValue(PythonExpression(["'", mode, "' == 'localization' and '", odom_source, "' != 'openvins'"]), value_type=bool),
-            'require_vio_health': ParameterValue(PythonExpression(["'", odom_source, "' in ('cuvslam', 'openvins')"]), value_type=bool),
-            'vio_health_topic': PythonExpression(["'/openvins/tracking_healthy' if '", odom_source, "' == 'openvins' else '/r680_nav/vio_tracking_healthy'"]),
+            'require_vio_health': ParameterValue(PythonExpression(["'", odom_source, "' == 'cuvslam'"]), value_type=bool),
+            'vio_health_topic': '/r680_nav/vio_tracking_healthy',
             'allow_bounded_degraded': ParameterValue(continuity_enabled, value_type=bool),
             'require_motion_permission': ParameterValue(PythonExpression(["'", odom_source, "' == 'cuvslam'"]), value_type=bool),
             'motion_permission_topic': continuity_health_topic,
@@ -436,10 +436,9 @@ def generate_launch_description():
         package='wla_r680_navigation', executable='command_guard', output='screen',
         parameters=[{
             'hardware_output_enabled': ParameterValue(enable_motion, value_type=bool),
-            # Localization already checks live VIO health via interface_monitor.
-            # Do not additionally require absent contact sensing or commissioning approval.
-            'require_frontend_motion_permission': ParameterValue(PythonExpression([openvins_enabled, " and '", mode, "' != 'localization'"]), value_type=bool),
-            'frontend_motion_permission_topic': '/openvins/motion_ready',
+            # OpenVINS uses upstream odometry through the existing interface monitor;
+            # it does not publish a private frontend motion-permission message.
+            'require_frontend_motion_permission': False,
             'raw_output_topic': ParameterValue(IfElseSubstitution(
                 EqualsSubstitution(LaunchConfiguration('agent_control'), 'true'),
                 '/r680_nav/task_guard_input', '/r680_nav/chassis_cmd_vel'), value_type=str),
@@ -473,6 +472,7 @@ def generate_launch_description():
             folder = Path(LaunchConfiguration('openvins_config_dir').perform(context))
             params = yaml.safe_load((folder/'frontend.yaml').read_text())['/**']['ros__parameters']
             overrides.update(imu_topic=params['imu_topic'], imu_frame=params['imu_frame'],
+                left_image_topic=params['left_topic'],
                 contact_topic=LaunchConfiguration('openvins_contact_topic').perform(context),
                 stationary_time_s=3.0,
                 safety_nodes=['vio_init_velocity_smoother', 'vio_init_collision_monitor'])

@@ -3,10 +3,7 @@ cmake_minimum_required(VERSION 3.3)
 # Find ros dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
-option(OV_BUILD_ROS_VISUALIZER "Build upstream ROS visualization executables" ON)
-if(OV_BUILD_ROS_VISUALIZER)
-  find_package(cv_bridge REQUIRED)
-endif()
+find_package(cv_bridge REQUIRED)
 
 # Describe ROS project
 option(ENABLE_ROS "Enable or disable building with ROS (if it is found)" ON)
@@ -50,10 +47,7 @@ list(APPEND LIBRARY_SOURCES
 )
 file(GLOB_RECURSE LIBRARY_HEADERS "src/*.h")
 add_library(ov_core_lib SHARED ${LIBRARY_SOURCES} ${LIBRARY_HEADERS})
-ament_target_dependencies(ov_core_lib rclcpp)
-if(OV_BUILD_ROS_VISUALIZER)
-  ament_target_dependencies(ov_core_lib cv_bridge)
-endif()
+ament_target_dependencies(ov_core_lib rclcpp cv_bridge)
 target_link_libraries(ov_core_lib ${thirdparty_libraries})
 target_include_directories(ov_core_lib PUBLIC src/)
 install(TARGETS ov_core_lib
@@ -78,7 +72,6 @@ ament_export_libraries(ov_core_lib)
 #    target_link_libraries(test_tracking ov_core_lib ${thirdparty_libraries})
 #endif ()
 
-if(OV_BUILD_ROS_VISUALIZER)
 add_executable(test_webcam src/test_webcam.cpp)
 ament_target_dependencies(test_webcam rclcpp cv_bridge)
 target_link_libraries(test_webcam ov_core_lib ${thirdparty_libraries})
@@ -88,8 +81,6 @@ add_executable(test_profile src/test_profile.cpp)
 ament_target_dependencies(test_profile rclcpp cv_bridge)
 target_link_libraries(test_profile ov_core_lib ${thirdparty_libraries})
 install(TARGETS test_profile DESTINATION lib/${PROJECT_NAME})
-
-endif()
 
 # finally define this as the package
 ament_package()

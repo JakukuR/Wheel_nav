@@ -13,7 +13,6 @@ from geometry_msgs.msg import TransformStamped
 from nav_msgs.msg import Odometry
 from nav2_msgs.srv import ManageLifecycleNodes
 from tf2_ros import StaticTransformBroadcaster
-from wla_openvins_navigation.msg import EstimatorStatus
 
 assert os.environ.get('ROS_DOMAIN_ID') == '198'
 path = Path(__file__).resolve().parents[1]/'scripts/openvins_nav_startup.py'
@@ -31,23 +30,15 @@ def response(request, result):
     result.success = success
     return result
 service = fixture.create_service(ManageLifecycleNodes, '/lifecycle_manager_navigation/manage_nodes', response)
-status_pub = fixture.create_publisher(EstimatorStatus, '/openvins/estimator_status', 10)
-odom_pub = fixture.create_publisher(Odometry, '/r680_nav/mapping_odom', qos_profile_sensor_data)
+odom_pub = fixture.create_publisher(Odometry, '/d455_slam/odom', qos_profile_sensor_data)
 broadcaster = StaticTransformBroadcaster(fixture)
-def send(initialized=True, stale=False, generation=0):
+def send(stale=False):
     stamp = fixture.get_clock().now().to_msg()
     if stale:
         stamp.sec -= 5
-    s = EstimatorStatus()
-    s.header.stamp = s.state_stamp = stamp
-    s.header.frame_id = 'd455_floor_odom'
-    s.instance_id = 'fixture'
-    s.generation = generation
-    s.initialized = s.state_valid = initialized
-    s.mode = s.RECOVERING if initialized else s.INITIALIZING
-    status_pub.publish(s)
     o = Odometry()
-    o.header = s.header
+    o.header.stamp = stamp
+    o.header.frame_id = 'd455_floor_odom'
     o.child_frame_id = 'r680_mapping_floor'
     o.pose.pose.orientation.w = 1.0
     odom_pub.publish(o)
@@ -69,8 +60,6 @@ n = node()
 try:
     spin(.3)
     assert not requests
-    spin(.4, lambda:send(initialized=False))
-    assert not requests, 'INITIALIZING must not activate Nav2'
     spin(.4, lambda:send(stale=True))
     assert not requests, 'stale odometry must not activate Nav2'
     spin(.4, send)
@@ -93,12 +82,7 @@ try:
     assert len(requests)==1 and n.failed
     spin(.3, send)
     assert len(requests)==1, 'failed startup must not auto retry'
-    destroy(n)
-    requests.clear()
-    n = node()
-    spin(.4, lambda:send(initialized=False, generation=1))
-    assert n.failed and not requests, 'reset generation requires a new navigation session'
-    print('PASS waiting/initializing/stale/missing-TF, one-shot STARTUP, rejection and generation latch')
+    print('PASS waiting/stale/missing-TF, one-shot STARTUP and rejection')
 finally:
     destroy(n)
     executor.remove_node(fixture)

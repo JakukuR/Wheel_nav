@@ -1,7 +1,6 @@
 #include <cassert>
 #include <iostream>
 #include "wla_openvins_navigation/adapter.hpp"
-#include "wla_openvins_navigation/visual_evidence.hpp"
 using namespace wla_openvins;
 int main() {
   State x=State::Zero();
@@ -25,25 +24,5 @@ int main() {
   assert((b.covariance-numerical*p*numerical.transpose()).norm()<1e-4);
   assert((b.v-t.linear().transpose()*(x.segment<3>(7)+x.tail<3>().cross(t.translation()))).norm()<1e-12);
   assert(std::abs(b.p.z())>1.);
-  assert(mode(false,true,true,10.,.5,true,100,3)==INERTIAL_ONLY);
-  assert(mode(false,true,true,.1,.5,true,2,3)==RECOVERING);
-  assert(mode(false,true,true,.1,.5,true,3,3)==VIO_TRACKING);
-  assert(mode(true,true,true,.1,.5,true,100,3)==INVALID);
-  assert(mode(false,false,false,-1,.5,false,0,3)==INITIALIZING);
-  double last=-1;unsigned updates=0;
-  assert(record_visual_correction(0,1,1,10.,.5,last,updates));
-  assert(mode(false,true,true,0.,.5,true,updates,3)==RECOVERING);
-  assert(record_visual_correction(1,2,4,10.1,.5,last,updates));
-  assert(record_visual_correction(2,3,7,10.2,.5,last,updates));
-  assert(mode(false,true,true,.1,.5,true,updates,3)==VIO_TRACKING);
-  assert(!record_visual_correction(3,3,7,10.3,.5,last,updates)); // stale count
-  assert(!record_visual_correction(3,4,0,10.3,.5,last,updates));
-  assert(!record_visual_correction(3,4,1,10.2,.5,last,updates)); // duplicate frame
-  assert(last==10.2 && updates==3);
-  assert(mode(false,true,true,.6,.5,true,updates,3)==INERTIAL_ONLY);
-  assert(record_visual_correction(3,4,1,11.,.5,last,updates));
-  assert(updates==1 && mode(false,true,true,0.,.5,true,updates,3)==RECOVERING);
-  assert(mode(false,true,true,0.,.5,false,3,3)==RECOVERING);
-  std::cout<<"PASS nonzero lever arm, rotation, full covariance finite differences, XYZ and state policy\n";
-  std::cout<<"PASS sparse corrections, stale evidence, visual loss, recovery and uncertainty\n";
+  std::cout<<"PASS rigid transform and covariance finite differences\n";
 }

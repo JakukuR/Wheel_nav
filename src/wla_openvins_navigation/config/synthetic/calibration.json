@@ -1,6 +1,6 @@
 {
   "kind": "synthetic",
   "calibration_validated": true,
-  "provenance": "Synthetic unit-test geometry; NEVER use on robot",
+  "provenance": "Synthetic unit-test geometry; NEVER use on robot 2026-10-15: removed legacy threading overrides; use official ROS node threading defaults. Calibration unchanged.",
   "source_sha256": "e23e33d95ba4b7008274d9233c623de90152bad71c1b9a7800634ee2f71ef336"
 }

@@ -151,8 +151,7 @@ bool Propagator::fast_state_propagate(std::shared_ptr<State> state, double times
 
   // First lets construct an IMU vector of measurements we need
   double time0 = cache_state_time + cache_t_off;
-  // The request is already in the IMU clock, including on cache initialization.
-  double time1 = timestamp;
+  double time1 = timestamp + cache_t_off;
   std::vector<ov_core::ImuData> prop_data;
   {
     std::lock_guard<std::mutex> lck(imu_data_mtx);
@@ -260,7 +259,6 @@ bool Propagator::fast_state_propagate(std::shared_ptr<State> state, double times
   covariance.setZero();
   Eigen::Matrix<double, 15, 15> Phi = Eigen::Matrix<double, 15, 15>::Identity();
   Phi.block(6, 6, 3, 3) = quat_2_Rot(q_Gtoi);
-  Phi.block(6, 0, 3, 3) = skew_x(quat_2_Rot(q_Gtoi) * v_iinG);
   Eigen::MatrixXd covariance_tmp = Phi * cache_state_covariance * Phi.transpose();
   covariance.block(0, 0, 9, 9) = covariance_tmp.block(0, 0, 9, 9);
   double dt = prop_data.at(prop_data.size() - 1).timestamp - prop_data.at(prop_data.size() - 2).timestamp;

@@ -67,12 +67,7 @@ public:
    */
   void update(std::shared_ptr<State> state, std::vector<std::shared_ptr<ov_core::Feature>> &feature_vec);
 
-  size_t last_update_count() const { return accepted_features_; }
-  size_t update_sequence() const { return update_sequence_; }
-
 protected:
-  size_t accepted_features_ = 0;
-  size_t update_sequence_ = 0;
   /// Options used during update
   UpdaterOptions _options;
 

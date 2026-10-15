@@ -1,0 +1,16 @@
+--- a/ov_msckf/src/ros/ROS2Visualizer.h
++++ b/ov_msckf/src/ros/ROS2Visualizer.h
+@@ -28 +28 @@
+-#include <image_transport/image_transport.h>
++#include <image_transport/image_transport.hpp>
+@@ -45 +45 @@
+-#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
++#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+@@ -56 +56 @@
+-#include <cv_bridge/cv_bridge.h>
++#include <cv_bridge/cv_bridge.hpp>
+--- a/ov_msckf/src/ros/ROSVisualizerHelper.h
++++ b/ov_msckf/src/ros/ROSVisualizerHelper.h
+@@ -37 +37 @@
+-#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
++#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>

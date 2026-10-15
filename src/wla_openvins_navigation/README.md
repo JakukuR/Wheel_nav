@@ -1,117 +1,57 @@
-# OpenVINS 接入第一版
+# 官方 OpenVINS ROS 2 接入
 
-本包将固定版本 OpenVINS 接入 Wheel_nav，定位为**影子验证和禁止硬件输出的导航联调版本**。既有 cuVSLAM、RGB-D 分支仍可使用。实际标定、实物遮挡搬运、独立真值精度和完整导航恢复尚须验收；合成测试不能代替这些验收。
+估计器与传感器处理直接使用 `rpng/open_vins` 的
+`ov_msckf/run_subscribe_msckf`，固定提交
+`69488123ed9362dd44b6f28e7f4680abbff1442b`。
 
-## 实现范围
+`src/open_vins` 相对该版本只保留 Jazzy 头文件兼容修改：
+`image_transport`、`tf2_geometry_msgs`、`cv_bridge` 的 `.h` 引用改为 `.hpp`。
+具体差异见 `patches/openvins-jazzy-headers.patch`。没有修改官方估计器、
+初始化判定、MSCKF/ZUPT、IMU 积分、图像队列或线程调度。
 
-- C++ 前端直接调用 OpenVINS VioManager / Propagator；单线程串行访问估计器，关闭后台初始化并发、在线标定和 SLAM 特征状态；支持上游运行期 ZUPT。MSCKF 的视觉更新仍正常启用。
-- 双目输入检查时间戳、帧名、尺寸、编码和同步偏差，并比对 CameraInfo.P 与固定内参；队列有界。IMU 检查时间顺序、间隔、有限值及量程配置。异常 IMU 将故障锁存，需显式 reset。
-- 每个有效 IMU 采样驱动快速传播，保留 XYZ、完整姿态和三轴速度。图像持续到达但无有效特征时，由正常图像回调推进主状态，缺少视觉纠正仍可惯性输出；快速输出预测不额外推进主状态。完全停流时主状态不再周期性推进，IMU 历史可能增长，暂不承诺长期停流的有界缓存；没有伪造图像、没有第二套 ESKF。
-- IMU 原点转为机身原点，包括杆臂旋转速度及协方差雅可比；位置姿态协方差使用全局扰动，twist 使用 child frame。输出仍继承上游快速协方差中角速度/偏置相关项的近似，并非完整联合误差模型。
-- `EstimatorStatus` 的视觉证据来自通过三角化、卡方筛选、压缩后真正执行的 MSCKF EKF 更新。图像到达、特征被检测到和高频 odom 输出都不会直接赋予健康状态。
-- 接触状态 UNKNOWN/CARRIED 时不允许地面运动。缺失真实接触接口时保持 UNKNOWN，不根据轮速为零自动生成 GROUNDED。
-- 纯遮挡不会触发重启；输出超过 10 秒仍继续，质量单独报告。显式 reset 增加 generation，并更换 odom frame；质量门锁存该变化，避免拼接新旧地图。
-- HF-Net 尚未包含在本次实现中，仍作为独立 RTAB-Map 增强模块。
+原来的 `frontend.cpp`、质量门控、私有状态消息与估计器行为补丁已删除。
+不再使用 `imu_timeout_requires_reset`，也不以自定义超时停止处理输入。
+旧的关闭多线程配置已移除，使用官方 ROS 节点默认线程设置；标定数据保持不变。
 
-## 构建
+## 接口
 
-在独立 ROS 2 Jazzy 工作区导入 `openvins.repos`，必须使用指定提交，再应用补丁：
+| 接口 | 类型与用途 |
+|---|---|
+| 左右目输入 | `sensor_msgs/Image`；由 `kalibr_imucam_chain.yaml` 中的 `rostopic` 指定 |
+| IMU 输入 | `sensor_msgs/Imu`；由 `kalibr_imu_chain.yaml` 中的 `rostopic` 指定 |
+| `/openvins/poseimu` | 官方 `PoseWithCovarianceStamped`，IMU 在 `global` 中的滤波后位姿 |
+| `/openvins/odomimu` | 官方 `Odometry`，`global → imu`，包含 IMU 时刻的传播状态 |
+| `/openvins/pathimu`、`/openvins/trackhist` | 官方轨迹与特征跟踪图 |
+| `/d455_slam/odom` | 纯刚体转换后的 `Odometry`，`d455_floor_odom → r680_mapping_floor` |
+| `/tf` | 由坐标转换节点发布同一转换后位姿，保留输入时间戳 |
 
-也可直接使用源码中的 `scripts/build_isolated.sh /absolute/path/to/new-workspace`，它校验上游提交、应用补丁并构建本包；不会启动机器人。
+默认 D455 配置的输入是 `/r680/d455/infra1/image_rect_raw`、
+`/r680/d455/infra2/image_rect_raw` 与 `/r680/d455/imu`。
+显式选择底盘 IMU 配置时，读取该配置的 `rostopic`，不把两者混用。
 
-```bash
-vcs import src < src/Wheel_nav/src/wla_openvins_navigation/openvins.repos
-git -C src/open_vins apply ../Wheel_nav/src/wla_openvins_navigation/patches/openvins-v1.patch
-source /opt/ros/jazzy/setup.bash
-colcon build --executor sequential --packages-up-to wla_openvins_navigation \
-  --cmake-args -DOV_BUILD_ROS_VISUALIZER=OFF -DENABLE_ARUCO_TAGS=OFF \
-  -DCMAKE_BUILD_TYPE=Release '-DCMAKE_CXX_FLAGS_RELEASE=-O2 -DNDEBUG -g0'
-source install/setup.bash
-colcon test --packages-select wla_openvins_navigation --event-handlers console_direct+
-colcon test-result --verbose
-```
+`odometry_adapter` 只执行既有 `T_imu_base` 刚体转换：位姿、包含杆臂项的
+线速度、角速度和协方差。它不订阅传感器、不执行估计、不重置官方节点，
+也不包含年龄门控、健康状态机或运动权限。无效数值导致单条消息无法转换时
+只记录错误，不锁定后续消息。
 
-补丁包括：实际视觉更新计数和序号、快速传播请求的 IMU 时间处理、局部速度协方差的姿态雅可比，以及 Jazzy 的 cv_bridge 头文件。补丁来自固定上游提交，不对任意其他版本静默应用。
+官方位姿与里程计输出本身遵循官方初始化条件。不得将这些输出伪装成
+“视觉匹配健康”或“ZUPT 已接受”等官方未发布的私有状态。
+RTAB-Map 直接订阅转换后的 `/d455_slam/odom`，不再经过旧质量门控。
+已有 Nav2 生命周期启动、输入就绪监测、底盘权限与手柄接管仍属于机器人
+集成层，不修改官方估计器行为。
 
-本机系统 cv_bridge 链接 OpenCV 4.6，而开发库为 OpenCV 4.8。推荐构建关闭上游 ROS 可视化程序，仅保留估计核心；本包直接复制已检查的 mono8 图像，不依赖 cv_bridge。必须检查最终程序没有混合加载两套 OpenCV；系统软件包不在本次修改范围内。
+原 `EstimatorStatus`、`ImuDiagnostics`、`tracking_healthy`、`mapping_ready`、
+`motion_ready`、`gate_status` 和自定义 `reset` 服务不再提供。
+启动器和原有可选运动初始化辅助程序改为读取官方输出及实际传感器话题，
+不伪造兼容状态。运动辅助程序只有显式启用时才运行，其原有运动边界保留。
 
-## 实机标定配置
+## 编译依赖
 
-复制 `config/calibration_manifest.example.yaml` 到自己的标定目录，替换其中全部示例数值，填写标定来源后才能设置 `calibration_validated: true`。
+Orin 的 OpenCV 开发库为 4.8；系统 ROS `cv_bridge` 二进制链接 4.6。
+为避免一个进程混用两版，使用官方 `ros-perception/vision_opencv` 的
+`cv_bridge 4.1.0`（提交 `f5b738d9694f0cee5904440d03912fc249943f8a`），
+在 `.runtime/openvins_official/cv_bridge_install` 单独编译。
+官方 OpenVINS 链接该依赖；launch 只给 OpenVINS 子进程设置对应库路径，
+不向 RTAB-Map、相机驱动等其他节点注入此覆盖。
 
-- `T_imu_base` 把机身坐标变换到 IMU 坐标。
-- `T_imu_camera_rectified` 把每个**校正后的**相机坐标变换到 IMU 坐标。若标定的是原始 optical frame，先使用 CameraInfo.R 转换：`R_imu_rect = R_imu_raw * R_rect_raw.transpose()`。
-- 内参来自校正图像的 CameraInfo.P 左上 3×3；左右物理基线保留在外参平移里，不再次把 P 的平移加到坐标中。
-- `timeshift_cam_imu` 约定 `t_imu = t_camera + offset`。帧名必须与实际传感器消息一致。
-- 图像帧与 CameraInfo 帧分别校验。实测 D455 右图像为 `d455_infra2_optical_frame`，右 CameraInfo 为 `d455_infra1_optical_frame`；可在相机 manifest 中单独填写 `camera_info_frame_id`，不能为了通过检查改写图像帧。
-- IMU 输入必须保留重力，单位为 rad/s、m/s²，已经统一采样时钟；本包不使用消息中的姿态四元数。
-- 噪声参数需来源明确。原工程中的“底盘 IMU 在机身中心且轴对齐”暂定 TF 不能代替标定。
-- `T_imu_base` 中的 base 必须与导航使用的 `r680_mapping_floor` 一致；校验既有相机安装 TF 与新标定的相机到机身变换一致，第一版不会自动重写硬件安装 TF。
-
-```bash
-ros2 run wla_openvins_navigation generate_config.py measured_manifest.yaml /absolute/path/openvins_calibration
-ros2 launch wla_openvins_navigation openvins.launch.py config_dir:=/absolute/path/openvins_calibration
-```
-
-默认输出 `/openvins_trial/odom_imu`、`/openvins_trial/odom`、`/openvins_trial/estimator_status`，不发布 TF、不启动相机或底盘。没有通过初始化时不会输出 odom。静态初始化需要先静置，再由人工提供适当运动激励；本包不自动驱动机器人初始化。
-
-2026-10-13 原工作区入口已接入完整 D455 候选配置，使用 `~/ros2_ws/r680_nav.sh --openvins --openvins-imu d455 --map MAP --test-scan-only`。当前默认就是 D455 内置 IMU。详细参数来源、脚本所有权、初始化预览和验证边界见 [接入说明](../wla_r680_navigation/docs/openvins_20261013.md)。导航层显式 `--auto-vio-init` 仅增加默认关闭的初始化运动预览与独立安全节点；OpenVINS 硬件输出仍被启动校验禁止。
-
-尚无联合标定且仅做接口联调时，manifest 可明确设置 `kind: commissioning`、`calibration_validated: false`，记录现有参数的来源与假设。生成时必须添加 `--allow-commissioning`，启动时必须设置 `allow_commissioning:=true`；原导航入口使用 `openvins_allow_commissioning:=true`。这一配置始终关闭运动许可，不能将接口测试结果当作标定或精度验收。
-
-初始化排查时可在生成的 `frontend.yaml` 参数中设置 `estimator_verbosity: INFO`，观察视觉位移与 IMU 激励检查。默认 `WARNING`；信息级日志仅用于排查，不能将调低初始化阈值等同于标定。
-
-初始化前的 IMU 暂时未到达保持等待；若采样间隔中断则丢弃初始化窗口重新积累。初始化之后的 IMU 超时/采样间隙仍锁存故障，需显式恢复。所有阶段的非有限值、错误帧及时间倒退仍拒绝。
-
-D455 启动时 global-time 可能尚未稳定。尚未初始化且未输出 odom 时，正时间戳超出既有新鲜度范围的样本丢弃，并清空已积累的初始化窗口，状态为 `waiting_for_imu_clock_stability`。这些样本不会送进滤波器，也不会触发初始化运动预览。初始化后的时间异常继续锁存；运行期时间限制保持原值。
-
-## 接入现有导航进行无硬件输出联调
-
-将附带的 `navigation-integration.patch` 应用到固定基线的 Wheel_nav 副本，再在隔离工作区编译修改后的导航包。只编译前端不会更新已有导航启动文件：
-
-```bash
-source /home/orin/ros2_ws/install/setup.bash
-source /absolute/path/to/trial-workspace/install/setup.bash
-cd /absolute/path/to/trial-workspace
-colcon build --executor sequential --packages-select wla_r680_navigation
-source install/setup.bash
-```
-
-```bash
-ros2 launch wla_r680_navigation bringup.launch.py \
-  odom_source:=openvins openvins_config_dir:=/absolute/path/openvins_calibration \
-  enable_hardware_output:=false
-```
-
-该分支由本包独占 `/d455_slam/odom` 及 `d455_floor_odom -> r680_mapping_floor`，不启动 cuVSLAM、平面 degraded_odometry 或现有 EKF。RTAB-Map 使用门控后的 `/r680_nav/mapping_odom`，不再接收同一 IMU 作为额外姿态输入。
-
-现有 `vo_watchdog` 的重启、平面轮速先验恢复逻辑不适合抱起场景，因此该分支使用独立质量门替代；不改变旧分支行为。定位模式同时要求 RTAB-Map `/d455_slam/info` 报告 `loop_closure_id>0` 或 `proximity_detection_id>0`，以及时间戳相差不超过 50 ms 的新鲜 `localization_pose`，两者都必须晚于最近的视觉失效；候选似然、持续位姿输出或 map→odom 广播不能单独确认恢复。确认后由持续定位位姿维持有效性，视觉再次失效或位姿超过 3 秒未更新会撤销确认。完整六自由度全局重定位一致性策略和可用接触证据仍需后续实车验收，第一版在启动校验中禁止 `enable_hardware_output:=true`。
-
-`/r680_nav/contact_state` 的输入契约为 `std_msgs/String`，取值 `GROUNDED / CARRIED / UNKNOWN`，需由真实接触判断模块持续更新（有效期 0.3 s）。本包不生产该证据。建图只在接地且视觉健康时插入；定位模式允许在不接地时恢复视觉地图匹配，但继续禁止地面运动。
-
-定位输入与运动许可使用不同门限：恢复期已有连续有效视觉更新时，允许送给 RTAB-Map 尝试重定位，即使局部位置不确定度仍较大；地面运动仍要求完整健康条件，避免“需要地图恢复、却被局部不确定度挡住地图输入”的闭环等待。
-
-## 验证与记录
-
-- `test_adapter`：非零杆臂、任意旋转、协方差有限差分及状态策略。
-- `test_inertial`：已知初始状态下 20 秒 IMU 传播、非零正负时间偏移、黑图、无图像、10 秒视觉约束缺失后恢复。使用合成数据及测试专用真值初始化，不代表真实初始化或漂移精度。
-- `test/test_ros_contract.py`：隔离 ROS 域内验证消息、故障锁存、reset 代次、TF 默认关闭和质量门。
-- `record_metrics.py`：记录实际输出时间戳间隔、状态和不确定度，文件以独占方式创建。
-- `stereo_fault_injector.py`：回放用黑图/停流注入，保留真实时间戳。默认读取 `/replay/infra{1,2}/image_rect_raw`，输出 `/openvins_fault/infra{1,2}/image_rect_raw`；用独立回放标定目录将 frontend.yaml 的左右输入指向该输出，原标定几何不变。`fault:=black/drop`、`start_after_s` 和 `duration_s` 通过 ROS 参数设置。不要对生产传感器话题进行同名重发布。
-
-实际试验仍需完成：充足初始化 → 正常跟踪 → 1/3/5/10 秒遮挡与搬运 → 恢复；分别录制图像黑屏和相机停流，使用独立真值测量位姿误差。低延迟、低资源占用与真实精度均以本机测量为准。
-
-## D455 静止更新与偏置诊断
-
-`r680_d455_20261013` 开启 `try_zupt`，`zupt_only_at_beginning=false`。
-使用上游 IMU 残差检验（`zupt_chi2_multipler=1`、噪声倍率 10、速度上限 0.1 m/s），
-`zupt_max_disparity=0` 禁用可绕过 IMU/速度检查的图像位移覆盖判定。
-这些是候选检测参数；静止/运动辨识和抱起精度仍需实车验收。匀速运动存在不可观测性，不能承诺仅靠 IMU 总能区分静止。
-开启 ZUPT 时，上游允许满足条件的静止初始化，不需要主动制造运动；不启动任何自动移动。
-
-`estimator_status` 单独报告 `STATIONARY`、实际接受的 ZUPT 次数和时间，
-不改写 `last_visual_update_stamp` 或 MSCKF 更新计数。新鲜、低不确定度的静止状态可作为局部里程计输入；
-地图匹配仍由 RTAB-Map 的真实匹配与位姿确认，接地/运动授权规则保持原有要求。
-`imu_diagnostics` 以状态报告频率发布实际内部 `gyro_bias/accel_bias`、当前原始测量、
-扣偏置/内参后的角速度、世界系去重力加速度。`header.stamp` 是当前 IMU 时刻，
-`bias_stamp` 是偏置所处主状态时刻；仅 `valid=true` 可用于分析。不会反写原始 IMU 话题。
+本轮只进行源码、接口和构建检查；未启动 ROS 测试、相机或实车运动。

@@ -96,7 +96,7 @@ public:
   void initialize_with_gt(Eigen::Matrix<double, 17, 1> imustate);
 
   /// If we are initialized or not
-  bool initialized() { return is_initialized_vio && (timelastupdate != -1 || zupt_update_sequence_ > 0); }
+  bool initialized() { return is_initialized_vio && timelastupdate != -1; }
 
   /// Timestamp that the system was initialized at
   double initialized_time() { return startup_time; }
@@ -136,15 +136,7 @@ public:
     feat_tracks_uvd = active_tracks_uvd;
   }
 
-  // Instrument actual MSCKF updates; supported by the fixed-calibration, MSCKF-only adapter.
-  size_t last_msckf_update_count() const;
-  size_t msckf_update_sequence() const;
-  size_t zupt_update_sequence() const { return zupt_update_sequence_; }
-  double last_zupt_update_timestamp() const { return last_zupt_update_timestamp_; }
-
 protected:
-  size_t zupt_update_sequence_ = 0;
-  double last_zupt_update_timestamp_ = -1.0;
   /**
    * @brief Given a new set of camera images, this will track them.
    *

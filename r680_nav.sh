@@ -480,7 +480,7 @@ if [[ "$ODOM_SOURCE" == cuvslam && "$AUTO_VIO_INIT" == true && "$ENABLE_MOTION" 
 fi
 if [[ "$OPENVINS_MOTION_INIT" == true ]]; then
   setsid ros2 run wla_r680_navigation openvins_motion_init.py --execute \
-    --result "$NAV_RUN_DIR/init_motion.json" >"$NAV_RUN_DIR/logs/init_motion.log" 2>&1 </dev/null &
+    --config "$OPENVINS_CONFIG" --result "$NAV_RUN_DIR/init_motion.json" >"$NAV_RUN_DIR/logs/init_motion.log" 2>&1 </dev/null &
   INIT_MOTION_PID=$!
 fi
 WEB_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
@@ -552,12 +552,12 @@ def scan_cb(msg):
 
 node.create_subscription(Bool, '/r680_nav/localization_ready', ready_cb, 10)
 if os.environ['WLA_ODOM_SOURCE'] == 'openvins':
-    from wla_openvins_navigation.msg import EstimatorStatus
+    from nav_msgs.msg import Odometry
     def estimator_cb(msg):
-        global estimator_state
-        estimator_state = f'initialized={msg.initialized},mode={msg.mode},reason={msg.reason}'
-    node.create_subscription(EstimatorStatus, '/openvins/estimator_status', estimator_cb, 10)
-    node.create_subscription(String, '/openvins/gate_status', frontend_cb, 10)
+        global estimator_state, frontend_status
+        estimator_state = 'official_odom_received'
+        frontend_status = 'official_run_subscribe_msckf'
+    node.create_subscription(Odometry, '/openvins/odomimu', estimator_cb, qos_profile_sensor_data)
 if motion_init:
     node.create_subscription(String, '/r680_nav/init_motion_state', init_cb, 10)
 if os.environ['WLA_ODOM_SOURCE'] == 'cuvslam':

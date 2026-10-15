@@ -1,5 +1,7 @@
 from pathlib import Path
 import json
+import os
+from ament_index_python.packages import get_package_prefix
 import yaml
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, RegisterEventHandler, EmitEvent
@@ -28,17 +30,26 @@ def setup(context):
                   odom_frame='d455_floor_odom' if production else 'openvins_trial_odom',
                   base_frame='r680_mapping_floor' if production else 'openvins_trial_base')
     ns='openvins' if production else 'openvins_trial'
-    frontend=Node(package='wla_openvins_navigation',executable='openvins_frontend',namespace=ns,
-                  output='screen',parameters=[params],
-                  remappings=[('odom','/d455_slam/odom')] if production else [])
-    gate=Node(package='wla_openvins_navigation',executable='quality_gate.py',namespace=ns,output='screen',
-              parameters=[{'use_sim_time':params['use_sim_time'],'mode':arg('mode'),
-                           'odom_topic':'/d455_slam/odom' if production else '/openvins_trial/odom',
-                           'mapping_odom_topic':'/r680_nav/mapping_odom' if production else '/openvins_trial/mapping_odom',
-                           'motion_output_enabled':not commissioning,
-                           'contact_topic':arg('contact_topic')}])
-    return [frontend,gate,RegisterEventHandler(OnProcessExit(target_action=frontend,
-             on_exit=[EmitEvent(event=Shutdown(reason='OpenVINS frontend exited; explicit recovery required'))]))]
+    # The estimator and sensor callbacks are upstream OpenVINS. The private
+    # cv_bridge build uses the same OpenCV as OpenVINS on this Jetson; its
+    # library path is scoped to this process, not the rest of the ROS graph.
+    prefix = Path(get_package_prefix('ov_msckf'))
+    dependency_lib = prefix.parents[1] / '.runtime/openvins_official/cv_bridge_install/cv_bridge/lib'
+    environment = {}
+    if dependency_lib.is_dir():
+        environment['LD_LIBRARY_PATH'] = str(dependency_lib) + ':' + os.environ.get('LD_LIBRARY_PATH', '')
+    frontend=Node(package='ov_msckf',executable='run_subscribe_msckf',namespace=ns,
+        output='screen',additional_env=environment,parameters=[{
+            'config_path': params['config_path'], 'use_sim_time': params['use_sim_time'],
+            'publish_global_to_imu_tf': False, 'publish_calibration_tf': False}])
+    adapter=Node(package='wla_openvins_navigation',executable='odometry_adapter',namespace=ns,
+        output='screen',parameters=[{key:params[key] for key in (
+            'use_sim_time','publish_tf','odom_frame','base_frame',
+            'p_base_in_imu','q_base_to_imu_xyzw')}],
+        remappings=[('odom','/d455_slam/odom')] if production else [])
+    return [frontend,adapter,RegisterEventHandler(OnProcessExit(target_action=frontend,
+             on_exit=[EmitEvent(event=Shutdown(reason='Official OpenVINS process exited'))]))]
+
 
 
 def generate_launch_description():

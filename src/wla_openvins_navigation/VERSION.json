@@ -1,6 +1,6 @@
 {
-  "integration_version": "0.1.0",
-  "stage": "shadow_and_hardware_disabled_integration",
+  "integration_version": "0.2.0",
+  "stage": "official_ros2_source_integration",
   "wheel_nav_base": "bea956fb00af27483b394a5c60999771828af71f",
   "openvins_commit": "69488123ed9362dd44b6f28e7f4680abbff1442b",
   "ros_distribution": "jazzy",
@@ -8,5 +8,13 @@
   "requires_openvins_patch": true,
   "real_sensor_calibration_supplied": false,
   "real_robot_carry_acceptance": false,
-  "hfnet_included": false
+  "hfnet_included": false,
+  "openvins_repository": "https://github.com/rpng/open_vins.git",
+  "estimator_executable": "ov_msckf/run_subscribe_msckf",
+  "patch_scope": "Jazzy header filename compatibility only",
+  "private_estimator_api": false,
+  "private_frontend": false,
+  "cv_bridge_commit": "f5b738d9694f0cee5904440d03912fc249943f8a",
+  "cv_bridge_version": "4.1.0",
+  "cv_bridge_repository": "https://github.com/ros-perception/vision_opencv.git"
 }

@@ -163,12 +163,6 @@ VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false),
   }
 }
 
-size_t VioManager::msckf_update_sequence() const { return updaterMSCKF->update_sequence(); }
-
-size_t VioManager::last_msckf_update_count() const {
-  return updaterMSCKF->last_update_count();
-}
-
 void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
 
   // The oldest time we need IMU with is the last clone
@@ -180,7 +174,6 @@ void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
   if (!is_initialized_vio) {
     oldest_time = message.timestamp - params.init_options.init_window_time + state->_calib_dt_CAMtoIMU->value()(0) - 0.10;
   }
-  if (is_initialized_vio && oldest_time >= 0) oldest_time += state->_calib_dt_CAMtoIMU->value()(0);
   propagator->feed_imu(message, oldest_time);
 
   // Push back to our initializer
@@ -231,10 +224,6 @@ void VioManager::feed_measurement_simulation(double timestamp, const std::vector
       did_zupt_update = updaterZUPT->try_update(state, timestamp);
     }
     if (did_zupt_update) {
-      if (state->_timestamp > last_zupt_update_timestamp_) {
-        ++zupt_update_sequence_;
-        last_zupt_update_timestamp_ = state->_timestamp;
-      }
       assert(state->_timestamp == timestamp);
       propagator->clean_old_imu_measurements(timestamp + state->_calib_dt_CAMtoIMU->value()(0) - 0.10);
       updaterZUPT->clean_old_imu_measurements(timestamp + state->_calib_dt_CAMtoIMU->value()(0) - 0.10);
@@ -308,10 +297,6 @@ void VioManager::track_image_and_update(const ov_core::CameraData &message_const
       did_zupt_update = updaterZUPT->try_update(state, message.timestamp);
     }
     if (did_zupt_update) {
-      if (state->_timestamp > last_zupt_update_timestamp_) {
-        ++zupt_update_sequence_;
-        last_zupt_update_timestamp_ = state->_timestamp;
-      }
       assert(state->_timestamp == message.timestamp);
       propagator->clean_old_imu_measurements(message.timestamp + state->_calib_dt_CAMtoIMU->value()(0) - 0.10);
       updaterZUPT->clean_old_imu_measurements(message.timestamp + state->_calib_dt_CAMtoIMU->value()(0) - 0.10);

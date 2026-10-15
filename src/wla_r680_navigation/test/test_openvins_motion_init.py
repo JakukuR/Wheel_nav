@@ -20,10 +20,10 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import qos_profile_sensor_data
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, PoseWithCovarianceStamped
 from nav_msgs.msg import Odometry
 from std_msgs.msg import String
-from wla_openvins_navigation.msg import EstimatorStatus
+from sensor_msgs.msg import Imu, Image
 
 root=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(root.parent/'wla_manual_control/scripts'))
@@ -69,7 +69,9 @@ guard.declare_parameter('hardware_output_enabled',False)
 guard_pub=guard.create_publisher(Twist,'/r680_nav/chassis_cmd_vel',1) # deliberately silent
 executor=SingleThreadedExecutor()
 for n in (probe,guard,mux):executor.add_node(n)
-pub_status=probe.create_publisher(EstimatorStatus,'/openvins/estimator_status',10)
+pub_pose=probe.create_publisher(PoseWithCovarianceStamped,'/openvins/poseimu',10)
+pub_imu=probe.create_publisher(Imu,'/r680/d455/imu',qos_profile_sensor_data)
+pub_image=probe.create_publisher(Image,'/r680/d455/infra1/image_rect_raw',qos_profile_sensor_data)
 pub_gamepad=probe.create_publisher(String,'/gamepad_status',10)
 pub_manual=probe.create_publisher(Twist,'/r680_manual/cmd_vel',1)
 pub_wheel=probe.create_publisher(Odometry,'/wheel/odom',qos_profile_sensor_data)
@@ -104,18 +106,19 @@ def case(name,execute=True,guard_enabled=False):
                 manual=Twist()
                 if name=='manual_takeover' and .15<since<.25:manual.linear.x=.05
                 pub_manual.publish(manual)
-                s=EstimatorStatus();s.header.stamp=stamp;s.header.frame_id='d455_floor_odom'
-                s.instance_id='test-instance';s.image_age_s=.02;s.imu_age_s=.005;s.reason='waiting_for_static_initialization_and_excitation'
-                # Regression: this real D455 value aborted the first physical
-                # attempt even though it satisfies the frontend clock contract.
-                if name=='no_gamepad':s.imu_age_s=-9.489059448242188e-5
-                if name=='future_sensor' and since>.15:s.imu_age_s=-.051
-                if name=='stale_sensor' and since>.15:s.imu_age_s=.101
-                if name=='stale_image' and since>.15:s.image_age_s=.351
+                imu_age=-9.489059448242188e-5 if name=='no_gamepad' else .005
+                image_age=.02
+                if name=='future_sensor' and since>.15:imu_age=-.051
+                if name=='stale_sensor' and since>.15:imu_age=.101
+                if name=='stale_image' and since>.15:image_age=.351
+                ns=probe.get_clock().now().nanoseconds
+                imu=Imu();imu.header.stamp=rclpy.time.Time(nanoseconds=ns-int(imu_age*1e9)).to_msg()
+                image=Image();image.header.stamp=rclpy.time.Time(nanoseconds=ns-int(image_age*1e9)).to_msg()
+                if not (name=='sensor_report_lost' and since>.15):
+                    pub_imu.publish(imu);pub_image.publish(image)
                 if since>1.6:
-                    s.initialized=True;s.state_valid=True;s.state_stamp=stamp;s.mode=s.RECOVERING;s.reason='ok'
-                if name=='generation_change' and since>.15:s.generation=1
-                if not (name=='sensor_report_lost' and since>.15):pub_status.publish(s)
+                    pose=PoseWithCovarianceStamped();pose.header.stamp=stamp
+                    pose.header.frame_id='global';pose.pose.pose.orientation.w=1.;pub_pose.publish(pose)
                 if name=='sigterm' and since>.15 and not sent_signal:
                     proc.send_signal(signal.SIGTERM);sent_signal=True
                 executor.spin_once(timeout_sec=.01)
@@ -149,7 +152,7 @@ def case(name,execute=True,guard_enabled=False):
                 except subprocess.TimeoutExpired:proc.kill();proc.wait()
 
 try:
-    for name in ('positive','no_gamepad','manual_takeover','generation_change','sensor_report_lost','sigterm',
+    for name in ('positive','no_gamepad','manual_takeover','sensor_report_lost','sigterm',
                  'future_sensor','stale_sensor','stale_image'):
         case(name)
     case('guard_enabled',guard_enabled=True)

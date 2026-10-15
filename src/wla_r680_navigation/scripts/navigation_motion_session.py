@@ -42,7 +42,7 @@ class Session(Node):
         self.create_subscription(String,'/r680_base/control_state',self.on_control,10)
         self.create_subscription(Odometry,'/wheel/odom',self.on_wheel,qos_profile_sensor_data)
         self.create_subscription(Bool,'/r680_nav/localization_ready',self.on_health,10)
-        self.create_subscription(String,'/openvins/gate_status',self.on_frontend,10)
+        self.create_subscription(Odometry,'/openvins/odomimu',self.on_frontend,qos_profile_sensor_data)
         self.cancels={}
         for name in ('navigate_to_pose','navigate_through_poses'):
             self.cancels[name]=self.create_client(CancelGoal,f'/{name}/_action/cancel_goal')
@@ -62,7 +62,7 @@ class Session(Node):
         if -.05<=age<=.2:self.wheel=m;self.wheel_at=time.monotonic()
 
     def on_health(self,m):self.healthy=m.data;self.health_at=time.monotonic()
-    def on_frontend(self,m):self.frontend=m.data
+    def on_frontend(self,m):self.frontend='official_odom_received'
     def health_ready(self):return self.healthy and time.monotonic()-self.health_at<.5
     def on_goals(self,m):
         for s in m.status_list:self.goals[bytes(s.goal_info.goal_id.uuid)]=s.status

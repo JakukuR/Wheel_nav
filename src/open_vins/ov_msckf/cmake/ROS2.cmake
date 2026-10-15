@@ -9,10 +9,7 @@ find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
-option(OV_BUILD_ROS_VISUALIZER "Build upstream ROS visualization executables" ON)
-if(OV_BUILD_ROS_VISUALIZER)
-  find_package(cv_bridge REQUIRED)
-endif()
+find_package(cv_bridge REQUIRED)
 find_package(image_transport REQUIRED)
 find_package(ov_core REQUIRED)
 find_package(ov_init REQUIRED)
@@ -46,6 +43,7 @@ list(APPEND ament_libraries
         geometry_msgs
         sensor_msgs
         nav_msgs
+        cv_bridge
         image_transport
         ov_core
         ov_init
@@ -68,10 +66,7 @@ list(APPEND LIBRARY_SOURCES
         src/update/UpdaterSLAM.cpp
         src/update/UpdaterZeroVelocity.cpp
 )
-if(OV_BUILD_ROS_VISUALIZER)
-  list(APPEND ament_libraries cv_bridge)
-  list(APPEND LIBRARY_SOURCES src/ros/ROS2Visualizer.cpp src/ros/ROSVisualizerHelper.cpp)
-endif()
+list(APPEND LIBRARY_SOURCES src/ros/ROS2Visualizer.cpp src/ros/ROSVisualizerHelper.cpp)
 file(GLOB_RECURSE LIBRARY_HEADERS "src/*.h")
 add_library(ov_msckf_lib SHARED ${LIBRARY_SOURCES} ${LIBRARY_HEADERS})
 ament_target_dependencies(ov_msckf_lib ${ament_libraries})
@@ -93,7 +88,6 @@ ament_export_libraries(ov_msckf_lib)
 # Make binary files!
 ##################################################
 
-if(OV_BUILD_ROS_VISUALIZER)
 add_executable(run_subscribe_msckf src/run_subscribe_msckf.cpp)
 ament_target_dependencies(run_subscribe_msckf ${ament_libraries})
 target_link_libraries(run_subscribe_msckf ov_msckf_lib ${thirdparty_libraries})
@@ -113,8 +107,6 @@ add_executable(test_sim_repeat src/test_sim_repeat.cpp)
 ament_target_dependencies(test_sim_repeat ${ament_libraries})
 target_link_libraries(test_sim_repeat ov_msckf_lib ${thirdparty_libraries})
 install(TARGETS test_sim_repeat DESTINATION lib/${PROJECT_NAME})
-
-endif()
 
 # Install launch and config directories
 install(DIRECTORY launch/ DESTINATION share/${PROJECT_NAME}/launch/)

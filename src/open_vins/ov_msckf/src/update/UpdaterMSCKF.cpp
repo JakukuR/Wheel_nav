@@ -56,7 +56,6 @@ UpdaterMSCKF::UpdaterMSCKF(UpdaterOptions &options, ov_core::FeatureInitializerO
 }
 
 void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_ptr<Feature>> &feature_vec) {
-  accepted_features_ = 0;
 
   // Return if no features
   if (feature_vec.empty())
@@ -284,8 +283,6 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
 
   // 6. With all good features update the state
   StateHelper::EKFUpdate(state, Hx_order_big, Hx_big, res_big, R_big);
-  accepted_features_ = feature_vec.size();
-  ++update_sequence_;
   rT5 = boost::posix_time::microsec_clock::local_time();
 
   // Debug print timing information

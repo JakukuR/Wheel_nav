@@ -3,10 +3,7 @@ cmake_minimum_required(VERSION 3.3)
 # Find ros dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
-option(OV_BUILD_ROS_VISUALIZER "Build upstream ROS visualization executables" ON)
-if(OV_BUILD_ROS_VISUALIZER)
-  find_package(cv_bridge REQUIRED)
-endif()
+find_package(cv_bridge REQUIRED)
 find_package(ov_core REQUIRED)
 
 # Describe ROS project
@@ -48,10 +45,7 @@ list(APPEND LIBRARY_SOURCES
 )
 file(GLOB_RECURSE LIBRARY_HEADERS "src/*.h")
 add_library(ov_init_lib SHARED ${LIBRARY_SOURCES} ${LIBRARY_HEADERS})
-ament_target_dependencies(ov_init_lib rclcpp ov_core)
-if(OV_BUILD_ROS_VISUALIZER)
-  ament_target_dependencies(ov_init_lib cv_bridge)
-endif()
+ament_target_dependencies(ov_init_lib rclcpp ov_core cv_bridge)
 target_link_libraries(ov_init_lib ${thirdparty_libraries})
 target_include_directories(ov_init_lib PUBLIC src/)
 install(TARGETS ov_init_lib
