@@ -30,7 +30,7 @@ from rclpy.qos import (
     ReliabilityPolicy,
     qos_profile_sensor_data,
 )
-from sensor_msgs.msg import PointCloud2
+from sensor_msgs.msg import PointCloud2, Image as RosImage
 from sensor_msgs_py import point_cloud2
 from tf2_ros import Buffer, TransformException, TransformListener
 
@@ -97,6 +97,12 @@ class GatewayNode(Node):
         self._map_png = None
         self._user_map_png = None
         self._map_version = 0
+        self._feature_sub = None
+        self._feature_requested = float('-inf')
+        self._feature_received = None
+        self._feature_jpeg = None
+        self._feature_meta = {}
+        self._feature_sequence = 0
         self._state = {
             'map': None,
             'semantic': {'map_id': '', 'revision': 0, 'home': None, 'furniture': []},
@@ -152,7 +158,60 @@ class GatewayNode(Node):
         self.create_timer(0.05, self._process_commands)
         self.create_timer(0.10, self._update_robot_pose)
         self.create_timer(1.0, self._load_semantic_layer)
+        self.create_timer(0.5, self._update_feature_subscription)
         self._load_semantic_layer()
+
+    def _update_feature_subscription(self):
+        # Subscribe only while the read-only feature page is being viewed.
+        with self._lock:
+            wanted = time.monotonic() - self._feature_requested < 3.0
+        if wanted and self._feature_sub is None:
+            qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
+            self._feature_sub = self.create_subscription(
+                RosImage, '/r680_nav/vio/features/image', self._feature_cb, qos)
+        elif not wanted and self._feature_sub is not None:
+            self.destroy_subscription(self._feature_sub)
+            self._feature_sub = None
+
+    def _feature_cb(self, msg):
+        if (msg.encoding != 'rgb8' or not 0 < msg.width <= 8192 or
+                not 0 < msg.height <= 4096 or msg.step < msg.width * 3 or
+                len(msg.data) != msg.step * msg.height):
+            return
+        with self._lock:
+            if time.monotonic() - self._feature_requested >= 3.0:
+                return
+        try:
+            img = PILImage.frombytes('RGB', (msg.width, msg.height), bytes(msg.data),
+                                     'raw', 'RGB', msg.step, 1)
+            output = BytesIO()
+            img.save(output, format='JPEG', quality=80)
+        except (ValueError, OSError):
+            return
+        stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        with self._lock:
+            self._feature_jpeg = output.getvalue()
+            self._feature_received = time.monotonic()
+            self._feature_sequence += 1
+            self._feature_meta = {'sequence': self._feature_sequence, 'stamp': stamp,
+                                  'width': msg.width, 'height': msg.height,
+                                  'frame_id': msg.header.frame_id}
+
+    def feature_state(self):
+        now = time.monotonic()
+        with self._lock:
+            self._feature_requested = now
+            state = dict(self._feature_meta)
+            age = None if self._feature_received is None else now - self._feature_received
+        source_age = (None if 'stamp' not in state else
+                      self.get_clock().now().nanoseconds * 1e-9 - state['stamp'])
+        state.update(age_s=age, source_age_s=source_age,
+                     live=age is not None and age < 2.0 and -0.1 <= source_age < 2.0)
+        return json.dumps(state, separators=(',', ':')).encode()
+
+    def feature_jpeg(self):
+        with self._lock:
+            return self._feature_jpeg
 
     def _load_semantic_layer(self):
         empty = {'map_id': '', 'revision': 0, 'home': None, 'furniture': []}
@@ -533,6 +592,11 @@ class GatewayHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
+        if path == '/api/vio/status':
+            return self._send(200, self.gateway.feature_state(), 'application/json')
+        if path == '/api/vio/image.jpg':
+            body = self.gateway.feature_jpeg()
+            return self._send(200, body, 'image/jpeg') if body else self._send(404)
         if path == '/api/state':
             return self._send(200, self.gateway.state_json(), 'application/json')
         if path == '/api/map.png':
@@ -552,7 +616,8 @@ class GatewayHandler(BaseHTTPRequestHandler):
         if path == '/robot-sticker.png':
             return self._send(200, (self.server.web_root / 'robot-sticker.png').read_bytes(),
                               'image/png')
-        static = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css'}
+        static = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css',
+                  '/vio.html': 'vio.html', '/vio.js': 'vio.js'}
         name = static.get(path)
         if not name:
             return self._send(404, b'not found', 'text/plain')

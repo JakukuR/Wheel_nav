@@ -32,6 +32,7 @@
 #include "odometry_contract.hpp"
 #include "health_evidence.hpp"
 #include "visual_pose_evidence.hpp"
+#include "feature_visualizer.hpp"
 #include "isaac_ros_cuvslam/impl/pose_cache.hpp"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
@@ -203,6 +204,9 @@ public:
         max_wheel_angular_ = std::max(max_wheel_angular_, std::abs(msg->twist.twist.angular.z));
       });
     RCLCPP_WARN(get_logger(), "cuVSLAM navigation frontend: TF=%s; motion health requires stable inertial initialization; calibration provisional", publish_tf_ ? "on" : "off");
+    if (declare_parameter<bool>("publish_feature_visualization", true)) {
+      feature_visualizer_ = std::make_unique<wla_vio::FeatureVisualizer>(*this);
+    }
     worker_ = std::thread([this]() { run(); });
   }
 
@@ -213,6 +217,7 @@ public:
     if (worker_.joinable()) {
       worker_.join();
     }
+    feature_visualizer_.reset();
     write_statistics();
   }
 
@@ -443,6 +448,9 @@ private:
         ++tracked_frames_;
         cuvslam::Odometry::State sdk_state;
         tracker_->GetState(sdk_state);
+        if (feature_visualizer_) {
+          feature_visualizer_->submit(pair, sdk_state.observations, sdk_state.timestamp_ns);
+        }
         last_observations_=static_cast<int64_t>(sdk_state.observations.size());
         last_warming_up_=sdk_state.warming_up;
         if (initialization_diagnostics_) {
@@ -785,6 +793,7 @@ private:
   tf2_ros::Buffer buffer_;
   tf2_ros::TransformListener listener_;
   std::unique_ptr<cuvslam::Odometry> tracker_;
+  std::unique_ptr<wla_vio::FeatureVisualizer> feature_visualizer_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
   std::array<rclcpp::Subscription<Image>::SharedPtr, 2> image_subs_;

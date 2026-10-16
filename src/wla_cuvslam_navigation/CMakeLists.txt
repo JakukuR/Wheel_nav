@@ -27,6 +27,18 @@ install(TARGETS cuvslam_odometry DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
 if(BUILD_TESTING)
   enable_testing()
+  add_executable(test_feature_overlay test/test_feature_overlay.cpp)
+  target_include_directories(test_feature_overlay PRIVATE src)
+  target_compile_options(test_feature_overlay PRIVATE -UNDEBUG)
+  add_test(NAME feature_overlay COMMAND test_feature_overlay)
+  add_executable(test_feature_preview_ros test/test_feature_preview_ros.cpp)
+  target_include_directories(test_feature_preview_ros PRIVATE src)
+  ament_target_dependencies(test_feature_preview_ros rclcpp sensor_msgs)
+  target_compile_options(test_feature_preview_ros PRIVATE -UNDEBUG)
+  add_test(NAME feature_preview_ros COMMAND test_feature_preview_ros)
+  set_tests_properties(feature_preview_ros PROPERTIES
+    ENVIRONMENT "ROS_DOMAIN_ID=198;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST;RMW_IMPLEMENTATION=rmw_cyclonedds_cpp"
+    RUN_SERIAL TRUE TIMEOUT 15)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
   add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/test_upstream_frame_recovery.cpp
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/test_upstream_frame_recovery.py

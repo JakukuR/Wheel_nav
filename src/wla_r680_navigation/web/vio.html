@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>cuVSLAM 特征匹配 · R680</title>
+  <style>
+    :root { color-scheme: dark; font: 15px/1.6 system-ui,sans-serif; background:#101720; color:#e8edf4; }
+    * { box-sizing:border-box; } body { margin:0; } a { color:#8ac5ff; text-decoration:none; }
+    header, main { max-width:1440px; margin:auto; padding:24px 32px; }
+    header { display:flex; justify-content:space-between; align-items:center; gap:20px; border-bottom:1px solid #2a3545; }
+    h1 { font-size:23px; margin:0; } p { color:#9daec2; margin:5px 0; }
+    .bar { display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-bottom:18px; }
+    #status { padding:5px 12px; border-radius:20px; background:#342a18; color:#ffd08a; }
+    #status.live { background:#133b31; color:#82eabb; }
+    #detail { color:#9daec2; font-variant-numeric:tabular-nums; }
+    .viewer { position:relative; background:#050a0f; border:1px solid #2a3545; border-radius:12px; overflow:hidden; min-height:250px; }
+    .labels { display:flex; background:#1a2432; padding:10px; text-align:center; }
+    .labels span { width:50%; font-size:13px; color:#b7c9dc; }
+    #image { display:block; width:100%; height:auto; min-height:200px; object-fit:contain; }
+    #image[hidden] { display:none; } .viewer.stale #image { opacity:.4; }
+    #empty { position:absolute; inset:43px 0 0; display:flex; align-items:center; justify-content:center; padding:24px; text-align:center; color:#b9c6d6; }
+    #empty[hidden] { display:none; }
+    .legend { display:flex; gap:24px; flex-wrap:wrap; padding:20px 0 14px; }
+    .legend span::before { content:''; display:inline-block; width:18px; height:3px; margin:0 8px 4px 0; background:var(--color); }
+    .note { border-top:1px solid #2a3545; padding-top:16px; font-size:13px; }
+    @media(max-width:650px) { header,main { padding:18px 14px; } h1 { font-size:19px; } header { align-items:flex-start; } }
+  </style>
+</head>
+<body>
+  <header><div><h1>cuVSLAM 特征匹配</h1><p>观察算法实际跟踪的双目特征</p></div><a href="/">← 返回导航</a></header>
+  <main>
+    <div class="bar"><span id="status" role="status">等待图像</span><span id="detail">打开页面后开始接收 · 最高 5 帧/秒</span></div>
+    <div id="viewer" class="viewer stale">
+      <div class="labels"><span>左目 · Infra 1</span><span>右目 · Infra 2</span></div>
+      <img id="image" hidden alt="cuVSLAM 双目特征点与匹配连线">
+      <div id="empty">等待 cuVSLAM 图像。请先启动 cuVSLAM 导航。</div>
+    </div>
+    <div class="legend">
+      <span style="--color:#4bff82">绿色：SDK 导出的特征观测</span>
+      <span style="--color:#ffbe2d">黄色：左右目相同跟踪 ID（最多 100 条线）</span>
+      <span style="--color:#37d7ff">青色：同一特征在前后显示帧中的位移</span>
+    </div>
+    <p class="note">图像和特征来自同一次跟踪输入。连线表示 SDK 跟踪 ID 对应关系，不等同于全部通过位姿估计的内点；点多也不代表定位一定准确。此页面只观察，不发送运动指令。</p>
+  </main>
+  <script src="/vio.js"></script>
+</body>
+</html>
