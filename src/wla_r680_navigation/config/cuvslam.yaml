@@ -39,13 +39,7 @@ cuvslam_odometry:
     initialization_diagnostics: true
     # Current-frame SDK observations; commissioning heuristic, not an inlier certificate.
     minimum_visual_observations: 20
-    # Genuine image keyframes during startup; revert to automatic selection once SDK gravity exists.
-    # 0 disables this trial policy. SDK's 20-keyframe/2s initialization checks remain unchanged.
-    initialization_keyframe_period_s: 0.25
+    # Use the SDK keyframe selection unchanged; no forced startup keyframes.
+    initialization_keyframe_period_s: 0.0
     statistics_path: /tmp/cuvslam_navigation_statistics.json
     publish_tf: true
-    # Engineering trial thresholds, not a substitute for extrinsic/noise calibration.
-    initialization_stable_s: 2.0
-    max_gyro_bias_radps: 0.25
-    max_accel_bias_mps2: 3.0
-    twist_filter_tau_s: 0.08

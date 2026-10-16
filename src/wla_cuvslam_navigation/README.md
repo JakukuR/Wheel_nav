@@ -38,7 +38,9 @@ cd ~/ros2_ws
 ./r680_nav.sh --map map-2026-10-08-1 --cuvslam
 ```
 
-默认不执行底盘运动。VIO 初始化需要运动激励；重力、偏置、跟踪与速度估计满足稳定窗口后才报告健康。静止几秒或出现 IMU state 不能单独证明初始化完成。
+默认不执行底盘运动。VIO 初始化由SDK负责；有有效位姿及可用、有限的gravity/IMU state后报告惯性初始化健康，不再附加两秒稳定窗口、bias幅度或速度有效性门控。静止几秒或仅出现 IMU state 不能单独证明初始化完成。速度与协方差使用官方PoseCache/VelocityCache；短时健康丢失不再触发watchdog重启cuVSLAM。
+
+`--no-degraded-odom` 时，前端直接发布 `/d455_slam/odom` 与TF，允许SDK的惯性传播位姿输出；上方连续接管链路仅在启用降级时运行。完整恢复规则见导航包 `docs/CUVSLAM-RECOVERY-20261016.md`。
 
 由操作者确认起步条件后使用受限初始化与导航：
 

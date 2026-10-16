@@ -100,6 +100,11 @@ if(BUILD_TESTING)
   set_tests_properties(frontend_map_watchdog PROPERTIES
     ENVIRONMENT "ROS_DOMAIN_ID=198;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST;WLA_WATCHDOG_EXECUTABLE=$<TARGET_FILE:vo_watchdog>"
     RUN_SERIAL TRUE TIMEOUT 150)
+  add_test(NAME cuvslam_transient_recovery COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_cuvslam_transient_recovery.py)
+  set_tests_properties(cuvslam_transient_recovery PROPERTIES
+    ENVIRONMENT "ROS_DOMAIN_ID=198;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST;WLA_WATCHDOG_EXECUTABLE=$<TARGET_FILE:vo_watchdog>"
+    RUN_SERIAL TRUE TIMEOUT 45)
   add_test(NAME cuvslam_startup_match COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/test/test_cuvslam_startup_match.py)
   set_tests_properties(cuvslam_startup_match PROPERTIES

@@ -126,6 +126,7 @@ public:
     if (frontend_ == "cuvslam") vio_status_sub_ = create_subscription<std_msgs::msg::String>(
       "/r680_nav/vio_status", 1, [this](std_msgs::msg::String::ConstSharedPtr m) {
         const bool tracking = m->data == "tracking_inertial_ready" ||
+          m->data == "waiting_for_inertial_initialization" ||
           m->data == "waiting_for_stable_inertial_initialization";
         if (tracking) sdk_seen_ = Clock::now();
         else {sdk_seen_ = {}; reject("frontend_reset_or_tracking_fault");}

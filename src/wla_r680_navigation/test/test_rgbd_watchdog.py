@@ -15,7 +15,7 @@ from tf2_ros import TransformBroadcaster
 
 
 def exercise(frontend, bounded=False, initial_match=False, startup_timeout_case=None,
-             continuity_recovery=False):
+             continuity_recovery=False, transient_recovery=False):
     # This test owns synthetic navigation input names and must never join the
     # production ROS domain. The watchdog cannot terminate any frontend here.
     domain = int(os.environ.get('ROS_DOMAIN_ID', '0'))
@@ -23,6 +23,7 @@ def exercise(frontend, bounded=False, initial_match=False, startup_timeout_case=
     rclpy.init()
     node = rclpy.create_node('rgbd_map_gate_regression')
     publishers = {
+        'wheel': node.create_publisher(Odometry, '/wheel/odom', 10),
         'vo': node.create_publisher(Odometry, '/r680_nav/vo_odom', 10),
         'vio': node.create_publisher(Bool, '/r680_nav/vio_tracking_healthy', 10),
         'continuous': node.create_publisher(Bool, '/r680_nav/continuous_odom_healthy', 10),
@@ -46,23 +47,26 @@ def exercise(frontend, bounded=False, initial_match=False, startup_timeout_case=
     process = subprocess.Popen([
         str(executable), '--ros-args', '-p', 'frontend:='+frontend,
         '-p', 'allow_bounded_degraded:='+str(bounded).lower(),
-        '-p', 'lost_limit:='+('3' if continuity_recovery else '10000'),
-        '-p', 'restart_enabled:=false', '-p', 'startup_grace_s:='+('1.0' if startup_timeout_case or continuity_recovery else '120.0'),
+        '-p', 'lost_limit:='+('3' if continuity_recovery or transient_recovery else '10000'),
+        '-p', 'restart_enabled:='+str(transient_recovery).lower(),
+        '-p', 'staged_relocalization_enabled:=false', '-p', 'startup_grace_s:='+('1.0' if startup_timeout_case or continuity_recovery or transient_recovery else '120.0'),
         '-p', 'localization_stale_s:=0.4', '-p', 'stale_s:=1.5',
     ], stdout=subprocess.DEVNULL)
 
     def tick(*, matched=False, pose=False, transform=True, vio=True, continuity=True,
              degraded=False, info_offset=0., pose_offset=0., tf_x=2., prior=False,
              rgbd_quality=True, odom_offset=0., publish_vo=True,
-             publish_vio=True, publish_continuity=True):
+             publish_vio=True, publish_continuity=True, odom_x=0.):
         assert process.poll() is None, 'watchdog exited unexpectedly'
         stamp = node.get_clock().now().to_msg()
         odometry = Odometry()
         odometry.header.stamp = (node.get_clock().now()-rclpy.duration.Duration(seconds=odom_offset)).to_msg()
         odometry.header.frame_id = 'd455_floor_odom'
         odometry.child_frame_id = 'r680_mapping_floor'
+        odometry.pose.pose.position.x = odom_x
         odometry.pose.pose.orientation.w = 1.
         if publish_vo: publishers['vo'].publish(odometry)
+        publishers['wheel'].publish(odometry)
         quality = OdomInfo()
         quality.header.stamp = stamp
         quality.lost = False
@@ -78,7 +82,7 @@ def exercise(frontend, bounded=False, initial_match=False, startup_timeout_case=
             location = PoseWithCovarianceStamped()
             location.header.stamp = (rclpy.time.Time.from_msg(stamp)-rclpy.duration.Duration(seconds=pose_offset)).to_msg()
             location.header.frame_id = 'map'
-            location.pose.pose.position.x = 2.
+            location.pose.pose.position.x = 2. + odom_x
             location.pose.pose.orientation.w = 1.
             publishers['pose'].publish(location)
             if prior: publishers['prior'].publish(location)
@@ -94,6 +98,7 @@ def exercise(frontend, bounded=False, initial_match=False, startup_timeout_case=
             base.header.stamp = stamp
             base.header.frame_id = 'd455_floor_odom'
             base.child_frame_id = 'r680_mapping_floor'
+            base.transform.translation.x = odom_x
             base.transform.rotation.w = 1.
             broadcaster.sendTransform([tf,base])
         rclpy.spin_once(node, timeout_sec=.005)
@@ -120,6 +125,27 @@ def exercise(frontend, bounded=False, initial_match=False, startup_timeout_case=
         raise AssertionError(label + ': matching map did not admit navigation')
 
     try:
+        if transient_recovery:
+            assert frontend == 'cuvslam' and not bounded
+            phase(1.)
+            expect_open('initial map verified', matched=True, pose=True)
+            expect_closed('more than three false states close output', vio=False,
+                          matched=True, pose=True)
+            assert not any('restarting_vo' in x or 'relocalization_required' in x for x in statuses)
+            expect_open('same frontend recovers from false health', matched=True, pose=True)
+            expect_closed('real odometry timeout closes output', publish_vo=False, pose=True)
+            assert 'timed out' in statuses[-1]
+            expect_open('same frontend recovers from timeout', matched=True, pose=True)
+            # A jump must still close navigation, without a frontend restart.
+            tick(odom_x=.8, matched=True, pose=True)
+            expect_closed('jump requires a new map match', odom_x=.8, pose=True)
+            assert any('VO pose discontinuity' in x for x in statuses), statuses[-10:]
+            assert not any('restarting_vo' in x for x in statuses), statuses[-10:]
+            expect_open('same-origin map recovery after jump', odom_x=.8, matched=True, pose=True)
+            assert all(not node.get_publishers_info_by_topic(t) for t in
+                       ('/cmd_vel', '/wheel/cmd_vel', '/cmd_vel_nav', '/cmd_vel_safe'))
+            print('PASS cuVSLAM false-health/timeout/jump recovery without process restart', flush=True)
+            return
         if continuity_recovery:
             assert frontend == 'cuvslam' and bounded
             phase(1.)

@@ -37,8 +37,3 @@ cuvslam_odometry:
     verbosity: 3
     statistics_path: /tmp/cuvslam_navigation_statistics.json
     publish_tf: true
-    # Engineering trial thresholds, not a substitute for extrinsic/noise calibration.
-    initialization_stable_s: 2.0
-    max_gyro_bias_radps: 0.25
-    max_accel_bias_mps2: 3.0
-    twist_filter_tau_s: 0.08

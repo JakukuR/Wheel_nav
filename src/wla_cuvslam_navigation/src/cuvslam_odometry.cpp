@@ -29,7 +29,6 @@
 #include "std_msgs/msg/string.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "tf2_ros/transform_broadcaster.h"
-#include "odometry_contract.hpp"
 #include "health_evidence.hpp"
 #include "visual_pose_evidence.hpp"
 #include "feature_visualizer.hpp"
@@ -77,24 +76,17 @@ Eigen::Isometry3d from_array(const std::vector<double> & values)
 class Validation final : public rclcpp::Node
 {
 public:
+  bool failed() const { return failed_.load(); }
+
   Validation() : Node("cuvslam_odometry"), buffer_(get_clock()), listener_(buffer_)
   {
     use_imu_ = declare_parameter<bool>("use_imu", true);
     async_sba_ = declare_parameter<bool>("async_sba", false);
     publish_tf_ = declare_parameter<bool>("publish_tf", true);
-    initialization_stable_s_ = declare_parameter<double>("initialization_stable_s", 2.0);
     initialization_diagnostics_ = declare_parameter<bool>("initialization_diagnostics", false);
     initialization_sampling_ = std::make_unique<wla_vio::InitializationSampling>(
       declare_parameter<double>("initialization_keyframe_period_s", 0.0));
-    twist_filter_tau_s_ = declare_parameter<double>("twist_filter_tau_s", 0.08);
-    max_gyro_bias_ = declare_parameter<double>("max_gyro_bias_radps", 0.25);
-    max_accel_bias_ = declare_parameter<double>("max_accel_bias_mps2", 3.0);
-    if (!std::isfinite(initialization_stable_s_) || !std::isfinite(twist_filter_tau_s_) ||
-      !std::isfinite(max_gyro_bias_) || !std::isfinite(max_accel_bias_) ||
-      !use_imu_ || initialization_stable_s_ <= 0 || twist_filter_tau_s_ < 0 ||
-      max_gyro_bias_ <= 0 || max_accel_bias_ <= 0) {
-      throw std::invalid_argument("navigation frontend requires IMU and valid health thresholds");
-    }
+    if (!use_imu_) throw std::invalid_argument("navigation frontend requires IMU");
     base_ = declare_parameter<std::string>("base_frame", "r680_mapping_floor");
     camera_link_ = declare_parameter<std::string>("camera_link_frame", "d455_link");
     camera_mount_ = from_array(declare_parameter<std::vector<double>>("base_from_camera_link",
@@ -127,7 +119,7 @@ public:
     status_pub_ = create_publisher<std_msgs::msg::String>(
       declare_parameter<std::string>("status_topic", "/r680_nav/vio_status"), 10);
     health_pub_ = create_publisher<std_msgs::msg::Bool>("/r680_nav/vio_tracking_healthy", 10);
-    // Current-frame evidence, separate from the two-second initialization gate.
+    // Current SDK initialization evidence; no additional stability timer.
     // The navigation continuity node may use this only after a trusted startup.
     inertial_pub_ = create_publisher<std_msgs::msg::Bool>("/r680_nav/vio_inertial_valid", 10);
     visual_pub_ = create_publisher<std_msgs::msg::Bool>("/r680_nav/vio_visual_observed", 10);
@@ -276,10 +268,6 @@ private:
     invalid_inertial.data = false;
     inertial_pub_->publish(invalid_inertial);
     visual_pub_->publish(invalid_inertial);
-    if (!health.data) {
-      last_gate_stamp_s_=get_clock()->now().seconds();
-      initialization_gate_.update(false,last_gate_stamp_s_,initialization_stable_s_);
-    }
     std_msgs::msg::String msg;
     msg.data = state;
     status_pub_->publish(msg);
@@ -398,7 +386,14 @@ private:
               static_cast<float>(msg->angular_velocity.y), static_cast<float>(msg->angular_velocity.z)};
             sample.linear_accelerations = {static_cast<float>(msg->linear_acceleration.x),
               static_cast<float>(msg->linear_acceleration.y), static_cast<float>(msg->linear_acceleration.z)};
-            tracker_->RegisterImuMeasurement(0, sample);
+            try {
+              tracker_->RegisterImuMeasurement(0, sample);
+            } catch (const std::exception & ex) {
+              // Upstream registers each sample independently; a bad sample
+              // must not terminate the estimator worker.
+              RCLCPP_WARN(get_logger(), "Failed to register IMU: %s", ex.what());
+              continue;
+            }
             last_call_stamp_ = timestamp;
             last_registered_imu_ = timestamp;
             ++registered_imu_;
@@ -439,6 +434,8 @@ private:
         } catch (const std::exception & ex) {
           // Match upstream UpdatePose(): finish this frame, keep the tracker alive.
           RCLCPP_WARN(get_logger(), "Failed to track: %s", ex.what());
+          pose_cache_.Reset();
+          status("tracking_exception_no_output");
           continue;
         }
         const auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
@@ -447,7 +444,20 @@ private:
         last_call_stamp_ = frame_stamp;
         ++tracked_frames_;
         cuvslam::Odometry::State sdk_state;
-        tracker_->GetState(sdk_state);
+        std::optional<cuvslam::Odometry::Gravity> gravity;
+        std::optional<cuvslam::Odometry::ImuState> imu;
+        bool inertial_only = false;
+        try {
+          tracker_->GetState(sdk_state);
+          gravity = tracker_->GetLastGravity();
+          imu = tracker_->GetImuState();
+          inertial_only = tracker_->IsLastPoseInertialOnly();
+        } catch (const std::exception & ex) {
+          RCLCPP_WARN(get_logger(), "Failed to query tracker state: %s", ex.what());
+          pose_cache_.Reset();
+          status("sdk_query_exception_no_output");
+          continue;
+        }
         if (feature_visualizer_) {
           feature_visualizer_->submit(pair, sdk_state.observations, sdk_state.timestamp_ns);
         }
@@ -474,7 +484,10 @@ private:
         const Eigen::Vector3d position(result.pose.translation[0], result.pose.translation[1], result.pose.translation[2]);
         Eigen::Quaterniond rotation(result.pose.rotation[3], result.pose.rotation[0],
           result.pose.rotation[1], result.pose.rotation[2]);
-        if (std::abs(rotation.norm() - 1.0) > 0.01) throw std::runtime_error("invalid SDK quaternion");
+        if (std::abs(rotation.norm() - 1.0) > 0.01) {
+          ++invalid_poses_; pose_cache_.Reset();
+          status("invalid_quaternion_no_output"); continue;
+        }
         rotation.normalize();
         const bool finite_covariance = std::all_of(result.covariance_xyz_rpy.begin(),
           result.covariance_xyz_rpy.end(), [](float v) {return std::isfinite(v);});
@@ -498,59 +511,36 @@ private:
             << ',' << position.z() << "]}";
           diagnostic("invalid_sdk_covariance", evidence.str(), true);
         }
-        double velocity_dt = 0;
-        bool velocity_valid = false;
-        if (have_previous_pose_) {
-          const double dt = (estimate.timestamp_ns - previous_pose_stamp_) * 1e-9;
-          // Do not reject finite SDK poses by translation/rotation magnitude.
-          // The external VO watchdog retains motion supervision and recovery.
-          if (dt <= 0) {
-            ++invalid_poses_;
-            diagnostic("invalid_pose_timestamp",
-              "{\"dt_s\":" + std::to_string(dt) + "}", true);
-            throw std::runtime_error("non-increasing SDK pose timestamp");
-          }
-          if (dt <= 0.2) {
-            const auto velocity = wla_vio::bodyVelocity(previous_position_, previous_rotation_, position, rotation, dt);
-            const double alpha = dt / (twist_filter_tau_s_ + dt);
-            filtered_linear_ += alpha * (velocity.linear - filtered_linear_);
-            filtered_angular_ += alpha * (velocity.angular - filtered_angular_);
-            velocity_dt = dt;
-            velocity_valid = true;
-          }
+        if (previous_pose_stamp_ > 0 && estimate.timestamp_ns <= previous_pose_stamp_) {
+          ++invalid_poses_;
+          status("invalid_pose_timestamp_no_output"); continue;
         }
-        previous_position_ = position;
-        previous_rotation_ = rotation;
-        previous_pose_stamp_ = estimate.timestamp_ns;
-        have_previous_pose_ = true;
         bool inertial_valid = false;
         wla_vio::HealthEvidence health_evidence;
-        health_evidence.velocity_valid=velocity_valid;
         double gravity_norm=-1,gyro_norm=-1,accel_norm=-1;
         if (use_imu_) {
           bool gravity_valid = false, bias_valid = false;
-          if (auto gravity = tracker_->GetLastGravity()) {
+          if (gravity) {
             health_evidence.gravity_available=true;
             ++gravity_frames_;
             last_gravity_ = *gravity;
             const Eigen::Vector3d g((*gravity)[0], (*gravity)[1], (*gravity)[2]);
-            gravity_valid = g.allFinite() && g.norm() >= 8.0 && g.norm() <= 11.5;
+            gravity_valid = g.allFinite();
             gravity_norm=g.allFinite() ? g.norm() : -1;
             health_evidence.gravity_valid=gravity_valid;
           }
-          if (auto imu = tracker_->GetImuState()) {
+          if (imu) {
             health_evidence.imu_available=true;
             ++imu_state_frames_;
             last_gyro_bias_ = imu->gyro_bias;
             last_accel_bias_ = imu->acc_bias;
             const Eigen::Vector3d gyro(imu->gyro_bias[0], imu->gyro_bias[1], imu->gyro_bias[2]);
             const Eigen::Vector3d accel(imu->acc_bias[0], imu->acc_bias[1], imu->acc_bias[2]);
-            bias_valid = gyro.allFinite() && accel.allFinite() &&
-              gyro.norm() <= max_gyro_bias_ && accel.norm() <= max_accel_bias_;
+            bias_valid = gyro.allFinite() && accel.allFinite();
             gyro_norm=gyro.allFinite() ? gyro.norm() : -1;
             accel_norm=accel.allFinite() ? accel.norm() : -1;
-            health_evidence.gyro_bias_valid=gyro.allFinite() && gyro_norm<=max_gyro_bias_;
-            health_evidence.accel_bias_valid=accel.allFinite() && accel_norm<=max_accel_bias_;
+            health_evidence.gyro_bias_valid=gyro.allFinite();
+            health_evidence.accel_bias_valid=accel.allFinite();
           }
           inertial_valid = gravity_valid && bias_valid;
         }
@@ -565,19 +555,19 @@ private:
         message.pose.pose.orientation.y = rotation.y();
         message.pose.pose.orientation.z = rotation.z();
         message.pose.pose.orientation.w = rotation.w();
-        if (velocity_valid) {
-          message.twist.twist.linear.x = filtered_linear_.x();
-          message.twist.twist.linear.y = filtered_linear_.y();
-          message.twist.twist.linear.z = filtered_linear_.z();
-          message.twist.twist.angular.x = filtered_angular_.x();
-          message.twist.twist.angular.y = filtered_angular_.y();
-          message.twist.twist.angular.z = filtered_angular_.z();
+        // Reject stale outputs before changing the accepted-pose history.
+        if ((get_clock()->now().nanoseconds() - frame_stamp) > max_age_ns_) {
+          status("stale_estimate_no_output"); continue;
         }
+        previous_pose_stamp_ = estimate.timestamp_ns;
         // Upstream ROS Odometry uses history covariance, not the SDK pose matrix.
-        // Keep the existing body-frame velocity estimate; cache the published twist.
         pose_cache_.Add(estimate.timestamp_ns, tf2::Transform(
           tf2::Quaternion(rotation.x(), rotation.y(), rotation.z(), rotation.w()),
           tf2::Vector3(position.x(), position.y(), position.z())));
+        auto & velocity = message.twist.twist;
+        const bool velocity_valid = pose_cache_.GetVelocity(
+          velocity.linear.x, velocity.linear.y, velocity.linear.z,
+          velocity.angular.x, velocity.angular.y, velocity.angular.z);
         const auto & twist = message.twist.twist;
         velocity_cache_.Add(twist.linear.x, twist.linear.y, twist.linear.z,
           twist.angular.x, twist.angular.y, twist.angular.z);
@@ -587,17 +577,10 @@ private:
         if (!velocity_cache_.GetCovariance(message.twist.covariance)) {
           for (size_t i = 0; i < 6; ++i) { message.twist.covariance[i * 7] = 1.; }
         }
-        if ((get_clock()->now().nanoseconds() - frame_stamp) > max_age_ns_) {
-          diagnostic("stale_estimate_no_output","{\"age_ns\":"+
-            std::to_string(get_clock()->now().nanoseconds()-frame_stamp)+
-            ",\"max_age_ns\":"+std::to_string(max_age_ns_)+"}");
-          status("stale_estimate_no_output"); continue;
-        }
         std_msgs::msg::Bool current_inertial;
-        current_inertial.data = inertial_valid && velocity_valid;
+        current_inertial.data = inertial_valid;
         inertial_pub_->publish(current_inertial);
         std_msgs::msg::Bool current_visual;
-        const bool inertial_only = tracker_->IsLastPoseInertialOnly();
         if (inertial_only) ++inertial_only_frames_;
         current_visual.data = wla_vio::visualPoseObserved(inertial_only, sdk_state.warming_up,
           sdk_state.timestamp_ns, estimate.timestamp_ns, last_observations_, minimum_visual_observations_);
@@ -618,14 +601,11 @@ private:
           tf.transform.rotation = message.pose.pose.orientation;
           broadcaster_->sendTransform(tf);
         }
-        const double gate_stamp_s=estimate.timestamp_ns * 1e-9;
-        const double gate_dt_s=last_gate_stamp_s_<0 ? -1 : gate_stamp_s-last_gate_stamp_s_;
-        const bool gate_stamp_gap=last_gate_stamp_s_>=0 && (gate_dt_s<=0 || gate_dt_s>0.2);
-        const bool ready = initialization_gate_.update(inertial_valid && velocity_valid,
-          gate_stamp_s, initialization_stable_s_);
+        // SDK gravity/IMU state are the initialization evidence. No project
+        // bias bounds, velocity interval gate or extra two-second wait.
+        const bool ready = health_evidence.valid();
         if (ready && current_visual.data) visual_anchor_ready_=true;
-        last_gate_stamp_s_=gate_stamp_s;
-        const auto health_reason=health_evidence.reason(ready);
+        const auto health_reason=health_evidence.reason();
         std_msgs::msg::String reason_message;
         reason_message.data=health_reason;
         health_reason_pub_->publish(reason_message);
@@ -638,25 +618,20 @@ private:
           <<",\"gyro_bias_valid\":"<<(health_evidence.gyro_bias_valid ? "true" : "false")
           <<",\"accel_bias_valid\":"<<(health_evidence.accel_bias_valid ? "true" : "false")
           <<",\"gyro_bias_norm\":"<<gyro_norm<<",\"accel_bias_norm\":"<<accel_norm
-          <<",\"max_gyro_bias\":"<<max_gyro_bias_<<",\"max_accel_bias\":"<<max_accel_bias_
           <<",\"velocity_valid\":"<<(velocity_valid ? "true" : "false")
-          <<",\"velocity_dt_s\":"<<velocity_dt
-          <<",\"gate_stamp_dt_s\":"<<gate_dt_s
-          <<",\"gate_stamp_gap\":"<<(gate_stamp_gap ? "true" : "false")
           <<",\"visual_pose_valid\":"<<(current_visual.data ? "true" : "false")
           <<",\"inertial_only_pose\":"<<(inertial_only ? "true" : "false")
           <<",\"output_pose\":"<<(output_pose ? "true" : "false")
-          <<",\"required_stable_s\":"<<initialization_stable_s_
           <<",\"estimate_age_ms\":"<<(get_clock()->now().nanoseconds()-frame_stamp)*1e-6<<"}";
         diagnostic(health_reason,health_details.str(), inertial_only != last_inertial_only_);
         last_inertial_only_=inertial_only;
-        // False during initialization, loss, invalid bias, gaps and stale frames.
+        // False while the SDK is uninitialized or this frame has no valid output.
         std_msgs::msg::Bool health;
         health.data = ready;
         if (ready) ++ready_frames_;
         health_pub_->publish(health);
         std_msgs::msg::String state;
-        state.data = ready ? "tracking_inertial_ready" : "waiting_for_stable_inertial_initialization";
+        state.data = ready ? "tracking_inertial_ready" : "waiting_for_inertial_initialization";
         status_pub_->publish(state);
         latency_ms_.push_back((get_clock()->now().nanoseconds() - frame_stamp) * 1e-6);
         if (latency_ms_.size() > 4096) latency_ms_.erase(latency_ms_.begin(), latency_ms_.begin() + 2048);
@@ -672,8 +647,11 @@ private:
     } catch (const std::exception & ex) {
       fault_ = ex.what();
       stopped_ = true;
+      failed_ = true;
       RCLCPP_ERROR(get_logger(), "cuVSLAM frontend halted: %s", ex.what());
       status("fatal_frontend_fault_no_output");
+      // A genuinely fatal worker error must not leave a live but silent node.
+      rclcpp::shutdown();
     }
     write_statistics();
   }
@@ -738,12 +716,9 @@ private:
     }
   }
 
-  bool use_imu_{}, async_sba_{}, have_first_pose_{}, have_previous_pose_{};
+  bool use_imu_{}, async_sba_{}, have_first_pose_{};
   bool publish_tf_{}, publish_visual_only_{},visual_anchor_ready_{},last_inertial_only_{};
   size_t inertial_only_frames_{};
-  double initialization_stable_s_{}, twist_filter_tau_s_{}, max_gyro_bias_{}, max_accel_bias_{};
-  Eigen::Vector3d filtered_linear_{Eigen::Vector3d::Zero()}, filtered_angular_{Eigen::Vector3d::Zero()};
-  wla_vio::InitializationGate initialization_gate_;
   nvidia::isaac_ros::visual_slam::PoseCache pose_cache_;
   nvidia::isaac_ros::visual_slam::VelocityCache velocity_cache_;
   bool initialization_diagnostics_{false};
@@ -757,14 +732,11 @@ private:
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr health_reason_pub_;
   int minimum_visual_observations_{};
   int64_t previous_pose_stamp_{};
-  Eigen::Vector3d previous_position_{Eigen::Vector3d::Zero()};
-  Eigen::Quaterniond previous_rotation_{Eigen::Quaterniond::Identity()};
-  std::atomic<bool> stopped_{false};
+  std::atomic<bool> stopped_{false}, failed_{false};
   std::string base_, camera_link_, odom_, expected_imu_frame_, statistics_path_, fault_;
   std::string diagnostics_path_,last_diagnostic_reason_;
   std::chrono::steady_clock::time_point last_diagnostic_time_{};
   size_t diagnostic_events_{};
-  double last_gate_stamp_s_{-1};
   int64_t last_observations_{-1};
   bool last_warming_up_{false};
   double frequency_{}, gyro_noise_{}, gyro_walk_{}, accel_noise_{}, accel_walk_{}, max_displacement_{};
@@ -808,8 +780,10 @@ int main(int argc, char ** argv)
   try {
     auto node = std::make_shared<Validation>();
     rclcpp::spin(node);
+    const bool failed = node->failed();
     node.reset();
     rclcpp::shutdown();
+    if (failed) return 1;
   } catch (const std::exception & ex) {
     RCLCPP_ERROR(rclcpp::get_logger("cuvslam_validation"), "%s", ex.what());
     rclcpp::shutdown();

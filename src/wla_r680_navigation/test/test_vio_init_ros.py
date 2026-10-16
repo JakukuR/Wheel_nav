@@ -125,7 +125,7 @@ def run(case, base_authority=False, guard_delay=0.):
                     if case == 'node_exit': processes[0].terminate()
                     if case == 'authority_exit': processes[2].kill()
                     if case == 'base_estop': mux.p.latch_stop('fixture_estop')
-                    if case == 'base_takeover': mux.p.set_manual()
+                    if case == 'authority_generation': mux.p.source_generation += 1
             fault = state['fault_at'] is not None or case == 'startup_obstacle'
             if case in ('manual_shared', 'manual_invalid', 'manual_legacy'):
                 manual = Twist()
@@ -166,7 +166,7 @@ def run(case, base_authority=False, guard_delay=0.):
                 publishers['/d455_slam/odom'].publish(vo)
                 last_vo = current
             inertial = successful and state['moving_at'] is not None and moving_time > 0.5
-            publishers['/r680_nav/vio_status'].publish(String(data='tracking_inertial_ready' if inertial else 'waiting_for_stable_inertial_initialization'))
+            publishers['/r680_nav/vio_status'].publish(String(data='tracking_inertial_ready' if inertial else 'waiting_for_inertial_initialization'))
             publishers['/r680_nav/vio_tracking_healthy'].publish(Bool(data=inertial))
             localized = inertial and state['name'] in ['waiting_localization', 'succeeded']
             publishers['/r680_nav/localization_ready'].publish(Bool(data=localized))
@@ -241,7 +241,6 @@ def run(case, base_authority=False, guard_delay=0.):
             deadline=time.monotonic()+2.
             while processes[2].poll() is None and time.monotonic()<deadline:
                 spin();time.sleep(.005)
-            if successful:assert mux.p.mode=='MANUAL','session exit did not release AUTO'
         if executor is not None:
             executor.remove_node(node);executor.remove_node(mux);executor.shutdown()
             mux.destroy_node()
@@ -251,6 +250,12 @@ def run(case, base_authority=False, guard_delay=0.):
             try: p.wait(timeout=5)
             except subprocess.TimeoutExpired: p.kill(); p.wait()
         for f in files: f.close()
+        if base_authority and successful:
+            # NAV/manual share output; MANUAL is no longer a permission latch.
+            # Assert release after cleanup so a failing assertion cannot leak nodes.
+            assert 'navigation_permission_released' in session_states, session_states
+            assert authorizations and not authorizations[-1][1], 'initialization grant was not released'
+            assert base_commands and abs(base_commands[-1][1].linear.x)+abs(base_commands[-1][1].angular.z)<1e-8, 'session exit retained velocity'
 
 
 def legacy_guard():

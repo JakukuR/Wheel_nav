@@ -26,7 +26,10 @@ try:
     assert loaded['statistics_path'] == '/tmp/namespaced-cuvslam-test.json'
     assert loaded['initialization_diagnostics'] is True
     assert loaded['base_frame'] == 'r680_mapping_floor'
-    assert loaded['initialization_stable_s'] == 2.0
+    assert loaded['initialization_keyframe_period_s'] == 0.0
+    for removed in ('initialization_stable_s', 'max_gyro_bias_radps',
+                    'max_accel_bias_mps2', 'twist_filter_tau_s'):
+        assert removed not in loaded, removed
 finally:
     path.unlink(missing_ok=True)
 print('actual launch namespaced parameter rewrite PASS')

@@ -150,8 +150,8 @@ public:
           if (msg->data) {frontend_was_ready_ = true; frontend_last_ready_ = Clock::now();}
           lost_count_ = msg->data ? 0 : lost_count_ + 1;
           // Initial SDK gravity estimation is a waiting state, not tracking loss.
-          if (!bounded_degraded_ && !fault_latched_ && frontend_was_ready_ && lost_count_ >= lost_limit_)
-            fault("cuVSLAM VIO tracking unhealthy");
+          // SDK recovery keeps the odom origin. Health loss closes admission
+          // below, but must not kill/reinitialize an otherwise running tracker.
         });
     }
     wheel_sub_ = create_subscription<nav_msgs::msg::Odometry>(
@@ -441,6 +441,15 @@ private:
     health_pub_->publish(unhealthy);
     RCLCPP_ERROR(get_logger(), "VO fault: %s; motion locked until VO and map relocalize",
       why.c_str());
+    if (frontend_ == "cuvslam") {
+      // A discontinuity still requires fresh map verification, but restarting
+      // the estimator would introduce another odom discontinuity. Reuse the
+      // existing map-recovery path in this same frontend generation.
+      respawn_seen_ = Clock::now();
+      respawn_ros_stamp_ = get_clock()->now();
+      RCLCPP_WARN(get_logger(), "cuVSLAM kept running; waiting for fresh map verification");
+      return;
+    }
     if (!restart_enabled_) {return;}
     const auto pids = voPids();
     if (pids.size() != 1) {
@@ -471,7 +480,7 @@ private:
         anchor_map_seen_ = Clock::now();
       }
     }
-    if (fault_latched_ && restart_enabled_ && vo_pid_ > 0) {
+    if (fault_latched_ && (frontend_ == "cuvslam" || (restart_enabled_ && vo_pid_ > 0))) {
       if (respawn_seen_.time_since_epoch().count() == 0) {
         const auto pids = voPids();
         if (pids.size() == 1 && pids.front() != vo_pid_) {
@@ -563,18 +572,21 @@ private:
     // normal odometry timeout applies as soon as either path has been ready.
     const bool waiting_first_vio = frontend_ == "cuvslam" &&
       !frontend_was_ready_ && !continuity_was_ready_;
-    if (!fault_latched_ && age(started_) > startup_grace_s_ &&
+    const bool timed_out = age(started_) > startup_grace_s_ &&
       ((!waiting_first_vio && age(vo_seen_) > stale_s_) ||
        ((!bounded_degraded_ || waiting_first_vio) && age(info_seen_) > stale_s_) ||
-       (bounded_degraded_ && age(continuity_seen_) > stale_s_))) {
-      RCLCPP_ERROR(get_logger(),
-        "VO timeout inputs: waiting_first_vio=%d vo_age=%.3f frontend_age=%.3f continuity_age=%.3f",
-        waiting_first_vio, age(vo_seen_), age(info_seen_), age(continuity_seen_));
-      fault("VO odometry or tracking status timed out");
+       (bounded_degraded_ && age(continuity_seen_) > stale_s_));
+    if (!fault_latched_ && timed_out) {
+      if (frontend_ == "cuvslam") {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+          "VO odometry or tracking status timed out; cuVSLAM kept running");
+      } else {
+        fault("VO odometry or tracking status timed out");
+      }
     }
     // The selected frontend owns tracking quality. Bounded wheel/IMU
     // continuity may retain an already verified map, but cannot establish one.
-    const bool healthy = !fault_latched_ && odometryReady() && map_ready;
+    const bool healthy = !fault_latched_ && !timed_out && odometryReady() && map_ready;
     std_msgs::msg::Bool health;
     health.data = healthy;
     health_pub_->publish(health);
@@ -583,8 +595,9 @@ private:
       (!anchor_valid_at_fault_ ? "manual_relocalization_required: " :
       respawn_seen_.time_since_epoch().count() == 0 ? "restarting_vo: " :
       "waiting_for_map_relocalization: ") + reason_ :
-      (healthy ? (frontendTracking() ? "healthy" : "bounded_continuity_vio_unhealthy") : frontend_ == "cuvslam" && !frontend_ready_ ?
-        "waiting_for_inertial_initialization" :
+      (timed_out ? "VO odometry or tracking status timed out" :
+       healthy ? (frontendTracking() ? "healthy" : "bounded_continuity_vio_unhealthy") : frontend_ == "cuvslam" && !frontend_ready_ ?
+        (frontend_was_ready_ ? "waiting_for_vio_tracking" : "waiting_for_inertial_initialization") :
         age(vo_seen_) > stale_s_ || age(info_seen_) > stale_s_ ?
         (frontend_=="rgbd" ? "waiting_for_rgbd_odometry" : "waiting_for_vio") : "waiting_for_map_relocalization");
     status_pub_->publish(status);

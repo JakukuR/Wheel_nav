@@ -17,7 +17,7 @@ r680_vo_watchdog:
     wheel_mismatch_limit: 3
     # 角度正负号与时延需实测确认后再开放轮/VO 航向比较。
     compare_wheel_yaw: false
-    # 故障时只发送一次 SIGTERM；新 VO 与地图重新匹配且稳定后自动恢复。
+    # RGB-D故障可重启；cuVSLAM保持运行，故障只关闭导航并重新验证地图。
     restart_enabled: true
     # VO 新进程稳定、RTAB-Map 重新定位且地图位姿与轮里程计一致才解除锁定。
     localization_topic: /d455_slam/localization_pose

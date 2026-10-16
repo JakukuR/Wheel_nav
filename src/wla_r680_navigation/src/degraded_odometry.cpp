@@ -80,6 +80,7 @@ public:
       [this](std_msgs::msg::String::ConstSharedPtr m){
         raw_status_=m->data;
         if(initialized_ && raw_status_!="tracking_inertial_ready" &&
+          raw_status_!="waiting_for_inertial_initialization" &&
           raw_status_!="waiting_for_stable_inertial_initialization" && raw_status_!="tracking_lost_no_output")
           block("frontend fault: "+raw_status_);
       });
@@ -87,7 +88,8 @@ public:
       [this](std_msgs::msg::String::ConstSharedPtr m){
         if(initialized_ && (m->data.find("gravity_")!=std::string::npos ||
           m->data.find("imu_state_unavailable")!=std::string::npos ||
-          m->data.find("bias_out_of_bounds")!=std::string::npos)) block("SDK inertial evidence invalid: "+m->data);
+          m->data.find("bias_out_of_bounds")!=std::string::npos ||
+          m->data.find("bias_nonfinite")!=std::string::npos)) block("SDK inertial evidence invalid: "+m->data);
       });
     watchdog_sub_=create_subscription<std_msgs::msg::Bool>("/r680_nav/vo_watchdog_healthy",10,
       [this](std_msgs::msg::Bool::ConstSharedPtr m){watchdog_ready_=m->data; watchdog_seen_=Clock::now();});
@@ -299,6 +301,7 @@ private:
       }else if(initialized_) {
         if(enabled_ && sensorReady() && watchdog_ready_ && age(watchdog_seen_)<0.25 &&
             (raw_status_=="tracking_lost_no_output" || raw_status_=="tracking_inertial_ready" ||
+             raw_status_=="waiting_for_inertial_initialization" ||
              raw_status_=="waiting_for_stable_inertial_initialization")) {
           state_=State::Degraded;budget_={};return_count_=0;entry_stamp_=raw_stamp_;
           entry_covariance_=output_.pose.covariance;
