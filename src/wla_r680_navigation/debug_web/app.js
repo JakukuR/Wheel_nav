@@ -10,7 +10,7 @@ const explain = reason => messages[reason] || reason || '等待数据';
 const labelMap = {person:'人物',chair:'椅子',bottle:'瓶子',cup:'杯子',couch:'沙发',dining_table:'餐桌',tv:'电视',laptop:'笔记本电脑',backpack:'背包',cell_phone:'手机'};
 const labelText = name => labelMap[name] ? `${labelMap[name]} · ${name}` : name;
 function toggle(id, label) {
-  const el = document.createElement('label'), input = document.createElement('input');
+  const el = document.createElement('label'), input = document.createElement('input');el.dataset.layer=id;
   input.type='checkbox'; input.checked=enabled.has(id); input.addEventListener('change',()=>{input.checked?enabled.add(id):enabled.delete(id);draw();});
   el.append(input, document.createTextNode(' '+label)); $('toggles').append(el);
 }
@@ -58,9 +58,15 @@ function item(title, right, detail, color) {
   const value=document.createElement('span');value.textContent=right;row.append(left,value);const small=document.createElement('small');small.textContent=detail;el.append(row,small);return el;
 }
 function update() {
+  if(planning && data.mode){
+    const local=data.mode==='local';
+    for(const id of ['nav_path','local_path']){const el=document.querySelector(`[data-layer="${id}"]`);if(el)el.hidden=local;}
+    $('note').textContent=local?'独立局部模式：当前深度帧体素；人物／物品跟随自己的局部路径。RGB 与几何时间差 ≤30 ms，期间运动未补偿；不累积地图、不做遮挡消除。':'确认体素为障碍记忆快照；二维障碍栅格仅画地面轮廓。不做遮挡消除，路径需规划器已产生结果。';
+    $('footerNote').textContent=local?'相机局部几何 · 无 Nav2 / 地图 / 里程计依赖':'按图像时刻转换 TF · 缺少变换时停止叠加';
+  }
   $('reason').textContent=explain(data.reason);$('items').replaceChildren();
   if(planning){
-    for(const l of data.layers || [])$('items').append(item(l.label,l.reason==='ok'?`${l.count} 个`:'—',`${explain(l.reason)} · ${l.topic}${l.skew_ms===undefined?'':` · Δt ${l.skew_ms} ms`}`,l.color));
+    for(const l of data.layers || [])$('items').append(item(l.label,l.reason==='ok'?(l.id.includes('path') && !l.count?'暂无路径':`${l.count} 个`):'—',`${explain(l.reason)} · ${l.topic}${l.skew_ms===undefined?'':` · Δt ${l.skew_ms} ms`}`,l.color));
     $('count').textContent=`${(data.layers || []).filter(x=>x.reason==='ok').length} / ${(data.layers || []).length}`;
   }else{
     for(const o of data.objects || [])$('items').append(item(labelText(o.label),`${Math.round(o.confidence*100)}%`,`ID ${o.track_id ?? '—'} · ${o.distance===null?'距离不可用':o.distance.toFixed(2)+' m'}${o.yaw===null?'':` · 方位 ${(o.yaw*180/Math.PI).toFixed(1)}°`}`,o.label==='person'?'#54e0ce':'#ffbe69'));

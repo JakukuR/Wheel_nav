@@ -62,7 +62,7 @@ ament_target_dependencies(point_to_scan rclcpp sensor_msgs)
 
 install(TARGETS degraded_odometry command_guard vio_initializer mapping_odom_gate imu_conditioner path_speed_profile goal_approach_limiter dynamic_obstacle_memory vo_watchdog interface_monitor depth_to_points point_to_scan DESTINATION lib/${PROJECT_NAME})
 ament_python_install_package(wla_r680_navigation_py)
-install(PROGRAMS scripts/navigation_goal_bridge scripts/web_gateway scripts/furniture_semantic.py scripts/nav_yolo_detector scripts/nav_perception_bringup scripts/nav_perception_debug
+install(PROGRAMS scripts/navigation_goal_bridge scripts/web_gateway scripts/furniture_semantic.py scripts/nav_yolo_detector scripts/nav_perception_bringup scripts/nav_perception_debug scripts/perception_debug_standalone
   DESTINATION lib/${PROJECT_NAME})
 install(PROGRAMS scripts/mapping_mission scripts/prepare_mapping_run scripts/save_manual_map
   scripts/r680_nav.sh scripts/wait_mapping_ready scripts/openvins_nav_startup.py scripts/openvins_motion_init.py scripts/navigation_motion_session.py
@@ -154,6 +154,13 @@ if(BUILD_TESTING)
   set_tests_properties(debug_viewer_ros PROPERTIES
     ENVIRONMENT "ROS_DOMAIN_ID=197;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST;RMW_IMPLEMENTATION=rmw_cyclonedds_cpp"
     RUN_SERIAL TRUE TIMEOUT 45)
+  add_test(NAME debug_viewer_local_ros COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_debug_viewer_ros.py --local)
+  set_tests_properties(debug_viewer_local_ros PROPERTIES
+    ENVIRONMENT "ROS_DOMAIN_ID=197;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST;RMW_IMPLEMENTATION=rmw_cyclonedds_cpp"
+    RUN_SERIAL TRUE TIMEOUT 45)
+  add_test(NAME debug_standalone_plan COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_debug_standalone.py)
   ament_add_pytest_test(test_perception_geometry test/test_perception_geometry.py)
   ament_add_pytest_test(test_storage test/test_storage.py)
   ament_add_pytest_test(test_mapping_run test/test_mapping_run.py)

@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+"""Camera + detector + local depth obstacles + viewer. No Nav2 or motion nodes."""
+import argparse
+import json
+import os
+from pathlib import Path
+import socket
+import sys
+import time
+import urllib.request
+from ament_index_python.packages import get_package_prefix, get_package_share_directory
+from launch import LaunchDescription, LaunchService
+from launch.actions import ExecuteProcess, RegisterEventHandler, EmitEvent
+from launch.event_handlers import OnProcessExit
+from launch.events import Shutdown
+
+
+POINTS = '/r680/perception/local_obstacles'
+
+
+def discover():
+    """Read-only discovery: reuse producers, never stop an existing owner."""
+    import rclpy
+    from rclpy.time import Time
+    from tf2_ros import Buffer, TransformListener
+    rclpy.init()
+    node = rclpy.create_node('perception_debug_startup_check', enable_rosout=False, start_parameter_services=False)
+    tf = Buffer();listener = TransformListener(tf, node)
+    try:
+        until = time.monotonic()+2
+        while time.monotonic() < until:
+            rclpy.spin_once(node, timeout_sec=.1)
+        def publishers(topic):
+            return len(node.get_publishers_info_by_topic(topic))
+        if publishers('/r680/d455/color/image_raw') > 1:
+            raise RuntimeError('Multiple RGB publishers; resolve camera ownership before debug')
+        owners = {'camera': publishers('/r680/d455/color/image_raw') > 0,
+                  'detector': publishers('/r680/perception/detections') > 0,
+                  'points': publishers(POINTS) > 0,
+                  'mount': tf.can_transform('r680_mapping_floor', 'd455_link', Time())}
+        # A driver in a different ROS domain can still own the physical D455.
+        if not owners['camera']:
+            for pid in Path('/proc').iterdir():
+                if not pid.name.isdigit():
+                    continue
+                try:
+                    cmd = (pid/'cmdline').read_bytes().replace(b'\0', b' ').decode(errors='replace')
+                except OSError:
+                    continue
+                if ('/realsense2_camera_node' in cmd or ('component_container' in cmd and 'realsense' in cmd)):
+                    raise RuntimeError('A RealSense process is already running but RGB is absent in this ROS domain; reuse its domain or stop it in its owning terminal')
+        return owners
+    finally:
+        node.destroy_node();rclpy.shutdown()
+
+
+def viewer_available(port):
+    sock = socket.socket()
+    try:
+        sock.bind(('0.0.0.0', port))
+        return False
+    except OSError:
+        try:
+            with urllib.request.urlopen(f'http://127.0.0.1:{port}/api/config', timeout=2) as response:
+                cfg = json.load(response)
+            expected = {'schema':'wla-perception-debug/v1', 'mode':'local',
+                        'domain':os.environ.get('ROS_DOMAIN_ID', '0'),
+                        'base_frame':'r680_mapping_floor', 'points_topic':POINTS, 'voxel_topic':POINTS}
+            if all(cfg.get(k) == v for k,v in expected.items()):
+                return True
+        except Exception:
+            pass
+        raise RuntimeError(f'Port {port} is occupied by a different viewer/configuration; use --port or close that viewer in its owning terminal')
+    finally:
+        sock.close()
+
+
+def commands(args, owners, viewer_running):
+    nav = Path(get_package_prefix('wla_r680_navigation'))/'lib/wla_r680_navigation'
+    share = Path(get_package_share_directory('wla_r680_navigation'))
+    result = []
+    if not owners['camera']:
+        camera_env = {}
+        sdk = Path.home()/'robot_sensors/realsense/current/lib'
+        if os.environ.get('R680_REALSENSE_BACKEND', 'rsusb') != 'system' and (sdk/'librealsense2.so.2.58').is_file():
+            camera_env['LD_LIBRARY_PATH'] = str(sdk)+':'+os.environ.get('LD_LIBRARY_PATH', '')
+        result.append(('camera', ['ros2','launch','realsense2_camera','rs_launch.py',
+            'camera_namespace:=r680','camera_name:=d455','serial_no:=_260922306083',
+            'depth_module.depth_profile:=640x480x30','rgb_camera.color_profile:=640x480x30',
+            'enable_depth:=true','enable_color:=true','enable_infra1:=false','enable_infra2:=false',
+            'enable_gyro:=false','enable_accel:=false','publish_tf:=true',
+            'align_depth.enable:=true','enable_sync:=true'],camera_env))
+    if not owners['mount']:
+        # Same measured mounting transform as the deployed robot configuration.
+        mount_executable=Path(get_package_prefix('tf2_ros'))/'lib/tf2_ros/static_transform_publisher'
+        result.append(('mount', [str(mount_executable),
+            '--x','0.184428484','--y','0.059803590','--z','0.501660007',
+            '--qx','0.000096773','--qy','0.077125800','--qz','-0.000560247','--qw','0.997021207',
+            '--frame-id','r680_mapping_floor','--child-frame-id','d455_link'],{}))
+    if not owners['detector']:
+        result.append(('detector', [args.python,str(nav/'nav_yolo_detector'),'--model',args.model,
+            '--tracker',args.tracker,'--device',args.device,'--base-frame','r680_mapping_floor'],{}))
+    if not owners['points']:
+        result.append(('local_obstacles', [str(nav/'depth_to_points'),'--ros-args',
+            '--params-file',str(share/'config/d455_points.yaml'),
+            '-p','output_topic:='+POINTS,
+            '-p','safety_output_topic:=/r680/perception/local_obstacles_safety',
+            '-p','clearing_output_topic:=/r680/perception/local_clearing_points',
+            '-p','visualization_output_topic:=/r680/perception/local_obstacles_viz'],{}))
+    if not viewer_running:
+        result.append(('viewer', ['/usr/bin/python3',str(nav/'nav_perception_debug'),
+            '--mode','local','--port',str(args.port)],{}))
+    return result
+
+
+def main():
+    p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--python',required=True)
+    p.add_argument('--model',required=True)
+    p.add_argument('--tracker',required=True)
+    p.add_argument('--device',default='0')
+    p.add_argument('--port',type=int,default=18081)
+    p.add_argument('--check',action='store_true',help='Read-only preflight and print the exact launch plan')
+    args=p.parse_args()
+    if not 0 < args.port < 65536:p.error('Invalid port')
+    # Prevent two simultaneous preflights from both deciding to own the camera.
+    lock_file=None
+    if not args.check:
+        import fcntl
+        runtime=Path(os.environ.get('WLA_ROS_WS', str(Path.home()/'ros2_ws')))/'.runtime'
+        runtime.mkdir(parents=True,exist_ok=True)
+        lock_file=(runtime/('perception-debug-'+os.environ.get('ROS_DOMAIN_ID','0')+'.lock')).open('a')
+        try:
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            lock_file.close()
+            print('Standalone camera debug is already running in this ROS domain; reuse its windows.',file=sys.stderr)
+            return 2
+    try:
+        viewer_running=viewer_available(args.port)
+        owners=discover()
+        plan=commands(args,owners,viewer_running)
+    except RuntimeError as error:
+        if lock_file:lock_file.close()
+        print(str(error),file=sys.stderr);return 2
+    print(json.dumps({'mode':'standalone_local','domain':os.environ.get('ROS_DOMAIN_ID','0'),
+        'reuse':dict(owners,viewer=viewer_running),'start':[name for name,_,_ in plan],
+        'detections':f'http://<robot-ip>:{args.port}/detections',
+        'planning':f'http://<robot-ip>:{args.port}/planning'},ensure_ascii=False,indent=2),flush=True)
+    if args.check:
+        for name,cmd,_ in plan:print(name, json.dumps(cmd))
+        return 0
+    if not plan:
+        if lock_file:lock_file.close()
+        print('All sources already running; open the debug windows.');return 0
+    processes=[ExecuteProcess(cmd=cmd,name=name,additional_env=env,output='screen') for name,cmd,env in plan]
+    failures=[]
+    def exited(event,context):
+        if context.is_shutdown:
+            return []
+        if event.returncode not in (0,-2,130):failures.append(event.returncode)
+        return [EmitEvent(event=Shutdown(reason='standalone debug component exited'))]
+    handlers=[RegisterEventHandler(OnProcessExit(target_action=proc,on_exit=exited)) for proc in processes]
+    service=LaunchService(noninteractive=not sys.stdin.isatty())
+    service.include_launch_description(LaunchDescription([*handlers,*processes]))
+    try:
+        code=service.run()
+    finally:
+        if lock_file:lock_file.close()
+    return 1 if failures else code
+
+
+if __name__=='__main__':
+    raise SystemExit(main())

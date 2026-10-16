@@ -23,5 +23,8 @@ case "$operation" in
   debug)
     exec /usr/bin/python3 "$task_nav/lib/wla_r680_navigation/nav_perception_debug" "$@"
     ;;
-  *) echo 'Usage: r680_perception.sh check | run [--base-frame r680_mapping_floor] [--no-agent] [--debug] | debug [--port 18081]' >&2; exit 2 ;;
+  debug-camera)
+    exec /usr/bin/python3 "$task_nav/lib/wla_r680_navigation/perception_debug_standalone" --python "$task_python" "${task_args[@]}" "$@"
+    ;;
+  *) echo 'Usage: r680_perception.sh check | run [--no-agent] [--debug] | debug [--mode local|odom] | debug-camera [--port 18081]' >&2; exit 2 ;;
 esac

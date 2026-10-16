@@ -24,20 +24,21 @@ from tf2_ros import StaticTransformBroadcaster
 
 
 class Fixture(Node):
-    def __init__(self):
+    def __init__(self, local=False):
         super().__init__('debug_fixture')
         self.camera_enabled = True
         self.geometry_mode = 'ok'
         self.detection_mode = 'ok'
         self.info_mode = 'ok'
+        self.local = local
         self.pubs = {k:self.create_publisher(typ, topic, 2) for k, typ, topic in [
             ('rgb', Image, '/r680/d455/color/image_raw'), ('info', CameraInfo, '/r680/d455/color/camera_info'),
             ('raw', String, '/r680/perception/detections'), ('rel', String, '/r680/perception/relative_objects'),
-            ('voxels', PointCloud2, '/r680_nav/d455/points_confirmed'), ('points', PointCloud2, '/r680_nav/d455/points'),
+            ('voxels', PointCloud2, '/r680_nav/d455/points_confirmed'), ('points', PointCloud2, '/r680/perception/local_obstacles' if local else '/r680_nav/d455/points'),
             ('path', Path, '/r680/object_follow/local_path'), ('grid', OccupancyGrid, '/r680/object_follow/local_obstacles')]}
         self.broadcaster = StaticTransformBroadcaster(self)
         tf = TransformStamped()
-        tf.header.frame_id = 'd455_floor_odom';tf.child_frame_id = 'd455_color_optical_frame'
+        tf.header.frame_id = 'r680_mapping_floor' if local else 'd455_floor_odom';tf.child_frame_id = 'd455_color_optical_frame'
         tf.header.stamp = self.get_clock().now().to_msg();tf.transform.rotation.w = 1.
         self.broadcaster.sendTransform(tf)
         # This drawing is deliberately synthetic, not a camera or field-test claim.
@@ -73,15 +74,16 @@ class Fixture(Node):
         if self.detection_mode=='wrong_epoch':rel['epoch']=2
         self.pubs['raw'].publish(String(data=json.dumps(raw)))
         self.pubs['rel'].publish(String(data=json.dumps(rel)))
-        gh=Header(stamp=now.to_msg(),frame_id='d455_floor_odom')
+        gh=Header(stamp=now.to_msg(),frame_id='r680_mapping_floor' if self.local else 'd455_floor_odom')
         # Deliberately different acquisition times exercise lookup_transform_full.
-        earlier=ns-50_000_000;gh.stamp.sec,gh.stamp.nanosec=divmod(earlier,1_000_000_000)
+        earlier=ns-(10_000_000 if self.local else 50_000_000);gh.stamp.sec,gh.stamp.nanosec=divmod(earlier,1_000_000_000)
         if self.geometry_mode=='missing_tf':gh.frame_id='unknown_frame'
         if self.geometry_mode=='stale':gh.stamp.sec-=5
         if self.geometry_mode=='zero':gh.stamp.sec=gh.stamp.nanosec=0
         pts=np.array([[x*.1,y*.1,2.+z*.1] for x in range(-9,-3) for y in range(-3,5) for z in range(2)],np.float32)
         cloud=point_cloud2.create_cloud_xyz32(gh,pts)
-        self.pubs['voxels'].publish(cloud);self.pubs['points'].publish(cloud)
+        if not self.local:self.pubs['voxels'].publish(cloud)
+        self.pubs['points'].publish(cloud)
         path=Path(header=gh)
         for y,z in [(.8,.8),(.7,1.2),(.6,1.8),(.4,2.5),(.2,3.2)]:
             pose=PoseStamped(header=gh);pose.pose.position.y=y;pose.pose.position.z=z;pose.pose.orientation.w=1.;path.poses.append(pose)
@@ -93,14 +95,14 @@ class Fixture(Node):
 
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--hold',type=float,default=0);p.add_argument('--port',type=int,default=18082);args=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--hold',type=float,default=0);p.add_argument('--port',type=int,default=18082);p.add_argument('--local',action='store_true');args=p.parse_args()
     assert os.environ.get('ROS_DOMAIN_ID')=='197', 'Fixture must only run in isolated ROS domain 197'
     assert os.environ.get('ROS_AUTOMATIC_DISCOVERY_RANGE')=='LOCALHOST'
     base=FilePath(__file__).resolve().parents[1]
     env=os.environ.copy();env['PYTHONPATH']=str(base)+':'+env.get('PYTHONPATH','')
     log=open('/tmp/wla-perception-debug-fixture.log','w')
-    proc=subprocess.Popen([sys.executable,str(base/'scripts/nav_perception_debug'),'--port',str(args.port)],env=env,stdout=log,stderr=subprocess.STDOUT)
-    rclpy.init();fixture=Fixture()
+    proc=subprocess.Popen([sys.executable,str(base/'scripts/nav_perception_debug'),'--mode','local' if args.local else 'odom','--port',str(args.port)],env=env,stdout=log,stderr=subprocess.STDOUT)
+    rclpy.init();fixture=Fixture(args.local)
     url=f'http://127.0.0.1:{args.port}'
     def get(view):
         with urllib.request.urlopen(url+'/api/'+view,timeout=2) as f:return json.load(f)
@@ -120,7 +122,12 @@ def main():
         assert d['objects'][0]['distance']==2.1
         assert len(layer(g,'voxels')['segments'])>0 and len(layer(g,'object_grid')['segments'])>0
         assert layer(g,'object_grid')['count']==8
-        print('PASS exact RGB/person/object pair; cross-time voxel, point, path and 2D-grid projection',flush=True)
+        if args.local:
+            assert len(g['layers'])==6 and all('nav_path'!=l['id'] and 'local_path'!=l['id'] for l in g['layers'])
+            assert abs(layer(g,'voxels')['skew_ms'])<=30
+            assert not any('controller_server' in name or 'planner_server' in name for name,_ in fixture.get_node_names_and_namespaces())
+            print('PASS standalone local projection without map/odom TF or Nav2 nodes',flush=True)
+        print('PASS exact RGB/person/object pair; voxel, point, path and 2D-grid projection',flush=True)
         fixture.detection_mode='wrong_epoch'
         wait_for(lambda d,g:d.get('reason')=='ok' and len(d.get('objects',[]))==2 and all(x['distance'] is None for x in d['objects']))
         fixture.detection_mode='wrong_frame'
@@ -128,7 +135,7 @@ def main():
         fixture.detection_mode='ok'
         print('PASS epoch mismatch and absent exact RGB frame never borrow distances/boxes',flush=True)
         fixture.geometry_mode='missing_tf'
-        wait_for(lambda d,g:'unknown_frame' in layer(g,'voxels').get('reason','') and not layer(g,'voxels').get('segments'))
+        wait_for(lambda d,g:('local_mode_requires_robot_or_camera_frame' if args.local else 'unknown_frame') in layer(g,'voxels').get('reason','') and not layer(g,'voxels').get('segments'))
         for mode in ['stale','zero']:
             fixture.geometry_mode=mode
             wait_for(lambda d,g:layer(g,'voxels').get('reason')=='source_stale_or_zero_stamp' and not layer(g,'voxels').get('segments'))

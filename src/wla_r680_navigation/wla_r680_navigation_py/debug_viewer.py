@@ -44,6 +44,7 @@ class DebugViewer(Node):
         self.raw = deque(maxlen=12)
         self.relative = deque(maxlen=12)
         self.sources, self.statuses = {}, {}
+        self.histories = {}
         self.image_error = ''
         self.last_client = 0.
         self.tf = Buffer(cache_time=Duration(seconds=15))
@@ -59,7 +60,7 @@ class DebugViewer(Node):
                            ('person', '/r680/person_follow/status'), ('object', '/r680/object_follow/status')]:
             self.create_subscription(String, topic, lambda m, k=key: self.on_status(k, m), qos_profile_sensor_data)
         self.specs = {
-            'voxels': (PointCloud2, args.voxel_topic, 1., '#54e0ce', '3D 确认体素'),
+            'voxels': (PointCloud2, args.voxel_topic, 1., '#54e0ce', '当前帧局部体素' if args.mode == 'local' else '3D 确认体素'),
             'points': (PointCloud2, args.points_topic, .8, '#b5d5ff', '实时障碍点'),
             'person_path': (Path, '/r680/person_follow/local_path', 1., '#54e0ce', '人物路径'),
             'object_path': (Path, '/r680/object_follow/local_path', 1., '#ffbe69', '物品路径'),
@@ -68,6 +69,9 @@ class DebugViewer(Node):
             'person_grid': (OccupancyGrid, '/r680/person_follow/local_obstacles', 1., '#71a7de', '人物二维障碍栅格'),
             'object_grid': (OccupancyGrid, '/r680/object_follow/local_obstacles', 1., '#c18a61', '物品二维障碍栅格'),
         }
+        if args.mode == 'local':
+            self.specs.pop('nav_path')
+            self.specs.pop('local_path')
         for key, (typ, topic, _, _, _) in self.specs.items():
             self.create_subscription(typ, topic, lambda m, k=key: self.on_geometry(k, m), qos_profile_sensor_data)
         self.create_timer(.2, self.render)
@@ -114,6 +118,7 @@ class DebugViewer(Node):
                      (isinstance(msg, Path) and len(msg.poses) > 10000) or
                      (isinstance(msg, OccupancyGrid) and len(msg.data) > 250000))
         self.sources[key] = (None if oversized else msg, time.monotonic())
+        self.histories.setdefault(key, deque(maxlen=8)).append(self.sources[key])
 
     def fresh(self, source_ns, received, max_age):
         age = (self.get_clock().now().nanoseconds-source_ns)*1e-9
@@ -158,6 +163,16 @@ class DebugViewer(Node):
     def source_transform(self, msg, img):
         if not msg.header.frame_id:
             raise ValueError('empty_source_frame')
+        if self.args.mode == 'local':
+            # Local geometry is robot-relative, not a persistent world snapshot.
+            # No fake odom/map transform: only rigid camera/base extrinsics and a
+            # bounded near-synchronous match. Motion within this interval is NOT compensated.
+            if msg.header.frame_id not in (self.args.base_frame, img.header.frame_id):
+                raise ValueError('local_mode_requires_robot_or_camera_frame')
+            if abs(stamp(msg)-stamp(img)) > 30_000_000:
+                raise ValueError('local_rgb_geometry_skew_over_30ms')
+            t = self.tf.lookup_transform(img.header.frame_id, msg.header.frame_id, Time(nanoseconds=stamp(img)))
+            return tf_matrix(t.transform)
         # No Time(0)/latest fallback. Cross-time geometry follows the fixed odom frame.
         if stamp(msg) == stamp(img):
             t = self.tf.lookup_transform(img.header.frame_id, msg.header.frame_id, Time(nanoseconds=stamp(img)))
@@ -246,6 +261,12 @@ class DebugViewer(Node):
         # A small delay allows dynamic TF to catch up; never substitute the latest TF.
         now = self.get_clock().now().nanoseconds
         item = next((v for v in reversed(values) if now-stamp(v[0]) >= 100_000_000), values[-1])
+        if self.args.mode == 'local':
+            entry = self.sources.get('points')
+            if entry and entry[0] is not None and self.fresh(stamp(entry[0]), entry[1], .8):
+                item = min(values, key=lambda v: abs(stamp(v[0])-stamp(entry[0])))
+            else:
+                item = values[-1]
         result.update(self.image_data(item))
         img = item[0]
         try:
@@ -254,11 +275,19 @@ class DebugViewer(Node):
             result['reason'] = str(e)
             return result
         result['reason'] = 'ok'
-        result['fixed_frame'] = self.args.fixed_frame
+        result['fixed_frame'] = self.args.fixed_frame if self.args.mode == 'odom' else None
+        result['mode'] = self.args.mode
         result['voxel_size'] = self.args.voxel_size
         for key, (_, topic, ttl, color, label) in self.specs.items():
             layer = {'id': key, 'topic': topic, 'color': color, 'label': label, 'reason': 'waiting_for_topic'}
             entry = self.sources.get(key)
+            if self.args.mode == 'local' and entry and entry[0] is not None and self.fresh(stamp(entry[0]), entry[1], ttl):
+                current = entry[0]
+                # An explicit empty path/grid cancels old geometry immediately.
+                empty = (isinstance(current, Path) and not current.poses) or (isinstance(current, OccupancyGrid) and not current.data)
+                if not empty:
+                    candidates = [it for it in self.histories.get(key, []) if it[0] is not None and self.fresh(stamp(it[0]), it[1], ttl)]
+                    entry = min(candidates, key=lambda it: abs(stamp(it[0])-stamp(img)), default=entry)
             if entry:
                 msg, received = entry
                 try:
@@ -288,6 +317,7 @@ class DebugViewer(Node):
                     for k, v in self.statuses.items()}
                 result['image_error'] = self.image_error
                 result['domain'] = os.environ.get('ROS_DOMAIN_ID', '0')
+                result['mode'] = self.args.mode
                 result['render_ms'] = round((time.monotonic()-start)*1000, 1)
                 self.snapshot[name] = self.encode(result)
             except Exception as e:
@@ -299,15 +329,19 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--host', default='0.0.0.0')
     p.add_argument('--port', type=int, default=18081)
+    p.add_argument('--mode', choices=['local', 'odom'], default='local', help='local: near-synchronous robot-frame geometry, no odometry/Nav2; odom: cross-time world geometry')
+    p.add_argument('--base-frame', default='r680_mapping_floor')
     p.add_argument('--fixed-frame', default='d455_floor_odom')
     p.add_argument('--voxel-size', type=float, default=.10, help='Must match dynamic_obstacle_memory.voxel_size')
     p.add_argument('--image-topic', default='/r680/d455/color/image_raw')
     p.add_argument('--info-topic', default='/r680/d455/color/camera_info')
-    p.add_argument('--voxel-topic', default='/r680_nav/d455/points_confirmed')
-    p.add_argument('--points-topic', default='/r680_nav/d455/points')
+    p.add_argument('--voxel-topic', default=None)
+    p.add_argument('--points-topic', default=None)
     p.add_argument('--nav-path-topic', default='/plan')
     p.add_argument('--local-path-topic', default='/optimal_trajectory')
     args, ros_args = p.parse_known_args()
+    args.voxel_topic = args.voxel_topic or ('/r680/perception/local_obstacles' if args.mode == 'local' else '/r680_nav/d455/points_confirmed')
+    args.points_topic = args.points_topic or ('/r680/perception/local_obstacles' if args.mode == 'local' else '/r680_nav/d455/points')
     if not .01 <= args.voxel_size <= 1 or not 0 < args.port < 65536:
         p.error('Invalid voxel size or port')
     rclpy.init(args=ros_args)
@@ -323,7 +357,12 @@ def main():
 
         def do_GET(self):
             path = self.path.split('?', 1)[0]
-            if path in ('/api/detections', '/api/planning'):
+            if path == '/api/config':
+                data = node.encode({'schema': 'wla-perception-debug/v1', 'mode': args.mode,
+                    'domain': os.environ.get('ROS_DOMAIN_ID', '0'), 'base_frame': args.base_frame,
+                    'points_topic': args.points_topic, 'voxel_topic': args.voxel_topic})
+                mime = 'application/json; charset=utf-8'
+            elif path in ('/api/detections', '/api/planning'):
                 node.last_client = time.monotonic()
                 name = path.rsplit('/', 1)[1]
                 data = node.snapshot[name] if time.monotonic()-node.snapshot_time[name] < 1 else node.encode(

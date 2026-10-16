@@ -1,66 +1,73 @@
-# RGB 检测与体素路径调试窗口
+# 独立相机、检测、局部体素与路径调试
 
-调试器只订阅 ROS 数据，不调用动作/服务，不发布运动指令，不占用相机设备，不加载第二份 YOLO。原导航 Web 与地图不受影响。
+默认链路不依赖 Nav2、地图、OpenVINS 或里程计。窗口只读取数据；独立入口仅启动相机、安装 TF、检测器、深度障碍转换和窗口，不启动运动控制或发送跟随任务。
 
-## 启动
+## 一条命令
 
-相机、检测和规划链路已经启动时，在 `/home/orin/ros2_ws`：
+```bash
+cd /home/orin/ros2_ws
+./r680_perception.sh debug-camera
+```
+
+- 检测窗口：`http://<robot-ip>:18081/detections`
+- 体素/局部路径窗口：`http://<robot-ip>:18081/planning`
+- 页面“打开另一窗口”可同时打开第二视图；支持独立图层开关和暂停。
+- 默认 ROS 域 73；`ROS_DOMAIN_ID=...` 可覆盖。`--port 18082` 可换端口。
+- `debug-camera --check` 仅检查现有发布者、打印实际启动计划，不打开相机。
+- RGB、检测、局部障碍点发布者存在时复用；安装 TF 已存在时不重复发布。端口被相同配置的局部调试窗口占用时复用，否则明确报冲突。发现其他域的 RealSense 进程时拒绝再占用设备。
+- Ctrl+C 只结束本入口创建的进程；复用的相机/检测/窗口由原终端管理。未设置开机自启。
+
+相机与数据源已经运行，只需要窗口时：
 
 ```bash
 ./r680_perception.sh debug
 ```
 
-打开两张独立页面（可拖出浏览器成为两个窗口）：
+## 两窗口显示什么
 
-- 检测：`http://<robot-ip>:18081/detections`
-- 体素与路径：`http://<robot-ip>:18081/planning`
+| 内容 | 数据源 | 含义 |
+|---|---|---|
+| RGB/内参 | `/r680/d455/color/image_raw`、`/r680/d455/color/camera_info` | 相机原始 RGB、K 和畸变系数 D |
+| 人物/物品 | `/r680/perception/detections`、`/r680/perception/relative_objects` | 同帧识别框、类别、置信度、跟踪 ID、水平距离和方位 |
+| 当前局部障碍/体素 | `/r680/perception/local_obstacles` | 当前对齐深度帧，地面/高度及孤立簇过滤后，显示点或 0.10 m 体素线框 |
+| 人物局部路径 | `/r680/person_follow/local_path` | 人物跟随自身的局部规划结果 |
+| 物品局部路径 | `/r680/object_follow/local_path` | 物品跟随自身的局部规划结果 |
+| 二维局部障碍格 | `/r680/{person,object}_follow/local_obstacles` | 跟随模块的二维占用栅格，仅画地面轮廓 |
 
-页面的“打开另一窗口”链接可同时打开另一视图。支持暂停、恢复和独立图层开关。
+`depth_to_points` 是复用的独立深度处理可执行文件，虽然位于 `wla_r680_navigation` 包中，但此入口不启动该包的整套 bringup，也不启动 Nav2 节点。局部体素在显示端从当前障碍点按 `floor(point / voxel_size)` 计算，不是跨帧累积地图或确认障碍记忆，不依赖 `d455_floor_odom`。
 
-需要同时启动检测时：
+跟随节点尚未启动时，对应图层显示“尚未收到数据”；没有有效跟随任务/目标时路径为空，显示“暂无路径”。单纯看相机不会自动发起跟随，也不会伪造一条规划路径。需要运行对应跟随模块时，可在另一终端使用现有预览入口：
 
 ```bash
-./r680_perception.sh run --no-agent --debug
+./r680_object_follow.sh run enable_motion:=false
+# 或人物：./r680_person_follow.sh run enable_motion:=false
 ```
 
-两条命令二选一，不要重复占用 18081；可分别用 `debug --port 18082` 或 `run --debug --debug-port 18082` 改端口。默认 ROS 域 73，可通过 `ROS_DOMAIN_ID` 覆盖。`run` 与 `debug` 均不自动启动相机或导航。复用已有相机/导航启动入口，不启动第二个 RealSense 驱动。
+预览入口仍需原有明确的任务/目标输入才产生跟随路径；这里不替代任务协议，不改变运动授权。
 
-独立 `debug` 在终端 Ctrl+C 退出；组合 `run --debug` 跟随本次 perception 进程组退出。无开机自启。HTTP 仅用于可信机器人局域网；需要仅本机可见时用 `debug --host 127.0.0.1`。
+## 对齐与限制
 
-## 数据与显示语义
+- 检测框匹配 RGB 的 `stamp_ns + frame_id + width + height`；距离进一步匹配 `session + epoch + track_id + stamp_ns`。检测代次变化后不复用旧 ID。
+- 默认 `--mode local`：选择与当前障碍点时间最接近的 RGB，只允许车体 `r680_mapping_floor` 或该相机光学坐标系的几何，使用安装外参投影。每个图层与 RGB 的时间差必须 ≤30 ms；超出则不叠加。**这个小时间区间内的运动没有里程计补偿**，快速运动时可能仍有投影误差，页面明确标记该模式和时间差。不把车体坐标系伪装成静止世界坐标系。
+- 跟随路径/栅格保留有限时间历史以匹配图像；新的空路径会立即清除旧路径。源数据和本地接收时间都要新鲜。
+- RGB 最长 0.8 秒有效；CameraInfo 与 RGB 差 ≤0.3 秒，帧名/尺寸匹配。支持 plumb_bob、rational_polynomial、equidistant 畸变；ROI 裁剪和 binning 暂不支持并明确报错。
+- 负深度、NaN/Inf 不绘制；裁剪近裁剪面和画面外线段。**不做深度遮挡消除**，后方几何可能显示在前景物体上，不能据此判断通行安全。
+- RGB 缓存上限 24 帧/64 MiB；最多显示 600 个体素、4000 个障碍点、500 个二维格/图层、500 条路径细分段。目标 5 Hz，5 秒没有页面访问就暂停投影计算。断流清空实时画面，主动暂停保留画面并标记非实时。
+- 窗口 HTTP 只读，限可信机器人局域网；仅本机访问可用 `debug --host 127.0.0.1`。
 
-| 内容 | 订阅话题 | 显示方式 |
-|---|---|---|
-| RGB、内参 | `/r680/d455/color/image_raw`、`/r680/d455/color/camera_info` | 原尺寸 RGB；使用 K 与 D |
-| 人物/物品 | `/r680/perception/detections`、`/r680/perception/relative_objects` | 同帧识别框、类别、置信度、ID、水平距离、方位 |
-| 确认的 3D 体素 | `/r680_nav/d455/points_confirmed` | 三维格子线框，默认边长 0.10 m |
-| 当前障碍点 | `/r680_nav/d455/points` | 投影点；不用零时间戳的 RViz `points_viz` |
-| 跟随路径 | `/r680/person_follow/local_path`、`/r680/object_follow/local_path` | 两种颜色的路径线 |
-| 跟随障碍栅格 | `/r680/person_follow/local_obstacles`、`/r680/object_follow/local_obstacles` | 二维占用格地面轮廓，不补造高度 |
-| Nav2 路径/轨迹 | `/plan`、`/optimal_trajectory` | 全局/局部路径线 |
+已有世界系障碍记忆/里程计数据需跨时间转换时，可显式用 `debug --mode odom --port 18082`。这是可选兼容模式，使用 `lookup_transform_full` 和实际固定里程计坐标系，不自动启动任何导航节点；默认局部模式不订阅 Nav2 路径。
 
-没有执行任务时，跟随路径可能为空；没有对应规划节点时，显示“尚未收到数据”。部分启动模式关闭全局动态障碍记忆时，`points_confirmed` 没有数据属正常，此时仍可显示当前障碍点。查看图层自身状态，不能用 RGB 在线推断规划器已经工作。
-
-确认点云保存的是体素内代表点：显示端先在源坐标系按 `floor(point / voxel_size)` 找到真实格子，再变换八个角点。`--voxel-size` 必须与 `dynamic_obstacle_memory.voxel_size` 一致，默认 0.10 m。该话题是最长约 4 秒保留的障碍记忆快照，不是同一 RGB 帧的瞬时测量；当前上游未发布逐点采集时间，且融合使用 latest TF，其误差不由显示端修复。
-
-## 对齐、失效与边界
-
-- 检测框必须匹配 RGB 的 `stamp_ns + frame_id + width + height`；距离进一步匹配 `session + epoch + track_id + stamp_ns`。检测代次变化后不复用旧 ID。
-- 规划视图留约 100 ms 图像延迟供 TF 到达。跨时刻几何使用 `lookup_transform_full`，默认固定坐标系 `d455_floor_odom`；没有所需 TF 时不退回 latest。可用 `--fixed-frame` 指定当前链路实际的连续里程计坐标系。
-- RGB 最长 0.8 秒有效；CameraInfo 与 RGB 时间差 ≤0.3 秒，帧名/尺寸需匹配。支持 plumb_bob、rational_polynomial、equidistant 畸变。ROI 裁剪或 binning 尚不支持，明确拒绝叠加。
-- 体素/跟随几何约 1 秒失效，实时障碍点 0.8 秒，全局路径 5 秒；同时检查源时间和本地接收时间。零时间戳、超龄、缺 TF、无效相机参数均在页面报原因。路径的时间采用 Path header，不把各 pose 的未来轨迹时间当采集时间；不接受混合 frame。
-- 负深度、非有限坐标不会绘制；线段经过近裁剪面与图像边界裁剪。路径细分以近似畸变下的曲线。**不做深度遮挡消除**，后方几何可能叠在前景物体上，不能据此判断通行安全。
-- RGB 缓存同时限制 24 帧/64 MiB；最多显示 600 个确认体素、4000 个障碍点、500 个二维占用格/图层、500 条路径细分段。稠密输入会抽样，路径过长时截断。渲染目标 5 Hz，两窗口共用 JPEG/投影结果；5 秒没有页面访问就停止投影计算。
-- HTTP 断开或数据过期时清除画面；主动暂停时保留画面并显示“非实时”。页面仅提供 GET 读取，不提供控制接口。
-
-## 验证
+## 测试
 
 ```bash
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 /usr/bin/python3 src/wla_r680_navigation/test/test_debug_projection.py
+/usr/bin/python3 src/wla_r680_navigation/test/test_debug_standalone.py
 ROS_DOMAIN_ID=197 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
-  /usr/bin/python3 src/wla_r680_navigation/test/test_debug_viewer_ros.py
+  /usr/bin/python3 src/wla_r680_navigation/test/test_debug_viewer_ros.py --local
 ```
 
-2026-10-16：7 项纯几何/身份/缓存测试通过；隔离域 197 的真实 ROS→HTTP 测试通过，覆盖两路检测、不同时间的体素/点/路径/二维格投影、CameraInfo 错配、无 TF、旧数据重放、零时间戳、相机断流与恢复、HTTP 拒绝写操作。浏览器实查两窗口、图层开关和暂停恢复，未见脚本错误。合成测试画面明确标注 SYNTHETIC FIXTURE，不代表实车标定/重投影精度验收。
+隔离测试的图像明确标记 SYNTHETIC FIXTURE。测试覆盖独立局部投影、无 map/odom TF、无 Nav2 节点、同帧检测、时间差/世界坐标拒绝、CameraInfo 错配、断流恢复和 HTTP 拒绝写操作。软件测试不等于实车标定/投影精度验收。
+
+2026-10-16 真实 D455 静态观察测试：独立入口只启动 camera、mount、detector、local_obstacles，复用窗口；未启动 Nav2/定位/运动控制。RGB 640×480、检测数据和局部体素投影接通，记录到 person 检测；采样记录 308 个体素、2981 个障碍点、几何/RGB 时间差 0 ms。测试结束后本次相机、检测、深度处理进程已退出，窗口保留。未下发跟随任务，真实跟随路径和运动中的投影精度尚未验收。
