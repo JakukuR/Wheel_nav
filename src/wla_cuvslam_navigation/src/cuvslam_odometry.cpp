@@ -32,6 +32,7 @@
 #include "odometry_contract.hpp"
 #include "health_evidence.hpp"
 #include "visual_pose_evidence.hpp"
+#include "isaac_ros_cuvslam/impl/pose_cache.hpp"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
 
@@ -427,7 +428,14 @@ private:
         cuvslam::internal::Internals frame_options;
         const bool force_keyframe = initialization_sampling_->request(frame_stamp, gravity_frames_ > 0);
         if (force_keyframe) {frame_options.kf_override_frame_selection = true; ++requested_init_keyframes_;}
-        const auto estimate = tracker_->Track(images, {}, {}, force_keyframe ? &frame_options : nullptr);
+        cuvslam::PoseEstimate estimate;
+        try {
+          estimate = tracker_->Track(images, {}, {}, force_keyframe ? &frame_options : nullptr);
+        } catch (const std::exception & ex) {
+          // Match upstream UpdatePose(): finish this frame, keep the tracker alive.
+          RCLCPP_WARN(get_logger(), "Failed to track: %s", ex.what());
+          continue;
+        }
         const auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
         if (tracked_frames_ == 0) { first_track_time_ = start; }
         last_track_time_ = std::chrono::steady_clock::now();
@@ -447,7 +455,10 @@ private:
         }
         track_ms_.push_back(elapsed);
         if (track_ms_.size() > 4096) track_ms_.erase(track_ms_.begin(), track_ms_.begin() + 2048);
-        if (!estimate.world_from_rig) { ++lost_frames_; status("tracking_lost_no_output"); continue; }
+        if (!estimate.world_from_rig) {
+          pose_cache_.Reset();
+          ++lost_frames_; status("tracking_lost_no_output"); continue;
+        }
         const auto & result = *estimate.world_from_rig;
         bool finite = std::all_of(result.pose.translation.begin(), result.pose.translation.end(), [](float v) {return std::isfinite(v);}) &&
           std::all_of(result.pose.rotation.begin(), result.pose.rotation.end(), [](float v) {return std::isfinite(v);});
@@ -464,8 +475,7 @@ private:
           negative_diagonal = negative_diagonal || result.covariance_xyz_rpy[i * 7] < 0;
         }
         if (!finite_covariance || negative_diagonal) {
-          // Preserve the rejected matrix before the watchdog respawns us. Keep
-          // the existing rejection rules; non-finite JSON entries become null.
+          // Diagnostic only: upstream does not stop tracking for this matrix.
           std::ostringstream evidence;
           evidence << std::setprecision(12) << "{\"finite\":"
             << (finite_covariance ? "true" : "false")
@@ -479,7 +489,6 @@ private:
           evidence << "],\"position\":[" << position.x() << ',' << position.y()
             << ',' << position.z() << "]}";
           diagnostic("invalid_sdk_covariance", evidence.str(), true);
-          throw std::runtime_error(finite_covariance ? "negative SDK covariance" : "non-finite SDK covariance");
         }
         double velocity_dt = 0;
         bool velocity_valid = false;
@@ -548,10 +557,6 @@ private:
         message.pose.pose.orientation.y = rotation.y();
         message.pose.pose.orientation.z = rotation.z();
         message.pose.pose.orientation.w = rotation.w();
-        for (size_t i = 0; i < 36; ++i) { message.pose.covariance[i] = result.covariance_xyz_rpy[i]; }
-        // SDK v17 exposes pose covariance but no public velocity covariance.
-        // Estimate body-frame twist from consecutive poses; explicit uncertain covariance.
-        for (size_t i = 0; i < 6; ++i) { message.twist.covariance[i * 7] = 1e6; }
         if (velocity_valid) {
           message.twist.twist.linear.x = filtered_linear_.x();
           message.twist.twist.linear.y = filtered_linear_.y();
@@ -559,8 +564,20 @@ private:
           message.twist.twist.angular.x = filtered_angular_.x();
           message.twist.twist.angular.y = filtered_angular_.y();
           message.twist.twist.angular.z = filtered_angular_.z();
-          for (size_t i = 0; i < 6; ++i) message.twist.covariance[i * 7] =
-            std::max(i < 3 ? 0.0025 : 0.01, 2.0 * message.pose.covariance[i * 7] / (velocity_dt * velocity_dt));
+        }
+        // Upstream ROS Odometry uses history covariance, not the SDK pose matrix.
+        // Keep the existing body-frame velocity estimate; cache the published twist.
+        pose_cache_.Add(estimate.timestamp_ns, tf2::Transform(
+          tf2::Quaternion(rotation.x(), rotation.y(), rotation.z(), rotation.w()),
+          tf2::Vector3(position.x(), position.y(), position.z())));
+        const auto & twist = message.twist.twist;
+        velocity_cache_.Add(twist.linear.x, twist.linear.y, twist.linear.z,
+          twist.angular.x, twist.angular.y, twist.angular.z);
+        if (!pose_cache_.GetCovariance(message.pose.covariance)) {
+          for (size_t i = 0; i < 6; ++i) { message.pose.covariance[i * 7] = 1.; }
+        }
+        if (!velocity_cache_.GetCovariance(message.twist.covariance)) {
+          for (size_t i = 0; i < 6; ++i) { message.twist.covariance[i * 7] = 1.; }
         }
         if ((get_clock()->now().nanoseconds() - frame_stamp) > max_age_ns_) {
           diagnostic("stale_estimate_no_output","{\"age_ns\":"+
@@ -719,6 +736,8 @@ private:
   double initialization_stable_s_{}, twist_filter_tau_s_{}, max_gyro_bias_{}, max_accel_bias_{};
   Eigen::Vector3d filtered_linear_{Eigen::Vector3d::Zero()}, filtered_angular_{Eigen::Vector3d::Zero()};
   wla_vio::InitializationGate initialization_gate_;
+  nvidia::isaac_ros::visual_slam::PoseCache pose_cache_;
+  nvidia::isaac_ros::visual_slam::VelocityCache velocity_cache_;
   bool initialization_diagnostics_{false};
   std::unique_ptr<wla_vio::InitializationSampling> initialization_sampling_;
   size_t keyframes_{0}, requested_init_keyframes_{0};
