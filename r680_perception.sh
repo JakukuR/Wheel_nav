@@ -20,5 +20,8 @@ case "$operation" in
   run)
     exec /usr/bin/python3 "$task_nav/lib/wla_r680_navigation/nav_perception_bringup" --python "$task_python" "${task_args[@]}" "$@"
     ;;
-  *) echo 'Usage: r680_perception.sh check | run [--base-frame r680_mapping_floor] [--no-agent]' >&2; exit 2 ;;
+  debug)
+    exec /usr/bin/python3 "$task_nav/lib/wla_r680_navigation/nav_perception_debug" "$@"
+    ;;
+  *) echo 'Usage: r680_perception.sh check | run [--base-frame r680_mapping_floor] [--no-agent] [--debug] | debug [--port 18081]' >&2; exit 2 ;;
 esac

@@ -14,10 +14,15 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument('--python', required=True)
     p.add_argument('--no-agent', action='store_true')
+    p.add_argument('--debug', action='store_true', help='Start read-only detection and RGB geometry windows')
+    p.add_argument('--debug-port', type=int, default=18081)
     args, detector_args = p.parse_known_args()
     nav = Path(get_package_prefix('wla_r680_navigation'))/'lib/wla_r680_navigation/nav_yolo_detector'
     detector = ExecuteProcess(cmd=[args.python,str(nav),*detector_args],output='screen')
     processes = [detector]
+    if args.debug:
+        viewer = nav.with_name('nav_perception_debug')
+        processes.append(ExecuteProcess(cmd=['/usr/bin/python3', str(viewer), '--port', str(args.debug_port)], output='screen'))
     if not args.no_agent:
         bridge = Path(get_package_prefix('wla_behavior_bridge'))/'lib/wla_behavior_bridge/nav_perception_adapter'
         processes.append(ExecuteProcess(cmd=['/usr/bin/python3',str(bridge)],output='screen'))
