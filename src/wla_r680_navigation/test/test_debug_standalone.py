@@ -31,13 +31,16 @@ class StandaloneTest(unittest.TestCase):
                     discover.assert_not_called()
 
     def test_launch_plan_contains_no_navigation_or_actuation(self):
-        args=argparse.Namespace(python='/usr/bin/python3',model='m.pt',tracker='t.yaml',device='0',port=18081)
+        args=argparse.Namespace(python='/usr/bin/python3',model='m.pt',tracker='t.yaml',device='0',port=18081,
+                                classes_file='classes.json',text_encoder='text.ts')
         plan=standalone.commands(args,dict(camera=False,mount=False,detector=False,points=False),False)
         self.assertEqual([x[0] for x in plan],['camera','mount','detector','local_obstacles','viewer'])
         text=' '.join(' '.join(row[1]) for row in plan)
         for bad in ['nav2','bringup.launch.py','r680_nav.sh','command_guard','wheeltec_robot','enable_motion:=true']:
             self.assertNotIn(bad,text)
         self.assertIn('/r680/perception/local_obstacles',text)
+        self.assertIn('--classes-file classes.json',text)
+        self.assertIn('--text-encoder text.ts',text)
         self.assertEqual(standalone.commands(args,dict(camera=True,mount=True,detector=True,points=True),True),[])
 
     def test_local_projection_rejects_world_frame_and_time_skew(self):

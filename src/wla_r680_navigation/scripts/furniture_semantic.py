@@ -87,10 +87,12 @@ class FurnitureSemantic(Node):
         self.health_received = 0.
         self.model = None
         if args.detection_backend == 'local_yolo':
-            from ultralytics import YOLO
+            import sys
+            sys.path.insert(0, str(Path(os.environ.get("WLA_AGENT_ROOT", str(Path.home() / "Wheel_Legged_Agent"))) / "src"))
+            from wla_sim.perception.yoloe import load_yoloe
             if not args.model or not Path(args.model).is_file():
                 raise ValueError('explicit local model file required')
-            self.model = YOLO(args.model, task='detect')
+            self.model = load_yoloe(args.model, classes=sorted(self.classes))
             self.class_ids = [key for key, name in self.model.names.items() if name in self.classes]
             if len(self.class_ids) != len(self.classes):
                 raise ValueError('furniture class missing from model')

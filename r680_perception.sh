@@ -8,7 +8,10 @@ export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-73}" RMW_IMPLEMENTATION=rmw_cyclonedds_cp
 export CYCLONEDDS_URI="${CYCLONEDDS_URI:-file://$workspace/install/wla_manual_control/share/wla_manual_control/config/cyclonedds-local.xml}"
 task_python="${R680_PERCEPTION_PYTHON:-$workspace/.venv-perception/bin/python}"
 task_nav="$workspace/install/wla_r680_navigation"
-task_args=(--model "${R680_YOLO_MODEL:-${WLA_AGENT_ROOT:-$HOME/Wheel_Legged_Agent}/models/perception/yolo/yolo11n.pt}"
+export PYTHONPATH="${WLA_AGENT_ROOT:-$HOME/Wheel_Legged_Agent}/src${PYTHONPATH:+:$PYTHONPATH}"
+task_args=(--model "${R680_YOLO_MODEL:-${WLA_AGENT_ROOT:-$HOME/Wheel_Legged_Agent}/models/perception/yoloe/yoloe-11s-seg.pt}"
+           --classes-file "${WLA_YOLOE_CLASSES:-${WLA_AGENT_ROOT:-$HOME/Wheel_Legged_Agent}/deploy/yoloe_classes.json}"
+           --text-encoder "${WLA_YOLOE_TEXT_ENCODER:-${WLA_AGENT_ROOT:-$HOME/Wheel_Legged_Agent}/models/perception/yoloe/mobileclip_blt.ts}"
            --tracker "$task_nav/share/wla_r680_navigation/config/perception.botsort.yaml"
            --device "${R680_PERCEPTION_DEVICE:-0}")
 operation="${1:-check}"

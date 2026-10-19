@@ -239,6 +239,8 @@ class NavDetector(Node):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--model', required=True)
+    p.add_argument('--classes-file', default='/home/orin/Wheel_Legged_Agent/deploy/yoloe_classes.json')
+    p.add_argument('--text-encoder', default='/home/orin/Wheel_Legged_Agent/models/perception/yoloe/mobileclip_blt.ts')
     p.add_argument('--tracker', required=True)
     p.add_argument('--device', default='0')
     p.add_argument('--imgsz', type=int, default=416)
@@ -262,14 +264,19 @@ def main():
             p.error('a detector is already running in this ROS domain')
     import cv2
     import torch
-    from ultralytics import YOLO
+    import sys
+    sys.path.insert(0, str(Path(os.environ.get("WLA_AGENT_ROOT", str(Path.home() / "Wheel_Legged_Agent"))) / "src"))
+    from wla_sim.perception.yoloe import load_yoloe, vocabulary
     torch.set_num_threads(2)
     cv2.setNumThreads(2)
-    model = YOLO(args.model, task='detect')
+    labels, texts, vocabulary_hash = vocabulary(path=args.classes_file)
+    model = load_yoloe(args.model, classes=labels, prompts=dict(zip(labels, texts)),
+                       text_encoder_path=args.text_encoder)
     if args.check_dependencies:
         print(json.dumps(dict(owner='ros2_ws/wla_r680_navigation', model=args.model,
             sha256=hashlib.sha256(Path(args.model).read_bytes()).hexdigest(),
-            cuda_available=torch.cuda.is_available(), classes=list(model.names.values()))))
+            cuda_available=torch.cuda.is_available(), classes=list(model.names.values()),
+            detector=model.wla_yoloe_provenance)))
         return
     rclpy.init(args=[])
     node = NavDetector(args, model)

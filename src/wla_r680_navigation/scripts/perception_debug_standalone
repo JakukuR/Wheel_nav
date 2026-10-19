@@ -99,7 +99,8 @@ def commands(args, owners, viewer_running):
             '--frame-id','r680_mapping_floor','--child-frame-id','d455_link'],{}))
     if not owners['detector']:
         result.append(('detector', [args.python,str(nav/'nav_yolo_detector'),'--model',args.model,
-            '--tracker',args.tracker,'--device',args.device,'--base-frame','r680_mapping_floor'],{}))
+            '--tracker',args.tracker,'--classes-file',args.classes_file,
+            '--text-encoder',args.text_encoder,'--device',args.device,'--base-frame','r680_mapping_floor'],{}))
     if not owners['points']:
         result.append(('local_obstacles', [str(nav/'depth_to_points'),'--ros-args',
             '--params-file',str(share/'config/d455_points.yaml'),
@@ -118,6 +119,8 @@ def main():
     p.add_argument('--python',required=True)
     p.add_argument('--model',required=True)
     p.add_argument('--tracker',required=True)
+    p.add_argument('--classes-file',default='/home/orin/Wheel_Legged_Agent/deploy/yoloe_classes.json')
+    p.add_argument('--text-encoder',default='/home/orin/Wheel_Legged_Agent/models/perception/yoloe/mobileclip_blt.ts')
     p.add_argument('--device',default='0')
     p.add_argument('--port',type=int,default=18081)
     p.add_argument('--check',action='store_true',help='Read-only preflight and print the exact launch plan')
