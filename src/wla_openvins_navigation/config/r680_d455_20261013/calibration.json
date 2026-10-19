@@ -1,25 +1,50 @@
 {
   "kind": "commissioning",
   "calibration_validated": false,
-  "provenance": "Kalibr d455_20261013_153541; 90min conditional random walk, not validated. Base mount retained from bringup; camera geometry rectified. Estimator settings updated 2026-10-14 by 2c16e2e: enable built-in ZUPT with IMU residual gating and disable disparity override; calibration and IMU noise parameters unchanged. 2026-10-15: removed legacy threading overrides; use official ROS node threading defaults. Calibration unchanged. 2026-10-15: restore pinned upstream rs_d455 estimator defaults; sole estimator override max_cameras=2 for calibrated IR stereo. Camera/IMU calibration and 200 Hz rate retained.",
-  "source_sha256": "caf076c7a7fa92af83ec181e522ff6d80ee165e500eb0166ae7c066dfbc7dfac",
-  "sensor": "d455",
-  "source_run": "d455_20261013_153541",
-  "source_camchain_sha256": "528ecbe16b1a32d7c2bda819fde38a70e2ed993771c5fa09e1689f826a202a6c",
   "deployment_allowed": false,
+  "provenance": "2026-10-19: replace camera intrinsics, residual distortion, camera-IMU transforms and IMU noise using Kalibr stereo_imu/20261019_112128. Freeze camera intrinsics/extrinsics/timeoffset online estimation for comparison. Offline fit checked; independent Orin VIO validation pending. Existing vehicle mount retained and not recalibrated.",
+  "sensor": "d455",
+  "source_run": "stereo_imu/20261019_112128",
+  "source_commit": "kalibr 1f60227442d25e36365ef5f72cd80b9666d73467",
+  "source_camchain": "data/stereo_imu/20261019_112128/stereo-camchain-imucam.yaml",
+  "source_imu": "data/stereo_imu/20261019_112128/stereo-imu.yaml",
+  "timeshift_cam_imu_s": [
+    0.0029513540161373417,
+    0.002956390979817337
+  ],
   "config_sha256": {
     "frontend.yaml": "68ea6c76bf931fd21551afbb4030e0a67f742728eadc53d9ac63a7e9d2f2d3fc",
-    "estimator_config.yaml": "4dbb14ad61902fcdef96176ccf5074fccec226ab5649844424b0a9ee5ebc54c2",
-    "kalibr_imucam_chain.yaml": "5af85740e3ceb4fb59b72a02027aa38beb17f296ceefffacac9be6f44dea70bc",
-    "kalibr_imu_chain.yaml": "379e62243d054ffc6e0ea74a3fecae0c44735bfe16f8f4581e374e050022787b"
+    "estimator_config.yaml": "041e79ee4153f2d90c5fc82bedaf8bc32b92eacf3c166681369baf7db2054769",
+    "kalibr_imu_chain.yaml": "b53f92361b226bcdf69467b5c87fa960384d6769a7485accfd176898f43703b5",
+    "kalibr_imucam_chain.yaml": "fad1a2d8775e05651cd6684186fc6a63a51acb7fd8533621748bc7221688a12f"
   },
   "estimator_reference": {
     "repository": "https://github.com/rpng/open_vins",
     "commit": "69488123ed9362dd44b6f28e7f4680abbff1442b",
     "path": "config/rs_d455/estimator_config.yaml",
-    "sha256": "6f63de02e0d766ac2dfb1abd679edefddea1c25225218c8186ef13c1be27111f",
     "overrides": {
-      "max_cameras": 2
+      "max_cameras": 2,
+      "calib_cam_extrinsics": false,
+      "calib_cam_intrinsics": false,
+      "calib_cam_timeoffset": false
     }
+  },
+  "notes": [
+    "Original directory name retained at user request; source calibration is 20261019_112128.",
+    "OpenVINS uses cam0 timeshift for all cameras. The original cam1 value is retained for provenance; the difference is 5.037 microseconds.",
+    "Existing frontend.yaml vehicle mount and T_i_b preserved; Kalibr only calibrated camera-to-internal-IMU geometry.",
+    "Six-position IMU correction has not been applied or written to EEPROM.",
+    "Old 20261013_manifest.yaml is historical; do not regenerate this updated configuration from that manifest.",
+    "Commissioning status retained pending independent VIO validation; online calibration drift is a diagnostic hypothesis, not an established cause."
+  ],
+  "validation": {
+    "offline_kalibr_fit_checked": true,
+    "independent_vio_validated": false,
+    "physical_turn_test_completed": false
+  },
+  "effective_shared_timeshift_cam_imu_s": 0.0029513540161373417,
+  "source_sha256": {
+    "stereo-camchain-imucam.yaml": "2bebc698a30fa331e59ae2945f4edab713f0ff7c2bdf74494a8d119480a7a6d8",
+    "stereo-imu.yaml": "b9e9feb18ee5f7d1a8e65d9f60e4004e57ed3b6367b846738672bf1f1d7c2fb3"
   }
 }
