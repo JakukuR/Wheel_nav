@@ -21,24 +21,33 @@ config="$workspace/install/wla_openvins_navigation/share/wla_openvins_navigation
 cp -aL "$config" "$output/config_at_record_start"
 printf 'duration_seconds=%s\nROS_DOMAIN_ID=%s\nRMW_IMPLEMENTATION=%s\n' "$seconds" "$ROS_DOMAIN_ID" "$RMW_IMPLEMENTATION" > "$output/recording.txt"
 printf '录制目录：%s\n限时 %s 秒；请在另一个终端启动 ./r680_nav.sh --openvins\n' "$output" "$seconds"
+# Keep recorder in the terminal process group so Ctrl+C reaches it.
+# Preserve the wrapper long enough to inspect the finalized metadata.
+interrupted=false
+trap 'interrupted=true' INT
+echo "提前结束请按一次 Ctrl+C，等待收尾；Ctrl+Z 只会挂起进程。"
 set +e
-timeout --signal=INT --kill-after=15s "${seconds}s" ros2 bag record \
+timeout --foreground --signal=INT --kill-after=15s "${seconds}s" ros2 bag record \
   --storage mcap --output "$output/bag" --disable-keyboard-controls \
   --topics /r680/d455/infra1/image_rect_raw /r680/d455/infra2/image_rect_raw \
   /r680/d455/infra1/camera_info /r680/d455/infra2/camera_info \
   /r680/d455/imu /r680/d455/accel/sample /r680/d455/gyro/sample \
   /wheel/odom /openvins/odomimu /d455_slam/odom /tf /tf_static \
   /r680_base/control_state /r680_nav/localization_ready /parameter_events \
-  > >(tee "$output/recorder.log") 2>&1
+  > >(tee -i "$output/recorder.log") 2>&1
 status=$?
+trap - INT
 set -e
-if [[ "$status" != 0 && "$status" != 124 && "$status" != 130 ]]; then
+if [[ "$status" != 0 && "$status" != 124 && "$status" != 130 ]] && ! [[ "$interrupted" == true && "$status" == 2 ]]; then
   echo "Recorder failed: status=$status; see $output/recorder.log" >&2
   exit "$status"
 fi
 if [[ ! -f "$output/bag/metadata.yaml" ]]; then
   echo "No finalized bag metadata; recording is not confirmed: $output" >&2
   exit 1
+fi
+if [[ "$interrupted" == true && "$status" == 2 ]]; then
+  echo "收到 Ctrl+C；ROS 退出码为 2，正在检查已完成的录包元数据。"
 fi
 ros2 bag info "$output/bag" | tee "$output/bag_info.txt"
 echo "录制结束。需检查 bag_info.txt 中双目、IMU、轮速是否均有消息：$output"
