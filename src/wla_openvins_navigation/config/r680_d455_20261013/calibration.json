@@ -14,7 +14,7 @@
   ],
   "config_sha256": {
     "frontend.yaml": "68ea6c76bf931fd21551afbb4030e0a67f742728eadc53d9ac63a7e9d2f2d3fc",
-    "estimator_config.yaml": "041e79ee4153f2d90c5fc82bedaf8bc32b92eacf3c166681369baf7db2054769",
+    "estimator_config.yaml": "ed81ae3bfcb2c51d96c8d6f8081a8169308bd35368dde3c114614feb9acd7429",
     "kalibr_imu_chain.yaml": "b53f92361b226bcdf69467b5c87fa960384d6769a7485accfd176898f43703b5",
     "kalibr_imucam_chain.yaml": "fad1a2d8775e05651cd6684186fc6a63a51acb7fd8533621748bc7221688a12f"
   },
@@ -26,7 +26,8 @@
       "max_cameras": 2,
       "calib_cam_extrinsics": false,
       "calib_cam_intrinsics": false,
-      "calib_cam_timeoffset": false
+      "calib_cam_timeoffset": false,
+      "verbosity": "DEBUG"
     }
   },
   "notes": [
@@ -35,7 +36,8 @@
     "Existing frontend.yaml vehicle mount and T_i_b preserved; Kalibr only calibrated camera-to-internal-IMU geometry.",
     "Six-position IMU correction has not been applied or written to EEPROM.",
     "Old 20261013_manifest.yaml is historical; do not regenerate this updated configuration from that manifest.",
-    "Commissioning status retained pending independent VIO validation; online calibration drift is a diagnostic hypothesis, not an established cause."
+    "Commissioning status retained pending independent VIO validation; online calibration drift is a diagnostic hypothesis, not an established cause.",
+    "2026-10-19: enable DEBUG feature-update diagnostics after observed VIO divergence; calibration numeric values unchanged. Capture synchronized raw stereo/IMU and wheel odometry before further tuning."
   ],
   "validation": {
     "offline_kalibr_fit_checked": true,
