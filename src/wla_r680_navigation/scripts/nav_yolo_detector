@@ -34,6 +34,9 @@ class NavDetector(Node):
     def __init__(self, args, model):
         super().__init__('r680_nav_yolo_detector')
         self.args, self.model = args, model
+        from wla_r680_navigation_py.gmc_recovery import RecoverableTrackingRuntime as TrackingRuntime
+        self.runtime = TrackingRuntime(model)
+        self.last_valid_result_ns = 0
         self.session, self.epoch = uuid.uuid4().hex, 0
         self.last_stamp, self.last_frame, self.last_receive = 0, None, 0.
         self.pending = self.result = None
@@ -63,6 +66,7 @@ class NavDetector(Node):
     def reset_epoch(self):
         # Caller owns condition; in-flight inference may finish but cannot publish.
         self.epoch += 1
+        self.last_valid_result_ns = 0
         self.pending = self.result = None
         self.last_stamp, self.last_frame = 0, None
         self.depths.clear()
@@ -96,6 +100,7 @@ class NavDetector(Node):
             self.condition.notify()
 
     def infer(self):
+        from wla_r680_navigation_py.gmc_recovery import GMCQualityRejected
         tracker_epoch = -1
         next_at = 0.
         fallback_id = 1_000_000_000
@@ -120,9 +125,19 @@ class NavDetector(Node):
                 frame = color_array(message)
                 if frame is None:
                     continue
-                output = self.model.track(frame, persist=True, device=self.args.device,
+                options = dict(persist=True, device=self.args.device,
                     imgsz=self.args.imgsz, conf=.35, max_det=64, verbose=False,
-                    tracker=self.args.tracker)[0]
+                    tracker=self.args.tracker)
+                processed = self.runtime.process(frame, **options)
+                if processed is None:
+                    with self.condition:
+                        if epoch == self.epoch:
+                            self.reset_epoch()
+                    self.metrics_pub.publish(String(data=json.dumps(dict(
+                        timing, outcome='warmup_discarded', **self.runtime.last_metrics))))
+                    continue
+                output = processed[0]
+                timing['runtime'] = self.runtime.last_metrics
                 rows = []
                 for box in output.boxes:
                     if box.id is None:
@@ -142,11 +157,20 @@ class NavDetector(Node):
                 with self.condition:
                     if epoch == self.epoch and not self.stopping:
                         self.result = (batch, timing)
+            except GMCQualityRejected:
+                # Preflight failed before BoT-SORT updated any state. Keep the
+                # task epoch and last valid timestamp; never renew stale data.
+                with self.condition:
+                    if epoch == self.epoch:
+                        self.result = (None, dict(timing, outcome='gmc_degraded',
+                            runtime=self.runtime.last_metrics))
             except Exception as exc:
                 self.get_logger().error('YOLO failed: '+str(exc))
                 with self.condition:
                     if epoch == self.epoch:
-                        self.result = (None, dict(epoch=epoch, error=str(exc)))
+                        self.reset_epoch()
+                        self.result = (None, dict(epoch=self.epoch, error=str(exc),
+                            outcome='inference_rejected', runtime=self.runtime.last_metrics))
             next_at = time.monotonic()+max(0., 1/self.args.hz-(self.ros_ns()-start_ns)/1e9)
 
     def publish_status(self):
@@ -159,7 +183,12 @@ class NavDetector(Node):
         value = dict(schema='wla-relative-perception-status/v1', session=self.session,
                      epoch=self.epoch, stamp_ns=now, enabled=True,
                      base_frame=self.args.base_frame, camera_fresh=camera_fresh,
-                     reason='ready' if camera_fresh else 'waiting_for_fresh_camera')
+                     reason=('ready' if camera_fresh and self.last_valid_result_ns and
+                             -.05 <= (now-self.last_valid_result_ns)/1e9 <= .30
+                             else 'waiting_for_fresh_result'),
+                     inference_ready=bool(self.runtime.signature),
+                     result_fresh=bool(self.last_valid_result_ns and
+                         -.05 <= (now-self.last_valid_result_ns)/1e9 <= .30))
         self.status_pub.publish(String(data=json.dumps(value, allow_nan=False)))
 
     def project(self, batch):
@@ -202,9 +231,7 @@ class NavDetector(Node):
             return
         batch, timing = result
         if batch is None:
-            with self.condition:
-                if timing['epoch'] == self.epoch:
-                    self.reset_epoch()
+            self.metrics_pub.publish(String(data=json.dumps(timing, allow_nan=False)))
             return
         now = self.ros_ns()
         if self.stopping or batch['epoch'] != self.epoch or not -.05 <= (now-batch['stamp_ns'])/1e9 <= .30:
@@ -222,6 +249,7 @@ class NavDetector(Node):
             timing.update(projection_end_ns=self.ros_ns())
             if -.05 <= (timing['projection_end_ns']-batch['stamp_ns'])/1e9 <= .30:
                 timing['outcome'] = 'published'
+                self.last_valid_result_ns = batch['stamp_ns']
                 relative['timing'] = timing.copy()
                 self.relative_pub.publish(String(data=json.dumps(relative, allow_nan=False)))
             else:

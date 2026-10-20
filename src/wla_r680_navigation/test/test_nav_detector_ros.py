@@ -15,7 +15,7 @@ from sensor_msgs.msg import Image, CameraInfo
 
 
 def module():
-    path='/home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/nav_yolo_detector'
+    path=os.environ.get('WLA_NAV_DETECTOR_SOURCE', '/home/orin/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/nav_yolo_detector')
     loader=importlib.machinery.SourceFileLoader('nav_detector_under_test',path)
     spec=importlib.util.spec_from_loader(loader.name,loader)
     mod=importlib.util.module_from_spec(spec);loader.exec_module(mod)
@@ -39,7 +39,20 @@ class Model:
 
 
 @pytest.fixture
-def fixture():
+def fixture(monkeypatch):
+    # These tests isolate ROS/queue/geometry contracts. Real TrackingRuntime and
+    # bounded GMC are tested separately with the actual YOLOE on GPU0.
+    class FixtureRuntime:
+        def __init__(self, model):
+            self.model = model
+            self.signature = ('fixture-warmed',)
+            self.last_metrics = {}
+        def ensure_warm(self, *args, **kwargs):
+            return False
+        def process(self, *args, **kwargs):
+            return self.model.track(*args, **kwargs)
+    import wla_r680_navigation_py.gmc_recovery as runtime_module
+    monkeypatch.setattr(runtime_module, 'RecoverableTrackingRuntime', FixtureRuntime)
     assert os.environ.get('ROS_DOMAIN_ID')=='198'
     rclpy.init()
     model=Model()
@@ -213,3 +226,23 @@ def test_person_stop_forwards_without_stopping_detection(fixture):
     finally:
         executor.shutdown(timeout_sec=2.);spinning.join(2.)
         probe.destroy_node();backend.destroy_node();api.destroy_node()
+
+
+def test_gmc_degradation_preserves_epoch_and_does_not_refresh_evidence(fixture):
+    from wla_r680_navigation_py.gmc_recovery import GMCQualityRejected
+    node,model,raw,relative=fixture
+    node.on_image(rgb(node));drain_until(node,lambda:bool(raw))
+    epoch=node.epoch;last=node.last_valid_result_ns;count=len(raw)
+    published=[]
+    node.metrics_pub=NS(publish=lambda m:published.append(json.loads(m.data)))
+    original=node.runtime.process
+    node.runtime.process=lambda *a,**kw:(_ for _ in ()).throw(GMCQualityRejected())
+    for i in range(3):
+        node.on_image(rgb(node))
+        drain_until(node,lambda:len(published)>i)
+        assert published[-1]['outcome']=='gmc_degraded'
+        assert node.epoch==epoch and node.last_valid_result_ns==last
+        assert len(raw)==count and len(relative)==count
+    node.runtime.process=original
+    node.on_image(rgb(node));drain_until(node,lambda:len(raw)>count)
+    assert node.epoch==epoch and node.last_valid_result_ns>last

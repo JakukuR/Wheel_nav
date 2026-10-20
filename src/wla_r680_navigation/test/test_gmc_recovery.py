@@ -1,0 +1,110 @@
+"""Real ORB and real BoT-SORT, synthetic images/detections; no robot I/O."""
+from pathlib import Path
+from types import SimpleNamespace as NS
+import copy
+import cv2
+import numpy as np
+import pytest
+import torch
+from ultralytics.engine.results import Results
+from ultralytics.trackers.bot_sort import BOTSORT
+from ultralytics.trackers.basetrack import BaseTrack
+from ultralytics.trackers.track import on_predict_postprocess_end
+from wla_r680_navigation_py.gmc_recovery import (
+    PreparedORB, RecoverableTrackingRuntime, GMCQualityRejected)
+
+
+def image():
+    return np.random.default_rng(42).integers(0, 256, (480, 640, 3), dtype=np.uint8)
+
+
+class Model:
+    """Replace only detector inference, retain upstream tracking callbacks."""
+    def __init__(self):
+        self.callbacks=[];self.fail=False;self.offset=0
+
+    def add_callback(self, name, callback):
+        assert name=='on_predict_postprocess_end'
+        self.callbacks.append(callback)
+
+    def track(self, frame, **kwargs):
+        if self.fail:raise ValueError('inference_fault')
+        if not hasattr(self, 'predictor'):
+            args=NS(track_high_thresh=.4,track_low_thresh=.1,new_track_thresh=.5,
+                    track_buffer=5,match_thresh=.8,fuse_score=True,gmc_method='orb',
+                    with_reid=False,proximity_thresh=.5,appearance_thresh=.8)
+            self.predictor=NS(trackers=[BOTSORT(args)], args=NS(task='detect'),
+                              dataset=NS(mode='image'),save_dir=Path('/tmp'),vid_path=[None])
+        x=self.offset
+        boxes=torch.tensor([[250+x,100,350+x,400,.9,0.]])
+        self.predictor.results=[Results(frame,'frame.jpg',{0:'person'},boxes=boxes)]
+        for callback in self.callbacks:callback(self.predictor)
+        on_predict_postprocess_end(self.predictor,persist=True)
+        return self.predictor.results
+
+
+def ready():
+    model=Model();runtime=RecoverableTrackingRuntime(model,cuda_graph=False)
+    frame=image()
+    assert runtime.process(frame,device='cpu') is None
+    result=runtime.process(frame,device='cpu')
+    assert result[0].boxes.id.tolist()==[1.]
+    return model,runtime,frame
+
+
+def test_bad_frame_never_mutates_real_tracker_and_next_frame_recovers():
+    model,runtime,frame=ready();tracker=model.predictor.trackers[0]
+    track=tracker.tracked_stracks[0]
+    mean=track.mean.copy();cov=track.covariance.copy()
+    counts=(tracker.frame_id,BaseTrack._count,track.frame_id)
+    reference=tracker.gmc.previous;signature=runtime.signature
+    for _ in range(4):
+        with pytest.raises(GMCQualityRejected):
+            runtime.process(np.zeros_like(frame),device='cpu')
+        assert tracker.tracked_stracks[0] is track
+        assert (tracker.frame_id,BaseTrack._count,track.frame_id)==counts
+        np.testing.assert_array_equal(track.mean,mean)
+        np.testing.assert_array_equal(track.covariance,cov)
+        assert tracker.gmc.previous is reference and runtime.signature==signature
+        assert runtime.last_metrics['outcome']=='gmc_degraded'
+    model.offset=8
+    shifted=cv2.warpAffine(frame,np.float32([[1,0,8],[0,1,0]]),(640,480))
+    result=runtime.process(shifted,device='cpu')
+    assert result[0].boxes.id.tolist()==[1.]
+    assert tracker.frame_id==counts[0]+1
+    assert runtime.last_metrics['gmc'][0]['reason']=='matched'
+
+
+def test_blank_initial_frame_does_not_poison_reference():
+    gmc=PreparedORB()
+    with pytest.raises(GMCQualityRejected):gmc.prepare(np.zeros((480,640,3),np.uint8),[])
+    assert gmc.previous is None
+    gmc.prepare(image(),[])
+    assert gmc.diagnostics['valid']
+
+
+def test_good_preflight_matches_original_and_is_consumed_once():
+    from wla_sim.perception.yoloe_runtime import BoundedORB
+    plain=BoundedORB();prepared=PreparedORB();frame=image()
+    for dx in (0,4,8):
+        shifted=cv2.warpAffine(frame,np.float32([[1,0,dx],[0,1,0]]),(640,480))
+        expected=plain.apply(shifted,[])
+        prepared.prepare(shifted,[])
+        np.testing.assert_allclose(prepared.apply(shifted,[]),expected,atol=1e-6)
+        assert prepared._prepared is None
+
+
+def test_real_inference_fault_still_resets_tracks():
+    model,runtime,frame=ready();model.fail=True
+    with pytest.raises(ValueError,match='inference_fault'):runtime.process(frame,device='cpu')
+    assert not model.predictor.trackers[0].tracked_stracks
+    assert runtime.signature is None
+
+
+def test_unexpected_opencv_exception_is_not_quality_degradation(monkeypatch):
+    model,runtime,frame=ready()
+    def broken(*args):raise RuntimeError('opencv_fault')
+    monkeypatch.setattr(model.predictor.trackers[0].gmc,'prepare',broken)
+    with pytest.raises(RuntimeError,match='opencv_fault'):runtime.process(frame,device='cpu')
+    assert runtime.signature is None
+    assert not model.predictor.trackers[0].tracked_stracks
