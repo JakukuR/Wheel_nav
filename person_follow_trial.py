@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Explicit-ID follow client with timed or continuous mode; never publishes velocity."""
+"""Follow with a full/short target ID or an interactive person picker."""
 import argparse
 import json
 import math
 import signal
+import select
+import sys
 import time
 import uuid
 
@@ -13,10 +15,79 @@ from std_msgs.msg import String
 from wla_behavior_interfaces.srv import PersonCommand
 
 
+def visible_people(data, now_ns):
+    """A choice binds to the current full ID, never a future reused short ID."""
+    if (data.get('schema')!='wla-relative-detections/v1' or data.get('enabled') is not True
+            or not isinstance(data.get('session'),str) or not data['session']
+            or type(data.get('epoch')) is not int or data['epoch']<0
+            or not isinstance(data.get('objects'),list)
+            or type(data.get('stamp_ns')) is not int
+            or not -.05 <= (now_ns-data['stamp_ns'])/1e9 <= .30):
+        raise RuntimeError('人物检测不可用或已过期，请刷新人物列表')
+    prefix=f"{data['session']}:{data['epoch']}:";people=[];ids=set()
+    for row in data.get('objects',[]):
+        if not isinstance(row,dict):continue
+        ident=row.get('id','')
+        if (row.get('detected') is not True or row.get('label')!='person'
+                or not isinstance(ident,str) or not ident.startswith(prefix)
+                or not ident[len(prefix):].isdigit()):continue
+        if ident in ids:raise RuntimeError('人物 ID 重复，无法唯一选择')
+        ids.add(ident)
+        distance,yaw=row.get('distance'),row.get('yaw')
+        if (type(distance) not in (int,float) or not math.isfinite(distance) or distance<=0
+                or type(yaw) not in (int,float) or not math.isfinite(yaw) or abs(yaw)>math.pi):continue
+        people.append(row)
+    return sorted(people,key=lambda r:int(r['id'].rsplit(':',1)[1]))
+
+
+def resolve_target(selector, people):
+    selector=selector.strip()
+    matches=[row for row in people if row['id']==selector or
+        (selector.isdecimal() and row['id'].rsplit(':',1)[1]==selector) or
+        (selector.count(':')==1 and row['id'].endswith(':'+selector))]
+    if len(matches)!=1:
+        raise RuntimeError('目标 ID 不存在或不唯一；请用 list 查看当前人物，或不填 --target-id 交互选择')
+    return matches[0]['id']
+
+
+def show_people(people):
+    print('\n序号  画面 ID       距离      方位',flush=True)
+    for index,row in enumerate(people,1):
+        yaw=math.degrees(row['yaw']);side='左' if yaw>=0 else '右'
+        print(f"{index:>3}   {row['id'].rsplit(':',2)[-2]+':'+row['id'].rsplit(':',1)[-1]:<12} {row['distance']:.2f} m   {side} {abs(yaw):.0f}°",flush=True)
+    if not people:print('当前没有位置有效的人物。',flush=True)
+    print('输入序号后回车；r 刷新；q 取消：',end='',flush=True)
+
+
+def choose_interactively(people_now,pump,is_stopped,stdin=None):
+    stdin=sys.stdin if stdin is None else stdin
+    if not stdin.isatty():raise RuntimeError('交互选择需要终端；脚本调用请传 --target-id 短ID或完整ID')
+    people=people_now();show_people(people)
+    while not is_stopped():
+        # Keep ROS subscriptions alive while the operator reads the list.
+        pump()
+        if is_stopped():return None
+        if not select.select([stdin],[],[],0)[0]:continue
+        choice=stdin.readline()
+        if choice=='':return None
+        choice=choice.strip().lower()
+        if choice=='q':return None
+        if choice=='r':people=people_now();show_people(people);continue
+        if not choice.isdecimal() or not 1<=int(choice)<=len(people):
+            print('请输入表中的序号，或 r/q：',end='',flush=True);continue
+        selected=people[int(choice)-1]['id']
+        # Preserve the displayed choice. Never reinterpret its index/short ID
+        # against a later detector epoch or reordered candidate list.
+        try:return resolve_target(selected,people_now())
+        except RuntimeError:
+            print('该人物已不在当前检测中，请 r 刷新后重新选择：',end='',flush=True)
+    return None
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('operation', choices=['list', 'status', 'follow'])
-    p.add_argument('--target-id', default='')
+    p.add_argument('--target-id', default='', help='Full ID, short ID (e.g. 190), or epoch:ID; omit for interactive selection')
     duration = p.add_mutually_exclusive_group()
     duration.add_argument('--seconds', type=float, default=30., help='Timed follow duration, 1–120 s (default: 30)')
     duration.add_argument('--continuous', action='store_true', help='Keep renewing the task until Ctrl+C or a backend stop/failure')
@@ -26,8 +97,6 @@ def main():
         p.error('--seconds must be between 1 and 120')
     if args.continuous and args.operation != 'follow':
         p.error('--continuous requires follow')
-    if args.operation == 'follow' and not args.target_id:
-        p.error('follow requires the full --target-id from list; no automatic selection')
     rclpy.init()
     node = rclpy.create_node('person_follow_trial_' + uuid.uuid4().hex[:8])
     seen = {}
@@ -91,8 +160,26 @@ def main():
             raise RuntimeError('another_task_is_active; stop it through its owner first')
         if state.get('fault') or state.get('direct_publisher_conflict'):
             raise RuntimeError('backend_fault_or_output_conflict')
+        people_now=lambda:visible_people(fresh('objects'),node.get_clock().now().nanoseconds)
+        if args.target_id:
+            args.target_id=resolve_target(args.target_id,people_now())
+        else:
+            args.target_id=choose_interactively(people_now,
+                lambda:rclpy.spin_once(node,timeout_sec=.03),lambda:stopped)
+            if args.target_id is None:return 0
+        if stopped:return 0
         if not client.wait_for_service(timeout_sec=2.):
             raise RuntimeError('command_service_unavailable')
+        # Operator input can take minutes. Recheck current authority and the
+        # exact chosen full ID immediately before attempting start.
+        state=fresh('status')
+        if not args.allow_motion and state.get('candidate_only') is not True:
+            raise RuntimeError('backend_can_move; preview requires enable_motion:=false')
+        if state.get('enabled'):raise RuntimeError('another_task_is_active; stop it through its owner first')
+        if state.get('fault') or state.get('direct_publisher_conflict'):
+            raise RuntimeError('backend_fault_or_output_conflict')
+        args.target_id=resolve_target(args.target_id,people_now())
+        print('已选择人物：'+args.target_id,flush=True)
         start_attempted = True
         response = command('start')
         print(json.dumps({'request_id': request_id, 'target_id': args.target_id,
