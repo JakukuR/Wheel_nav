@@ -29,3 +29,7 @@ node_modules/
 # Local perception runtime and temporary maintenance backups.
 /.venv-perception/
 /.maintenance/
+
+# Versioned person-follow builds (source remains under src).
+/.staging/
+/releases/

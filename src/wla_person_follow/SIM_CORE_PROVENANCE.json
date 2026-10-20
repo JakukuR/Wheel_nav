@@ -1,0 +1,16 @@
+{
+  "baseline": "close-wide-flex",
+  "sha256": {
+    "hybrid_controller": "8f84432fd377f71a0b8c3aec92f9af603a3a780edfefe94ea5399625e93b7134",
+    "wide_turn": "c38d26cffa8460ec61eb8100eb65ebf9f68b900deddb87515d2663c705947a62",
+    "close_follow": "d125245054a099c3b5599a4886a3b6c1aabc4d1df98fbcbb6dca7e3b3426e543",
+    "smooth_follow": "491b910b111b37034f5f6e7a89b50fc6d216f811b49c161d9800b4b331e8f7d0",
+    "blocked_recovery": "6d2e3cd87772aac880cf4a60348e7dfb84bfc4be27428bd5097607c263b2fea3",
+    "rolling_depth_map": "ad5be9d0521a31be7c7f6c7396625db66300b638588401fc5da21848920a94ec"
+  },
+  "extracted": {
+    "common.py": "stable_follow.py:Tuning,wrap; simulate.py:rotation",
+    "tracking.py": "hybrid_follow.py:VisualTrack,PeopleTracks"
+  },
+  "changes": "Relative imports only for the six complete source files; no algorithm changes."
+}

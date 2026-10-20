@@ -6,8 +6,8 @@ if [[ $# -gt 0 ]]; then shift; fi
 case "$operation" in
   -h|--help|help)
     echo 'r680_person_follow.sh check | run [enable_motion:=false|true] [ROS launch arguments]'
-    echo '相对人物执行：Agent通过PersonCommand选择follow或approach_interact并注入ID。'
-    echo '默认预览；无YOLO、map、odom或Nav2依赖。启用运动仍需底盘PERSON源和AUTO授权。'
+    echo '默认 close-wide-flex 仿真后端，follow 指定人物；backend:=legacy 可回退原实现。'
+    echo '默认预览；需要共享D455/检测/轮速。直出 /r680_base/cmd_vel 前必须解除 mux 发布。'
     exit 0 ;;
   check|run) ;;
   indoor|outdoor)
@@ -16,17 +16,21 @@ case "$operation" in
 esac
 source /opt/ros/jazzy/setup.bash
 source "$workspace/install/setup.bash"
+# Versioned simulation port; remove this one line to restore the saved production entry.
+source "$workspace/releases/sim-follow-20261020-v1/install/local_setup.bash"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-73}"
 export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
 export CYCLONEDDS_URI="${CYCLONEDDS_URI:-file://$workspace/install/wla_manual_control/share/wla_manual_control/config/cyclonedds-local.xml}"
+export OPENBLAS_NUM_THREADS="${WLA_FOLLOW_NUM_THREADS:-1}"
+export OMP_NUM_THREADS="${WLA_FOLLOW_NUM_THREADS:-1}"
 export WLA_FOLLOW_PYTHON="${WLA_FOLLOW_PYTHON:-/usr/bin/python3}"
 "$WLA_FOLLOW_PYTHON" - <<'PY'
 import importlib, json, sys
 from ament_index_python.packages import get_package_prefix
-report = {'owner':'ros2_ws/wla_person_follow', 'mode':'relative_only',
+report = {'owner':'ros2_ws/wla_person_follow', 'mode':'simulation_close_wide_flex',
           'input':'/r680/perception/relative_objects',
           'command_service':'/r680/person_follow/command', 'errors':[]}
-for module in ('rclpy', 'numpy', 'cv2', 'tf2_ros', 'wla_person_follow.relative_control'):
+for module in ('rclpy', 'numpy', 'cv2', 'tf2_ros', 'wla_person_follow.relative_control', 'wla_person_follow.sim_node', '_wla_sim_geometry'):
     try: importlib.import_module(module)
     except Exception as exc: report['errors'].append(module+':'+str(exc))
 try:
