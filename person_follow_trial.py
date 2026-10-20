@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded explicit-ID trial client; never publishes velocity or changes authority."""
+"""Explicit-ID follow client with timed or continuous mode; never publishes velocity."""
 import argparse
 import json
 import math
@@ -17,11 +17,15 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('operation', choices=['list', 'status', 'follow'])
     p.add_argument('--target-id', default='')
-    p.add_argument('--seconds', type=float, default=30.)
+    duration = p.add_mutually_exclusive_group()
+    duration.add_argument('--seconds', type=float, default=30., help='Timed follow duration, 1–120 s (default: 30)')
+    duration.add_argument('--continuous', action='store_true', help='Keep renewing the task until Ctrl+C or a backend stop/failure')
     p.add_argument('--allow-motion', action='store_true', help='Allow a trial against an already motion-enabled backend')
     args = p.parse_args()
     if not math.isfinite(args.seconds) or not 1 <= args.seconds <= 120:
         p.error('--seconds must be between 1 and 120')
+    if args.continuous and args.operation != 'follow':
+        p.error('--continuous requires follow')
     if args.operation == 'follow' and not args.target_id:
         p.error('follow requires the full --target-id from list; no automatic selection')
     rclpy.init()
@@ -92,12 +96,15 @@ def main():
         start_attempted = True
         response = command('start')
         print(json.dumps({'request_id': request_id, 'target_id': args.target_id,
-            'candidate_only': state.get('candidate_only'), 'seconds': args.seconds,
+            'candidate_only': state.get('candidate_only'),
+            'continuous': args.continuous, 'seconds': None if args.continuous else args.seconds,
             'reason': response.reason}, ensure_ascii=False), flush=True)
-        end = time.monotonic()+args.seconds
+        end = None if args.continuous else time.monotonic()+args.seconds
         next_heartbeat, next_print = time.monotonic()+.4, 0.
-        while not stopped and time.monotonic() < end:
+        while not stopped and (end is None or time.monotonic() < end):
             rclpy.spin_once(node, timeout_sec=.03)
+            if stopped:
+                break
             state = fresh('status')
             if not args.allow_motion and state.get('candidate_only') is not True:
                 raise RuntimeError('backend_motion_mode_changed')
