@@ -77,8 +77,12 @@ class RollingDepthMap:
                 a,b=self._slots(points[mask]);self.log[a,b]=np.maximum(-2.,self.log[a,b]-.8);self.stamp[a,b]=t
             # Floor endpoints certify traversable ground only in this flat-floor demo.
             a,b=self._slots(world[p[:,2]<.04]);self.log[a,b]=np.maximum(-2.,self.log[a,b]-.8);self.stamp[a,b]=t
-            hits=(p[:,2]>=.08)&(p[:,2]<=1.6)&~dynamic
-            occupied_points.append(world[hits])
+            if 'marking_points_odom' in cloud:
+                # Already filtered by the very same producer as the live view.
+                occupied_points.append(cloud['marking_points_odom'][:,:2])
+            else:
+                hits=(p[:,2]>=.08)&(p[:,2]<=1.6)&~dynamic
+                occupied_points.append(world[hits])
         hits=np.concatenate(occupied_points) if occupied_points else np.empty((0,2))
         a,b=self._slots(hits);self.log[a,b]=np.minimum(3.,self.log[a,b]+2.);self.stamp[a,b]=t
         # The robot itself occupies this footprint; keep its current cell region

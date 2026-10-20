@@ -10,7 +10,8 @@ person_follow:
     wheel_topic: /wheel/odom
     base_frame: r680_mapping_floor
     depth_stride: 4
-    depth_min_m: 0.4
+    # Native follower depth range matches the local display filter policy.
+    depth_min_m: 0.15
     depth_max_m: 5.0
     surface_to_center_offset_m: 0.28
     max_sensor_age_s: 0.30

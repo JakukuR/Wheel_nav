@@ -63,8 +63,8 @@ function update() {
   if(planning && data.mode){
     const local=data.mode==='local';
     for(const id of ['nav_path','local_path']){const el=document.querySelector(`[data-layer="${id}"]`);if(el)el.hidden=local;}
-    $('note').textContent=local?'独立局部模式：当前深度帧体素；人物／物品跟随自己的局部路径。RGB 与几何时间差 ≤30 ms，期间运动未补偿；不累积地图、不做遮挡消除。':'确认体素为障碍记忆快照；二维障碍栅格仅画地面轮廓。不做遮挡消除，路径需规划器已产生结果。';
-    $('footerNote').textContent=local?'相机局部几何 · 无 Nav2 / 地图 / 里程计依赖':'按图像时刻转换 TF · 缺少变换时停止叠加';
+    $('note').textContent=local?'局部模式：障碍点来自跟随算法的 C++ 过滤结果；栅格保留算法的局部历史。RGB 与几何时间差 ≤30 ms，期间运动未补偿；不做遮挡消除。':'确认体素为障碍记忆快照；二维障碍栅格仅画地面轮廓。不做遮挡消除，路径需规划器已产生结果。';
+    $('footerNote').textContent=local?'算法同源障碍 · 需跟随节点、深度与轮速 · 无 Nav2 依赖':'按图像时刻转换 TF · 缺少变换时停止叠加';
   }
   $('reason').textContent=explain(data.reason);$('items').replaceChildren();
   if(planning){

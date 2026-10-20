@@ -17,7 +17,8 @@ from rclpy.time import Time
 from geometry_msgs.msg import Twist, PoseStamped
 from nav_msgs.msg import Odometry, Path, OccupancyGrid
 from sensor_msgs.msg import Image, CameraInfo, PointCloud2
-from std_msgs.msg import String
+from std_msgs.msg import String, Header
+from sensor_msgs_py.point_cloud2 import create_cloud_xyz32
 from std_srvs.srv import SetBool
 from tf2_ros import Buffer, TransformListener
 from wla_behavior_interfaces.srv import PersonCommand
@@ -43,7 +44,7 @@ class SimulationFollow(Node):
             depth_topic='/r680/d455/aligned_depth_to_color/image_raw',
             camera_info_topic='/r680/d455/color/camera_info',
             wheel_topic='/wheel/odom', base_frame='r680_mapping_floor',
-            max_sensor_age_s=.30, depth_stride=4, depth_min_m=.4, depth_max_m=5.,
+            max_sensor_age_s=.30, depth_stride=4, depth_min_m=.15, depth_max_m=5.,
             surface_to_center_offset_m=.28, camera_min_valid_fraction=.25,
             camera_front_min_valid_fraction=.35, result_ttl_s=.15,
             tof_enabled=False, tof_topics=['/r680/tof/front_left/points',
@@ -71,6 +72,7 @@ class SimulationFollow(Node):
         self.event = threading.Event()
         self.done = False
         self.result = None
+        self.map_result = None
         self.reason = 'waiting_for_sensor_data'
         self.follow_session = uuid.uuid4().hex
         self.estop = False
@@ -87,6 +89,7 @@ class SimulationFollow(Node):
         self.status_pub=self.create_publisher(String,prefix+'/status',5)
         self.path_pub=self.create_publisher(Path,prefix+'/local_path',1)
         self.grid_pub=self.create_publisher(OccupancyGrid,prefix+'/local_obstacles',1)
+        self.obstacles_pub=self.create_publisher(PointCloud2,prefix+'/depth_obstacles',qos_profile_sensor_data)
         self.direct_pub=None
         self.leased_pub=None
         if self.p['output_mode']=='mux':
@@ -245,8 +248,10 @@ class SimulationFollow(Node):
                 h,w=valid.shape;front=valid[int(h*.35):max(int(h*.8),int(h*.35)+1),int(w*.3):max(int(w*.7),int(w*.3)+1)]
                 if np.mean(valid)<self.p['camera_min_valid_fraction'] or not front.size or np.mean(front)<self.p['camera_front_min_valid_fraction']:
                     raise ValueError('insufficient_depth_coverage')
+                frontend_begun=time.monotonic()
                 packet=packet_from_depth(depth,(info.k[0],info.k[4],info.k[2],info.k[5]),r,trans,pose,
                     self.p['depth_min_m'],self.p['depth_max_m'],self.p['depth_stride'])
+                frontend_ms=(time.monotonic()-frontend_begun)*1000.
                 packets=[(stamp,packet)]
                 # Optional anonymous ToF points: no packets or inferred clear
                 # rays exist while disabled. Only actual newer frames are used.
@@ -287,14 +292,20 @@ class SimulationFollow(Node):
                 except ComputeTimeout:
                     raise ValueError('compute_deadline_exceeded')
                 result.update(key=key,stamp_ns=stamp_ns(msg),valid_until=min(valid_until,begun+self.p['result_ttl_s']),
+                    frontend_ms=frontend_ms,obstacle_points=len(packet['obstacle_points']),clearing_points=len(packet['points']),
                     compute_ms=(time.monotonic()-begun)*1000.,pose=np.asarray(control_pose),control_stamp_ns=int(control_stamp*1e9))
                 with self.guard:
                     if key==self.key() and time.monotonic()<result['valid_until']:
-                        self.result=result;self.reason=result['reason'] or 'simulation_core'
+                        self.result=result;self.map_result=result;self.reason=result['reason'] or 'simulation_core'
                     else:
                         self.result=None
                         self.reason=('expired_or_superseded_computation:'+str(round(result['compute_ms'],1))+'ms;'+
                             'source_age='+str(round((self.now_ns()-result['stamp_ns'])/1e9,3))+';key_changed='+str(key!=self.key()))
+                # Publish the same points handed to the map, once per accepted
+                # frame. Original acquisition stamp is retained (never renewed).
+                if time.monotonic()<result['valid_until'] and key==self.key():
+                    header=Header(stamp=msg.header.stamp,frame_id=self.p['base_frame'])
+                    self.obstacles_pub.publish(create_cloud_xyz32(header,packet['obstacle_points'].astype(np.float32)))
             except Exception as exc:
                 with self.guard:self.result=None;self.reason=str(exc)[:180]
 
@@ -362,7 +373,8 @@ class SimulationFollow(Node):
                     follow_session=self.follow_session,request_id=state['request_id'],stamp_ns=ns,
                     linear=float(actual[0]),angular=float(actual[1])))))
             state.update(schema='wla-person-status/v1',stamp_ns=ns,follow_session=self.follow_session,
-                planner='close-wide-flex',numeric_backend='python_reference',native_frontend='cpp_deproject',
+                planner='close-wide-flex',numeric_backend='python_reference',native_frontend='cpp_deproject_ground_cluster_filter',
+                obstacle_topic=self.p['prefix']+'/depth_obstacles',
                 base_frame=self.p['base_frame'],output_mode=self.p['output_mode'],
                 candidate_only=not self.p['enable_motion'],motion_permitted=permitted and healthy,
                 linear_mps=float(command[0]),angular_rps=float(command[1]),safety_fresh=healthy,
@@ -377,15 +389,21 @@ class SimulationFollow(Node):
                 target_tracking=result['target_state'] if result else 'unavailable',
                 recovery_state=result['recovery_state'] if result else 'waiting',
                 wide_offset=result['wide_offset'] if result else None,
+                frontend_ms=self.map_result.get('frontend_ms') if self.map_result else None,
+                filtered_obstacle_points=self.map_result.get('obstacle_points') if self.map_result else None,
+                clearing_points=self.map_result.get('clearing_points') if self.map_result else None,
                 compute_ms=result['compute_ms'] if result else None)
             self.status_pub.publish(String(data=json.dumps(state,allow_nan=False)))
-            if healthy:self.publish_geometry(result,ns)
+            mapped=self.map_result
+            if (mapped is not None and mapped['key']==self.key() and now<mapped['valid_until'] and
+                    0<=(ns-mapped['stamp_ns'])/1e9<=self.p['max_sensor_age_s']):
+                self.publish_geometry(mapped,ns,show_path=healthy)
 
-    def publish_geometry(self,result,ns):
+    def publish_geometry(self,result,ns,show_path=True):
         pose=result['pose'];rot=rotation(pose[2])
         path=Path();path.header.frame_id=self.p['base_frame']
         path.header.stamp.sec,path.header.stamp.nanosec=divmod(result.get('control_stamp_ns',result['stamp_ns']),1_000_000_000)
-        for point in (result['path']-pose[:2])@rot:
+        for point in ((result['path']-pose[:2])@rot if show_path else []):
             item=PoseStamped();item.header=path.header
             item.pose.position.x=float(point[0]);item.pose.position.y=float(point[1]);item.pose.orientation.w=1.
             path.poses.append(item)

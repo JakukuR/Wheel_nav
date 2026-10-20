@@ -17,17 +17,31 @@ def local_points(points, pose):
 
 
 def packet_from_depth(depth, intrinsics, camera_rotation, translation, pose,
-                      minimum=.4, maximum=5., stride=4):
+                      minimum=.15, maximum=5., stride=4):
     from _wla_sim_geometry import deproject
     points = deproject(depth, np.asarray(intrinsics, dtype=float),
                        np.asarray(camera_rotation, dtype=float),
                        np.asarray(translation, dtype=float), minimum, maximum, stride)
-    origin = np.asarray(translation, dtype=float)
-    return dict(points=points, points_odom=local_points(points, pose),
-                origin=origin, origin_odom=local_points(origin[None, :], pose)[0],
-                # Real detector has boxes, not ideal instance segmentation.
-                # Never erase a whole person box from the static depth evidence.
-                dynamic=np.zeros(len(points), dtype=bool))
+    from _wla_sim_geometry import filter_points
+    obstacles, clearing = filter_points(points)
+    return packet_from_filtered_points(obstacles, clearing, translation, pose)
+
+
+def packet_from_filtered_points(obstacles, clearing, origin, pose):
+    """Separate accepted obstacle endpoints from measured clearing rays.
+
+    Native filtering owns height, local ground and isolated clusters. Rejected
+    points are never re-marked by the legacy map's broader height band.
+    """
+    obstacles=np.asarray(obstacles,dtype=float).reshape(-1,3)
+    clearing=np.asarray(clearing,dtype=float).reshape(-1,3)
+    if not np.isfinite(obstacles).all() or not np.isfinite(clearing).all():
+        raise ValueError('nonfinite_filtered_cloud')
+    origin=np.asarray(origin,dtype=float)
+    return dict(points=clearing,points_odom=local_points(clearing,pose),origin=origin,
+                origin_odom=local_points(origin[None,:],pose)[0],
+                dynamic=np.zeros(len(clearing),dtype=bool),obstacle_points=obstacles,
+                marking_points_odom=local_points(obstacles,pose))
 
 
 def measurements_from_relative(objects, pose, target_id, center_offset=.28):

@@ -34,7 +34,7 @@ class Fixture(Node):
         self.pubs = {k:self.create_publisher(typ, topic, 2) for k, typ, topic in [
             ('rgb', Image, '/r680/d455/color/image_raw'), ('info', CameraInfo, '/r680/d455/color/camera_info'),
             ('raw', String, '/r680/perception/detections'), ('rel', String, '/r680/perception/relative_objects'),
-            ('voxels', PointCloud2, '/r680_nav/d455/points_confirmed'), ('points', PointCloud2, '/r680/perception/local_obstacles' if local else '/r680_nav/d455/points'),
+            ('voxels', PointCloud2, '/r680_nav/d455/points_confirmed'), ('points', PointCloud2, '/r680/person_follow/depth_obstacles' if local else '/r680_nav/d455/points'),
             ('path', Path, '/r680/object_follow/local_path'), ('grid', OccupancyGrid, '/r680/object_follow/local_obstacles')]}
         self.broadcaster = StaticTransformBroadcaster(self)
         tf = TransformStamped()

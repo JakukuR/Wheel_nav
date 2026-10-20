@@ -464,8 +464,8 @@ def main():
     p.add_argument('--nav-path-topic', default='/plan')
     p.add_argument('--local-path-topic', default='/optimal_trajectory')
     args, ros_args = p.parse_known_args()
-    args.voxel_topic = args.voxel_topic or ('/r680/perception/local_obstacles' if args.mode == 'local' else '/r680_nav/d455/points_confirmed')
-    args.points_topic = args.points_topic or ('/r680/perception/local_obstacles' if args.mode == 'local' else '/r680_nav/d455/points')
+    args.voxel_topic = args.voxel_topic or ('/r680/person_follow/depth_obstacles' if args.mode == 'local' else '/r680_nav/d455/points_confirmed')
+    args.points_topic = args.points_topic or ('/r680/person_follow/depth_obstacles' if args.mode == 'local' else '/r680_nav/d455/points')
     if not .01 <= args.voxel_size <= 1 or not 0 < args.port < 65536:
         p.error('Invalid voxel size or port')
     rclpy.init(args=ros_args)

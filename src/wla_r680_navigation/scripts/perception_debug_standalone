@@ -16,6 +16,7 @@ from launch.events import Shutdown
 
 
 POINTS = '/r680/perception/local_obstacles'
+FOLLOW_POINTS = '/r680/person_follow/depth_obstacles'
 
 
 def discover():
@@ -65,7 +66,7 @@ def viewer_available(port):
                 cfg = json.load(response)
             expected = {'schema':'wla-perception-debug/v1', 'mode':'local',
                         'domain':os.environ.get('ROS_DOMAIN_ID', '0'),
-                        'base_frame':'r680_mapping_floor', 'points_topic':POINTS, 'voxel_topic':POINTS}
+                        'base_frame':'r680_mapping_floor', 'points_topic':FOLLOW_POINTS, 'voxel_topic':FOLLOW_POINTS}
             if all(cfg.get(k) == v for k,v in expected.items()):
                 return True
         except Exception:

@@ -83,7 +83,8 @@ def test_real_depth_tf_wheel_adapter_preview_only():
     from rclpy.executors import SingleThreadedExecutor
     from rclpy.qos import qos_profile_sensor_data
     from geometry_msgs.msg import TransformStamped
-    from sensor_msgs.msg import CameraInfo,Image
+    from sensor_msgs.msg import CameraInfo,Image,PointCloud2
+    from sensor_msgs_py.point_cloud2 import read_points_numpy
     from nav_msgs.msg import Odometry
     from std_msgs.msg import String
     from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
@@ -99,6 +100,8 @@ def test_real_depth_tf_wheel_adapter_preview_only():
     pub_info=fixture.create_publisher(CameraInfo,f.p['camera_info_topic'],qos_profile_sensor_data)
     pub_wheel=fixture.create_publisher(Odometry,f.p['wheel_topic'],qos_profile_sensor_data)
     pub_rel=fixture.create_publisher(String,f.p['relative_topic'],1)
+    clouds=[]
+    fixture.create_subscription(PointCloud2,f.p['prefix']+'/depth_obstacles',clouds.append,qos_profile_sensor_data)
     try:
         end=time.monotonic()+3.;next_at=0.;captured=None
         while time.monotonic()<end:
@@ -122,6 +125,16 @@ def test_real_depth_tf_wheel_adapter_preview_only():
                     captured=f.result
         assert f.direct_pub is None and f.count_publishers('/r680_base/cmd_vel')==0
         assert captured is not None, f.reason
+        assert clouds and captured['obstacle_points']>0
+        pts=read_points_numpy(clouds[-1],field_names=('x','y','z'))
+        # Local floor may be below zero: 8cm is only the fallback cutoff.
+        from wla_person_follow.sim_runtime import packet_from_depth
+        expected=packet_from_depth(np.full((48,64),2.),[60,60,32,24],
+            np.array([[0.,0.,1.],[-1.,0.,0.],[0.,-1.,0.]]),[0,0,.5],np.zeros(3),stride=2)
+        np.testing.assert_array_equal(pts,expected['obstacle_points'].astype(np.float32))
+        assert np.all(pts[:,2]<=.5) and np.all(pts[:,2]>=-.08)
+        assert clouds[-1].header.stamp.sec>0
+        assert clouds[-1].header.frame_id=='r680_mapping_floor'
         assert captured['grid'].max()==100
         assert np.any(captured['grid']==-1)  # no manufactured full-room free space
     finally:
