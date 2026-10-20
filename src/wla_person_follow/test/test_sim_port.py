@@ -190,36 +190,75 @@ def startup_worker(monkeypatch):
     for name,value in [('_PROCESS_ENGINE',None),('_PROCESS_KEY',None),
                        ('_PROCESS_STARTUP_USED',False),('_PROCESS_STARTUP_PRIOR',None)]:
         monkeypatch.setattr(runtime,name,value)
-    def step(t,active=False,request='',generation=0,packets=(),radius=.5,pose=None):
+    def step(t,active=False,request='',generation=0,packets=(),radius=.5,pose=None,motion_threshold=.03):
         return runtime.process_step(((request,'target' if active else '', 'fixture',0,generation),
-            np.zeros(3) if pose is None else np.asarray(pose),np.zeros(2),packets,None,t,
-            dict(active=active,radius=radius)))
+            np.zeros(3) if pose is None else np.asarray(pose,dtype=float),np.zeros(2),packets,None,t,
+            dict(active=active,radius=radius,motion_threshold=motion_threshold)))
     return runtime,step
 
 
-def test_startup_prior_waits_for_follow_and_expires_without_reseeding(startup_worker):
+def test_startup_prior_waits_for_translation_then_expires_without_reseeding(startup_worker):
     runtime,step=startup_worker
     idle=step(100.)
     assert idle['startup_prior'] is None and not idle['startup_prior_consumed']
     assert np.all(idle['grid']==-1)
-    first=step(130.,True,'one')  # Long idle does not spend the startup prior.
+    first=step(130.,True,'one')
     prior=first['startup_prior']
-    assert prior['radius_m']==.5 and prior['stamp_s']==130. and prior['remaining_s']==12.
+    assert prior['radius_m']==.5 and prior['stamp_s']==130.
+    assert prior['expires_s'] is None and prior['remaining_s'] is None
+    assert prior['state']=='waiting_for_translation'
     mapping=runtime._PROCESS_ENGINE.mapping
     centers=(mapping.cells+.5)*mapping.res
     inside=np.linalg.norm(centers,axis=-1)<.5
     np.testing.assert_array_equal(mapping.known,inside)
     assert mapping.query([[0.,0.]],unknown=True)[0]>.19
-    # A new task keeps the map and does not move/re-stamp the assumed circle.
-    second=step(131.,True,'two',pose=[.2,0,0])
+    # Stationary waiting, small drift and pure rotation do not start the clock.
+    for t,pose in [(150.,[0,0,0]),(170.,[.01,.01,0]),(190.,[0,0,2.])]:
+        held=step(t,True,'one',pose=pose)
+        assert held['startup_prior']['expires_s'] is None
+        np.testing.assert_array_equal(mapping.known,inside)
+    # Task switches neither recenter nor rearm. Only wheel-pose translation counts.
+    second=step(191.,True,'two',pose=[.031,0,2.])
     assert runtime._PROCESS_ENGINE.mapping is mapping
-    assert second['startup_prior']['stamp_s']==130.
     assert second['startup_prior']['center_odom']==[0.,0.]
-    expired=step(142.1,True,'three')
+    assert second['startup_prior']['motion_started_s']==191.
+    assert second['startup_prior']['expires_s']==203.
+    still=step(202.9,True,'two',pose=[0,0,0])
+    assert still['startup_prior']['state']=='counting_down'
+    np.testing.assert_array_equal(mapping.known,inside)
+    expired=step(203.1,True,'three')
     assert expired['startup_prior_consumed'] and expired['startup_prior']['remaining_s']==0.
     assert np.all(expired['grid']==-1)
-    reset=step(143.,True,'four',generation=1)
-    assert np.all(reset['grid']==-1) and reset['startup_prior']['remaining_s']==0.
+    reset=step(204.,True,'four',generation=1)
+    assert np.all(reset['grid']==-1) and reset['startup_prior']['state']=='reference_changed'
+
+
+def test_held_startup_prior_does_not_restore_expired_observed_cells(startup_worker):
+    from wla_person_follow.sim_runtime import packet_from_filtered_points
+    runtime,step=startup_worker
+    step(1.,True,'one')
+    mapping=runtime._PROCESS_ENGINE.mapping
+    obstacle=np.array([[.35,.05,.2]])
+    packet=packet_from_filtered_points(obstacle,obstacle,[.18,0,.5],np.zeros(3))
+    step(2.,True,'one',packets=[(2.,packet)])
+    ij=np.floor(obstacle[0,:2]/mapping.res).astype(int)-mapping.lower
+    assert mapping.occupied[tuple(ij)]
+    held=step(20.,True,'one')
+    # An actual observed obstacle can expire to unknown, never back to assumed free.
+    assert held['startup_prior']['state']=='waiting_for_translation'
+    assert not mapping.known[tuple(ij)]
+    assert mapping.known.any()
+    # Ring-buffer wrap must not transfer the held prior to unrelated cells.
+    mapping.slide([20.,0.]);mapping.advance_startup_prior(21.);mapping.rebuild(21.)
+    assert not mapping.known.any()
+
+
+def test_reference_reset_before_motion_discards_hold(startup_worker):
+    _,step=startup_worker
+    step(1.,True,'one')
+    result=step(30.,True,'two',generation=1)
+    assert result['startup_prior']['state']=='reference_changed'
+    assert result['startup_prior_consumed'] and np.all(result['grid']==-1)
 
 
 def test_startup_prior_never_erases_old_or_new_obstacle_measurements(startup_worker):
@@ -250,3 +289,10 @@ def test_startup_prior_disabled_and_radius_validation(startup_worker):
     for radius in [-.1,.51,float('nan')]:
         with pytest.raises(ValueError,match='invalid_startup_clear_radius'):
             step(2.,True,'one',radius=radius)
+
+
+def test_startup_motion_threshold_validation(startup_worker):
+    _,step=startup_worker
+    for threshold in [0.,-.01,.11,float('nan')]:
+        with pytest.raises(ValueError,match='invalid_startup_motion_threshold'):
+            step(1.,True,'one',motion_threshold=threshold)

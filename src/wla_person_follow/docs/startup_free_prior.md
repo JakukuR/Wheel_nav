@@ -12,14 +12,26 @@ Policy:
 - Only unknown/expired cells within the circle are initialized. Existing
   observed free/occupied cells are preserved. Current depth endpoints are applied
   afterward and can mark an obstacle inside the prior.
-- Normal map TTL12s applies; no timer, request, target switch or controller loop
-  renews/recenters the startup prior. Measured cells have their normal timestamps.
+- Untouched assumed-free cells are held while the robot has not translated.
+  Wheel-odometry XY displacement of at least `startup_motion_threshold_m: 0.03`
+  from the original center starts the 12 s countdown. Stationary jitter below
+  this threshold and rotation alone do not start it. Stopping or returning to
+  the starting position after movement does not pause or reset the countdown.
+- Holding refreshes timestamps only for untouched prior cells. Any real sensor
+  update retires the affected cells from the hold permanently; those cells then
+  use normal sensor TTL. New obstacles are never cleared by the hold, including
+  after their observations expire. Ring-slot ownership is checked before refresh.
+- Task/target changes neither renew nor recenter the prior. The countdown uses
+  control-time odometry timestamps, not commanded velocity or webpage timing.
 - Task/identity changes reset tracking/controller state but preserve the rolling
   obstacle map in the same wheel reference. A wheel-reference generation change
   discards that map and does not create a new startup prior. A node restart starts
   a fresh one-shot policy.
 - Status reports configured radius, consumed flag and startup_prior provenance,
-  center, creation/expiry timestamps, reference generation and seeded cell count.
+  center, creation/motion-start/expiry timestamps, movement threshold, reference
+  generation and seeded cell count. State is `waiting_for_translation` (expiry
+  and remaining seconds are null), `counting_down`, `expired`, or
+  `reference_changed`.
   Prior status is attached to the last processed map result. The map's green
   free cells may include this explicit assumption during its lifetime.
 
@@ -29,9 +41,10 @@ No automatic follow request is created by enabling this configuration.
 
 Verification:
 - Python package built into existing versioned simulation overlay.
-- 15 port tests pass, including one-shot application after long idle, exact0.5m
-  extent, preservation of old/new obstacle evidence, expiry, request changes,
-  reference reset, disabled mode and invalid parameter rejection.
+- 18 port tests pass, including long stationary hold, translation threshold,
+  rotation/jitter, exact 12 s countdown, stopping/returning without reset,
+  sensor evidence retirement, ring-buffer wrapping, request/reference changes,
+  disabled mode and invalid parameter rejection.
 - 5 isolated ROS tests pass in domain198, including depth/TF/wheel mapping with
   radius0.5 configured but idle: no assumed patch consumed; existing stop/lease/
   mux tests pass. These tests publish only in the isolated test domain.
@@ -39,10 +52,11 @@ Verification:
   radius0 -> forward_known0/225, zero translation, forward_space_unobserved;
   radius0.5 -> forward_known225/225 and225 forward feasible candidates.
   This is a geometry/controller snapshot check, not a real follow/motion trial.
-- Reloaded only inactive follow launch (parent703481); camera, detector and web
-  services remain running. Live status verified configured radius0.5, idle,
-  startup_prior null and startup_prior_consumed false before first follow.
+- Deployment reloads only the inactive follow launch. A fresh live status check
+  verifies radius 0.5 m, threshold 0.03 m, idle, startup_prior null and
+  startup_prior_consumed false before first follow. No physical movement trial
+  or follow request is performed for this timer change.
 
-Runtime log/PID: ~/ros2_ws/.runtime/startup-prior-follow.{log,pid}.
-Evidence: .runtime/startup-prior-{build,unit,ros}.log and
-.runtime/startup-prior-{before,after}.json. Local copies accompany this report.
+Runtime log/PID: ~/ros2_ws/.runtime/prior-motion-follow.{log,pid}.
+Evidence: .runtime/prior-motion-{build,unit,ros}.log and
+.runtime/prior-motion-live.json. Local copies accompany the deployment report.

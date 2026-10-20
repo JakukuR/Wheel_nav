@@ -154,6 +154,9 @@ def process_step(job):
     global _PROCESS_ENGINE, _PROCESS_KEY, _PROCESS_STARTUP_USED, _PROCESS_STARTUP_PRIOR
     key, pose, previous, packets, observation, now, startup = job
     radius=float(startup['radius'])
+    motion_threshold=float(startup.get('motion_threshold',.03))
+    if not math.isfinite(motion_threshold) or not .001 <= motion_threshold <= .1:
+        raise ValueError('invalid_startup_motion_threshold')
     if not math.isfinite(radius) or not 0 <= radius <= .5:
         raise ValueError('invalid_startup_clear_radius')
     if _PROCESS_KEY != key:
@@ -171,16 +174,31 @@ def process_step(job):
         # User-authorized assumption, once at the first follow task, not during
         # idle warm-up. Never erase observed obstacles or renew on task changes.
         engine.mapping.slide(np.asarray(pose[:2]))
-        count=engine.mapping.initial_clear_patch(pose[:2],now,radius,only_unknown=True)
+        count=engine.mapping.initial_clear_patch(pose[:2],now,radius,only_unknown=True,hold_until_motion=True)
         _PROCESS_STARTUP_PRIOR=dict(source='operator_assumed_startup_free',
             radius_m=radius,center_odom=np.asarray(pose[:2]).tolist(),stamp_s=now,
-            expires_s=now+engine.mapping.ttl,reference_generation=key[-1],seeded_cells=count)
+            expires_s=None,motion_started_s=None,motion_threshold_m=motion_threshold,
+            reference_generation=key[-1],seeded_cells=count)
         _PROCESS_STARTUP_USED=True
+    prior=_PROCESS_STARTUP_PRIOR
+    if (prior is not None and prior['reference_generation']==key[-1]
+            and prior['motion_started_s'] is None):
+        # Translation comes from wheel odometry, never from a commanded velocity.
+        moved=np.linalg.norm(np.asarray(pose[:2])-prior['center_odom'])>=prior['motion_threshold_m']
+        engine.mapping.advance_startup_prior(now,release=bool(moved))
+        if moved:
+            prior['motion_started_s']=now
+            prior['expires_s']=now+engine.mapping.ttl
     result = engine.step(pose, previous, packets, observation, now)
     prior=dict(_PROCESS_STARTUP_PRIOR) if _PROCESS_STARTUP_PRIOR else None
     if prior is not None:
-        prior['remaining_s']=max(0.,prior['expires_s']-now) if prior['reference_generation']==key[-1] else 0.
-        prior['state']='active' if prior['remaining_s']>0 else 'expired_or_reference_changed'
+        if prior['reference_generation']!=key[-1]:
+            prior.update(remaining_s=0.,state='reference_changed')
+        elif prior['motion_started_s'] is None:
+            prior.update(remaining_s=None,state='waiting_for_translation')
+        else:
+            prior['remaining_s']=max(0.,prior['expires_s']-now)
+            prior['state']='counting_down' if prior['remaining_s']>0 else 'expired'
     result.update(map_lower=engine.mapping.lower.copy(),resolution=engine.mapping.res,
         startup_prior=prior,startup_prior_consumed=_PROCESS_STARTUP_USED,
         grid=np.where(engine.mapping.occupied,100,np.where(engine.mapping.known,0,-1)).astype(np.int8))

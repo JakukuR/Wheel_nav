@@ -38,7 +38,7 @@ class RollingDepthMap:
         return ((unique//self.n+self.lower[0])%self.n,
                 (unique%self.n+self.lower[1])%self.n)
 
-    def initial_clear_patch(self,position,t,radius=1.,only_unknown=False):
+    def initial_clear_patch(self,position,t,radius=1.,only_unknown=False,hold_until_motion=False):
         """Explicit startup prior; caller must distinguish it from sensor evidence.
 
         Required by a forward depth camera's near/rear blind zone. Not inferred
@@ -49,7 +49,34 @@ class RollingDepthMap:
         if only_unknown:
             mask &= t-self.stamp[self.ix,self.iy]>self.ttl
         a,b=self.ix[mask],self.iy[mask];self.log[a,b]=-2.;self.stamp[a,b]=t
+        if hold_until_motion:
+            self._startup_held_slots=np.zeros((self.n,self.n),dtype=bool)
+            self._startup_held_slots[a,b]=True
+            self._startup_held_cells=self.cells[mask].copy()
+            self._startup_held_stamp=t
         return int(np.count_nonzero(mask))
+
+    def advance_startup_prior(self,t,release=False):
+        """Age only untouched prior cells; never write occupancy or restore evidence.
+
+        Actual observations change log/stamp and remove a cell from this hold.
+        Ring tags prevent old cell addresses from refreshing a different place.
+        """
+        cells=getattr(self,'_startup_held_cells',np.empty((0,2),dtype=int))
+        if len(cells):
+            a,b=cells[:,0]%self.n,cells[:,1]%self.n
+            keep=(self._startup_held_slots[a,b]&np.all(self.tags[a,b]==cells,axis=1)&
+                  (self.stamp[a,b]==self._startup_held_stamp)&(self.log[a,b]==-2.))
+            cells=cells[keep]
+            a,b=cells[:,0]%self.n,cells[:,1]%self.n
+            self.stamp[a,b]=t
+        self._startup_held_cells=np.empty((0,2),dtype=int) if release else cells
+        self._startup_held_stamp=t
+        if release:self._startup_held_slots=None
+
+    def _retire_startup_cells(self,a,b):
+        held=getattr(self,'_startup_held_slots',None)
+        if held is not None:held[a,b]=False
 
     def update(self,cloud,pose,t,rebuild=True):
         self.slide(pose[:2])
@@ -77,9 +104,9 @@ class RollingDepthMap:
                 distance=np.arange(0,7.,self.res*.45)
                 points=origin+delta[:,None,:]/np.maximum(length[:,None,None],1e-9)*distance[None,:,None]
                 mask=distance[None,:]<length[:,None]-.12
-                a,b=self._slots(points[mask]);self.log[a,b]=np.maximum(-2.,self.log[a,b]-.8);self.stamp[a,b]=t
+                a,b=self._slots(points[mask]);self.log[a,b]=np.maximum(-2.,self.log[a,b]-.8);self.stamp[a,b]=t;self._retire_startup_cells(a,b)
             # Floor endpoints certify traversable ground only in this flat-floor demo.
-            a,b=self._slots(world[p[:,2]<.04]);self.log[a,b]=np.maximum(-2.,self.log[a,b]-.8);self.stamp[a,b]=t
+            a,b=self._slots(world[p[:,2]<.04]);self.log[a,b]=np.maximum(-2.,self.log[a,b]-.8);self.stamp[a,b]=t;self._retire_startup_cells(a,b)
             if 'marking_points_odom' in cloud:
                 # Already filtered by the very same producer as the live view.
                 occupied_points.append(cloud['marking_points_odom'][:,:2])
@@ -87,13 +114,13 @@ class RollingDepthMap:
                 hits=(p[:,2]>=.08)&(p[:,2]<=1.6)&~dynamic
                 occupied_points.append(world[hits])
         hits=np.concatenate(occupied_points) if occupied_points else np.empty((0,2))
-        a,b=self._slots(hits);self.log[a,b]=np.minimum(3.,self.log[a,b]+2.);self.stamp[a,b]=t
+        a,b=self._slots(hits);self.log[a,b]=np.minimum(3.,self.log[a,b]+2.);self.stamp[a,b]=t;self._retire_startup_cells(a,b)
         # The robot itself occupies this footprint; keep its current cell region
         # known when stationary, without declaring its surroundings free.
         centers=(self.cells+.5)*self.res
         footprint=np.linalg.norm(centers-pose[:2],axis=-1)<self.robot_radius
         a,b=self.ix[footprint],self.iy[footprint]
-        self.log[a,b]=np.minimum(self.log[a,b],-1.);self.stamp[a,b]=t
+        self.log[a,b]=np.minimum(self.log[a,b],-1.);self.stamp[a,b]=t;self._retire_startup_cells(a,b)
         if rebuild:self.rebuild(t)
 
     def rebuild(self,t):

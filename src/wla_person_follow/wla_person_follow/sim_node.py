@@ -46,7 +46,7 @@ class SimulationFollow(Node):
             wheel_topic='/wheel/odom', base_frame='r680_mapping_floor',
             max_sensor_age_s=.30, depth_stride=4, depth_min_m=.15, depth_max_m=5.,
             surface_to_center_offset_m=.28, camera_min_valid_fraction=.25,
-            camera_front_min_valid_fraction=.35, result_ttl_s=.15, startup_clear_radius_m=0.,
+            camera_front_min_valid_fraction=.35, result_ttl_s=.15, startup_clear_radius_m=0., startup_motion_threshold_m=.03,
             tof_enabled=False, tof_topics=['/r680/tof/front_left/points',
                 '/r680/tof/front_right/points','/r680/tof/rear_left/points','/r680/tof/rear_right/points'])
         self.p = {k:self.declare_parameter(k,v).value for k,v in defaults.items()}
@@ -54,6 +54,7 @@ class SimulationFollow(Node):
             not 0 < self.p['max_sensor_age_s'] <= .30 or
             not 0 < self.p['result_ttl_s'] <= .20 or
             not 0 <= self.p['startup_clear_radius_m'] <= .5 or
+            not .001 <= self.p['startup_motion_threshold_m'] <= .1 or
             not 1 <= self.p['depth_stride'] <= 16 or
             not .1 <= self.p['depth_min_m'] < self.p['depth_max_m'] <= 7 or
             not 0 <= self.p['surface_to_center_offset_m'] <= .5 or
@@ -288,7 +289,8 @@ class SimulationFollow(Node):
                 if self.future is not None and not self.future.done():
                     raise ValueError('compute_worker_busy_no_queue_growth')
                 self.future=self.pool.submit(process_step,(key,np.asarray(control_pose),np.array([v[0],v[2]]),packets,observation,control_stamp,
-                    dict(active=active,radius=self.p['startup_clear_radius_m'])))
+                    dict(active=active,radius=self.p['startup_clear_radius_m'],
+                         motion_threshold=self.p['startup_motion_threshold_m'])))
                 try:
                     result=self.future.result(timeout=self.p['result_ttl_s'])
                 except ComputeTimeout:
@@ -388,6 +390,7 @@ class SimulationFollow(Node):
                 robot_radius_m=self.model_tuning['radius'],obstacle_margin_m=self.model_tuning['margin'],
                 tof_enabled=self.p['tof_enabled'],direct_publisher_conflict=self.conflict_latched,
                 startup_clear_radius_m=self.p['startup_clear_radius_m'],
+                startup_motion_threshold_m=self.p['startup_motion_threshold_m'],
                 startup_prior=self.map_result.get('startup_prior') if self.map_result else None,
                 startup_prior_consumed=self.map_result.get('startup_prior_consumed',False) if self.map_result else False,
                 fault=self.conflict_latched or self.estop,
