@@ -182,3 +182,71 @@ def test_filtered_ground_is_not_remarked_and_empty_depth_stays_unknown():
     mapping=RollingDepthMap();mapping.update(empty,pose,1.)
     centers=(mapping.cells+.5)*mapping.res
     assert not mapping.known[np.linalg.norm(centers,axis=-1)>.19].any()
+
+
+@pytest.fixture
+def startup_worker(monkeypatch):
+    import wla_person_follow.sim_runtime as runtime
+    for name,value in [('_PROCESS_ENGINE',None),('_PROCESS_KEY',None),
+                       ('_PROCESS_STARTUP_USED',False),('_PROCESS_STARTUP_PRIOR',None)]:
+        monkeypatch.setattr(runtime,name,value)
+    def step(t,active=False,request='',generation=0,packets=(),radius=.5,pose=None):
+        return runtime.process_step(((request,'target' if active else '', 'fixture',0,generation),
+            np.zeros(3) if pose is None else np.asarray(pose),np.zeros(2),packets,None,t,
+            dict(active=active,radius=radius)))
+    return runtime,step
+
+
+def test_startup_prior_waits_for_follow_and_expires_without_reseeding(startup_worker):
+    runtime,step=startup_worker
+    idle=step(100.)
+    assert idle['startup_prior'] is None and not idle['startup_prior_consumed']
+    assert np.all(idle['grid']==-1)
+    first=step(130.,True,'one')  # Long idle does not spend the startup prior.
+    prior=first['startup_prior']
+    assert prior['radius_m']==.5 and prior['stamp_s']==130. and prior['remaining_s']==12.
+    mapping=runtime._PROCESS_ENGINE.mapping
+    centers=(mapping.cells+.5)*mapping.res
+    inside=np.linalg.norm(centers,axis=-1)<.5
+    np.testing.assert_array_equal(mapping.known,inside)
+    assert mapping.query([[0.,0.]],unknown=True)[0]>.19
+    # A new task keeps the map and does not move/re-stamp the assumed circle.
+    second=step(131.,True,'two',pose=[.2,0,0])
+    assert runtime._PROCESS_ENGINE.mapping is mapping
+    assert second['startup_prior']['stamp_s']==130.
+    assert second['startup_prior']['center_odom']==[0.,0.]
+    expired=step(142.1,True,'three')
+    assert expired['startup_prior_consumed'] and expired['startup_prior']['remaining_s']==0.
+    assert np.all(expired['grid']==-1)
+    reset=step(143.,True,'four',generation=1)
+    assert np.all(reset['grid']==-1) and reset['startup_prior']['remaining_s']==0.
+
+
+def test_startup_prior_never_erases_old_or_new_obstacle_measurements(startup_worker):
+    from wla_person_follow.sim_runtime import packet_from_filtered_points
+    runtime,step=startup_worker
+    old=np.array([[.35,.05,.2]])
+    cloud=packet_from_filtered_points(old,old,[.18,0,.5],np.zeros(3))
+    step(1.,packets=[(1.,cloud)])
+    mapping=runtime._PROCESS_ENGINE.mapping
+    def occupied(pt):
+        ij=np.floor(pt[:2]/mapping.res).astype(int)-mapping.lower
+        return mapping.occupied[tuple(ij)]
+    assert occupied(old[0])
+    step(1.1,True,'one')
+    assert runtime._PROCESS_ENGINE.mapping is mapping and occupied(old[0])
+    new=np.array([[.25,.25,.2]])
+    measured=packet_from_filtered_points(new,new,[.18,0,.5],np.zeros(3))
+    step(1.2,True,'one',packets=[(1.2,measured)])
+    assert occupied(new[0])
+    step(1.3,True,'two')
+    assert occupied(new[0])  # Changing target/request cannot erase evidence.
+
+
+def test_startup_prior_disabled_and_radius_validation(startup_worker):
+    _,step=startup_worker
+    result=step(1.,True,'one',radius=0.)
+    assert not result['startup_prior_consumed'] and np.all(result['grid']==-1)
+    for radius in [-.1,.51,float('nan')]:
+        with pytest.raises(ValueError,match='invalid_startup_clear_radius'):
+            step(2.,True,'one',radius=radius)

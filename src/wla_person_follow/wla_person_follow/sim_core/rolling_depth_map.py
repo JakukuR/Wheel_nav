@@ -38,15 +38,18 @@ class RollingDepthMap:
         return ((unique//self.n+self.lower[0])%self.n,
                 (unique%self.n+self.lower[1])%self.n)
 
-    def initial_clear_patch(self,position,t,radius=1.):
-        """Explicit simulation initial condition: inspected clear start patch.
+    def initial_clear_patch(self,position,t,radius=1.,only_unknown=False):
+        """Explicit startup prior; caller must distinguish it from sensor evidence.
 
         Required by a forward depth camera's near/rear blind zone. Not inferred
         from no returns; not populated with scene obstacle positions.
         """
         centers=(self.cells+.5)*self.res
         mask=np.linalg.norm(centers-position,axis=-1)<radius
+        if only_unknown:
+            mask &= t-self.stamp[self.ix,self.iy]>self.ttl
         a,b=self.ix[mask],self.iy[mask];self.log[a,b]=-2.;self.stamp[a,b]=t
+        return int(np.count_nonzero(mask))
 
     def update(self,cloud,pose,t,rebuild=True):
         self.slide(pose[:2])

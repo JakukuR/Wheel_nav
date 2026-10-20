@@ -65,14 +65,14 @@ def measurements_from_relative(objects, pose, target_id, center_offset=.28):
 
 
 class SimulationEngine:
-    """Persistent core, owned by one worker. Reset on request/reference change."""
+    """Task controller owned by one worker; local map can survive task changes."""
     def __init__(self, pose, start_time):
         self.tuning = WideTurnTuning()
         self.controller = HybridFollower(self.tuning)
         self.mapping = RollingDepthMap(robot_radius=self.tuning.radius)  # same 12 m / .1 m / 12 s as demo
         self.mapping.slide(np.asarray(pose[:2]))
         self.mapping.rebuild(start_time)
-        # No simulated initial_clear_patch: no sensor evidence exists for it.
+        # Empty by default. Only the explicit, one-shot startup policy may seed it.
         self.target = VisualTrack(pose[:2], self.tuning.coast_timeout)
         self.people = PeopleTracks()
         self.last_measurement = -math.inf
@@ -133,6 +133,8 @@ class SimulationEngine:
 
 _PROCESS_ENGINE = None
 _PROCESS_KEY = None
+_PROCESS_STARTUP_USED = False
+_PROCESS_STARTUP_PRIOR = None
 
 
 def worker_initializer():
@@ -149,13 +151,37 @@ def warm_worker():
 
 def process_step(job):
     """Single spawned process owns the numerical state; no rclpy in this module."""
-    global _PROCESS_ENGINE, _PROCESS_KEY
-    key, pose, previous, packets, observation, now = job
+    global _PROCESS_ENGINE, _PROCESS_KEY, _PROCESS_STARTUP_USED, _PROCESS_STARTUP_PRIOR
+    key, pose, previous, packets, observation, now, startup = job
+    radius=float(startup['radius'])
+    if not math.isfinite(radius) or not 0 <= radius <= .5:
+        raise ValueError('invalid_startup_clear_radius')
     if _PROCESS_KEY != key:
+        old=_PROCESS_ENGINE
+        same_reference=old is not None and _PROCESS_KEY[-1]==key[-1]
         _PROCESS_ENGINE = SimulationEngine(pose, now)
+        # Starting/stopping a task resets target/controller state, not recent
+        # obstacle evidence. A wheel reference reset still discards the map.
+        if same_reference:
+            _PROCESS_ENGINE.mapping=old.mapping
+            _PROCESS_ENGINE.map_stamp=old.map_stamp
         _PROCESS_KEY = key
     engine = _PROCESS_ENGINE
+    if startup['active'] and radius>0 and not _PROCESS_STARTUP_USED:
+        # User-authorized assumption, once at the first follow task, not during
+        # idle warm-up. Never erase observed obstacles or renew on task changes.
+        engine.mapping.slide(np.asarray(pose[:2]))
+        count=engine.mapping.initial_clear_patch(pose[:2],now,radius,only_unknown=True)
+        _PROCESS_STARTUP_PRIOR=dict(source='operator_assumed_startup_free',
+            radius_m=radius,center_odom=np.asarray(pose[:2]).tolist(),stamp_s=now,
+            expires_s=now+engine.mapping.ttl,reference_generation=key[-1],seeded_cells=count)
+        _PROCESS_STARTUP_USED=True
     result = engine.step(pose, previous, packets, observation, now)
+    prior=dict(_PROCESS_STARTUP_PRIOR) if _PROCESS_STARTUP_PRIOR else None
+    if prior is not None:
+        prior['remaining_s']=max(0.,prior['expires_s']-now) if prior['reference_generation']==key[-1] else 0.
+        prior['state']='active' if prior['remaining_s']>0 else 'expired_or_reference_changed'
     result.update(map_lower=engine.mapping.lower.copy(),resolution=engine.mapping.res,
+        startup_prior=prior,startup_prior_consumed=_PROCESS_STARTUP_USED,
         grid=np.where(engine.mapping.occupied,100,np.where(engine.mapping.known,0,-1)).astype(np.int8))
     return result

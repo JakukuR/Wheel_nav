@@ -17,3 +17,6 @@ person_follow:
     max_sensor_age_s: 0.30
     result_ttl_s: 0.15
     tof_enabled: false
+    # Explicit user-requested starting assumption, not measured free space.
+    # Seed unknown cells once on the first follow task; original map TTL is 12s.
+    startup_clear_radius_m: 0.5
