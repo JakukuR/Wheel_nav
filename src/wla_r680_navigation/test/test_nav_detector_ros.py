@@ -228,21 +228,28 @@ def test_person_stop_forwards_without_stopping_detection(fixture):
         probe.destroy_node();backend.destroy_node();api.destroy_node()
 
 
-def test_gmc_degradation_preserves_epoch_and_does_not_refresh_evidence(fixture):
-    from wla_r680_navigation_py.gmc_recovery import GMCQualityRejected
+def test_gmc_degradation_publishes_fresh_geometry_without_epoch_change(fixture):
     node,model,raw,relative=fixture
-    node.on_image(rgb(node));drain_until(node,lambda:bool(raw))
-    epoch=node.epoch;last=node.last_valid_result_ns;count=len(raw)
-    published=[]
-    node.metrics_pub=NS(publish=lambda m:published.append(json.loads(m.data)))
-    original=node.runtime.process
-    node.runtime.process=lambda *a,**kw:(_ for _ in ()).throw(GMCQualityRejected())
-    for i in range(3):
-        node.on_image(rgb(node))
-        drain_until(node,lambda:len(published)>i)
-        assert published[-1]['outcome']=='gmc_degraded'
-        assert node.epoch==epoch and node.last_valid_result_ns==last
-        assert len(raw)==count and len(relative)==count
-    node.runtime.process=original
-    node.on_image(rgb(node));drain_until(node,lambda:len(raw)>count)
-    assert node.epoch==epoch and node.last_valid_result_ns>last
+    import torch
+    # The fake detector supplies the same tracker ID; public IDs must change
+    # on entry into fallback so prior identity cannot silently attach to it.
+    box=NS(id=torch.tensor(7.),conf=torch.tensor(.9),cls=torch.tensor(0.),
+           xyxy=torch.tensor([[24.,16.,48.,40.]]))
+    node.runtime.process=lambda *a,**kw:[NS(boxes=[box],names={0:'person'})]
+    tf=Transform();tf.rotation.x=-.5;tf.rotation.y=.5;tf.rotation.z=-.5;tf.rotation.w=.5
+    tf.translation.x=.1;tf.translation.z=.25
+    node.tf.lookup_transform=lambda *a:NS(transform=tf)
+    def submit(mode):
+        geometry(node)
+        node.runtime.last_metrics={'association_mode':mode,'gmc':[{'valid':mode=='visual'}]}
+        count=len(raw);node.on_image(rgb(node));drain_until(node,lambda:len(raw)>count)
+        assert relative[-1]['objects'][0]['distance'] is not None
+        assert raw[-1]['stamp_ns']==relative[-1]['stamp_ns']
+        return raw[-1]['objects'][0]['track_id']
+    old=submit('visual');epoch=node.epoch;last=node.last_valid_result_ns
+    new=submit('uncompensated')
+    assert new!=old and node.epoch==epoch and node.last_valid_result_ns>last
+    assert raw[-1]['association']['mode']=='uncompensated'
+    for mode in ('uncompensated','visual','uncompensated'):
+        assert submit(mode)==new
+        assert node.epoch==epoch

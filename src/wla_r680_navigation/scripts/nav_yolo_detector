@@ -34,8 +34,9 @@ class NavDetector(Node):
     def __init__(self, args, model):
         super().__init__('r680_nav_yolo_detector')
         self.args, self.model = args, model
-        from wla_r680_navigation_py.gmc_recovery import RecoverableTrackingRuntime as TrackingRuntime
+        from wla_r680_navigation_py.gmc_recovery import RecoverableTrackingRuntime as TrackingRuntime, AssociationIds
         self.runtime = TrackingRuntime(model)
+        self.association_ids = AssociationIds()
         self.last_valid_result_ns = 0
         self.session, self.epoch = uuid.uuid4().hex, 0
         self.last_stamp, self.last_frame, self.last_receive = 0, None, 0.
@@ -100,7 +101,6 @@ class NavDetector(Node):
             self.condition.notify()
 
     def infer(self):
-        from wla_r680_navigation_py.gmc_recovery import GMCQualityRejected
         tracker_epoch = -1
         next_at = 0.
         fallback_id = 1_000_000_000
@@ -138,13 +138,14 @@ class NavDetector(Node):
                     continue
                 output = processed[0]
                 timing['runtime'] = self.runtime.last_metrics
+                self.association_ids.begin_frame(self.runtime.last_metrics.get('association_mode', 'visual'))
                 rows = []
                 for box in output.boxes:
                     if box.id is None:
                         fallback_id += 1
                         identifier = fallback_id
                     else:
-                        identifier = int(box.id.item())
+                        identifier = self.association_ids.resolve(int(box.id.item()))
                     xyxy = [float(v) for v in box.xyxy[0].tolist()]
                     xyxy = [max(0., min(v, float(message.width if i%2 == 0 else message.height)))
                             for i, v in enumerate(xyxy)]
@@ -153,17 +154,11 @@ class NavDetector(Node):
                     rows.append(dict(track_id=identifier, label=output.names[int(box.cls.item())],
                                      confidence=float(box.conf.item()), bbox_xyxy=xyxy))
                 batch = json.loads(encode_batch(message, self.session, epoch, rows))
+                batch['association'] = dict(mode=self.association_ids.mode, revision=self.association_ids.revision)
                 timing['inference_end_ns'] = self.ros_ns()
                 with self.condition:
                     if epoch == self.epoch and not self.stopping:
                         self.result = (batch, timing)
-            except GMCQualityRejected:
-                # Preflight failed before BoT-SORT updated any state. Keep the
-                # task epoch and last valid timestamp; never renew stale data.
-                with self.condition:
-                    if epoch == self.epoch:
-                        self.result = (None, dict(timing, outcome='gmc_degraded',
-                            runtime=self.runtime.last_metrics))
             except Exception as exc:
                 self.get_logger().error('YOLO failed: '+str(exc))
                 with self.condition:
@@ -222,7 +217,8 @@ class NavDetector(Node):
         return dict(schema='wla-relative-detections/v1', stamp_ns=stamp,
                     stamp=dict(sec=stamp//1_000_000_000,nanosec=stamp%1_000_000_000),
                     session=batch['session'], epoch=batch['epoch'], enabled=True,
-                    base_frame=self.args.base_frame, ttl_s=.30, objects=rows)
+                    base_frame=self.args.base_frame, ttl_s=.30, objects=rows,
+                    association=batch.get('association', {}))
 
     def drain(self):
         with self.condition:

@@ -1,55 +1,58 @@
-# GMC quality failure isolation — 2026-10-20
+# Optional GMC — 2026-10-20
 
-The nav detector uses RecoverableTrackingRuntime (nav-owned adapter over the
-existing deployed YOLOE FP32 runtime). Before Ultralytics' tracking callback
-updates any Kalman state or association, it computes bounded ORB GMC using the
-same high-score detection mask. A valid transform is cached for that callback;
-there is no second ORB pass.
+This revision supersedes the pre-association discard policy in commit 6f7ebf0.
+GMC is an optional visual compensation aid, not admission for fresh detections
+or depth geometry. The deployed FP32 YOLOE model, camera timing and projection
+thresholds are unchanged.
 
-A failed quality check emits the typed GMCQualityRejected exception, publishes
-timing outcome `gmc_degraded`, and discards the image's detection/association
-output. The last accepted background reference, tracker lists, Kalman state,
-frame counter, ID allocator, model warmup and detector epoch are unchanged.
-Empty initial reference images are rejected without poisoning the reference.
-Recovery compares against the last accepted frame, not an intervening bad image.
+Before BoT-SORT updates, bounded ORB estimates the warp. A failed quality check
+supplies an identity matrix (explicitly labelled uncompensated), while ordinary
+Kalman prediction and association continue. The current image becomes the next
+background reference because tracking has also advanced on that image. The
+detector publishes the current tracking/detection results and projects their
+depth normally. It does not replay earlier boxes or timestamps. Empty YOLO
+results are still empty; this cannot repair detector motion-blur misses.
 
-This prevents a transient quality failure from cancelling the active follow
-task and thereby deleting its ReID gallery. It is not a claim that YOLO detects
-blurred people. No stale frame receives a fresh timestamp. Existing 300 ms
-observation validity, task heartbeat leases, collision checks and 8 s ReID
-search expiry still apply. Long-lasting insufficient features can leave the
-robot waiting/searching; this patch adds neither blind motion nor unlimited
-identity retention. A real camera gap >750 ms, camera/model/session change or
-unexpected inference/OpenCV error retains the existing hard-reset policy.
+On the first transition to degraded association, public track IDs are retired
+and new, monotonic candidate IDs are allocated. Session and epoch stay intact,
+so the follow task and its ReID gallery survive. The old locked ID cannot
+silently bind to a possibly changed track. The existing target-only ReID opens
+its spatial candidate gate and requires appearance/position agreement across
+three frames before rebinding; without ReID, a selected old ID is not replaced
+automatically. Initial enrollment still requires the explicitly selected ID.
+This does not guarantee no within-mode ID switches; appearance and position
+checks remain necessary.
 
-Target measurement provenance: nav_yolo_detector projects a central detection
-box depth patch through camera intrinsics and mounting TF, publishing vehicle
-relative distance/yaw on `/r680/perception/relative_objects`. sim_node transforms
-the measurement at its acquisition time using wheel odometry, applies the
-configured 0.28 m surface-to-center approximation, and supplies the odom-space
-observation to VisualTrack's constant-velocity Kalman filter. ReID selects the
-identity; it is not a depth estimator. This change does not alter projection,
-center-depth selection, partial-body matching, or obstacle filtering.
+Ten consecutive valid GMC frames end a degraded episode. Intermittent quality
+changes within an episode do not repeatedly retire IDs. Recovery preserves the
+candidate IDs that ReID may already have confirmed. A later, separate degraded
+episode allocates fresh IDs again. The public ID allocator is bounded to 4096
+cached associations; evicted associations get new IDs, never reused IDs.
 
-Validation: real ORB and upstream BoT-SORT with synthetic detections check that
-multiple rejected frames mutate no track, covariance, frame counter or ID; a
-translated valid frame recovers the original ID. Isolated domain 198 tests
-check unchanged epoch/timestamp and no rejected publication, followed by fresh
-recovery; generic inference failure still resets. Real YOLOE-11s-seg GPU replay
-using the bundled bus image rejects blur/blank/blank and recovers all four IDs,
-without replacing the FP32 CUDA graph generation. This is offline fault
-injection, not real-vehicle turning/identity accuracy validation.
+Diagnostics: `runtime.gmc_policy=optional_visual_compensation`, instantaneous
+`runtime.association_mode=visual|uncompensated`, and the original GMC failure
+reason/valid flag/fallback matrix. Raw and relative packets have top-level
+`association.mode/revision` for the debounced identity episode. Existing raw
+and relative object schemas are retained.
 
-The detector and its existing ROS fixture already contained uncommitted FP32
-runtime integration before this fix. Those directly required integration
-changes are retained alongside this repair; unrelated launch/navigation edits
-are excluded. Original bytes and baseline hashes are backed up for review.
+Unexpected inference/OpenCV/contract errors and real camera/session changes
+retain hard resets. Existing 300 ms source validity, collision checks, command
+leases and 8 s ReID search timeout are unchanged. No follower control policy,
+depth sampling or ReID similarity threshold is loosened.
 
-Final validation: 64 targeted tests passed (runtime/ROS detector/relative task
-control/ReID identity). After guarded reload with five fresh inactive follow
-status samples, a 12 s live read-only check received 244 publications at
-20.28 Hz, RGB 29.96 Hz, median acquisition-to-publication 94.09 ms; epoch stayed
-1 and the new policy marker was present. Camera PID 622203 and viewer PID
-722360 stayed running. No follow command or chassis velocity was published
-by these checks. Existing stopped task was not resumed. The necessary detector
-restart created a new session, so the operator must select a current ID.
+Validation: 66 targeted tests pass (real ORB/BoT-SORT, isolated domain 198
+detector/geometry, task control and ReID). Tests cover publication during GMC
+failure, unchanged epoch and renewed current-source geometry, ID retirement,
+no ID churn during quality flapping, no ID reuse on recovery, wrong appearance
+rejection and three-frame re-identification. Real GPU YOLOE replay holds the
+image fixed and forces absent background features: four detections continue
+through four GMC failures, public IDs switch only once and stay stable after
+recovery; CUDA graph generation stays unchanged. This is not physical turning
+or multi-person accuracy acceptance.
+
+Before this change, a 12 s live read-only sample (287 published frames) measured
+GMC median/P95 6.39/11.99 ms and worker median/P95 41.25/51.40 ms. These timings
+are scene/load-dependent. Making GMC optional removes failure-induced output
+gaps, not its normal compute cost, and does not establish stable 30 Hz.
+
+Deployment read-only check: 278 publications in 12 s, RGB 29.97 Hz, detections 23.08 Hz, acquisition-to-publish median 85.99 ms; epoch stable at 1, new policy marker present. Camera and viewer were not restarted; five fresh inactive follow samples preceded the detector-owner reload. No motion test was initiated. Runtime now requires a current target ID.
