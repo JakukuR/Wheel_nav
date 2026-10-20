@@ -253,6 +253,112 @@ class DebugViewer(Node):
         edges = corners[:, [(0, 1), (1, 2), (2, 3), (3, 0)], :].reshape(-1, 2, 3)
         return {'segments': cam.segments(transform(edges, mat@origin)), 'count': len(cells)}
 
+    def topdown(self):
+        """Bounded, read-only geometry in the robot frame, independent of RGB.
+
+        Local layers are acquisition-time robot-relative snapshots. They are not
+        a globally registered map or motion-compensated to a common timestamp.
+        """
+        result = dict(frame_id=self.args.base_frame, layers=[], objects=[],
+                      robot_radius=.24, obstacle_margin=.10, reason='waiting_for_topic',
+                      registration='acquisition_time_robot_relative')
+        def to_base(frame, ns):
+            if frame == self.args.base_frame:
+                return np.eye(4)
+            if not frame:
+                raise ValueError('empty_source_frame')
+            return tf_matrix(self.tf.lookup_transform(self.args.base_frame, frame,
+                             Time(nanoseconds=ns)).transform)
+
+        for key, (typ, topic, ttl, color, label) in self.specs.items():
+            if key == 'voxels':  # Same cloud as points in local mode; avoid duplicate payload.
+                if self.args.mode == 'local':
+                    continue
+            layer = dict(id=key, topic=topic, color=color, label=label, reason='waiting_for_topic')
+            result['layers'].append(layer)
+            entry = self.sources.get(key)
+            if not entry:
+                continue
+            msg, received = entry
+            try:
+                if msg is None:
+                    raise ValueError('oversized_message')
+                if not self.fresh(stamp(msg), received, min(ttl, .5)):
+                    raise ValueError('source_stale_or_zero_stamp')
+                mat = to_base(msg.header.frame_id, stamp(msg))
+                layer.update(age_ms=round((self.get_clock().now().nanoseconds-stamp(msg))*1e-6),
+                             stamp_ns=str(stamp(msg)))
+                if isinstance(msg, PointCloud2):
+                    pts = point_cloud2.read_points_numpy(msg, field_names=('x', 'y', 'z'), skip_nans=True).reshape(-1, 3)
+                    pts = transform(pts[np.isfinite(pts).all(axis=1)], mat)
+                    pts = pts[(np.abs(pts[:, :2]) <= 8).all(axis=1)]
+                    layer['total'] = len(pts)
+                    pts = pts[::max(1, int(np.ceil(len(pts)/3000)))][:3000]
+                    layer.update(kind='points', points=np.round(pts[:, :2], 3).tolist(), count=len(pts))
+                elif isinstance(msg, Path):
+                    if any(p.header.frame_id not in ('', msg.header.frame_id) for p in msg.poses):
+                        raise ValueError('mixed_path_frames')
+                    pts = np.array([[p.pose.position.x, p.pose.position.y, p.pose.position.z]
+                                    for p in msg.poses], dtype=float).reshape(-1, 3)
+                    if not np.isfinite(pts).all():
+                        raise ValueError('nonfinite_path')
+                    if len(pts) > 2000:
+                        raise ValueError('topdown_path_too_large')
+                    layer.update(kind='path', points=np.round(transform(pts, mat)[:, :2], 3).tolist(), count=len(pts))
+                else:
+                    if not msg.data:
+                        layer.update(kind='grid', cells=[], count=0, width=0, height=0)
+                    else:
+                        if (msg.info.width*msg.info.height != len(msg.data) or len(msg.data) > 40000
+                                or not 0 < msg.info.resolution <= 1):
+                            raise ValueError('invalid_or_oversized_topdown_grid')
+                        q, p = msg.info.origin.orientation, msg.info.origin.position
+                        origin = mat @ matrix([q.x, q.y, q.z, q.w], [p.x, p.y, p.z])
+                        if not np.isfinite(origin).all():
+                            raise ValueError('invalid_grid_origin')
+                        # Preserve the full origin rotation (including robot yaw).
+                        basis = origin[:2, :2]*msg.info.resolution
+                        cells = list(msg.data)
+                        layer.update(kind='grid', cells=cells, width=msg.info.width, height=msg.info.height,
+                                     origin=origin[:2, 3].tolist(), basis=basis.tolist(),
+                                     count=sum(v >= 50 for v in cells), free_count=cells.count(0))
+                layer['reason'] = 'ok'
+            except Exception as exc:
+                layer['reason'] = str(exc)[:180]
+
+        status, received = self.statuses.get('person', ({}, 0.))
+        status_fresh = time.monotonic()-received <= 1.
+        selected = status.get('target_id', '') if status_fresh and status.get('enabled') else ''
+        result['follow'] = {k: status.get(k) for k in
+                           ('state', 'safety_reason', 'recovery_state', 'linear_mps', 'angular_rps', 'compute_ms')} if status_fresh else {}
+        result['objects_reason'] = 'waiting_for_topic'
+        if self.relative:
+            rel, received = self.relative[-1]
+            try:
+                if not self.fresh(rel['stamp_ns'], received, min(float(rel.get('ttl_s', .3)), .5)):
+                    raise ValueError('source_stale_or_zero_stamp')
+                if not rel.get('enabled'):
+                    raise ValueError('detector_disabled')
+                if self.raw and any(rel.get(k) != self.raw[-1][0].get(k) for k in ('session', 'epoch')):
+                    raise ValueError('detector_generation_mismatch')
+                mat = to_base(rel.get('base_frame', ''), rel['stamp_ns'])
+                for obj in rel['objects']:
+                    d, yaw = obj.get('distance'), obj.get('yaw')
+                    if not obj.get('detected') or not isinstance(d, (int, float)) or not isinstance(yaw, (int, float)):
+                        continue
+                    if not np.isfinite([d, yaw]).all() or not 0 < d <= 15:
+                        continue
+                    xy = transform(np.array([[d*np.cos(yaw), d*np.sin(yaw), 0.]]), mat)[0, :2]
+                    result['objects'].append(dict(id=str(obj.get('id', ''))[:160], label=str(obj.get('label', '?'))[:80],
+                        xy=np.round(xy, 3).tolist(), selected=bool(selected and obj.get('id') == selected)))
+                result['objects_reason'] = 'ok'
+                result['objects_age_ms'] = round((self.get_clock().now().nanoseconds-rel['stamp_ns'])*1e-6)
+            except Exception as exc:
+                result['objects_reason'] = str(exc)[:180]
+        if any(l['reason'] == 'ok' for l in result['layers']) or result['objects_reason'] == 'ok':
+            result['reason'] = 'ok'
+        return result
+
     def planning(self):
         result = {'view': 'planning', 'image': None, 'reason': 'waiting_for_rgb', 'layers': []}
         if not self.frames.frames:
@@ -322,6 +428,18 @@ class DebugViewer(Node):
                 self.snapshot[name] = self.encode(result)
             except Exception as e:
                 self.snapshot[name] = self.encode({'view': name, 'image': None, 'reason': str(e)[:250]})
+            if name == 'planning':
+                try:
+                    result = json.loads(self.snapshot[name])
+                    overhead_started = time.monotonic()
+                    result['topdown'] = self.topdown()
+                    result['topdown_ms'] = round((time.monotonic()-overhead_started)*1000, 1)
+                    result['render_ms'] = round((time.monotonic()-start)*1000, 1)
+                    self.snapshot[name] = self.encode(result)
+                except Exception as exc:
+                    result = json.loads(self.snapshot[name])
+                    result['topdown'] = dict(reason=str(exc)[:180], layers=[], objects=[])
+                    self.snapshot[name] = self.encode(result)
             self.snapshot_time[name] = time.monotonic()
 
 
@@ -368,10 +486,10 @@ def main():
                 data = node.snapshot[name] if time.monotonic()-node.snapshot_time[name] < 1 else node.encode(
                     {'view': name, 'image': None, 'reason': 'waiting_for_rgb'})
                 mime = 'application/json; charset=utf-8'
-            elif path in ('/', '/detections', '/planning', '/app.js', '/style.css'):
-                name = {'/app.js': 'app.js', '/style.css': 'style.css'}.get(path, 'index.html')
+            elif path in ('/', '/detections', '/planning', '/app.js', '/topdown.js', '/style.css'):
+                name = {'/app.js': 'app.js', '/topdown.js': 'topdown.js', '/style.css': 'style.css'}.get(path, 'index.html')
                 data = (assets/name).read_bytes()
-                mime = {'app.js': 'text/javascript', 'style.css': 'text/css', 'index.html': 'text/html'}[name]+'; charset=utf-8'
+                mime = {'app.js': 'text/javascript', 'topdown.js': 'text/javascript', 'style.css': 'text/css', 'index.html': 'text/html'}[name]+'; charset=utf-8'
             else:
                 self.send_error(404)
                 return

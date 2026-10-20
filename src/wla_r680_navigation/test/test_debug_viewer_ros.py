@@ -67,7 +67,7 @@ class Fixture(Node):
         raw={'session':'fixture','epoch':1,'stamp_ns':ns,'frame_id':h.frame_id,'width':640,'height':480,
              'objects':[{'track_id':42,'label':'person','confidence':.94,'bbox_xyxy':[155,90,265,390]},
                         {'track_id':7,'label':'bottle','confidence':.87,'bbox_xyxy':[430,225,462,310]}]}
-        rel={'session':'fixture','epoch':1,'stamp_ns':ns,'enabled':True,'objects':[
+        rel={'session':'fixture','epoch':1,'stamp_ns':ns,'enabled':True,'base_frame':'r680_mapping_floor','ttl_s':.3,'objects':[
             {'id':'fixture:1:42','detected':True,'distance':2.1,'yaw':.2},
             {'id':'fixture:1:7','detected':True,'distance':1.4,'yaw':-.3}]}
         if self.detection_mode=='wrong_frame':raw['stamp_ns']+=1_000_000
@@ -87,11 +87,16 @@ class Fixture(Node):
         path=Path(header=gh)
         for y,z in [(.8,.8),(.7,1.2),(.6,1.8),(.4,2.5),(.2,3.2)]:
             pose=PoseStamped(header=gh);pose.pose.position.y=y;pose.pose.position.z=z;pose.pose.orientation.w=1.;path.poses.append(pose)
+        if self.geometry_mode=='empty':path.poses=[]
         self.pubs['path'].publish(path)
         grid=OccupancyGrid(header=gh)
         grid.info.width=grid.info.height=4;grid.info.resolution=.1
         grid.info.origin.position.x=.4;grid.info.origin.position.z=2.;grid.info.origin.orientation.w=1.
-        grid.data=[100,100,0,0]*4;self.pubs['grid'].publish(grid)
+        grid.data=[100,100,0,0]*4
+        if self.geometry_mode=='rotated':
+            grid.info.origin.orientation.z=2**-.5;grid.info.origin.orientation.w=2**-.5
+        if self.geometry_mode=='empty':grid.data=[]
+        self.pubs['grid'].publish(grid)
 
 
 def main():
@@ -117,6 +122,7 @@ def main():
             if proc.poll() is not None:raise AssertionError(FilePath(log.name).read_text())
         raise AssertionError('Timed out: '+json.dumps({'d':{k:v for k,v in d.items() if k!='image'},'g':{k:v for k,v in g.items() if k!='image'}})[:4000])
     def layer(g,key):return next((x for x in g.get('layers',[]) if x['id']==key),{})
+    def top_layer(g,key):return next((x for x in g.get('topdown',{}).get('layers',[]) if x['id']==key),{})
     try:
         d,g=wait_for(lambda d,g:d.get('reason')=='ok' and len(d.get('objects',[]))==2 and layer(g,'voxels').get('reason')=='ok' and len(layer(g,'object_path').get('segments',[]))>0)
         assert d['objects'][0]['distance']==2.1
@@ -128,6 +134,20 @@ def main():
             assert not any('controller_server' in name or 'planner_server' in name for name,_ in fixture.get_node_names_and_namespaces())
             print('PASS standalone local projection without map/odom TF or Nav2 nodes',flush=True)
         print('PASS exact RGB/person/object pair; voxel, point, path and 2D-grid projection',flush=True)
+        if args.local:
+            assert g['topdown']['frame_id']=='r680_mapping_floor'
+            tg=top_layer(g,'object_grid')
+            assert tg['reason']=='ok' and tg['count']==8 and tg['free_count']==8
+            assert np.allclose(tg['origin'],[.4,0]) and np.allclose(tg['basis'],[[.1,0],[0,.1]])
+            assert np.allclose(g['topdown']['objects'][0]['xy'],[2.1*np.cos(.2),2.1*np.sin(.2)],atol=.001)
+            fixture.geometry_mode='rotated'
+            _,g=wait_for(lambda d,g:abs(top_layer(g,'object_grid').get('basis',[[1]])[0][0])<1e-6)
+            assert np.allclose(top_layer(g,'object_grid')['basis'],[[0,-.1],[.1,0]])
+            fixture.geometry_mode='empty'
+            wait_for(lambda d,g:top_layer(g,'object_path').get('points')==[] and top_layer(g,'object_grid').get('cells')==[])
+            fixture.geometry_mode='ok'
+            wait_for(lambda d,g:top_layer(g,'object_grid').get('count')==8)
+            print('PASS topdown base-frame meters, rotated grid origin and explicit geometry clearing',flush=True)
         fixture.detection_mode='wrong_epoch'
         wait_for(lambda d,g:d.get('reason')=='ok' and len(d.get('objects',[]))==2 and all(x['distance'] is None for x in d['objects']))
         fixture.detection_mode='wrong_frame'
@@ -136,9 +156,12 @@ def main():
         print('PASS epoch mismatch and absent exact RGB frame never borrow distances/boxes',flush=True)
         fixture.geometry_mode='missing_tf'
         wait_for(lambda d,g:('local_mode_requires_robot_or_camera_frame' if args.local else 'unknown_frame') in layer(g,'voxels').get('reason','') and not layer(g,'voxels').get('segments'))
+        if args.local:
+            assert top_layer(get('planning'),'points')['reason']!='ok'
+            assert 'points' not in top_layer(get('planning'),'points')
         for mode in ['stale','zero']:
             fixture.geometry_mode=mode
-            wait_for(lambda d,g:layer(g,'voxels').get('reason')=='source_stale_or_zero_stamp' and not layer(g,'voxels').get('segments'))
+            wait_for(lambda d,g:layer(g,'voxels').get('reason')=='source_stale_or_zero_stamp' and not layer(g,'voxels').get('segments') and top_layer(g,'points').get('reason')=='source_stale_or_zero_stamp')
         fixture.geometry_mode='ok'
         print('PASS missing TF, replayed old and zero-stamped geometry suppressed',flush=True)
         fixture.info_mode='mismatch'
@@ -146,10 +169,14 @@ def main():
         fixture.info_mode='ok'
         fixture.camera_enabled=False
         wait_for(lambda d,g:not d.get('image') and not g.get('image'))
+        if args.local:
+            _,g=wait_for(lambda d,g:not g.get('image') and top_layer(g,'points').get('reason')=='ok')
+            assert g['topdown']['objects_reason']=='ok'
+            print('PASS topdown stays live without RGB, no stale/unknown-frame fallback',flush=True)
         fixture.camera_enabled=True
-        wait_for(lambda d,g:d.get('reason')=='ok' and layer(g,'voxels').get('reason')=='ok')
+        d,g=wait_for(lambda d,g:d.get('reason')=='ok' and layer(g,'voxels').get('reason')=='ok')
         print('PASS invalid CameraInfo and camera dropout clear overlays; recovery works',flush=True)
-        for page in ['/detections','/planning','/app.js','/style.css']:
+        for page in ['/detections','/planning','/app.js','/topdown.js','/style.css']:
             with urllib.request.urlopen(url+page) as f:assert f.status==200 and len(f.read())>100
         try:
             urllib.request.urlopen(urllib.request.Request(url+'/api/planning',data=b'{}',method='POST'))

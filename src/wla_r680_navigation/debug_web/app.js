@@ -15,8 +15,8 @@ function toggle(id, label) {
   el.append(input, document.createTextNode(' '+label)); $('toggles').append(el);
 }
 if (planning) {
-  $('title').textContent='体素与路径投影'; $('eyebrow').textContent='GEOMETRY / RGB PROJECTION';
-  $('subtitle').textContent='将三维障碍与规划路径映射到相机视角。';
+  $('topdownPanel').hidden=false; $('title').textContent='体素与路径'; $('eyebrow').textContent='GEOMETRY / LIVE TOP VIEW';
+  $('subtitle').textContent='俯视检查障碍、目标和局部路径，下方保留相机投影。';
   $('viewLabel').textContent='RGB + 空间几何'; $('listTitle').textContent='投影图层';
   $('note').textContent='确认体素为障碍记忆快照；二维障碍栅格仅画地面轮廓。叠加不做遮挡消除，可能显示在前景物体后方的几何。路径需规划器已产生结果。';
   $('footerNote').textContent='按图像时刻转换 TF · 缺少变换时停止叠加';
@@ -26,9 +26,10 @@ if (planning) {
 $(planning?'planningLink':'detectionLink').classList.add('active');
 $('other').href=planning?'/detections':'/planning';
 document.title=`R680 · ${planning?'体素与路径':'检测调试'}`;
-$('pause').addEventListener('click',()=>{paused=!paused;$('pause').textContent=paused?'恢复实时':'暂停画面';$('paused').hidden=!paused;if(!paused){data=null;picture=null;clear('恢复连接中');}});
-function clear(reason) { ctx.clearRect(0,0,canvas.width,canvas.height);$('empty').hidden=false;$('empty').querySelector('h2').textContent=reason; }
+$('pause').addEventListener('click',()=>{paused=!paused;$('pause').textContent=paused?'恢复实时':'暂停画面';$('paused').hidden=!paused;if(planning)TopdownView.draw(data?.topdown,enabled,paused);if(!paused){data=null;picture=null;clear('恢复连接中');}});
+function clear(reason) { if(planning)TopdownView.clear(reason); ctx.clearRect(0,0,canvas.width,canvas.height);$('empty').hidden=false;$('empty').querySelector('h2').textContent=reason; }
 function draw() {
+  if(planning)TopdownView.draw(data?.topdown, enabled, paused);
   if (!data || !picture) return;
   canvas.width=data.width;canvas.height=data.height;ctx.drawImage(picture,0,0,canvas.width,canvas.height);
   ctx.lineWidth=Math.max(1.5,canvas.width/500);ctx.lineJoin='round';
@@ -58,6 +59,7 @@ function item(title, right, detail, color) {
   const value=document.createElement('span');value.textContent=right;row.append(left,value);const small=document.createElement('small');small.textContent=detail;el.append(row,small);return el;
 }
 function update() {
+  if(planning)TopdownView.draw(data.topdown, enabled, paused);
   if(planning && data.mode){
     const local=data.mode==='local';
     for(const id of ['nav_path','local_path']){const el=document.querySelector(`[data-layer="${id}"]`);if(el)el.hidden=local;}
@@ -88,7 +90,7 @@ async function poll(){
       const next=await response.json();
       let img=null;
       if(next.image){img=new Image();img.src='data:image/jpeg;base64,'+next.image;await img.decode();}
-      if(!paused){data=next;picture=img;lastSuccess=performance.now();update();if(img){$('empty').hidden=true;draw();}else{clear(explain(data.reason));}}
+      if(!paused){data=next;picture=img;lastSuccess=performance.now();update();if(img){$('empty').hidden=true;draw();}else{clear(explain(data.reason));if(planning)TopdownView.draw(data.topdown,enabled,paused);}}
     }catch(e){if(!paused){data=null;picture=null;clear('连接中断');$('connection').textContent='连接中断';$('dot').style.backgroundColor='#e28b80';$('reason').textContent=e.message;$('items').replaceChildren();$('count').textContent='—';}}
   }
   setTimeout(poll,200);
