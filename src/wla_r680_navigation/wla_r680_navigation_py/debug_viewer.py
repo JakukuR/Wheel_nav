@@ -1,6 +1,7 @@
 """Read-only ROS subscriptions -> two independent, timestamped RGB debug pages."""
 import argparse
 import base64
+import gzip
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -46,7 +47,9 @@ class DebugViewer(Node):
         self.sources, self.statuses = {}, {}
         self.histories = {}
         self.image_error = ''
-        self.last_client = 0.
+        self.last_clients = {name: 0. for name in ('detections', 'planning')}
+        self.wire_snapshots = {}
+        self.jpeg_cache = None
         self.tf = Buffer(cache_time=Duration(seconds=15))
         self.listener = TransformListener(self.tf, self)
         self.snapshot = {name: self.encode({'view': name, 'reason': 'waiting_for_rgb', 'image': None})
@@ -128,6 +131,11 @@ class DebugViewer(Node):
         msg, received = item
         if not self.fresh(stamp(msg), received, .8):
             raise ValueError('rgb_stale')
+        cache_key=(stamp(msg),msg.header.frame_id,id(msg))
+        if self.jpeg_cache and self.jpeg_cache[0]==cache_key:
+            cached=self.jpeg_cache[1].copy()
+            cached['age_ms']=round((self.get_clock().now().nanoseconds-stamp(msg))*1e-6)
+            return cached
         channels = {'rgb8': 3, 'bgr8': 3, 'rgba8': 4, 'bgra8': 4, 'mono8': 1}.get(msg.encoding)
         if not channels or msg.step < msg.width*channels or len(msg.data) != msg.step*msg.height:
             raise ValueError('unsupported_rgb_encoding_or_stride')
@@ -142,9 +150,11 @@ class DebugViewer(Node):
         ok, jpg = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 78])
         if not ok:
             raise ValueError('jpeg_encode_failed')
-        return {'image': base64.b64encode(jpg).decode('ascii'), 'width': msg.width, 'height': msg.height,
+        result = {'image': base64.b64encode(jpg).decode('ascii'), 'width': msg.width, 'height': msg.height,
                 'stamp_ns': str(stamp(msg)), 'frame_id': msg.header.frame_id,
                 'age_ms': round((self.get_clock().now().nanoseconds-stamp(msg))*1e-6)}
+        self.jpeg_cache=(cache_key,result)
+        return result
 
     def camera(self, msg):
         candidates = [(i, t) for i, t in self.infos if i.header.frame_id == msg.header.frame_id and
@@ -418,10 +428,12 @@ class DebugViewer(Node):
         return result
 
     def render(self):
-        if time.monotonic()-self.last_client > 5:
-            return
-        start = time.monotonic()
         for name, function in [('detections', self.detections), ('planning', self.planning)]:
+            # Only render pages with recent clients. Neither HTTP nor rendering
+            # waits on or calls the follower; all inputs are read-only subscriptions.
+            if time.monotonic()-self.last_clients[name] > 2:
+                continue
+            start = time.monotonic()
             try:
                 result = function()
                 result['statuses'] = {k: {'age_s': round(time.monotonic()-v[1], 1),
@@ -430,23 +442,25 @@ class DebugViewer(Node):
                 result['image_error'] = self.image_error
                 result['domain'] = os.environ.get('ROS_DOMAIN_ID', '0')
                 result['mode'] = self.args.mode
-                result['render_ms'] = round((time.monotonic()-start)*1000, 1)
-                self.snapshot[name] = self.encode(result)
             except Exception as e:
-                self.snapshot[name] = self.encode({'view': name, 'image': None, 'reason': str(e)[:250]})
+                result = {'view': name, 'image': None, 'reason': str(e)[:250]}
             if name == 'planning':
                 try:
-                    result = json.loads(self.snapshot[name])
                     overhead_started = time.monotonic()
                     result['topdown'] = self.topdown()
                     result['topdown_ms'] = round((time.monotonic()-overhead_started)*1000, 1)
-                    result['render_ms'] = round((time.monotonic()-start)*1000, 1)
-                    self.snapshot[name] = self.encode(result)
                 except Exception as exc:
-                    result = json.loads(self.snapshot[name])
                     result['topdown'] = dict(reason=str(exc)[:180], layers=[], objects=[])
-                    self.snapshot[name] = self.encode(result)
-            self.snapshot_time[name] = time.monotonic()
+            result['render_ms'] = round((time.monotonic()-start)*1000, 1)
+            raw = self.encode(result)
+            # Compress once per snapshot, not once per client. Publish immutable
+            # bytes/ETag/time atomically so HTTP threads cannot mix frame versions.
+            compressed = gzip.compress(raw, compresslevel=1, mtime=0)
+            made = time.monotonic()
+            etag = 'W/"%s-%s"' % (name, time.monotonic_ns())
+            self.wire_snapshots[name] = (raw, compressed, etag, made)
+            self.snapshot[name] = raw
+            self.snapshot_time[name] = made
 
 
 def main():
@@ -468,6 +482,12 @@ def main():
     args.points_topic = args.points_topic or ('/r680/person_follow/depth_obstacles' if args.mode == 'local' else '/r680_nav/d455/points')
     if not .01 <= args.voxel_size <= 1 or not 0 < args.port < 65536:
         p.error('Invalid voxel size or port')
+    # Debug rendering yields CPU scheduling priority to perception/control.
+    # Lowering this process priority needs no privilege and changes no follower.
+    try:
+        os.nice(5)
+    except OSError:
+        pass
     rclpy.init(args=ros_args)
     node = DebugViewer(args)
     assets = FilePath(__file__).resolve().parents[1]/'debug_web'
@@ -475,22 +495,41 @@ def main():
         assets = FilePath(get_package_share_directory('wla_r680_navigation'))/'debug_web'
 
     class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
         def setup(self):
             super().setup()
             self.connection.settimeout(3)
 
         def do_GET(self):
             path = self.path.split('?', 1)[0]
+            compressed = False
+            etag = None
             if path == '/api/config':
                 data = node.encode({'schema': 'wla-perception-debug/v1', 'mode': args.mode,
                     'domain': os.environ.get('ROS_DOMAIN_ID', '0'), 'base_frame': args.base_frame,
                     'points_topic': args.points_topic, 'voxel_topic': args.voxel_topic})
                 mime = 'application/json; charset=utf-8'
             elif path in ('/api/detections', '/api/planning'):
-                node.last_client = time.monotonic()
                 name = path.rsplit('/', 1)[1]
-                data = node.snapshot[name] if time.monotonic()-node.snapshot_time[name] < 1 else node.encode(
-                    {'view': name, 'image': None, 'reason': 'waiting_for_rgb'})
+                node.last_clients[name] = time.monotonic()
+                snapshot = node.wire_snapshots.get(name)
+                if snapshot is not None and time.monotonic()-snapshot[3] < 1:
+                    raw, zipped, etag, _ = snapshot
+                    if self.headers.get('If-None-Match') == etag:
+                        self.send_response(304)
+                        self.send_header('ETag', etag)
+                        self.send_header('Cache-Control', 'no-cache')
+                        self.send_header('Vary', 'Accept-Encoding')
+                        self.end_headers()
+                        return
+                    # Only accept the actual coding token, not gzip;q=0.
+                    codings = [v.strip().split(';') for v in self.headers.get('Accept-Encoding', '').split(',')]
+                    compressed = any(v[0]=='gzip' and not any(p.strip() in ('q=0','q=0.0') for p in v[1:]) for v in codings)
+                    data = zipped if compressed else raw
+                else:
+                    # Never 304 a frozen/expired snapshot: the client must learn
+                    # that observations are unavailable even if the tag matches.
+                    data = node.encode({'view': name, 'image': None, 'reason': 'waiting_for_rgb'})
                 mime = 'application/json; charset=utf-8'
             elif path in ('/', '/detections', '/planning', '/app.js', '/topdown.js', '/style.css'):
                 name = {'/app.js': 'app.js', '/topdown.js': 'topdown.js', '/style.css': 'style.css'}.get(path, 'index.html')
@@ -502,7 +541,11 @@ def main():
             self.send_response(200)
             self.send_header('Content-Type', mime)
             self.send_header('Content-Length', str(len(data)))
-            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Cache-Control', 'no-cache' if etag else 'no-store')
+            if etag:self.send_header('ETag', etag)
+            if path.startswith('/api/'):
+                self.send_header('Vary', 'Accept-Encoding')
+            if compressed:self.send_header('Content-Encoding', 'gzip')
             self.send_header('X-Content-Type-Options', 'nosniff')
             self.send_header('Content-Security-Policy', "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'")
             self.end_headers()

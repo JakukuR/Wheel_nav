@@ -3,6 +3,9 @@
 window.TopdownView = (() => {
   const el = id => document.getElementById(id);
   let last = null, selectedLayers = new Set(), frozen = false;
+  const stateRows=new Map();
+  let delayNotice=null;
+  function setDelay(reason){delayNotice=reason;if(reason)el('topBadge').textContent=reason;}
   const validPoint = p => Array.isArray(p) && p.length >= 2 && p.slice(0,2).every(Number.isFinite);
   function draw(top, enabled = selectedLayers, paused = frozen) {
     last=top;selectedLayers=enabled;frozen=paused;
@@ -56,15 +59,21 @@ window.TopdownView = (() => {
     circle([0,0],top?.robot_radius||.19,'#dde7f01c','#f2f6ff');poly([[.15,0],[-.10,.10],[-.05,0],[-.10,-.10]],'#f2f6ff');
     label([-.36,0],'车辆原点','#e9eef5');c.fillStyle='#b4c5d6';c.font='13px sans-serif';c.fillText('↑ 前方 +X',w/2-35,25);c.fillText('← 左侧 +Y',18,26);
     c.strokeStyle='#d5e3ee';c.lineWidth=2;c.beginPath();c.moveTo(w-35-scale,h-37);c.lineTo(w-35,h-37);c.stroke();c.fillText('1 m',w-35-scale/2-10,h-45);
-    const active=top?.reason==='ok';el('topBadge').textContent=paused?'已暂停 · 非实时':active?'实时局部快照':'等待新鲜局部数据';
+    const active=top?.reason==='ok';el('topBadge').textContent=paused?'已暂停 · 非实时':delayNotice?delayNotice:active?'实时局部快照':'等待新鲜局部数据';
     el('topMeta').textContent=`${top?.frame_id||'车体坐标'} · ${layers.length} 个有效图层 · 未知区域不代表空闲`;
     const follow=top?.follow||{}, velocity=Number.isFinite(follow.linear_mps)?` · ${follow.linear_mps.toFixed(2)} m/s`:'';
     el('topFollow').textContent=follow.state?`${follow.state} · ${follow.safety_reason||'—'}${velocity}`:'暂无新鲜跟随状态';
-    const states=el('topLayers');states.replaceChildren();
-    for(const l of top?.layers||[]){const row=document.createElement('p');row.textContent=`${l.label}：${l.reason==='ok'?`${l.count} 个 · ${l.age_ms} ms 前`:l.reason}`;states.append(row);}
-    const row=document.createElement('p');row.textContent=`目标观测：${top?.objects_reason||'等待数据'}${top?.objects_age_ms===undefined?'':` · ${top.objects_age_ms} ms 前`}`;states.append(row);
+    const states=el('topLayers'),entries=(top?.layers||[]).map(l=>[l.id,`${l.label}：${l.reason==='ok'?`${l.count} 个 · ${l.age_ms} ms 前`:l.reason}`]);
+    entries.push(['objects',`目标观测：${top?.objects_reason||'等待数据'}${top?.objects_age_ms===undefined?'':` · ${top.objects_age_ms} ms 前`}`]);
+    const keys=new Set(entries.map(e=>e[0]));
+    for(const [key,row] of stateRows)if(!keys.has(key)){row.remove();stateRows.delete(key);}
+    entries.forEach(([key,value],i)=>{
+      let row=stateRows.get(key);if(!row){row=document.createElement('p');stateRows.set(key,row);}
+      if(row.textContent!==value)row.textContent=value;
+      if(states.children[i]!==row)states.insertBefore(row,states.children[i]||null);
+    });
   }
   function clear(reason){draw(null);el('topBadge').textContent=reason;}
   document.addEventListener('DOMContentLoaded',()=>{for(const id of ['topRange','topFree','topPoints'])el(id)?.addEventListener('change',()=>draw(last));});
-  return {draw,clear};
+  return {draw,clear,setDelay};
 })();

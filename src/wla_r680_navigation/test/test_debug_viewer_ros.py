@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Isolated, non-motion HTTP/ROS integration. Requires ROS_DOMAIN_ID=197."""
 import argparse
+import gzip
+import http.client
 import json
 import os
 from pathlib import Path as FilePath
@@ -134,6 +136,27 @@ def main():
             assert not any('controller_server' in name or 'planner_server' in name for name,_ in fixture.get_node_names_and_namespaces())
             print('PASS standalone local projection without map/odom TF or Nav2 nodes',flush=True)
         print('PASS exact RGB/person/object pair; voxel, point, path and 2D-grid projection',flush=True)
+        # Wire optimization must retain the same JSON and valid conditional GET
+        # semantics, including on one persistent HTTP connection.
+        connection=http.client.HTTPConnection('127.0.0.1',args.port,timeout=2)
+        try:
+            connection.request('GET','/api/planning',headers={'Accept-Encoding':'gzip'})
+            reply=connection.getresponse();packed=reply.read();tag=reply.getheader('ETag')
+            assert reply.status==200 and reply.getheader('Content-Encoding')=='gzip' and tag
+            raw=gzip.decompress(packed);decoded=json.loads(raw)
+            assert decoded['view']=='planning' and len(packed)<len(raw)*.8
+            for attempt in range(5):
+                connection.request('GET','/api/planning',headers={'If-None-Match':tag})
+                reply=connection.getresponse();body=reply.read()
+                if reply.status==304:
+                    assert body==b'';break
+                assert reply.status==200;tag=reply.getheader('ETag')
+            else:raise AssertionError('unchanged snapshot never returned 304')
+            connection.request('GET','/api/planning',headers={'Accept-Encoding':'gzip;q=0'})
+            reply=connection.getresponse();assert reply.getheader('Content-Encoding') is None
+            assert json.loads(reply.read())['view']=='planning'
+        finally:connection.close()
+        print('PASS gzip, unchanged snapshot 304 and persistent HTTP connection',flush=True)
         if args.local:
             assert g['topdown']['frame_id']=='r680_mapping_floor'
             tg=top_layer(g,'object_grid')
