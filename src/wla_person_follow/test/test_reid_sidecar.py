@@ -48,6 +48,7 @@ def test_sidecar_does_not_extract_bystanders_or_idle_frames():
         pump(1.5,True);assert batches and max(batches)==1
         assert all([r['id'] for r in p['objects']]==['s:1:2'] for p in packets)
         assert all(p['request_id']=='task' for p in packets)
+        assert all(p['diagnostics']=={'s:1:2':'feature_ready'} for p in packets)
         count=len(batches);pump(1.2,True,urgent=True);assert 7<=len(batches)-count<=13
         pump(.7,False);count=len(batches);pump(.5,False);assert len(batches)==count
         pump(.7,True,skew=True);count=len(batches);pump(.5,True,skew=True);assert len(batches)==count

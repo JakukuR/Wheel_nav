@@ -7,7 +7,8 @@ import pytest
 pytestmark=pytest.mark.skipif(os.environ.get('RUN_SIM_ROS')!='1',reason='isolated ROS opt-in')
 
 
-def test_rebind_keeps_request_and_stops_on_ambiguous_candidates():
+@pytest.mark.parametrize('initial_gap',[False,True])
+def test_rebind_keeps_request_and_stops_on_ambiguous_candidates(initial_gap):
     assert os.environ.get('ROS_DOMAIN_ID')=='198'
     import rclpy
     from rclpy.node import Node
@@ -36,7 +37,7 @@ def test_rebind_keeps_request_and_stops_on_ambiguous_candidates():
     feature_pub=fixture.create_publisher(String,'/r680/person_follow/reid_features',1)
     seen=[];requests=[]
     fixture.create_subscription(String,'/r680/person_follow/reid_request',lambda m:requests.append(json.loads(m.data)),1)
-    begin=time.monotonic();next_at=0.;next_feature=0.;started=None;captured=[]
+    begin=time.monotonic();next_at=0.;next_feature=0.;started=None;captured=[];features_sent=0
     try:
         while time.monotonic()-begin<10.:
             now=time.monotonic();phase=0 if started is None else now-started
@@ -52,7 +53,8 @@ def test_rebind_keeps_request_and_stops_on_ambiguous_candidates():
                 wheel=Odometry();wheel.header.stamp=stamp;wheel.child_frame_id='r680_mapping_floor'
                 info_pub.publish(info);depth_pub.publish(depth);wheel_pub.publish(wheel)
                 if started is not None and now>=next_feature:
-                    next_feature=now+.20
+                    next_feature=now+(.9 if initial_gap and features_sent==0 else .20)
+                    features_sent+=1
                     feature_pub.publish(String(data=json.dumps(dict(schema='wla-reid-features/v1',stamp_ns=ns,request_id='test-task',
                         session='s',epoch=1,model_id='test',base_frame='r680_mapping_floor',objects=[dict(id=i,feature=[1.]+[0.]*511,yaw=0.,distance=1.5) for i in ids]))))
             ex.spin_once(timeout_sec=.003)
@@ -65,6 +67,7 @@ def test_rebind_keeps_request_and_stops_on_ambiguous_candidates():
                     r=f.map_result;captured.append((phase,r['reid'].copy(),r.get('resolved_target_id')))
             if phase>5 and any(r[1].get('resolved_id')=='s:1:2' and r[1].get('state')=='tracking' for r in captured):break
         assert any(r[1]['state']=='tracking' and r[2]=='s:1:1' for r in captured)
+        if initial_gap:assert any(r[1].get('enrollment_restarts',0)>=1 for r in captured)
         assert any(r[1]['state']=='ambiguous' and r[2] is None for r in captured)
         assert any(r[1]['state']=='tracking' and r[2]=='s:1:2' for r in captured)
         assert f.core.target_id=='s:1:1' and f.core.request_id=='test-task'

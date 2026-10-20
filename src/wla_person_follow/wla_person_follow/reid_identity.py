@@ -15,6 +15,23 @@ class TargetIdentity:
         self.pending_id=None; self.pending_count=0; self.pending_stamp=None
         self.seed_count=0; self.state='enrolling'; self.reason='waiting_for_target_features'
         self.last_similarity=None; self.position_error=None; self.reacquired=0
+        self.enrollment_restarts=0;self.feature_frames=0;self.feature_diagnostics={}
+        self.last_candidate_similarity=None;self.last_candidate_error=None
+
+    def _expire(self,now):
+        # Enrollment has its own fixed task-start deadline. Renewing a
+        # provisional pair must not extend the search indefinitely.
+        if self.state=='expired':return True
+        anchor=self.start_time if self.seed_count<2 else self.last_seen
+        if anchor is not None and now-anchor>self.max_lost:
+            self.state='expired'
+            self.reason='reid_enrollment_timeout' if self.seed_count<2 else 'reid_search_timeout'
+            return True
+        return False
+
+    def _missing_target_reason(self):
+        reason=self.feature_diagnostics.get(self.locked_id,'target_feature_absent')
+        self.reason='enrollment_'+reason
 
     def prediction(self,t):
         if self.position is None:return None
@@ -39,9 +56,12 @@ class TargetIdentity:
         self.state='tracking' if self.seed_count>=2 else 'enrolling'
         self.reason='identity_verified' if self.seed_count>=2 else 'confirm_initial_appearance'
 
-    def consume(self,rows,t,model_id):
+    def consume(self,rows,t,model_id,diagnostics=None):
         if not math.isfinite(t) or t<=self.frame_stamp:return
-        self.frame_stamp=t
+        self.frame_stamp=t;self.feature_frames+=1
+        self.feature_diagnostics={k:v for k,v in (diagnostics or {}).items()
+            if isinstance(k,str) and len(k)<=128 and isinstance(v,str) and len(v)<=96} if isinstance(diagnostics,dict) and len(diagnostics)<=4 else {}
+        if self._expire(t):return
         if model_id!=self.model_id:
             self.reason='feature_model_mismatch';return
         valid=[];ids=set()
@@ -55,12 +75,30 @@ class TargetIdentity:
         if not self.gallery:
             row=next((r for r in valid if r['id']==self.locked_id),None)
             if row is not None:self._accept(row,t,1.,seed=True)
+            else:self._missing_target_reason()
             return
         age=t-self.last_seen
         if age<0:return
-        if age>self.max_lost:
-            self.state='expired';self.reason='reid_search_timeout';return
-        predicted=self.prediction(t);ranked=[]
+        predicted=self.prediction(t)
+        if self.seed_count<2:
+            # A single provisional descriptor is not an enrolled identity.
+            # Only the explicitly selected ID may provide either pair member.
+            row=next((r for r in valid if r['id']==self.locked_id),None)
+            if row is None:self._missing_target_reason();return
+            sim=max(float(row['feature']@g) for g in self.gallery)
+            error=float(np.linalg.norm(row['position']-predicted))
+            self.last_candidate_similarity=sim;self.last_candidate_error=error
+            if sim<self.threshold:self.reason='enrollment_appearance_mismatch';return
+            if error>self.radius(age):self.reason='enrollment_position_mismatch';return
+            if age>.6:
+                # Start a fresh pair from this compatible same-ID sample; do
+                # not accept a late frame as the missing second confirmation.
+                self.gallery.clear();self.seed_count=0;self.velocity[:]=0.
+                self.last_seen=None;self.enrollment_restarts+=1
+                self._accept(row,t,sim,seed=True)
+                self.reason='enrollment_pair_restarted';return
+            self.position_error=error;self._accept(row,t,sim);return
+        ranked=[]
         for row in valid:
             sim=max(float(row['feature']@g) for g in self.gallery)
             error=float(np.linalg.norm(row['position']-predicted))
@@ -69,9 +107,6 @@ class TargetIdentity:
         direct=next((r for r in ranked if r[2]['id']==self.resolved_id),None)
         if direct is not None and age<=.6:
             self.position_error=direct[1];self._accept(direct[2],t,direct[0]);return
-        # Initial enrollment can never adopt a different ID.
-        if self.seed_count<2:
-            self.reason='initial_identity_not_confirmed';return
         self.state='searching';self.reason='no_appearance_position_match'
         if not ranked:
             self.pending_id=None;self.pending_count=0;return
@@ -90,10 +125,9 @@ class TargetIdentity:
 
     def select(self,objects,pose,stamp,now,center_offset=.28):
         """Only current RGB-D measurements can drive; embeddings never renew geometry."""
+        if self._expire(now):return None
         if self.last_seen is None or self.seed_count<2:return None
         age=now-self.last_seen
-        if age>self.max_lost:
-            self.state='expired';self.reason='reid_search_timeout';return None
         if age>.8 or self.state not in ('tracking',):
             if self.state=='tracking':self.state='searching';self.reason='verified_target_not_visible'
             return None
@@ -108,6 +142,7 @@ class TargetIdentity:
 
     def candidate_ids(self,objects,pose,stamp,now,center_offset=.28):
         """Feature work is target-only; only a lost target opens the spatial gate."""
+        if self._expire(now):return []
         if pose is None or not 0<=now-stamp<=.3:return []
         if not self.gallery or self.seed_count<2:
             return [self.locked_id] if self.locked_id in objects else []
@@ -129,9 +164,16 @@ class TargetIdentity:
         return [ident for _,ident in sorted(eligible)]
 
     def snapshot(self,now):
+        self._expire(now)
         return dict(state=self.state,reason=self.reason,locked_id=self.locked_id,
             resolved_id=self.resolved_id,reference_samples=len(self.gallery),
             lost_s=None if self.last_seen is None else max(0.,now-self.last_seen),
             similarity=self.last_similarity,position_error_m=self.position_error,
             confirm_count=self.pending_count,reacquired=self.reacquired,max_lost_s=self.max_lost,
+            enrollment_samples=min(self.seed_count,2),enrollment_restarts=self.enrollment_restarts,
+            enrollment_remaining_s=max(0.,self.start_time+self.max_lost-now) if self.seed_count<2 else None,
+            feature_frames=self.feature_frames,
+            feature_age_s=None if not math.isfinite(self.frame_stamp) else max(0.,now-self.frame_stamp),
+            last_candidate_similarity=self.last_candidate_similarity,last_candidate_error_m=self.last_candidate_error,
+            feature_diagnostics=self.feature_diagnostics,
             predicted_odom=None if self.position is None else self.prediction(now).tolist())

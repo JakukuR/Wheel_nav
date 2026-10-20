@@ -19,6 +19,7 @@ source "$workspace/install/setup.bash"
 # Keep the verified mux overlay, then load the optimized follower/native map.
 source "$workspace/releases/sim-follow-20261020-v1/install/local_setup.bash"
 source "$workspace/releases/sim-follow-20261020-latency/install/local_setup.bash"
+source "$workspace/releases/sim-follow-20261020-reidfix/install/local_setup.bash"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-73}"
 export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
 export CYCLONEDDS_URI="${CYCLONEDDS_URI:-file://$workspace/install/wla_manual_control/share/wla_manual_control/config/cyclonedds-local.xml}"

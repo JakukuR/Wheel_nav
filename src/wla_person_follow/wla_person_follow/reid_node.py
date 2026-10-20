@@ -109,23 +109,27 @@ class ReIDNode(Node):
                     geometry={r['id']:r for r in relative['objects']}
                     bgr=color_array(image)
                     if bgr is None:raise ValueError('invalid_rgb')
-                    selected=person_crops(bgr[:,:,::-1],raw['objects'],allowed_ids=set(interest['allowed_ids']),prefix=f"{raw['session']}:{raw['epoch']}:")
+                    diagnostics={};prefix=f"{raw['session']}:{raw['epoch']}:"
+                    selected=person_crops(bgr[:,:,::-1],raw['objects'],allowed_ids=set(interest['allowed_ids']),prefix=prefix,diagnostics=diagnostics)
                     vectors=self.encoder.encode([crop for _,crop in selected]);rows=[]
                     for (obj,_),feature in zip(selected,vectors):
                         ident=f"{raw['session']}:{raw['epoch']}:{obj['track_id']}";g=geometry.get(ident)
-                        if not g or g.get('label')!='person' or not g.get('detected') or g.get('yaw') is None or g.get('distance') is None:continue
-                        if not all(math.isfinite(v) for v in [g['yaw'],g['distance']]):continue
+                        if not g or g.get('label')!='person' or not g.get('detected') or g.get('yaw') is None or g.get('distance') is None:
+                            diagnostics[ident]='geometry_unavailable';continue
+                        if not all(math.isfinite(v) for v in [g['yaw'],g['distance']]):
+                            diagnostics[ident]='invalid_geometry';continue
+                        diagnostics[ident]='feature_ready'
                         rows.append(dict(id=ident,feature=feature.tolist(),yaw=g['yaw'],distance=g['distance']))
                     age=(self.get_clock().now().nanoseconds-s)/1e9
                     if not 0<=age<=.6:raise ValueError('reid_result_expired')
                     packet=dict(schema='wla-reid-features/v1',request_id=interest['request_id'],stamp_ns=s,session=raw['session'],epoch=raw['epoch'],
-                        model_id=self.encoder.model_id,base_frame=relative['base_frame'],objects=rows)
+                        model_id=self.encoder.model_id,base_frame=relative['base_frame'],objects=rows,diagnostics=diagnostics)
                     with self.guard:
                         current=self.interest
                         if not current or not current['enabled'] or current['request_id']!=interest['request_id'] or not 0<=(self.get_clock().now().nanoseconds-current['stamp_ns'])/1e9<=.5:continue
                     self.pub.publish(String(data=json.dumps(packet,allow_nan=False)))
                     self.metrics=dict(state='ready',model_id=self.encoder.model_id,people=len(rows),
-                        compute_ms=(time.monotonic()-begun)*1000.,source_age_ms=age*1000.,source_stamp_ns=s)
+                        compute_ms=(time.monotonic()-begun)*1000.,source_age_ms=age*1000.,source_stamp_ns=s,diagnostics=diagnostics)
                 except Exception as exc:
                     self.metrics=dict(state='rejected',model_id=self.encoder.model_id,reason=str(exc)[:160])
             if not active:self.metrics=dict(state='idle_no_target',model_id=self.encoder.model_id,people=0)

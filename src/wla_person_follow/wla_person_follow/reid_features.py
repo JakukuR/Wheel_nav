@@ -36,20 +36,29 @@ class AppearanceEncoder:
         return result
 
 
-def person_crops(rgb,objects,limit=4,allowed_ids=None,prefix=''):
-    """Reject small, heavily clipped or overlapping crops before feature extraction."""
+def person_crops(rgb,objects,limit=4,allowed_ids=None,prefix='',diagnostics=None):
+    """Reject bad crops; report only requested IDs without encoding bystanders."""
     height,width=rgb.shape[:2];valid=[]
+    if diagnostics is not None and allowed_ids is not None:
+        diagnostics.update({ident:'target_not_detected' for ident in allowed_ids})
+    def report(row,reason):
+        if diagnostics is None or not isinstance(row,dict):return
+        ident=prefix+str(row.get('track_id',''))
+        if allowed_ids is None or ident in allowed_ids:diagnostics[ident]=reason
     for row in objects:
         try:
-            if row['label']!='person' or row['confidence']<.5:continue
+            if row['label']!='person':report(row,'not_person');continue
+            if row['confidence']<.5:report(row,'low_confidence');continue
             b=np.asarray(row['bbox_xyxy'],dtype=float)
-            if b.shape!=(4,) or not np.isfinite(b).all():continue
+            if b.shape!=(4,) or not np.isfinite(b).all():report(row,'invalid_bbox');continue
             x1,y1,x2,y2=np.rint(b).astype(int)
-            if x1<0 or y1<0 or x2>width or y2>height or x2-x1<32 or y2-y1<64:continue
+            if x1<0 or y1<0 or x2>width or y2>height:report(row,'bbox_out_of_image');continue
+            if x2-x1<32 or y2-y1<64:report(row,'crop_too_small');continue
             edges=sum([x1<=1,y1<=1,x2>=width-1,y2>=height-1])
-            if edges>=2 or (x2-x1)*(y2-y1)>width*height*.7:continue
+            if edges>=2:report(row,'crop_clipped');continue
+            if (x2-x1)*(y2-y1)>width*height*.7:report(row,'crop_too_large');continue
             valid.append((row,(x1,y1,x2,y2)))
-        except (ValueError,TypeError,KeyError):continue
+        except (ValueError,TypeError,KeyError):report(row,'invalid_detection');continue
     selected=[]
     for i,(row,b) in enumerate(valid):
         area=(b[2]-b[0])*(b[3]-b[1]);overlap=False
@@ -57,7 +66,9 @@ def person_crops(rgb,objects,limit=4,allowed_ids=None,prefix=''):
             if i==j:continue
             inter=max(0,min(b[2],o[2])-max(b[0],o[0]))*max(0,min(b[3],o[3])-max(b[1],o[1]))
             if inter/max(1,min(area,(o[2]-o[0])*(o[3]-o[1])))>.25:overlap=True;break
-        if not overlap and (allowed_ids is None or prefix+str(row['track_id']) in allowed_ids):selected.append((row,rgb[b[1]:b[3],b[0]:b[2]].copy()))
-    # Bounded work. Large, confident crops get precedence; no hidden backlog.
+        if overlap:report(row,'crop_overlap');continue
+        if allowed_ids is None or prefix+str(row['track_id']) in allowed_ids:
+            selected.append((row,rgb[b[1]:b[3],b[0]:b[2]].copy()))
     selected.sort(key=lambda r:r[0]['confidence']*r[1].shape[0]*r[1].shape[1],reverse=True)
+    for index,(row,_) in enumerate(selected):report(row,'selected' if index<limit else 'crop_batch_limit')
     return selected[:limit]

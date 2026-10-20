@@ -244,3 +244,18 @@ def test_result_event_publishes_without_periodic_tick_and_retains_stop_gate(grap
     with f.guard:f.result['valid_until']=time.monotonic()-.001
     f.result_ready.trigger();pump(.025)
     assert received[-1]==(0.,0.)
+
+
+@pytest.mark.parametrize('identity_state,reason',[('enrolling','enrollment_crop_overlap'),('expired','reid_enrollment_timeout')])
+def test_unconfirmed_identity_is_waiting_and_never_publishes_movement(graph,identity_state,reason):
+    from std_msgs.msg import String
+    fixture,f,pump,received=graph;pump(1.1)
+    statuses=[];fixture.create_subscription(String,'/r680/person_follow/status',lambda m:statuses.append(json.loads(m.data)),5)
+    seed(f,command=(.12,.2))
+    with f.guard:
+        f.p['reid_enabled']=True
+        f.result['reid']=dict(state=identity_state,reason=reason)
+    f.result_ready.trigger();pump(.04)
+    assert received[-1]==(0.,0.)
+    assert statuses[-1]['state']=='waiting' and not statuses[-1]['motion_permitted']
+    assert reason in statuses[-1]['output_blockers']

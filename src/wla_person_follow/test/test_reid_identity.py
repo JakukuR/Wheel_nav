@@ -87,3 +87,52 @@ def test_feature_requests_only_target_then_spatial_candidates_on_loss():
     assert i.candidate_ids(objects,np.zeros(3),10.,10.)==[]
     i=TargetIdentity('s:1:1',model_id='test')
     assert i.candidate_ids(objects,np.zeros(3),1.,1.)==[]
+
+
+def test_late_second_enrollment_frame_restarts_pair_then_can_confirm():
+    i=TargetIdentity('s:1:1',model_id='test',start_time=1.)
+    i.consume([row()],1.,'test')
+    i.consume([row()],1.7,'test')
+    assert i.seed_count==1 and i.enrollment_restarts==1
+    assert i.reason=='enrollment_pair_restarted'
+    assert i.select(current(),np.zeros(3),1.7,1.75) is None
+    i.consume([row()],1.7,'test')
+    assert i.seed_count==1  # The same source frame cannot confirm itself.
+    i.consume([row()],1.8,'test')
+    assert i.state=='tracking' and i.seed_count==2
+    assert i.select(current(),np.zeros(3),1.8,1.85)=='s:1:1'
+
+
+@pytest.mark.parametrize('bad,reason',[(row(f=feature(1)),'enrollment_appearance_mismatch'),
+    (row(p=(5.,0.)),'enrollment_position_mismatch'),(row('s:1:2'),'enrollment_target_feature_absent')])
+def test_restart_does_not_accept_wrong_appearance_position_or_id(bad,reason):
+    i=TargetIdentity('s:1:1',model_id='test',start_time=1.)
+    i.consume([row()],1.,'test');before=np.array(i.gallery)
+    for t in (1.7,1.8,1.9):i.consume([bad],t,'test')
+    assert i.seed_count==1 and i.enrollment_restarts==0 and i.reason==reason
+    assert i.select(current(),np.zeros(3),1.9,1.95) is None
+    np.testing.assert_array_equal(i.gallery,before)
+    if reason.endswith('appearance_mismatch'):assert i.last_candidate_similarity==0.
+    if reason.endswith('position_mismatch'):assert i.last_candidate_error==3.
+
+
+def test_enrollment_restarts_do_not_extend_deadline_or_revive_expired_identity():
+    i=TargetIdentity('s:1:1',model_id='test',start_time=1.)
+    for t in (1.,2.,3.,4.,5.,6.,7.,8.):i.consume([row()],t,'test')
+    assert i.seed_count==1 and i.enrollment_restarts==7
+    i.consume([row()],9.01,'test')
+    assert i.state=='expired' and i.reason=='reid_enrollment_timeout'
+    assert i.candidate_ids(current(),np.zeros(3),9.02,9.02)==[]
+    for t in (9.1,9.2):i.consume([row()],t,'test')
+    assert i.select(current(),np.zeros(3),9.2,9.2) is None and i.state=='expired'
+
+
+def test_no_features_also_expires_and_crop_reason_is_visible():
+    i=TargetIdentity('s:1:1',model_id='test',start_time=1.)
+    i.consume([],1.1,'test',{'s:1:1':'crop_overlap'})
+    s=i.snapshot(1.2)
+    assert s['reason']=='enrollment_crop_overlap' and s['feature_frames']==1
+    assert s['feature_age_s']==pytest.approx(.1)
+    assert i.select(current(),np.zeros(3),9.1,9.1) is None
+    assert i.reason=='reid_enrollment_timeout' and i.state=='expired'
+    assert i.candidate_ids(current(),np.zeros(3),9.1,9.1)==[]

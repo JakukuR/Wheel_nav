@@ -50,3 +50,14 @@ def test_frozen_descriptor_matches_eager_fp32():
         encoder.model=frozen;b=encoder.encode(crops[:n])
         np.testing.assert_allclose(a,b,rtol=0,atol=2e-6)
         assert np.min(np.sum(a*b,axis=1))>1.-1e-6
+
+
+def test_requested_crop_diagnostics_distinguish_absence_overlap_and_size():
+    image=np.zeros((480,640,3),np.uint8);d={}
+    assert person_crops(image,[box(2,[20,20,100,300])],allowed_ids={'s:1:1'},prefix='s:1:',diagnostics=d)==[]
+    assert d=={'s:1:1':'target_not_detected'}
+    objects=[box(1,[20,20,100,300]),box(2,[30,30,105,305])];d={}
+    assert person_crops(image,objects,allowed_ids={'s:1:1'},prefix='s:1:',diagnostics=d)==[]
+    assert d=={'s:1:1':'crop_overlap'}
+    d={};person_crops(image,[box(1,[10,10,20,40])],allowed_ids={'s:1:1'},prefix='s:1:',diagnostics=d)
+    assert d=={'s:1:1':'crop_too_small'}

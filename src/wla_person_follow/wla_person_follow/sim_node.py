@@ -347,7 +347,7 @@ class SimulationFollow(Node):
                                     rows.append(dict(id=row['id'],feature=row['feature'],
                                         position=np.asarray(bp[:2])+d*np.array([np.cos(a),np.sin(a)])))
                                 except (ValueError,KeyError,TypeError,AttributeError):continue
-                            identity.consume(rows,ts,batch['model_id'])
+                            identity.consume(rows,ts,batch['model_id'],batch.get('diagnostics'))
                         resolved_id=identity.select(objects,op,obs_stamp,control_stamp,self.p['surface_to_center_offset_m']) if op is not None else None
                         identity_status=identity.snapshot(control_stamp)
 
@@ -431,6 +431,11 @@ class SimulationFollow(Node):
             if now-self.wheel_received>.20:blockers.append('wheel_odom_stale')
             if not state['observations_fresh']:blockers.append('target_observations_stale')
             if not self.core.gate_enabled:blockers.append('detector_gate_closed')
+            if self.p['reid_enabled'] and state['enabled'] and result is not None:
+                identity=result.get('reid',{})
+                if identity.get('state') in ('enrolling','expired'):
+                    healthy=False
+                    blockers.append(identity.get('reason','reid_identity_unconfirmed'))
             command=result['command'] if healthy else np.zeros(2)
             if healthy and 'first_output_ms' not in result.get('latency',{}):
                 result.setdefault('latency',{}).update(
