@@ -233,3 +233,14 @@ def test_status_distinguishes_expired_result_from_planner_clear(graph):
     assert latest['result_remaining_ms']<0
     assert not latest['motion_permitted'] and latest['linear_mps']==0.
     fixture.destroy_subscription(sub)
+
+
+def test_result_event_publishes_without_periodic_tick_and_retains_stop_gate(graph):
+    _,f,pump,received=graph
+    pump(1.1);f.control_timer.cancel();received.clear()
+    seed(f)
+    f.result_ready.trigger();pump(.025)
+    assert received and received[-1][0]>0
+    with f.guard:f.result['valid_until']=time.monotonic()-.001
+    f.result_ready.trigger();pump(.025)
+    assert received[-1]==(0.,0.)

@@ -7,6 +7,10 @@ import base64
 import numpy as np
 from scipy.ndimage import distance_transform_edt
 from .common import ROBOT_RADIUS_M
+try:
+    from _wla_sim_geometry import ray_slots as native_ray_slots, grid_query as native_grid_query
+except ImportError:  # Keep the standalone simulation's NumPy reference usable.
+    native_ray_slots = native_grid_query = None
 
 
 class RollingDepthMap:
@@ -100,11 +104,15 @@ class RollingDepthMap:
                 width=int(relative[:,1].max())+1
                 _,idx=np.unique(relative[:,0]*width+relative[:,1],return_index=True)
                 endpoint=endpoint[idx]
-                delta=endpoint-origin;length=np.linalg.norm(delta,axis=1)
-                distance=np.arange(0,7.,self.res*.45)
-                points=origin+delta[:,None,:]/np.maximum(length[:,None,None],1e-9)*distance[None,:,None]
-                mask=distance[None,:]<length[:,None]-.12
-                a,b=self._slots(points[mask]);self.log[a,b]=np.maximum(-2.,self.log[a,b]-.8);self.stamp[a,b]=t;self._retire_startup_cells(a,b)
+                if native_ray_slots is not None:
+                    a,b=native_ray_slots(endpoint,origin,self.lower,self.res,self.n)
+                else:
+                    delta=endpoint-origin;length=np.linalg.norm(delta,axis=1)
+                    distance=np.arange(0,7.,self.res*.45)
+                    points=origin+delta[:,None,:]/np.maximum(length[:,None,None],1e-9)*distance[None,:,None]
+                    mask=distance[None,:]<length[:,None]-.12
+                    a,b=self._slots(points[mask])
+                self.log[a,b]=np.maximum(-2.,self.log[a,b]-.8);self.stamp[a,b]=t;self._retire_startup_cells(a,b)
             # Floor endpoints certify traversable ground only in this flat-floor demo.
             a,b=self._slots(world[p[:,2]<.04]);self.log[a,b]=np.maximum(-2.,self.log[a,b]-.8);self.stamp[a,b]=t;self._retire_startup_cells(a,b)
             if 'marking_points_odom' in cloud:
@@ -144,6 +152,8 @@ class RollingDepthMap:
         self.free_dist=distance_transform_edt(np.pad(self.known&~self.occupied,1,constant_values=False))[1:-1,1:-1]*self.res
 
     def query(self,xy,unknown=False,field=None):
+        if native_grid_query is not None:
+            return native_grid_query(xy,field if field is not None else (self.free_dist if unknown else self.dist),self.lower,self.res)
         xy=np.asarray(xy);index=np.floor(xy/self.res).astype(int)-self.lower
         valid=np.all((index>=0)&(index<self.n),axis=-1)
         bounded=np.clip(index,0,self.n-1)

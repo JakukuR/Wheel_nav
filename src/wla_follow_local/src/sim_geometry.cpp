@@ -96,4 +96,63 @@ py::tuple filter_points(const Array & input) {
  };
  return py::make_tuple(pack(obstacles),pack(clearing));
 }
-PYBIND11_MODULE(_wla_sim_geometry,m){m.def("deproject",&deproject);m.def("filter_points",&filter_points);}
+
+// Stream sampled clearing rays into a bounded bitmap, without allocating an
+// endpoints x 156 x 2 intermediate. The Python reference sampling is retained.
+py::tuple ray_slots(const Array& endpoints,const Array& origin,const Array& lower,double res,int size) {
+ if(endpoints.ndim()!=2||endpoints.shape(1)!=2||origin.size()!=2||lower.size()!=2||
+    !std::isfinite(res)||res<.001||res>1||size<1||size>4096||endpoints.shape(0)>2000000)
+  throw std::invalid_argument("invalid_ray_slots");
+ const auto e=endpoints.unchecked<2>();const double *o=origin.data(),*l=lower.data();
+ for(int j=0;j<2;++j)if(!std::isfinite(o[j])||!std::isfinite(l[j])||std::abs(l[j])>1e9)
+  throw std::invalid_argument("invalid_ray_origin");
+ std::vector<unsigned char> seen(size*size,0);
+ {
+  py::gil_scoped_release release;
+  const double step=res*.45;const int count=static_cast<int>(std::ceil(7./step));
+  for(py::ssize_t i=0;i<endpoints.shape(0);++i) {
+   const double dx=e(i,0)-o[0],dy=e(i,1)-o[1];
+   const double length=std::sqrt(dx*dx+dy*dy);
+   if(!std::isfinite(length))throw std::invalid_argument("invalid_ray_endpoint");
+   const double ux=dx/std::max(length,1e-9),uy=dy/std::max(length,1e-9);
+   for(int j=0;j<count;++j) {
+    const double distance=j*step;if(!(distance<length-.12))break;
+    const double x=std::floor((o[0]+ux*distance)/res)-l[0];
+    const double y=std::floor((o[1]+uy*distance)/res)-l[1];
+    if(x>=0&&x<size&&y>=0&&y<size)seen[static_cast<int>(x)*size+static_cast<int>(y)]=1;
+   }
+  }
+ }
+ size_t count=0;for(auto x:seen)count+=x;
+ py::array_t<int64_t> xs(count),ys(count);auto x=xs.mutable_unchecked<1>(),y=ys.mutable_unchecked<1>();
+ size_t n=0;
+ for(int i=0;i<size*size;++i)if(seen[i]){
+  auto wrap=[size](int64_t v){return (v%size+size)%size;};
+  x(n)=wrap(static_cast<int64_t>(l[0])+i/size);y(n)=wrap(static_cast<int64_t>(l[1])+i%size);++n;
+ }
+ return py::make_tuple(xs,ys);
+}
+
+py::array_t<double> grid_query(const Array& points,const Array& field,const Array& lower,double res) {
+ if(points.ndim()<1||points.shape(points.ndim()-1)!=2||field.ndim()!=2||field.shape(0)!=field.shape(1)||
+    field.shape(0)<1||lower.size()!=2||!std::isfinite(res)||res<=0)
+  throw std::invalid_argument("invalid_grid_query");
+ std::vector<py::ssize_t> shape;for(int i=0;i<points.ndim()-1;++i)shape.push_back(points.shape(i));
+ py::array_t<double> result(shape);const double *p=points.data(),*f=field.data(),*l=lower.data();double *out=result.mutable_data();
+ const int n=field.shape(0);const double area=res/std::sqrt(2.);
+ {
+  py::gil_scoped_release release;
+  for(py::ssize_t i=0;i<points.size()/2;++i){
+   const double cx=std::floor(p[2*i]/res),cy=std::floor(p[2*i+1]/res);
+   const double x=cx-l[0],y=cy-l[1];
+   if(!(x>=0&&x<n&&y>=0&&y<n)){out[i]=0.;continue;}
+   const double dx=p[2*i]-(cx+.5)*res,dy=p[2*i+1]-(cy+.5)*res;
+   out[i]=f[static_cast<int>(x)*n+static_cast<int>(y)]-area-std::sqrt(dx*dx+dy*dy);
+  }
+ }
+ return result;
+}
+PYBIND11_MODULE(_wla_sim_geometry,m){
+ m.def("deproject",&deproject);m.def("filter_points",&filter_points);
+ m.def("ray_slots",&ray_slots);m.def("grid_query",&grid_query);
+}

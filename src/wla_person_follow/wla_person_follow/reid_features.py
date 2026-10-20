@@ -18,6 +18,10 @@ class AppearanceEncoder:
         loaded=self.model.load_state_dict(weights,strict=False)
         if set(loaded.missing_keys)!={'classifier.weight','classifier.bias'} or loaded.unexpected_keys:
             raise ValueError('unexpected_reid_weights')
+        # Freeze eval-only batch normalization into convolutions on the CPU.
+        # Same FP32 weights/input/descriptor space; no GPU contention with YOLO.
+        with torch.inference_mode():
+            self.model=torch.jit.freeze(torch.jit.trace(self.model,torch.zeros(1,3,256,128)))
         self.mean=np.array([.485,.456,.406],np.float32)[None,None,:]
         self.std=np.array([.229,.224,.225],np.float32)[None,None,:]
         self.encode([np.zeros((256,128,3),np.uint8)])

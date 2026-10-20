@@ -28,6 +28,7 @@ from .local_memory import LocalMotion
 from .relative_control import RelativeFollower
 from .reid_identity import TargetIdentity
 from .sim_core.common import rotation
+from .sim_core.rolling_depth_map import native_ray_slots
 from .sim_runtime import packet_from_depth, measurements_from_relative, local_points, process_step, warm_worker, worker_initializer
 
 
@@ -125,9 +126,13 @@ class SimulationFollow(Node):
         self.pool=ProcessPoolExecutor(max_workers=1,mp_context=get_context('spawn'),initializer=worker_initializer)
         self.model_tuning = self.pool.submit(warm_worker).result(timeout=20.)
         self.future=None
+        # A completed solution wakes the ROS executor immediately. The timer
+        # still rechecks expiry/stop/lease when no new solution arrives.
+        self.result_ready=self.create_guard_condition(self.tick)
+        self.last_geometry=None
         self.worker=threading.Thread(target=self.compute,name='sim-follow-compute',daemon=True)
         self.worker.start()
-        self.create_timer(.05,self.tick)
+        self.control_timer=self.create_timer(.05,self.tick)
         self.get_logger().info('close-wide-flex backend; output='+self.p['output_mode']+
             '; enable_motion='+str(self.p['enable_motion'])+'; waiting for explicit target request')
 
@@ -236,6 +241,11 @@ class SimulationFollow(Node):
                 res.state='rejected';res.enabled=False
             elif accepted and req.command=='stop' and req.request_id and req.request_id!=state['request_id']:
                 res.request_id=req.request_id;res.state='stopped';res.enabled=False;res.mode='';res.target_id=''
+            if accepted and req.command=='start' and self.reid_request_pub is not None:
+                self.reid_request_pub.publish(String(data=json.dumps(dict(
+                    schema='wla-reid-request/v1',stamp_ns=self.now_ns(),enabled=True,urgent=True,
+                    request_id=self.core.request_id,session=self.core.session,epoch=self.core.epoch,
+                    allowed_ids=[self.core.target_id]))))
             return res
 
     def on_estop(self,req,res):
@@ -256,12 +266,12 @@ class SimulationFollow(Node):
             with self.guard:
                 self.event.clear();item=self.pending;self.pending=None
                 infos=tuple(self.infos);motion=deepcopy(self.motion);key=self.key()
-                objects=deepcopy(self.core.objects);obs_stamp=self.core.last_stamp/1e9
                 active=self.core.active;tof_messages=tuple(self.tof.values())
-                reid_frames=tuple(self.reid_frames)
             if item is None:continue
             next_at=time.monotonic()+.1
             msg,valid_until=item;stamp=stamp_ns(msg)/1e9
+            processing_started=time.monotonic()
+            depth_start_age_ms=(self.now_ns()-stamp_ns(msg))/1e6
             try:
                 if time.monotonic()>=valid_until:raise ValueError('depth_expired_before_processing')
                 pose=motion.pose_at(stamp)
@@ -305,6 +315,8 @@ class SimulationFollow(Node):
                 with self.guard:
                     if key!=self.key():raise ValueError('reference_changed_during_depth')
                     motion=deepcopy(self.motion)
+                    objects=deepcopy(self.core.objects);obs_stamp=self.core.last_stamp/1e9
+                    reid_frames=tuple(self.reid_frames)
                 control_stamp=self.now_ns()/1e9
                 control_pose=motion.pose_at(control_stamp)
                 if control_pose is None:raise ValueError('control_time_wheel_pose_unavailable')
@@ -345,7 +357,8 @@ class SimulationFollow(Node):
                         if key==self.key() and active==self.core.active:
                             self.reid_request_pub.publish(String(data=json.dumps(dict(
                                 schema='wla-reid-request/v1',stamp_ns=self.now_ns(),enabled=active,
-                                request_id=key[0],session=key[2],epoch=key[3],allowed_ids=allowed))))
+                                request_id=key[0],session=key[2],epoch=key[3],allowed_ids=allowed,
+                                urgent=active and (resolved_id is None or identity_status.get('state')!='tracking')))))
                 if active and op is not None and 0<=control_stamp-obs_stamp<=self.p['max_sensor_age_s']:
                     target,people=measurements_from_relative(objects,op,resolved_id or '',self.p['surface_to_center_offset_m'])
                     observation=(obs_stamp,target,people,resolved_id)
@@ -363,10 +376,16 @@ class SimulationFollow(Node):
                     raise ValueError('compute_deadline_exceeded')
                 result.update(reid=identity_status,resolved_target_id=resolved_id if active else None,key=key,stamp_ns=stamp_ns(msg),valid_until=min(valid_until,begun+self.p['result_ttl_s']),
                     frontend_ms=frontend_ms,obstacle_points=len(packet['obstacle_points']),clearing_points=len(packet['points']),
+                    observation_stamp_ns=int(obs_stamp*1e9),ready_at=time.monotonic(),
+                    latency=dict(depth_start_age_ms=depth_start_age_ms,frontend_ms=frontend_ms,
+                        depth_to_result_ms=(self.now_ns()-stamp_ns(msg))/1e6,
+                        observation_to_result_ms=(self.now_ns()/1e9-obs_stamp)*1000.,
+                        processing_ms=(time.monotonic()-processing_started)*1000.),
                     compute_ms=(time.monotonic()-begun)*1000.,pose=np.asarray(control_pose),control_stamp_ns=int(control_stamp*1e9))
                 with self.guard:
                     if key==self.key() and time.monotonic()<result['valid_until']:
                         self.result=result;self.map_result=result;self.reason=result['reason'] or 'simulation_core'
+                        self.result_ready.trigger()
                     else:
                         self.result=None
                         self.reason=('expired_or_superseded_computation:'+str(round(result['compute_ms'],1))+'ms;'+
@@ -413,6 +432,11 @@ class SimulationFollow(Node):
             if not state['observations_fresh']:blockers.append('target_observations_stale')
             if not self.core.gate_enabled:blockers.append('detector_gate_closed')
             command=result['command'] if healthy else np.zeros(2)
+            if healthy and 'first_output_ms' not in result.get('latency',{}):
+                result.setdefault('latency',{}).update(
+                    first_output_ms=(now-result.get('ready_at',now))*1000.,
+                    depth_to_candidate_ms=(ns-result['stamp_ns'])/1e6,
+                    observation_to_candidate_ms=(ns-result.get('observation_stamp_ns',ns))/1e6)
             previously_permitted=self.last_permission
             owner=self.check_direct_owner() if self.direct_pub is not None else False
             if self.conflict_latched and previously_permitted and self.direct_pub is not None:
@@ -443,7 +467,7 @@ class SimulationFollow(Node):
                     follow_session=self.follow_session,request_id=state['request_id'],stamp_ns=ns,
                     linear=float(actual[0]),angular=float(actual[1])))))
             state.update(schema='wla-person-status/v1',stamp_ns=ns,follow_session=self.follow_session,
-                planner='close-wide-flex',numeric_backend='python_reference',native_frontend='cpp_deproject_ground_cluster_filter',
+                planner='close-wide-flex',numeric_backend='python_mpc_cpp_map' if native_ray_slots is not None else 'python_reference',native_frontend='cpp_deproject_ground_cluster_filter',
                 obstacle_topic=self.p['prefix']+'/depth_obstacles',
                 base_frame=self.p['base_frame'],output_mode=self.p['output_mode'],
                 candidate_only=not self.p['enable_motion'],motion_permitted=permitted and healthy,
@@ -472,12 +496,16 @@ class SimulationFollow(Node):
                 frontend_ms=self.map_result.get('frontend_ms') if self.map_result else None,
                 filtered_obstacle_points=self.map_result.get('obstacle_points') if self.map_result else None,
                 clearing_points=self.map_result.get('clearing_points') if self.map_result else None,
+                latency=self.map_result.get('latency',{}) if self.map_result else {},
                 compute_ms=result['compute_ms'] if result else None)
             self.status_pub.publish(String(data=json.dumps(state,allow_nan=False)))
             mapped=self.map_result
             if (mapped is not None and mapped['key']==self.key() and now<mapped['valid_until'] and
                     0<=(ns-mapped['stamp_ns'])/1e9<=self.p['max_sensor_age_s']):
-                self.publish_geometry(mapped,ns,show_path=healthy)
+                geometry_key=(mapped['stamp_ns'],healthy)
+                if geometry_key!=self.last_geometry:
+                    self.publish_geometry(mapped,ns,show_path=healthy)
+                    self.last_geometry=geometry_key
 
     def publish_geometry(self,result,ns,show_path=True):
         pose=result['pose'];rot=rotation(pose[2])

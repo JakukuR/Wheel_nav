@@ -22,7 +22,7 @@ class ReIDNode(Node):
         super().__init__('person_reid_features')
         self.encoder=encoder;self.hz=hz;self.guard=threading.Lock()
         self.rgb=OrderedDict();self.raw=OrderedDict();self.relative=OrderedDict()
-        self.done=threading.Event();self.last=0;self.interest=None
+        self.done=threading.Event();self.wake=threading.Event();self.last=0;self.interest=None
         self.metrics=dict(state='waiting_for_rgb_detections',model_id=encoder.model_id)
         self.pub=self.create_publisher(String,'/r680/person_follow/reid_features',1)
         self.health=self.create_publisher(String,'/r680/person_follow/reid_status',1)
@@ -37,17 +37,19 @@ class ReIDNode(Node):
         with self.guard:
             cache[key]=value
             while len(cache)>16:cache.popitem(last=False)
+        self.wake.set()
 
     def on_interest(self,msg):
         try:
             if len(msg.data)>4096:return
             d=json.loads(msg.data)
             if (d.get('schema')!='wla-reid-request/v1' or type(d['stamp_ns']) is not int
-                    or type(d['enabled']) is not bool or not isinstance(d['allowed_ids'],list)
+                    or type(d.get('urgent',False)) is not bool or type(d['enabled']) is not bool or not isinstance(d['allowed_ids'],list)
                     or len(d['allowed_ids'])>4 or not all(isinstance(x,str) for x in d['allowed_ids'])
                     or not isinstance(d['request_id'],str)
                     or not 0<=(self.get_clock().now().nanoseconds-d['stamp_ns'])/1e9<=.5):return
             with self.guard:self.interest=d
+            self.wake.set()
         except (ValueError,KeyError,TypeError):return
 
     def on_rgb(self,msg):
@@ -72,17 +74,33 @@ class ReIDNode(Node):
         self.health.publish(String(data=json.dumps(status)))
 
     def work(self):
+        last_started=-math.inf;request_id=None
         while not self.done.is_set():
-            begun=time.monotonic();now=self.get_clock().now().nanoseconds
+            self.wake.wait(.5)
+            if self.done.is_set():return
+            now=self.get_clock().now().nanoseconds
             with self.guard:
+                self.wake.clear()
                 interest=self.interest
+                current=interest.get('request_id') if interest else None
+                if current!=request_id:
+                    request_id=current;last_started=-math.inf
+
                 active=bool(interest and interest['enabled'] and 0<=(now-interest['stamp_ns'])/1e9<=.5)
                 common=(set(self.rgb)&set(self.raw)&set(self.relative)) if active else set()
                 ready=[s for s in common if s>self.last and 0<=(now-s)/1e9<=.3]
-                if ready:
+                rate=10. if interest and interest.get('urgent',False) else self.hz
+                remaining=last_started+1./rate-time.monotonic()
+                if ready and remaining<=0:
                     s=max(ready);image=self.rgb[s];raw=self.raw[s];relative=self.relative[s];self.last=s
                 else:s=None
+            if ready and remaining>0:
+                # Coalesce arrivals while rate-limited; take the newest exact
+                # stamp at the deadline, never queue frames for later inference.
+                self.wake.wait(min(remaining,.1));self.wake.set();continue
             if s is not None:
+                begun=time.monotonic()
+                last_started=begun
                 try:
                     if (raw['session'],raw['epoch'])!=(interest['session'],interest['epoch']):raise ValueError('request_generation_mismatch')
                     if (raw['session'],raw['epoch'])!=(relative['session'],relative['epoch']):raise ValueError('generation_mismatch')
@@ -111,9 +129,8 @@ class ReIDNode(Node):
                 except Exception as exc:
                     self.metrics=dict(state='rejected',model_id=self.encoder.model_id,reason=str(exc)[:160])
             if not active:self.metrics=dict(state='idle_no_target',model_id=self.encoder.model_id,people=0)
-            self.done.wait(max(.001,1./self.hz-(time.monotonic()-begun)))
 
-    def close(self):self.done.set();self.thread.join(timeout=3.)
+    def close(self):self.done.set();self.wake.set();self.thread.join(timeout=3.)
 
 
 def main():

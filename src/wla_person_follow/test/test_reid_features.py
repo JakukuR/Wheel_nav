@@ -30,3 +30,23 @@ def test_official_model_descriptor_is_finite_normalized_repeatable():
     assert features.shape==(2,512)
     np.testing.assert_allclose(features[0],features[1],atol=1e-6)
     np.testing.assert_allclose(np.linalg.norm(features,axis=1),1.,atol=1e-6)
+
+
+def test_frozen_descriptor_matches_eager_fp32():
+    import torch
+    from wla_person_follow.vendor.osnet import osnet_x0_25
+    path=os.environ.get('REID_MODEL')
+    if not path:pytest.skip('pinned model parity test opt-in')
+    encoder=AppearanceEncoder(path);frozen=encoder.model
+    eager=osnet_x0_25(num_classes=1,pretrained=False).eval()
+    weights=torch.load(path,map_location='cpu',weights_only=True)
+    weights=weights.get('state_dict',weights)
+    eager.load_state_dict({k.removeprefix('module.'):v for k,v in weights.items()
+        if not k.removeprefix('module.').startswith('classifier.')},strict=False)
+    rng=np.random.default_rng(187)
+    crops=[rng.integers(0,256,(h,w,3),np.uint8) for h,w in [(128,64),(256,128),(370,115),(92,50)]]
+    for n in (1,2,4):
+        encoder.model=eager;a=encoder.encode(crops[:n])
+        encoder.model=frozen;b=encoder.encode(crops[:n])
+        np.testing.assert_allclose(a,b,rtol=0,atol=2e-6)
+        assert np.min(np.sum(a*b,axis=1))>1.-1e-6
