@@ -236,7 +236,11 @@ class HybridFollower:
         if not feasible.any():feasible=safe
         self.last_candidates=dict(safe=int(np.sum(safe)),feasible=int(np.sum(feasible)),
             forward=int(np.sum(feasible&(first[:,0]>.01))),
-            reasons=np.sum(reasons,axis=1).tolist())
+            reasons=np.sum(reasons,axis=1).tolist(),
+            forward_total=int(np.sum(first[:,0]>.01)),
+            forward_known=int(np.sum((first[:,0]>.01)&reasons[0])),
+            forward_static=int(np.sum((first[:,0]>.01)&reasons[1])),
+            forward_people=int(np.sum((first[:,0]>.01)&reasons[2])))
         if not feasible.any():
             self.last_infeasible=True
             self.fallbacks += 1

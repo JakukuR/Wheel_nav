@@ -28,8 +28,15 @@ class RollingDepthMap:
     def _slots(self,xy):
         cell=np.floor(np.asarray(xy)/self.res).astype(int)
         valid=np.all((cell>=self.lower)&(cell<self.lower+self.n),axis=-1)
-        cell=np.unique(cell[valid],axis=0)
-        return cell[:,0]%self.n,cell[:,1]%self.n
+        # In-bounds cells form a bounded n*n domain. A bitmap deduplicates in
+        # O(samples+n*n), preserving the old lexicographic order exactly and
+        # avoiding a structured-row sort of hundreds of thousands of ray hits.
+        relative=cell[valid]-self.lower
+        seen=np.zeros(self.n*self.n,dtype=bool)
+        seen[relative[:,0]*self.n+relative[:,1]]=True
+        unique=np.flatnonzero(seen)
+        return ((unique//self.n+self.lower[0])%self.n,
+                (unique%self.n+self.lower[1])%self.n)
 
     def initial_clear_patch(self,position,t,radius=1.):
         """Explicit simulation initial condition: inspected clear start patch.
@@ -41,7 +48,7 @@ class RollingDepthMap:
         mask=np.linalg.norm(centers-position,axis=-1)<radius
         a,b=self.ix[mask],self.iy[mask];self.log[a,b]=-2.;self.stamp[a,b]=t
 
-    def update(self,cloud,pose,t):
+    def update(self,cloud,pose,t,rebuild=True):
         self.slide(pose[:2])
         # Keep per-head ray origins; process every miss before this frame's hits.
         clouds=cloud if isinstance(cloud,(list,tuple)) else [cloud]
@@ -56,7 +63,12 @@ class RollingDepthMap:
             endpoint=world[lower]
             if len(endpoint):
                 # One ray per endpoint cell; retain the nearest endpoint.
-                _,idx=np.unique(np.floor(endpoint/self.res).astype(int),axis=0,return_index=True)
+                cells=np.floor(endpoint/self.res).astype(np.int64)
+                relative=cells-cells.min(axis=0)
+                # Scalar keys retain lexicographic XY order and the first ray
+                # per endpoint cell, without the slow structured-row sort.
+                width=int(relative[:,1].max())+1
+                _,idx=np.unique(relative[:,0]*width+relative[:,1],return_index=True)
                 endpoint=endpoint[idx]
                 delta=endpoint-origin;length=np.linalg.norm(delta,axis=1)
                 distance=np.arange(0,7.,self.res*.45)
@@ -75,7 +87,7 @@ class RollingDepthMap:
         footprint=np.linalg.norm(centers-pose[:2],axis=-1)<self.robot_radius
         a,b=self.ix[footprint],self.iy[footprint]
         self.log[a,b]=np.minimum(self.log[a,b],-1.);self.stamp[a,b]=t
-        self.rebuild(t)
+        if rebuild:self.rebuild(t)
 
     def rebuild(self,t):
         log=self.log[self.ix,self.iy];age=t-self.stamp[self.ix,self.iy]

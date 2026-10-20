@@ -316,6 +316,21 @@ class SimulationFollow(Node):
                 0<=(ns-result['stamp_ns'])/1e9<=self.p['max_sensor_age_s'] and
                 self.motion.healthy(ns/1e9) and now-self.wheel_received<=.20 and
                 state['observations_fresh'] and self.core.gate_enabled and state['enabled'] and not self.estop)
+            # Report the exact existing output predicates; do not change their
+            # thresholds or renew a command merely because it took long to compute.
+            blockers=[]
+            if not state['enabled']:blockers.append('task_inactive')
+            if self.estop:blockers.append('local_estop')
+            if result is None:
+                blockers.append('no_fresh_planner_result')
+            else:
+                if result['key']!=self.key():blockers.append('planner_reference_changed')
+                if now>=result['valid_until']:blockers.append('planner_result_expired')
+                if not 0<=(ns-result['stamp_ns'])/1e9<=self.p['max_sensor_age_s']:blockers.append('depth_stale')
+            if not self.motion.healthy(ns/1e9):blockers.append('wheel_motion_invalid')
+            if now-self.wheel_received>.20:blockers.append('wheel_odom_stale')
+            if not state['observations_fresh']:blockers.append('target_observations_stale')
+            if not self.core.gate_enabled:blockers.append('detector_gate_closed')
             command=result['command'] if healthy else np.zeros(2)
             previously_permitted=self.last_permission
             owner=self.check_direct_owner() if self.direct_pub is not None else False
@@ -331,6 +346,8 @@ class SimulationFollow(Node):
                 self.core._terminate('cancelled','motion_authority_lost');command=np.zeros(2);healthy=False
             self.last_permission=permitted
             if self.conflict_latched:command=np.zeros(2);healthy=False
+            if not permitted:blockers.append('motion_permission_unavailable')
+            if self.conflict_latched:blockers.insert(0,'direct_publisher_conflict')
             if self.core.active:
                 self.core.state='following' if healthy else 'waiting'
                 self.core.reason=self.reason if healthy else ('direct_publisher_conflict' if self.conflict_latched else 'waiting_for_fresh_inputs')
@@ -349,7 +366,11 @@ class SimulationFollow(Node):
                 base_frame=self.p['base_frame'],output_mode=self.p['output_mode'],
                 candidate_only=not self.p['enable_motion'],motion_permitted=permitted and healthy,
                 linear_mps=float(command[0]),angular_rps=float(command[1]),safety_fresh=healthy,
-                safety_reason=self.reason,reference_generation=self.motion.generation,
+                safety_reason=blockers[0] if blockers else self.reason,
+                output_blockers=blockers,planner_reason=self.reason,
+                planner_candidates=result.get('candidates',{}) if result else {},
+                result_remaining_ms=round((result['valid_until']-now)*1000.,1) if result else None,
+                reference_generation=self.motion.generation,
                 robot_radius_m=self.model_tuning['radius'],obstacle_margin_m=self.model_tuning['margin'],
                 tof_enabled=self.p['tof_enabled'],direct_publisher_conflict=self.conflict_latched,
                 fault=self.conflict_latched or self.estop,

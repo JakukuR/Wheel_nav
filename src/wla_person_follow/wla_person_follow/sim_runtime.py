@@ -68,7 +68,7 @@ class SimulationEngine:
     def step(self, pose, previous, packets, observation, now):
         for stamp, packet in sorted(packets, key=lambda item: item[0]):
             if stamp > self.map_stamp:
-                self.mapping.update(packet, pose, stamp)
+                self.mapping.update(packet, pose, stamp, rebuild=False)
                 self.map_stamp = stamp
         self.mapping.rebuild(now)  # expiry never renews raw observation stamps
         visible = False
@@ -93,6 +93,17 @@ class SimulationEngine:
             raise ValueError('nonfinite_core_command')
         recovery = self.controller.recovery
         reason = recovery.reason if recovery else ''
+        candidates = self.controller.last_candidates
+        if (abs(command[0]) < .01 and candidates.get('forward_total', 0) > 0
+                and candidates.get('forward', 0) == 0):
+            if candidates.get('forward_known') == 0:
+                reason = 'forward_space_unobserved'
+            elif candidates.get('forward_static') == 0:
+                reason = 'forward_static_obstacle'
+            elif candidates.get('forward_people') == 0:
+                reason = 'forward_people_blocked'
+            else:
+                reason = 'forward_candidates_rejected'
         # The demo's least-bad braking fallback is diagnostic, not a validated
         # collision-free command. The hardware adapter never forwards it.
         if self.controller.last_infeasible:

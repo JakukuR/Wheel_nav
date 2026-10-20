@@ -86,3 +86,31 @@ def test_smaller_footprint_keeps_nearby_obstacle_evidence():
     cell=np.floor(points[0,:2]/mapping.res).astype(int)-mapping.lower
     assert mapping.robot_radius == .19
     assert mapping.occupied[tuple(cell)]  # Outside new body; inside old 24cm body.
+
+
+def test_bitmap_slots_match_row_sort_across_ring_wrap():
+    from wla_person_follow.sim_core.rolling_depth_map import RollingDepthMap
+    rng=np.random.default_rng(487)
+    for size in (10,120):
+        mapping=RollingDepthMap(size=size)
+        for origin in ([0.,0.],[-12.3,7.8],[24.6,-19.1]):
+            mapping.slide(np.array(origin))
+            points=rng.uniform(-size*.1,size*.1,(12000,2))+origin
+            points=np.concatenate([points,points[:200],np.array([origin])])
+            cells=np.floor(points/mapping.res).astype(int)
+            valid=np.all((cells>=mapping.lower)&(cells<mapping.lower+size),axis=-1)
+            expected=np.unique(cells[valid],axis=0)
+            x,y=mapping._slots(points)
+            np.testing.assert_array_equal(x,expected[:,0]%size)
+            np.testing.assert_array_equal(y,expected[:,1]%size)
+        x,y=mapping._slots(np.empty((0,2)))
+        assert len(x)==len(y)==0
+
+
+def test_unknown_forward_space_is_reported_without_changing_stop():
+    e=SimulationEngine(np.zeros(3),1.)
+    result=e.step(np.zeros(3),np.zeros(2),[],(1.,np.array([2.,0.]),{}),1.)
+    assert result['command'][0]==0.
+    assert result['candidates']['forward_total']>0
+    assert result['candidates']['forward_known']==0
+    assert result['reason']=='forward_space_unobserved'

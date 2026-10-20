@@ -195,3 +195,24 @@ def test_default_mux_modeless_output_and_estop():
         for node in (f,mux,fixture):ex.remove_node(node);node.destroy_node()
         ex.shutdown();rclpy.try_shutdown()
         sys.path.remove(str(folder))
+
+
+def test_status_distinguishes_expired_result_from_planner_clear(graph):
+    from std_msgs.msg import String
+    fixture,f,pump,_=graph
+    statuses=[]
+    sub=fixture.create_subscription(String,'/r680/person_follow/status',
+        lambda m:statuses.append(json.loads(m.data)),5)
+    pump(1.1)
+    seed(f)
+    with f.guard:
+        f.reason='progress_or_clear'
+        f.result['valid_until']=time.monotonic()-.001
+    pump(.06)
+    latest=statuses[-1]
+    assert latest['planner_reason']=='progress_or_clear'
+    assert latest['safety_reason']=='planner_result_expired'
+    assert 'planner_result_expired' in latest['output_blockers']
+    assert latest['result_remaining_ms']<0
+    assert not latest['motion_permitted'] and latest['linear_mps']==0.
+    fixture.destroy_subscription(sub)
