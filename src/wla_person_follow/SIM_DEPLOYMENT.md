@@ -19,7 +19,12 @@ semantics remain. There is no auto-selection of a person and no ReID yet.
 
 ## Output
 
-Default output_mode=direct targets `/r680_base/cmd_vel`. enable_motion=false
+Default output_mode=mux uses `/r680/person_follow/command_candidate` and
+`/r680/person_follow/status`, with the existing mux as the sole chassis publisher.
+The mux now uses fresh-velocity priority without PERSON/AUTO/status gates.
+The follower still owns task identity, lease, perception and planner validity.
+Preview remains disabled for motion. Optional output_mode=direct
+targets `/r680_base/cmd_vel`. In direct mode enable_motion=false
 creates NO publisher on that topic, including no periodic zeros. Preview is
 `/r680/person_follow/cmd_vel_candidate`. Enabling direct output requires the
 existing command mux and all other publishers to relinquish that topic; only
@@ -33,8 +38,8 @@ Direct output bypasses the mux's manual takeover/estop policy. The local
 `/r680/person_follow/set_estop` service (SetBool) stops and cancels the task;
 reset does not resurrect it. It does not replace a physical stop mechanism or
 a driver command timeout. Driver timeout and measured chassis braking remain
-unverified. output_mode=mux retains the old candidate/status contract and
-PERSON/AUTO authorization. Never operate direct and mux output concurrently.
+unverified. output_mode=mux retains the candidate topic and status diagnostics;
+velocity_passthrough=true removes PERSON/AUTO switching from this path. Never operate direct and mux output concurrently.
 
 ## Real inputs and deliberate hardware adapter boundaries
 

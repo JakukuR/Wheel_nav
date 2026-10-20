@@ -36,7 +36,7 @@ def stamp_ns(msg):
 class SimulationFollow(Node):
     def __init__(self, **kwargs):
         super().__init__('person_follow', **kwargs)
-        defaults = dict(enable_motion=False, output_mode='direct',
+        defaults = dict(enable_motion=False, output_mode='mux',
             direct_topic='/r680_base/cmd_vel', prefix='/r680/person_follow',
             relative_topic='/r680/perception/relative_objects',
             detection_status_topic='/r680_nav/perception/status',
@@ -178,7 +178,8 @@ class SimulationFollow(Node):
                     self.retired_control_sessions.add(old['control_session'])
                 revoked=bool(old) and (old['control_session']!=session or
                     data['person_revoke_generation']!=old['person_revoke_generation'] or
-                    (old['automatic_source']=='PERSON' and (data['mode']!='AUTO' or data['automatic_source']!='PERSON')))
+                    (not data.get('velocity_passthrough',False) and old['automatic_source']=='PERSON' and
+                     (data['automatic_source']!='PERSON' or (old['mode']=='AUTO' and data['mode']!='AUTO'))))
                 self.control_state=data;self.control_until=time.monotonic()+.50-max(age,0.)
                 if revoked and self.core.active:
                     self.core._terminate('cancelled','motion_authority_revoked');self.result=None
@@ -323,7 +324,9 @@ class SimulationFollow(Node):
             permitted=bool(self.p['enable_motion'] and not self.estop and
                 (owner if self.p['output_mode']=='direct' else
                  now<self.control_until and -.05<=(ns-self.control_state.get('stamp_ns',0))/1e9<=.50 and
-                 self.control_state.get('mode')=='AUTO' and self.control_state.get('automatic_source')=='PERSON'))
+                 not self.control_state.get('estop_latched',False) and
+                 (self.control_state.get('velocity_passthrough') is True or
+                  (self.control_state.get('mode')=='AUTO' and self.control_state.get('automatic_source')=='PERSON'))))
             if self.last_permission and not permitted and self.core.active:
                 self.core._terminate('cancelled','motion_authority_lost');command=np.zeros(2);healthy=False
             self.last_permission=permitted

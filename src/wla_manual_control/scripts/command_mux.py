@@ -13,7 +13,7 @@ from std_msgs.msg import String
 from std_srvs.srv import SetBool
 from wla_behavior_interfaces.srv import ObjectControl
 from action_msgs.srv import CancelGoal
-from control_policy import Policy
+from velocity_policy import VelocityPolicy as Policy
 
 
 class Mux(Node):
@@ -86,7 +86,7 @@ class Mux(Node):
             res.success,res.reason=self.p.object_control(req.command,req.source_generation,
                 req.object_revoke_generation,req.request_id,req.follow_session,time.monotonic(),now_ns)
             if res.success:
-                if req.command=='select':self.cancel_navigation()
+                # Source hints do not switch or cancel another producer.
                 self.last_report=0.
         res.control_session=self.control_session
         res.source_generation=self.p.source_generation
@@ -97,7 +97,7 @@ class Mux(Node):
         previous=self.p.automatic_source
         res.success,res.message=self.p.set_object_source(req.data,time.monotonic(),self.get_clock().now().nanoseconds)
         if res.success and previous!=self.p.automatic_source:
-            self.cancel_navigation();self.last_report=0.
+            self.last_report=0.
         return res
 
     def status(self, msg):
@@ -130,8 +130,7 @@ class Mux(Node):
         else:
             self.p.set_manual(); self.cancel_navigation()
             res.success = True
-            res.message = ('navigation canceled; fresh NAV/manual remain available'
-                           if self.p.automatic_source == 'NAV' else 'MANUAL latched')
+            res.message = 'cached automatic velocities cleared; fresh commands remain available'
         self.last_report = 0.
         return res
 
@@ -139,7 +138,7 @@ class Mux(Node):
         previous = self.p.automatic_source
         res.success, res.message = self.p.set_person_source(req.data, time.monotonic(), self.get_clock().now().nanoseconds)
         if res.success and previous != self.p.automatic_source:
-            self.cancel_navigation(); self.last_report = 0.
+            self.last_report = 0.
         return res
 
     def tick(self):
@@ -153,7 +152,9 @@ class Mux(Node):
             self.report.publish(String(data=json.dumps({
                 'control_session': self.control_session, 'stamp_ns': self.get_clock().now().nanoseconds,
                 'mode': self.p.mode, 'armed': self.p.armed,
-                'mode_required': self.p.automatic_source != 'NAV',
+                'mode_required': False,
+                'velocity_passthrough': True,
+                'priority': ['MANUAL', 'PERSON', 'OBJECT', 'NAV'],
                 'nav_manual_coexist': self.p.nav_manual_coexist,
                 'output_source': self.p.output_source,
                 'manual_ready': self.p.manual_ready(now),
@@ -165,12 +166,12 @@ class Mux(Node):
                 'object_revoke_generation': self.p.object_channel.person_revoke_generation,
                 'object_request_id': self.p.object_channel.person_request_id,
                 'object_follow_session': self.p.object_channel.person_session,
-                'object_fresh': self.p.object_channel.person_ready(now) and now <= self.p.object_channel.person_until,
+                'object_fresh': self.p.command_fresh('OBJECT', now),
                 'person_request_id': self.p.person_request_id,
                 'follow_session': self.p.person_session,
                 'gamepad': self.p.status, 'linear': v, 'angular': w,
-                'navigation_fresh': now - self.p.auto_at < .15,
-                'person_fresh': self.p.person_ready(now) and now <= self.p.person_until,
+                'navigation_fresh': self.p.command_fresh('NAV', now),
+                'person_fresh': self.p.command_fresh('PERSON', now),
             })))
 
 

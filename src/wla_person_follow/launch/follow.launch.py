@@ -1,4 +1,4 @@
-"""Versioned backend selection; direct simulation port starts in preview mode."""
+"""Versioned backend selection; simulation port starts in preview mode."""
 import os
 from pathlib import Path
 from ament_index_python.packages import get_package_share_directory
@@ -27,6 +27,6 @@ def generate_launch_description():
         DeclareLaunchArgument('python',default_value=os.environ.get('WLA_FOLLOW_PYTHON','/usr/bin/python3')),
         DeclareLaunchArgument('config',default_value=''),
         DeclareLaunchArgument('enable_motion',default_value='false'),
-        DeclareLaunchArgument('output_mode',default_value='direct'),
+        DeclareLaunchArgument('output_mode',default_value='mux'),
         DeclareLaunchArgument('direct_topic',default_value='/r680_base/cmd_vel'),
         OpaqueFunction(function=launch_backend)])

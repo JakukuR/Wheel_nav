@@ -1,54 +1,53 @@
-# 独立底盘、手柄和导航速度仲裁
+# 底盘速度优先级 mux
 
-系统服务 `r680-manual-base.service` 使用 ROS 域 73，独占底盘串口。
-`command_mux.py` 是 `/r680_base/cmd_vel` 的唯一发布者。导航复用
-`/wheel/odom` 和 `/wheel/imu/data_raw`，不另启底盘驱动。
+`r680-manual-base.service` 常驻运行底盘、手柄与 mux，ROS 域 73。
+`command_mux.py` 是 `/r680_base/cmd_vel` 的唯一发布者。
+当前执行策略是 `VelocityPolicy`；`control_policy.Policy` 保留公用手柄/急停工具和旧策略回归。
 
-## 手柄与 NAV 无需模式切换
+## 无模式切换
 
-启动后两路都可以提交速度，无需调用 `set_automatic`，也没有 NAV 的 MANUAL 锁存：
+收到新鲜合法的速度即可参与仲裁，无需 PERSON/OBJECT 来源选择、AUTO 切换或状态握手。
+非零输入优先级：手柄 > PERSON > OBJECT > NAV。零输入释放本路优先级；有多个自动
+发布者时，较低优先级仍可在高优先级发零/过期后输出。无新鲜非零输入时输出零。
+速度不相加，实际来源看 `control_state.output_source`。
 
-1. 有效、非零的手柄输入优先执行，两路速度不相加。
-2. 手柄零输入不挡导航。松杆、断连或手动输入过期后，先清除交接前的导航命令，收到交接后的新鲜 NAV 命令即执行，不取消导航目标。
-3. 手柄不可用时，NAV 仍可输出；NAV 不可用时，手柄仍可输出。
-4. 没有有效输入时输出零。NAV 命令超过 150 ms 即过期；这只是速度命令有效期，不是视觉位姿门控。
-5. 急停锁存停止两路。明确复位后只接受新收到的命令，不回放复位前的缓存。
+输入：
 
-NAV 输入为 `/r680_nav/chassis_cmd_vel`。Nav2 的定位、避障、命令限幅以及
-`--enable-motion` 的导航侧输出开关仍由导航链路管理，底盘不再重复要求 AUTO 授权。
-原 `nav_manual_coexist` 构造参数仅为调用兼容保留，不能恢复旧 NAV 模式门控；mux 不再声明此配置开关。
+- 手柄：`/r680_manual/cmd_vel`，Twist，沿用手柄就绪与消息新鲜度检查。
+- 人物：`/r680/person_follow/command_candidate`，String JSON，schema `wla-person-candidate/v1`。
+- 物品：`/r680/object_follow/command_candidate`，String JSON，schema `wla-object-candidate/v1`。
+- 导航：`/r680_nav/chassis_cmd_vel`，Twist。
 
-手柄包负责原始摇杆连续归中 0.3 秒和连接就绪；只有 ACTIVE/SPIN/STANDBY
-状态及该状态之后的新鲜速度才参与仲裁。等待归中、断连和超时使手动输入失效，
-不影响有效 NAV。现有限幅为前进 1.00 m/s、后退 0.30 m/s、转向 1.50 rad/s。
+人物/物品命令需要 `stamp_ns`、有限数值 `linear` 和 `angular`。有效期 150 ms，
+拒绝过期和乱序命令；不再由 mux 检查跟随任务 ID、租约或状态权限。
+这些属于上游跟随器的职责，上游停止/失效应输出零或停止发布。
+预览后端只向实际候选接口发零，非零计算结果仅在调试预览话题。
 
-## 兼容接口与状态
+手柄接管不撤销自动任务；松杆后只接受交接之后的新命令，仍活跃的跟随可继续。
+结束任务应向跟随器发 stop，或锁存急停；不能把短暂拨杆当成结束任务。
+限幅沿用部署参数：前进 1.0 m/s、后退 0.3 m/s、角速度 1.5 rad/s。
+上游人物策略自行限制最高前进 0.65 m/s、角速度 0.9 rad/s。
 
-`/r680_base/control_state` 中，NAV 的 `mode_required=false` 明确表示无模式门控。
-旧字段 `mode=AUTO` 仅为现有上游消费者兼容保留，不表示有一次授权动作。
-`output_source=MANUAL/NAV/NONE` 表示实际速度来源；`armed`/`manual_ready` 仅表示手柄是否就绪。
+## 停止与旧接口
 
-NAV 下 `/r680_base/set_automatic`（SetBool）仍接受旧客户端调用：true 是兼容确认，
-不做模式切换；false 清空旧 NAV 输入并取消当前导航目标，不禁止之后新到达的命令。
-需要持续停止两路时使用 `/r680_base/set_estop`，不能再用 set_automatic(false) 当作锁存停止。
+`/r680_base/set_estop`、手柄 ESTOP、非法手柄数值仍锁存停止。
+复位需要停稳与手柄急停解除，不回放旧缓存。物理制动与硬件失联看门狗仍需实车验证。
 
-急停服务 true、手柄 ESTOP 或非法手动数值均锁存停止并请求取消 Nav2。
-false 仅在手柄急停输入已解除、轮速新鲜且停稳、手动输入中立或不可用时复位。
-断开或重连手柄不能解除急停。锁存属于当前进程的软件状态，不跨进程重启持久化。
+旧 set_person_source/set_object_source/set_automatic(true) 只兼容调用，不控制仲裁；
+`automatic_source` 和 `mode=AUTO` 是兼容字段，`mode_required=false`、
+`velocity_passthrough=true` 表示新策略。set_automatic(false) 清空自动缓存并撤销任务，
+不禁止后续的新速度；持续停止应使用 set_estop。
 
-## 独立跟随任务
+## 测试
 
-PERSON/OBJECT 为独立、互斥的任务来源，仍使用原有来源选择、任务身份、租约、
-时间戳和激活协议；本次没有将跟随候选变成无条件运动命令。
-选择 PERSON/OBJECT 后 NAV 不输出；有效手柄接管会撤销跟随任务。
-切回 NAV 会清空旧输入，随后新鲜 NAV 可直接输出，无需再切 AUTO。
+```bash
+python3 src/wla_manual_control/test/test_velocity_policy.py
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+ROS_DOMAIN_ID=198 python3 src/wla_manual_control/test/test_velocity_mux_ros.py
+```
 
-## 验证与加载
-
-纯策略：`python3 -m pytest -q test/test_policy.py test/test_nav_manual_shared.py test/test_object_policy.py test/test_object_control_handoff.py`。
-隔离 ROS：`ROS_DOMAIN_ID=198 python3 test/test_relative_mux_ros.py`，只启动仲裁器和合成输入，不启动串口驱动。
-另有导航会话、初始化退出零速回归，位于 `wla_r680_navigation/test`。
-这些检查不证明实车运动或制动已验收。
-
-已运行的 Python 进程不会重新导入修改；加载前需停止导航任务、确认输出零速，
-再重启常驻底盘服务。通过 `mode_required=false` 确认新版本已加载。
+ROS 测试只启动 mux 与模拟输入，检查无状态握手的输出、固定优先级、零速释放、
+过期/非法命令、手柄交接、急停和限幅，不启动底盘驱动。
+旧 test_relative_mux_ros.py / test_object_mux_ros.py 转到此统一回归入口。
+实际人物测试步骤见工作区根目录 FOLLOW_TRIAL.md。

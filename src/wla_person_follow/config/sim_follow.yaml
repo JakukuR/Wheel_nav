@@ -1,7 +1,7 @@
 person_follow:
   ros__parameters:
     enable_motion: false
-    output_mode: direct
+    output_mode: mux
     direct_topic: /r680_base/cmd_vel
     relative_topic: /r680/perception/relative_objects
     detection_status_topic: /r680_nav/perception/status

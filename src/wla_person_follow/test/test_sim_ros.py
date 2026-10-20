@@ -19,7 +19,7 @@ def graph():
     rclpy.init()
     fixture=Node('sim_port_fixture')
     direct='/sim_test/base/cmd_vel'
-    follower=SimulationFollow(parameter_overrides=[Parameter('direct_topic',value=direct),Parameter('enable_motion',value=True)])
+    follower=SimulationFollow(parameter_overrides=[Parameter('output_mode',value='direct'),Parameter('direct_topic',value=direct),Parameter('enable_motion',value=True)])
     executor=SingleThreadedExecutor();executor.add_node(fixture);executor.add_node(follower)
     received=[]
     fixture.create_subscription(Twist,direct,lambda m:received.append((m.linear.x,m.angular.z)),10)
@@ -100,7 +100,7 @@ def test_real_depth_tf_wheel_adapter_preview_only():
     pub_wheel=fixture.create_publisher(Odometry,f.p['wheel_topic'],qos_profile_sensor_data)
     pub_rel=fixture.create_publisher(String,f.p['relative_topic'],1)
     try:
-        end=time.monotonic()+3.;next_at=0.;computed=False
+        end=time.monotonic()+3.;next_at=0.;captured=None
         while time.monotonic()<end:
             if time.monotonic()>=next_at:
                 next_at=time.monotonic()+.04
@@ -114,11 +114,84 @@ def test_real_depth_tf_wheel_adapter_preview_only():
                 pub_rel.publish(String(data=json.dumps(dict(schema='wla-relative-detections/v1',stamp_ns=ns,
                     session='depth-fixture',epoch=0,enabled=True,base_frame='r680_mapping_floor',objects=[]))))
             ex.spin_once(timeout_sec=.002)
-            with f.guard:computed=computed or f.result is not None
+            with f.guard:
+                # Idle observations legitimately clear the next solver result;
+                # inspect a fresh result while it exists, not at an arbitrary end tick.
+                if f.result is not None and time.monotonic()<f.result['valid_until']:
+                    assert 0<=(f.now_ns()-f.result['stamp_ns'])/1e9<=f.p['max_sensor_age_s']
+                    captured=f.result
         assert f.direct_pub is None and f.count_publishers('/r680_base/cmd_vel')==0
-        assert computed, f.reason
-        assert f.result is not None
-        assert f.result['grid'].max()==100
-        assert np.any(f.result['grid']==-1)  # no manufactured full-room free space
+        assert captured is not None, f.reason
+        assert captured['grid'].max()==100
+        assert np.any(captured['grid']==-1)  # no manufactured full-room free space
     finally:
         f.close();ex.remove_node(f);ex.remove_node(fixture);f.destroy_node();fixture.destroy_node();ex.shutdown();rclpy.try_shutdown()
+
+
+def test_default_mux_modeless_output_and_estop():
+    """Exercise the deployed mux protocol, with no hardware in domain 198."""
+    assert os.environ.get('ROS_DOMAIN_ID') == '198'
+    import sys
+    import importlib.util
+    from pathlib import Path
+    from ament_index_python.packages import get_package_prefix
+    import rclpy
+    from rclpy.node import Node
+    from rclpy.parameter import Parameter
+    from rclpy.executors import SingleThreadedExecutor
+    from geometry_msgs.msg import Twist
+    from nav_msgs.msg import Odometry
+    from std_srvs.srv import SetBool
+    from wla_person_follow.sim_node import SimulationFollow
+    folder = Path(get_package_prefix('wla_manual_control'))/'lib/wla_manual_control'
+    sys.path.insert(0, str(folder))
+    spec = importlib.util.spec_from_file_location('trial_mux', folder/'command_mux.py')
+    module = importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    rclpy.init()
+    f = SimulationFollow(parameter_overrides=[Parameter('enable_motion', value=True)])
+    mux = module.Mux();fixture = Node('sim_mux_fixture')
+    ex = SingleThreadedExecutor()
+    for node in (f, mux, fixture):ex.add_node(node)
+    velocities = []
+    fixture.create_subscription(Twist, '/r680_base/cmd_vel', lambda m:velocities.append(m.linear.x), 10)
+    wheel = fixture.create_publisher(Odometry, '/wheel/odom', 10)
+    feed = False
+
+    def pump(seconds):
+        end = time.monotonic()+seconds;next_input = 0.
+        while time.monotonic()<end:
+            if time.monotonic()>=next_input:
+                next_input=time.monotonic()+.03
+                msg=Odometry();msg.header.stamp=fixture.get_clock().now().to_msg()
+                msg.child_frame_id='r680_mapping_floor';wheel.publish(msg)
+                if feed:
+                    seed(f);f.core.lease_until=time.monotonic()+1.
+            ex.spin_once(timeout_sec=.003)
+
+    def call(name, value):
+        client=fixture.create_client(SetBool,name)
+        assert client.wait_for_service(timeout_sec=1.)
+        future=client.call_async(SetBool.Request(data=value))
+        end=time.monotonic()+1.
+        while not future.done() and time.monotonic()<end:pump(.02)
+        assert future.done() and future.result().success
+        fixture.destroy_client(client)
+
+    try:
+        pump(.5)
+        assert f.p['output_mode']=='mux' and f.direct_pub is None
+        assert [p.node_name for p in fixture.get_publishers_info_by_topic('/r680_base/cmd_vel')]==['r680_command_mux']
+        assert mux.p.mode=='AUTO' and mux.p.automatic_source=='NAV'
+        feed=True;pump(.3)
+        assert any(v>0. for v in velocities), 'No source or AUTO service was called'
+        assert mux.p.output_source=='PERSON'
+        feed=False
+        call('/r680_base/set_estop',True)
+        pump(.3)
+        assert velocities[-1]==0. and not f.core.active
+        assert not f.core.command('heartbeat','task',lease_duration_s=1.,now=time.monotonic())[0]
+    finally:
+        f.close()
+        for node in (f,mux,fixture):ex.remove_node(node);node.destroy_node()
+        ex.shutdown();rclpy.try_shutdown()
+        sys.path.remove(str(folder))

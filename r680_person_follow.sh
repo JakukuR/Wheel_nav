@@ -7,7 +7,7 @@ case "$operation" in
   -h|--help|help)
     echo 'r680_person_follow.sh check | run [enable_motion:=false|true] [ROS launch arguments]'
     echo '默认 close-wide-flex 仿真后端，follow 指定人物；backend:=legacy 可回退原实现。'
-    echo '默认预览；需要共享D455/检测/轮速。直出 /r680_base/cmd_vel 前必须解除 mux 发布。'
+    echo '默认预览；需要共享D455/检测/轮速。默认走原人物跟随 mux 接口，保留手柄接管。'
     exit 0 ;;
   check|run) ;;
   indoor|outdoor)
