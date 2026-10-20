@@ -68,7 +68,8 @@ window.TopdownView = (() => {
     const active=top?.reason==='ok';el('topBadge').textContent=paused?'已暂停 · 非实时':delayNotice?delayNotice:active?'实时局部快照':'等待新鲜局部数据';
     el('topMeta').textContent=`${top?.frame_id||'车体坐标'} · ${layers.length} 个有效图层 · ${priorActive?'黄色虚线内默认空闲（障碍优先，非传感器实测）':'未知区域不代表空闲'}`;
     const follow=top?.follow||{}, velocity=Number.isFinite(follow.linear_mps)?` · ${follow.linear_mps.toFixed(2)} m/s`:'';
-    el('topFollow').textContent=follow.state?`${follow.state} · ${follow.safety_reason||'—'}${velocity}`:'暂无新鲜跟随状态';
+    const identity=follow.reid, reidText=identity&&identity.state!=='disabled'?` · ReID ${identity.state}${Number.isFinite(identity.lost_s)?' · 未核验 '+identity.lost_s.toFixed(1)+' s':''}`:'';
+    el('topFollow').textContent=follow.state?`${follow.state} · ${follow.safety_reason||'—'}${velocity}${reidText}`:'暂无新鲜跟随状态';
     const states=el('topLayers'),entries=(top?.layers||[]).map(l=>[l.id,`${l.label}：${l.reason==='ok'?`${l.count} 个 · ${l.age_ms} ms 前`:l.reason}`]);
     entries.push(['objects',`目标观测：${top?.objects_reason||'等待数据'}${top?.objects_age_ms===undefined?'':` · ${top.objects_age_ms} ms 前`}`]);
     const keys=new Set(entries.map(e=>e[0]));

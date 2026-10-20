@@ -26,6 +26,7 @@ from .camera import depth_meters
 from .depth_proc import rotation_from_quaternion
 from .local_memory import LocalMotion
 from .relative_control import RelativeFollower
+from .reid_identity import TargetIdentity
 from .sim_core.common import rotation
 from .sim_runtime import packet_from_depth, measurements_from_relative, local_points, process_step, warm_worker, worker_initializer
 
@@ -47,7 +48,8 @@ class SimulationFollow(Node):
             max_sensor_age_s=.30, depth_stride=4, depth_min_m=.15, depth_max_m=5.,
             surface_to_center_offset_m=.28, camera_min_valid_fraction=.25,
             camera_front_min_valid_fraction=.35, result_ttl_s=.15, startup_clear_radius_m=0., startup_motion_threshold_m=.03,
-            local_assumed_free_radius_m=0., tof_enabled=False, tof_topics=['/r680/tof/front_left/points',
+            reid_enabled=False, reid_model_id='', reid_max_lost_s=8., reid_similarity=.80,
+            reid_margin=.08, reid_confirm_frames=3, local_assumed_free_radius_m=0., tof_enabled=False, tof_topics=['/r680/tof/front_left/points',
                 '/r680/tof/front_right/points','/r680/tof/rear_left/points','/r680/tof/rear_right/points'])
         self.p = {k:self.declare_parameter(k,v).value for k,v in defaults.items()}
         if (self.p['output_mode'] not in ('direct','mux') or
@@ -55,6 +57,11 @@ class SimulationFollow(Node):
             not 0 < self.p['result_ttl_s'] <= .20 or
             not 0 <= self.p['startup_clear_radius_m'] <= .5 or
             not 0 <= self.p['local_assumed_free_radius_m'] <= .5 or
+            not 1 <= self.p['reid_max_lost_s'] <= 15 or
+            not .7 <= self.p['reid_similarity'] <= .99 or
+            not .03 <= self.p['reid_margin'] <= .3 or
+            not 2 <= self.p['reid_confirm_frames'] <= 5 or
+            (self.p['reid_enabled'] and not self.p['reid_model_id']) or
             not .001 <= self.p['startup_motion_threshold_m'] <= .1 or
             not 1 <= self.p['depth_stride'] <= 16 or
             not .1 <= self.p['depth_min_m'] < self.p['depth_max_m'] <= 7 or
@@ -76,6 +83,7 @@ class SimulationFollow(Node):
         self.done = False
         self.result = None
         self.map_result = None
+        self.reid_frames=deque(maxlen=16)
         self.reason = 'waiting_for_sensor_data'
         self.follow_session = uuid.uuid4().hex
         self.estop = False
@@ -92,6 +100,7 @@ class SimulationFollow(Node):
         self.status_pub=self.create_publisher(String,prefix+'/status',5)
         self.path_pub=self.create_publisher(Path,prefix+'/local_path',1)
         self.grid_pub=self.create_publisher(OccupancyGrid,prefix+'/local_obstacles',1)
+        self.reid_request_pub=self.create_publisher(String,prefix+'/reid_request',1) if self.p['reid_enabled'] else None
         self.obstacles_pub=self.create_publisher(PointCloud2,prefix+'/depth_obstacles',qos_profile_sensor_data)
         self.direct_pub=None
         self.leased_pub=None
@@ -102,6 +111,8 @@ class SimulationFollow(Node):
             self.direct_pub=self.create_publisher(Twist,self.p['direct_topic'],1)
         self.create_subscription(String,self.p['relative_topic'],self.on_relative,1)
         self.create_subscription(String,self.p['detection_status_topic'],self.on_status,1)
+        if self.p['reid_enabled']:
+            self.create_subscription(String,prefix+'/reid_features',self.on_reid,1)
         self.create_subscription(Image,self.p['depth_topic'],self.on_depth,qos_profile_sensor_data)
         self.create_subscription(CameraInfo,self.p['camera_info_topic'],self.on_info,qos_profile_sensor_data)
         self.create_subscription(Odometry,self.p['wheel_topic'],self.on_wheel,qos_profile_sensor_data)
@@ -134,6 +145,21 @@ class SimulationFollow(Node):
         with self.guard:
             accepted=self.core.receive(msg.data,time.monotonic(),self.now_ns())
             if not accepted or not self.core.active:self.result=None
+
+    def on_reid(self,msg):
+        try:
+            if len(msg.data)>262144:return
+            data=json.loads(msg.data);ns=data['stamp_ns']
+            if (data.get('schema')!='wla-reid-features/v1' or data.get('base_frame')!=self.p['base_frame']
+                    or data.get('model_id')!=self.p['reid_model_id'] or type(ns) is not int
+                    or not 0<=(self.now_ns()-ns)/1e9<=.6 or not isinstance(data.get('objects'),list)
+                    or len(data['objects'])>4):return
+            with self.guard:
+                if (data['session'],data['epoch'])!=(self.core.session,self.core.epoch):return
+                if not self.core.active or data.get('request_id')!=self.core.request_id:return
+                if self.reid_frames and ns<=self.reid_frames[-1]['stamp_ns']:return
+                self.reid_frames.append(data)
+        except (ValueError,KeyError,TypeError):return
 
     def on_status(self,msg):
         with self.guard:
@@ -220,7 +246,7 @@ class SimulationFollow(Node):
             return res
 
     def compute(self):
-        next_at=0.;last_tof={}
+        next_at=0.;last_tof={};identity=None;identity_key=None
         while not self.done:
             self.event.wait(.1)
             if self.done:return
@@ -232,6 +258,7 @@ class SimulationFollow(Node):
                 infos=tuple(self.infos);motion=deepcopy(self.motion);key=self.key()
                 objects=deepcopy(self.core.objects);obs_stamp=self.core.last_stamp/1e9
                 active=self.core.active;tof_messages=tuple(self.tof.values())
+                reid_frames=tuple(self.reid_frames)
             if item is None:continue
             next_at=time.monotonic()+.1
             msg,valid_until=item;stamp=stamp_ns(msg)/1e9
@@ -282,9 +309,46 @@ class SimulationFollow(Node):
                 control_pose=motion.pose_at(control_stamp)
                 if control_pose is None:raise ValueError('control_time_wheel_pose_unavailable')
                 observation=None;op=motion.pose_at(obs_stamp)
+                resolved_id=key[1];identity_status=dict(state='disabled')
+                if self.p['reid_enabled']:
+                    if not active:
+                        identity=None;identity_key=None;identity_status=dict(state='inactive')
+                    else:
+                        if identity_key!=key:
+                            identity=TargetIdentity(key[1],max_lost=self.p['reid_max_lost_s'],
+                                similarity=self.p['reid_similarity'],margin=self.p['reid_margin'],
+                                confirmations=self.p['reid_confirm_frames'],model_id=self.p['reid_model_id'],start_time=control_stamp)
+                            identity_key=key
+                        for batch in reid_frames:
+                            ts=batch['stamp_ns']/1e9
+                            if ts<=identity.frame_stamp or not 0<=control_stamp-ts<=.6:continue
+                            if (batch['session'],batch['epoch'])!=(key[2],key[3]) or batch.get('request_id')!=key[0]:continue
+                            bp=motion.pose_at(ts)
+                            if bp is None:continue
+                            rows=[];prefix=f'{key[2]}:{key[3]}:'
+                            for row in batch['objects']:
+                                try:
+                                    if (not row['id'].startswith(prefix) or not row['id'][len(prefix):].isdigit()
+                                            or not math.isfinite(row['yaw']) or not abs(row['yaw'])<=math.pi
+                                            or not math.isfinite(row['distance']) or not 0<row['distance']<=20):continue
+                                    d=row['distance']+self.p['surface_to_center_offset_m'];a=bp[2]+row['yaw']
+                                    rows.append(dict(id=row['id'],feature=row['feature'],
+                                        position=np.asarray(bp[:2])+d*np.array([np.cos(a),np.sin(a)])))
+                                except (ValueError,KeyError,TypeError,AttributeError):continue
+                            identity.consume(rows,ts,batch['model_id'])
+                        resolved_id=identity.select(objects,op,obs_stamp,control_stamp,self.p['surface_to_center_offset_m']) if op is not None else None
+                        identity_status=identity.snapshot(control_stamp)
+
+                if self.reid_request_pub is not None:
+                    allowed=identity.candidate_ids(objects,op,obs_stamp,control_stamp,self.p['surface_to_center_offset_m']) if active and identity is not None else []
+                    with self.guard:
+                        if key==self.key() and active==self.core.active:
+                            self.reid_request_pub.publish(String(data=json.dumps(dict(
+                                schema='wla-reid-request/v1',stamp_ns=self.now_ns(),enabled=active,
+                                request_id=key[0],session=key[2],epoch=key[3],allowed_ids=allowed))))
                 if active and op is not None and 0<=control_stamp-obs_stamp<=self.p['max_sensor_age_s']:
-                    target,people=measurements_from_relative(objects,op,key[1],self.p['surface_to_center_offset_m'])
-                    observation=(obs_stamp,target,people)
+                    target,people=measurements_from_relative(objects,op,resolved_id or '',self.p['surface_to_center_offset_m'])
+                    observation=(obs_stamp,target,people,resolved_id)
                 v=motion.samples[-1][2]
                 begun=time.monotonic()
                 if self.future is not None and not self.future.done():
@@ -297,7 +361,7 @@ class SimulationFollow(Node):
                     result=self.future.result(timeout=self.p['result_ttl_s'])
                 except ComputeTimeout:
                     raise ValueError('compute_deadline_exceeded')
-                result.update(key=key,stamp_ns=stamp_ns(msg),valid_until=min(valid_until,begun+self.p['result_ttl_s']),
+                result.update(reid=identity_status,resolved_target_id=resolved_id if active else None,key=key,stamp_ns=stamp_ns(msg),valid_until=min(valid_until,begun+self.p['result_ttl_s']),
                     frontend_ms=frontend_ms,obstacle_points=len(packet['obstacle_points']),clearing_points=len(packet['points']),
                     compute_ms=(time.monotonic()-begun)*1000.,pose=np.asarray(control_pose),control_stamp_ns=int(control_stamp*1e9))
                 with self.guard:
@@ -400,6 +464,9 @@ class SimulationFollow(Node):
                 startup_prior_consumed=self.map_result.get('startup_prior_consumed',False) if self.map_result else False,
                 fault=self.conflict_latched or self.estop,
                 target_tracking=result['target_state'] if result else 'unavailable',
+                reid_enabled=self.p['reid_enabled'],
+                reid=self.map_result.get('reid') if self.map_result else None,
+                resolved_target_id=self.map_result.get('resolved_target_id') if self.map_result else None,
                 recovery_state=result['recovery_state'] if result else 'waiting',
                 wide_offset=result['wide_offset'] if result else None,
                 frontend_ms=self.map_result.get('frontend_ms') if self.map_result else None,

@@ -89,7 +89,9 @@ class SimulationEngine:
         self.mapping.rebuild(now)  # expiry never renews raw observation stamps
         visible = False
         if observation is not None:
-            stamp, target, people = observation
+            stamp, target, people = observation[:3]
+            if len(observation)>3 and target is not None:
+                self.people.tracks.pop(observation[3],None)  # Rebound target is not a bystander.
             if self.last_measurement < stamp <= now:
                 self.target.update(target, stamp)
                 self.people.update(people, pose, stamp)

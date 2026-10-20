@@ -22,3 +22,10 @@ person_follow:
     local_assumed_free_radius_m: 0.5
     startup_clear_radius_m: 0.0
     startup_motion_threshold_m: 0.03
+    # Target-only ReID; descriptors come from a separate read-only CPU sidecar.
+    reid_enabled: true
+    reid_model_id: "osnet-x025-msmt17:cf55163d78fc44c6"
+    reid_max_lost_s: 8.0
+    reid_similarity: 0.80
+    reid_margin: 0.08
+    reid_confirm_frames: 3

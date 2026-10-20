@@ -23,6 +23,8 @@ export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
 export CYCLONEDDS_URI="${CYCLONEDDS_URI:-file://$workspace/install/wla_manual_control/share/wla_manual_control/config/cyclonedds-local.xml}"
 export OPENBLAS_NUM_THREADS="${WLA_FOLLOW_NUM_THREADS:-1}"
 export OMP_NUM_THREADS="${WLA_FOLLOW_NUM_THREADS:-1}"
+export WLA_REID_PYTHON="${WLA_REID_PYTHON:-$workspace/.venv-perception/bin/python}"
+export WLA_REID_MODEL="${WLA_REID_MODEL:-/home/orin/Wheel_Legged_Agent/models/perception/reid/osnet_x0_25_msmt17.pth}"
 export WLA_FOLLOW_PYTHON="${WLA_FOLLOW_PYTHON:-/usr/bin/python3}"
 "$WLA_FOLLOW_PYTHON" - <<'PY'
 import importlib, json, sys
@@ -44,4 +46,4 @@ PY
 mkdir -p "$workspace/.runtime"
 exec 8>"$workspace/.runtime/person-follow-${ROS_DOMAIN_ID}.lock"
 flock -n 8 || { echo '当前ROS域已有人物执行入口运行' >&2; exit 1; }
-exec ros2 launch wla_person_follow follow.launch.py python:="$WLA_FOLLOW_PYTHON" "$@"
+exec ros2 launch wla_person_follow follow.launch.py python:="$WLA_FOLLOW_PYTHON" enable_reid:=true "$@"

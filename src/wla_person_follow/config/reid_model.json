@@ -1,0 +1,12 @@
+{
+  "architecture": "OSNet x0.25",
+  "training": "MSMT17 combineall 256x128",
+  "source_commit": "f8cd150fdf77e8d9e1ed143b7f308c2c609ded50",
+  "model_revision": "a5c5cc037c24235cda3b21085b93ad77c9616224",
+  "sha256": "cf55163d78fc44c62c82f85ab62d39f10438679b5abe8c698ae08cfa84aa6e18",
+  "source": "https://github.com/KaiyangZhou/deep-person-reid",
+  "model_url": "https://huggingface.co/kaiyangzhou/osnet",
+  "deployed_path": "/home/orin/Wheel_Legged_Agent/models/perception/reid/osnet_x0_25_msmt17.pth",
+  "reference_project": "https://github.com/6-robot/jie_deamon",
+  "reference_commit": "9403185c0cf99a0b415ddd4f3b4215b44dd0809c"
+}

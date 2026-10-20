@@ -116,7 +116,8 @@ def main():
             if state.get('request_id') == request_id and time.monotonic() >= next_print:
                 print(json.dumps({k: state.get(k) for k in ('state', 'target_id', 'safety_reason',
                     'motion_permitted', 'linear_mps', 'angular_rps', 'compute_ms',
-                    'result_remaining_ms', 'output_blockers', 'planner_candidates')}, ensure_ascii=False), flush=True)
+                    'result_remaining_ms', 'output_blockers', 'planner_candidates',
+                    'target_tracking', 'resolved_target_id', 'reid')}, ensure_ascii=False), flush=True)
                 next_print = time.monotonic()+1.
         return 0
     except (RuntimeError, ValueError) as exc:
