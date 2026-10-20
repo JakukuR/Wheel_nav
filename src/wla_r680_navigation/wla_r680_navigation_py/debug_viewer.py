@@ -260,7 +260,7 @@ class DebugViewer(Node):
         a globally registered map or motion-compensated to a common timestamp.
         """
         result = dict(frame_id=self.args.base_frame, layers=[], objects=[],
-                      robot_radius=.24, obstacle_margin=.10, reason='waiting_for_topic',
+                      robot_radius=.19, obstacle_margin=.10, reason='waiting_for_topic',
                       registration='acquisition_time_robot_relative')
         def to_base(frame, ns):
             if frame == self.args.base_frame:
@@ -328,6 +328,12 @@ class DebugViewer(Node):
 
         status, received = self.statuses.get('person', ({}, 0.))
         status_fresh = time.monotonic()-received <= 1.
+        radius = status.get('robot_radius_m')
+        margin = status.get('obstacle_margin_m')
+        if status_fresh and isinstance(radius, (int, float)) and np.isfinite(radius) and 0 < radius <= 1.:
+            result['robot_radius'] = radius
+        if status_fresh and isinstance(margin, (int, float)) and np.isfinite(margin) and 0 <= margin <= 1.:
+            result['obstacle_margin'] = margin
         selected = status.get('target_id', '') if status_fresh and status.get('enabled') else ''
         result['follow'] = {k: status.get(k) for k in
                            ('state', 'safety_reason', 'recovery_state', 'linear_mps', 'angular_rps', 'compute_ms')} if status_fresh else {}

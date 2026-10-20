@@ -5,7 +5,7 @@ No scene, true obstacle geometry, or invisible target truth is accepted here.
 """
 import time
 import numpy as np
-from .common import Tuning, wrap
+from .common import Tuning, wrap, ROBOT_RADIUS_M
 from .common import rotation
 from .blocked_recovery import BlockedRecovery
 from .close_follow import rear_yield_plan,rear_cell_clearance
@@ -13,7 +13,7 @@ from .smooth_follow import smooth_reference,comfort_allowed
 from .wide_turn import outside_reference
 
 
-def approach_tangent(pose, command, tracks, target):
+def approach_tangent(pose, command, tracks, target, radius=ROBOT_RADIUS_M):
     """OP-Follower-inspired approach-aware tangential bias (weak, bounded).
 
     Relative approach rate increases its weight. Tangent sign favors target
@@ -24,7 +24,7 @@ def approach_tangent(pose, command, tracks, target):
     direction=target-pose[:2]
     for o in tracks:
         delta=pose[:2]-o['p'];distance=np.linalg.norm(delta)
-        gap=max(.08,distance-o['r']-.24)
+        gap=max(.08,distance-o['r']-radius)
         if gap>=1.2:continue
         normal=delta/max(distance,1e-9)
         approaching=max(0.,-np.dot(normal,robot_v-o['v']))
@@ -131,7 +131,7 @@ class HybridFollower:
         op = np.array([o['p'] for o in obstacles]).reshape(-1,2)
         ov = np.array([o['v'] for o in obstacles]).reshape(-1,2)
         radii = np.array([o['r'] for o in obstacles])
-        apf = approach_tangent(pose, previous, obstacles, target)
+        apf = approach_tangent(pose, previous, obstacles, target, c.radius)
         self.last_apf = apf
         for k,tau in enumerate(times):
             goal = target+velocity*tau

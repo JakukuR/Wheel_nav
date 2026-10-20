@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 import numpy as np
 
+# User-specified circular chassis footprint, in metres.
+ROBOT_RADIUS_M = .19
+
 def wrap(a):
     return np.arctan2(np.sin(a), np.cos(a))
 
@@ -12,7 +15,7 @@ class Tuning:
     max_w: float = .9
     accel: float = .65
     yaw_accel: float = 1.5
-    radius: float = .24
+    radius: float = ROBOT_RADIUS_M
     margin: float = .20
     desired_gap: float = 1.6
     camera_half_angle: float = float(np.arctan(.8))

@@ -106,7 +106,7 @@ class SimulationFollow(Node):
         self.create_service(PersonCommand,prefix+'/command',self.on_command)
         self.create_service(SetBool,prefix+'/set_estop',self.on_estop)
         self.pool=ProcessPoolExecutor(max_workers=1,mp_context=get_context('spawn'),initializer=worker_initializer)
-        self.pool.submit(warm_worker).result(timeout=20.)
+        self.model_tuning = self.pool.submit(warm_worker).result(timeout=20.)
         self.future=None
         self.worker=threading.Thread(target=self.compute,name='sim-follow-compute',daemon=True)
         self.worker.start()
@@ -350,6 +350,7 @@ class SimulationFollow(Node):
                 candidate_only=not self.p['enable_motion'],motion_permitted=permitted and healthy,
                 linear_mps=float(command[0]),angular_rps=float(command[1]),safety_fresh=healthy,
                 safety_reason=self.reason,reference_generation=self.motion.generation,
+                robot_radius_m=self.model_tuning['radius'],obstacle_margin_m=self.model_tuning['margin'],
                 tof_enabled=self.p['tof_enabled'],direct_publisher_conflict=self.conflict_latched,
                 fault=self.conflict_latched or self.estop,
                 target_tracking=result['target_state'] if result else 'unavailable',

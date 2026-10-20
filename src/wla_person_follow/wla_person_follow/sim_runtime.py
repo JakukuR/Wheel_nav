@@ -55,7 +55,7 @@ class SimulationEngine:
     def __init__(self, pose, start_time):
         self.tuning = WideTurnTuning()
         self.controller = HybridFollower(self.tuning)
-        self.mapping = RollingDepthMap()  # same 12 m / .1 m / 12 s as demo
+        self.mapping = RollingDepthMap(robot_radius=self.tuning.radius)  # same 12 m / .1 m / 12 s as demo
         self.mapping.slide(np.asarray(pose[:2]))
         self.mapping.rebuild(start_time)
         # No simulated initial_clear_patch: no sensor evidence exists for it.

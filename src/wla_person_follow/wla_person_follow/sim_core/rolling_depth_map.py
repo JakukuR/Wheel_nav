@@ -6,11 +6,12 @@ unobserved/expired cells are unknown. Grid axes remain in continuous odom.
 import base64
 import numpy as np
 from scipy.ndimage import distance_transform_edt
+from .common import ROBOT_RADIUS_M
 
 
 class RollingDepthMap:
-    def __init__(self,resolution=.1,size=120,ttl=12.):
-        self.res=resolution;self.n=size;self.ttl=ttl
+    def __init__(self,resolution=.1,size=120,ttl=12.,robot_radius=ROBOT_RADIUS_M):
+        self.res=resolution;self.n=size;self.ttl=ttl;self.robot_radius=robot_radius
         self.log=np.zeros((size,size));self.stamp=np.full((size,size),-np.inf)
         self.tags=np.full((size,size,2),-10**9,dtype=np.int64)
         self.lower=np.zeros(2,dtype=int);self.replacements=0
@@ -71,7 +72,7 @@ class RollingDepthMap:
         # The robot itself occupies this footprint; keep its current cell region
         # known when stationary, without declaring its surroundings free.
         centers=(self.cells+.5)*self.res
-        footprint=np.linalg.norm(centers-pose[:2],axis=-1)<.24
+        footprint=np.linalg.norm(centers-pose[:2],axis=-1)<self.robot_radius
         a,b=self.ix[footprint],self.iy[footprint]
         self.log[a,b]=np.minimum(self.log[a,b],-1.);self.stamp[a,b]=t
         self.rebuild(t)

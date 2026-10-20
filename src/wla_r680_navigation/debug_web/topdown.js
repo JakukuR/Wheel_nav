@@ -52,8 +52,8 @@ window.TopdownView = (() => {
       circle(obj.xy,.10,color);if(obj.selected){c.lineWidth=2;circle(obj.xy,.18,null,color);}
       const short=String(obj.id).split(':').at(-1);label(obj.xy,`${obj.selected?'锁定 ':''}${obj.label==='person'?'人物':obj.label} #${short}`,color);
     }
-    c.lineWidth=1.5;c.setLineDash([5,5]);circle([0,0],(top?.robot_radius||.24)+(top?.obstacle_margin||.10),null,'#f2f6ff88');c.setLineDash([]);
-    circle([0,0],top?.robot_radius||.24,'#dde7f01c','#f2f6ff');poly([[.20,0],[-.12,.12],[-.06,0],[-.12,-.12]],'#f2f6ff');
+    c.lineWidth=1.5;c.setLineDash([5,5]);circle([0,0],(top?.robot_radius||.19)+(top?.obstacle_margin||.10),null,'#f2f6ff88');c.setLineDash([]);
+    circle([0,0],top?.robot_radius||.19,'#dde7f01c','#f2f6ff');poly([[.15,0],[-.10,.10],[-.05,0],[-.10,-.10]],'#f2f6ff');
     label([-.36,0],'车辆原点','#e9eef5');c.fillStyle='#b4c5d6';c.font='13px sans-serif';c.fillText('↑ 前方 +X',w/2-35,25);c.fillText('← 左侧 +Y',18,26);
     c.strokeStyle='#d5e3ee';c.lineWidth=2;c.beginPath();c.moveTo(w-35-scale,h-37);c.lineTo(w-35,h-37);c.stroke();c.fillText('1 m',w-35-scale/2-10,h-45);
     const active=top?.reason==='ok';el('topBadge').textContent=paused?'已暂停 · 非实时':active?'实时局部快照':'等待新鲜局部数据';

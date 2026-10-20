@@ -1,6 +1,6 @@
 """Close following uses body-to-person clearance, not center distance."""
 from dataclasses import dataclass
-from .common import Tuning
+from .common import Tuning, ROBOT_RADIUS_M
 import numpy as np
 from scipy.ndimage import distance_transform_edt
 
@@ -11,10 +11,10 @@ class CloseFollowTuning(Tuning):
     margin: float = .10
     # Circular footprint and fitted person-radius assumptions of this demo.
     target_radius: float = .28
-    desired_gap: float = .24+.28+.40
-    target_stop_gap: float = .24+.28+.36
+    desired_gap: float = ROBOT_RADIUS_M+.28+.40
+    target_stop_gap: float = ROBOT_RADIUS_M+.28+.36
     # A temporary close approach is allowed; normal reference/stop stay 40/36 cm.
-    target_hard_gap: float = .24+.28+.10
+    target_hard_gap: float = ROBOT_RADIUS_M+.28+.10
     target_clearance_min: float = .30
     target_clearance_max: float = .50
     rear_yield: bool = True

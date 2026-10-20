@@ -6,11 +6,15 @@ from wla_person_follow.sim_core.wide_turn import WideTurnTuning
 from wla_person_follow.sim_core.common import rotation
 
 
-def test_exact_simulation_parameters():
+def test_deployed_chassis_and_follow_clearances():
     c=WideTurnTuning()
     assert (c.step,c.horizon,c.max_v,c.max_w)==(.1,24,.65,.9)
-    assert c.desired_gap==pytest.approx(.92)
-    assert c.target_hard_gap==pytest.approx(.62)
+    assert c.desired_gap==pytest.approx(.87)
+    assert c.target_hard_gap==pytest.approx(.57)
+    assert c.radius == .19
+    assert c.target_stop_gap-c.radius-c.target_radius == pytest.approx(.36)
+    assert c.desired_gap-c.radius-c.target_radius == pytest.approx(.40)
+    assert c.target_hard_gap-c.radius-c.target_radius == pytest.approx(.10)
     assert c.margin==.1 and c.rear_yield and c.wide_turn
 
 
@@ -69,3 +73,16 @@ def test_no_feasible_fallback_is_not_forwarded():
     result=e.step(np.zeros(3),np.array([.4,.3]),[],None,1.)
     assert np.array_equal(result['command'],np.zeros(2))
     assert result['reason']=='no_feasible_candidate'
+
+
+def test_smaller_footprint_keeps_nearby_obstacle_evidence():
+    from wla_person_follow.sim_core.rolling_depth_map import RollingDepthMap
+    mapping=RollingDepthMap(resolution=.01,size=100)
+    pose=np.zeros(3)
+    points=np.array([[.215,.005,.2]])
+    cloud=dict(points=points,points_odom=points,origin=np.array([0.,0.,.1]),
+               origin_odom=np.array([0.,0.,.1]),dynamic=np.array([False]))
+    mapping.update(cloud,pose,1.)
+    cell=np.floor(points[0,:2]/mapping.res).astype(int)-mapping.lower
+    assert mapping.robot_radius == .19
+    assert mapping.occupied[tuple(cell)]  # Outside new body; inside old 24cm body.
