@@ -84,6 +84,8 @@ class SimulationEngine:
             if stamp > self.map_stamp:
                 self.mapping.update(packet, pose, stamp, rebuild=False)
                 self.map_stamp = stamp
+        self.mapping.slide(np.asarray(pose[:2]))
+        self.mapping.local_assumed_free_center=np.asarray(pose[:2]).copy()
         self.mapping.rebuild(now)  # expiry never renews raw observation stamps
         visible = False
         if observation is not None:
@@ -154,6 +156,9 @@ def process_step(job):
     global _PROCESS_ENGINE, _PROCESS_KEY, _PROCESS_STARTUP_USED, _PROCESS_STARTUP_PRIOR
     key, pose, previous, packets, observation, now, startup = job
     radius=float(startup['radius'])
+    local_radius=float(startup.get('local_radius',0.))
+    if not math.isfinite(local_radius) or not 0 <= local_radius <= .5:
+        raise ValueError('invalid_local_assumed_free_radius')
     motion_threshold=float(startup.get('motion_threshold',.03))
     if not math.isfinite(motion_threshold) or not .001 <= motion_threshold <= .1:
         raise ValueError('invalid_startup_motion_threshold')
@@ -170,7 +175,8 @@ def process_step(job):
             _PROCESS_ENGINE.map_stamp=old.map_stamp
         _PROCESS_KEY = key
     engine = _PROCESS_ENGINE
-    if startup['active'] and radius>0 and not _PROCESS_STARTUP_USED:
+    engine.mapping.local_assumed_free_radius=local_radius
+    if startup['active'] and local_radius==0 and radius>0 and not _PROCESS_STARTUP_USED:
         # User-authorized assumption, once at the first follow task, not during
         # idle warm-up. Never erase observed obstacles or renew on task changes.
         engine.mapping.slide(np.asarray(pose[:2]))
@@ -201,5 +207,9 @@ def process_step(job):
             prior['state']='counting_down' if prior['remaining_s']>0 else 'expired'
     result.update(map_lower=engine.mapping.lower.copy(),resolution=engine.mapping.res,
         startup_prior=prior,startup_prior_consumed=_PROCESS_STARTUP_USED,
+        local_free_prior=dict(source='operator_assumed_robot_free',radius_m=local_radius,
+            center_odom=np.asarray(pose[:2]).tolist(),state='continuous' if local_radius else 'disabled',
+            assumed_cells=int(np.count_nonzero(engine.mapping.assumed_free))),
+        retreat_distance_m=engine.controller.recovery.retreat_distance,
         grid=np.where(engine.mapping.occupied,100,np.where(engine.mapping.known,0,-1)).astype(np.int8))
     return result

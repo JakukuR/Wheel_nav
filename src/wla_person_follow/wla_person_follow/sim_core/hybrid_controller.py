@@ -103,7 +103,7 @@ class HybridFollower:
         beyond = np.maximum(ref_s-arcs[-1],0.)
         refs += beyond[:,None]*velocity/max(target_speed,1e-9)
         if retreat:
-            remaining=max(0.,recovery.tuning.retreat_m-(recovery.retreat_start-pose[:2])@recovery.heading)
+            remaining=max(0.,recovery.retreat_distance-(recovery.retreat_start-pose[:2])@recovery.heading)
             refs=pose[:2]-np.minimum(remaining,recovery.tuning.reverse_speed*times)[:,None]*recovery.heading
         if yielding:refs=pose[:2]+np.minimum(yielding['distance'],.15*times)[:,None]*yielding['heading']
         # A family of feedback trajectories: rate-limited speed and heading bias.

@@ -190,10 +190,10 @@ def startup_worker(monkeypatch):
     for name,value in [('_PROCESS_ENGINE',None),('_PROCESS_KEY',None),
                        ('_PROCESS_STARTUP_USED',False),('_PROCESS_STARTUP_PRIOR',None)]:
         monkeypatch.setattr(runtime,name,value)
-    def step(t,active=False,request='',generation=0,packets=(),radius=.5,pose=None,motion_threshold=.03):
+    def step(t,active=False,request='',generation=0,packets=(),radius=.5,pose=None,motion_threshold=.03,local_radius=0.):
         return runtime.process_step(((request,'target' if active else '', 'fixture',0,generation),
             np.zeros(3) if pose is None else np.asarray(pose,dtype=float),np.zeros(2),packets,None,t,
-            dict(active=active,radius=radius,motion_threshold=motion_threshold)))
+            dict(active=active,radius=radius,motion_threshold=motion_threshold,local_radius=local_radius)))
     return runtime,step
 
 
@@ -296,3 +296,87 @@ def test_startup_motion_threshold_validation(startup_worker):
     for threshold in [0.,-.01,.11,float('nan')]:
         with pytest.raises(ValueError,match='invalid_startup_motion_threshold'):
             step(1.,True,'one',motion_threshold=threshold)
+
+
+def test_continuous_free_circle_idle_follows_robot_without_trail(startup_worker):
+    runtime,step=startup_worker
+    for t,pose in [(1.,[0,0,0]),(40.,[0,0,1.]),(41.,[2,0,0])]:
+        result=step(t,pose=pose,local_radius=.5)
+        m=runtime._PROCESS_ENGINE.mapping
+        inside=np.linalg.norm((m.cells+.5)*m.res-np.asarray(pose[:2]),axis=-1)<.5
+        np.testing.assert_array_equal(m.known,inside)
+        assert not m.occupied.any() and np.isneginf(m.stamp).all()
+        assert result['local_free_prior']['state']=='continuous'
+        assert result['startup_prior'] is None and not result['startup_prior_consumed']
+    result=step(42.,pose=[2,0,0],local_radius=0.)
+    assert np.all(result['grid']==-1)
+    for invalid in [-.1,.51,float('nan')]:
+        with pytest.raises(ValueError,match='invalid_local_assumed_free_radius'):
+            step(43.,local_radius=invalid)
+
+
+def test_continuous_prior_obstacles_win_including_inside_footprint(startup_worker):
+    from wla_person_follow.sim_runtime import packet_from_filtered_points
+    runtime,step=startup_worker
+    step(1.,local_radius=.5)
+    hits=np.array([[.35,.05,.2],[.05,.05,.2]])
+    packet=packet_from_filtered_points(hits,np.empty((0,3)),[.18,0,.5],np.zeros(3))
+    for t,packets in [(2.,[(2.,packet)]),(10.,[])]:
+        step(t,packets=packets,local_radius=.5)
+        m=runtime._PROCESS_ENGINE.mapping
+        ij=np.floor(hits[:,:2]/m.res).astype(int)-m.lower
+        assert m.occupied[ij[:,0],ij[:,1]].all()
+        assert not m.assumed_free[ij[:,0],ij[:,1]].any()
+    # Only the normal sensor TTL expires the hit; the assumption never refreshes it.
+    step(15.,local_radius=.5)
+    assert not m.occupied[ij[:,0],ij[:,1]].any()
+    assert m.known[ij[:,0],ij[:,1]].all()
+
+
+def test_short_reverse_recovery_with_half_meter_prior():
+    from wla_person_follow.sim_runtime import packet_from_filtered_points
+    e=SimulationEngine(np.zeros(3),1.)
+    e.mapping.local_assumed_free_radius=.5
+    wall=np.array([[.8,y,.2] for y in np.arange(-.5,.51,.1)])
+    packet=packet_from_filtered_points(wall,np.empty((0,3)),[.18,0,.5],np.zeros(3))
+    pose=np.zeros(3); target=np.array([2.,0.])
+    first=e.step(pose,np.zeros(2),[(1.,packet)],(1.,target,{}),1.)
+    assert first['recovery_state']=='wait'
+    result=e.step(pose,np.zeros(2),[],(3.1,target,{}),3.1)
+    r=e.controller.recovery
+    assert result['recovery_state']=='retreat'
+    assert .06<=r.retreat_distance<.35
+    assert result['command'][0]<0, result
+    # A new rear obstacle or a predicted rear pedestrian vetoes the retreat.
+    rear=np.array([[-.35,.05,.2]])
+    p=packet_from_filtered_points(rear,np.empty((0,3)),[.18,0,.5],pose)
+    result=e.step(pose,np.zeros(2),[(3.2,p)],(3.2,target,{}),3.2)
+    assert not r.rear_clear(pose,e.mapping,[])
+    assert result['command'][0]>=0
+    clean=SimulationEngine(pose,1.)
+    clean.mapping.local_assumed_free_radius=.5
+    clean.step(pose,np.zeros(2),[],None,1.)
+    assert not clean.controller.recovery.rear_clear(pose,clean.mapping,[dict(p=np.array([-.5,0.]),v=np.zeros(2),r=.25)])
+
+
+def test_short_reverse_finishes_and_replans_without_extending_goal():
+    from wla_person_follow.sim_runtime import packet_from_filtered_points
+    e=SimulationEngine(np.zeros(3),1.)
+    e.mapping.local_assumed_free_radius=.5
+    pose=np.zeros(3); previous=np.zeros(2); target=np.array([2.,0.])
+    wall=np.array([[.8,y,.2] for y in np.arange(-.5,.51,.1)])
+    packet=packet_from_filtered_points(wall,np.empty((0,3)),[.18,0,.5],pose)
+    e.step(pose,previous,[(1.,packet)],(1.,target,{}),1.)
+    result=e.step(pose,previous,[],(3.1,target,{}),3.1)
+    r=e.controller.recovery;planned=r.retreat_distance
+    assert r.state=='retreat'
+    for t in np.arange(3.2,8.,.1):
+        previous=result['command']
+        turn=previous[1]*.1
+        pose[:2]+=previous[0]*.1*np.sinc(turn/(2*np.pi))*np.array([np.cos(pose[2]+turn/2),np.sin(pose[2]+turn/2)])
+        pose[2]+=turn
+        result=e.step(pose,previous,[],(float(t),target,{}),float(t))
+        assert r.retreat_distance==planned
+        if r.state!='retreat':break
+    assert r.state in ('scan','detour'), result
+    assert .01 < -pose[0] <= planned+.02

@@ -47,13 +47,14 @@ class SimulationFollow(Node):
             max_sensor_age_s=.30, depth_stride=4, depth_min_m=.15, depth_max_m=5.,
             surface_to_center_offset_m=.28, camera_min_valid_fraction=.25,
             camera_front_min_valid_fraction=.35, result_ttl_s=.15, startup_clear_radius_m=0., startup_motion_threshold_m=.03,
-            tof_enabled=False, tof_topics=['/r680/tof/front_left/points',
+            local_assumed_free_radius_m=0., tof_enabled=False, tof_topics=['/r680/tof/front_left/points',
                 '/r680/tof/front_right/points','/r680/tof/rear_left/points','/r680/tof/rear_right/points'])
         self.p = {k:self.declare_parameter(k,v).value for k,v in defaults.items()}
         if (self.p['output_mode'] not in ('direct','mux') or
             not 0 < self.p['max_sensor_age_s'] <= .30 or
             not 0 < self.p['result_ttl_s'] <= .20 or
             not 0 <= self.p['startup_clear_radius_m'] <= .5 or
+            not 0 <= self.p['local_assumed_free_radius_m'] <= .5 or
             not .001 <= self.p['startup_motion_threshold_m'] <= .1 or
             not 1 <= self.p['depth_stride'] <= 16 or
             not .1 <= self.p['depth_min_m'] < self.p['depth_max_m'] <= 7 or
@@ -290,7 +291,8 @@ class SimulationFollow(Node):
                     raise ValueError('compute_worker_busy_no_queue_growth')
                 self.future=self.pool.submit(process_step,(key,np.asarray(control_pose),np.array([v[0],v[2]]),packets,observation,control_stamp,
                     dict(active=active,radius=self.p['startup_clear_radius_m'],
-                         motion_threshold=self.p['startup_motion_threshold_m'])))
+                         motion_threshold=self.p['startup_motion_threshold_m'],
+                         local_radius=self.p['local_assumed_free_radius_m'])))
                 try:
                     result=self.future.result(timeout=self.p['result_ttl_s'])
                 except ComputeTimeout:
@@ -391,6 +393,9 @@ class SimulationFollow(Node):
                 tof_enabled=self.p['tof_enabled'],direct_publisher_conflict=self.conflict_latched,
                 startup_clear_radius_m=self.p['startup_clear_radius_m'],
                 startup_motion_threshold_m=self.p['startup_motion_threshold_m'],
+                local_assumed_free_radius_m=self.p['local_assumed_free_radius_m'],
+                local_free_prior=self.map_result.get('local_free_prior') if self.map_result else None,
+                retreat_distance_m=self.map_result.get('retreat_distance_m') if self.map_result else None,
                 startup_prior=self.map_result.get('startup_prior') if self.map_result else None,
                 startup_prior_consumed=self.map_result.get('startup_prior_consumed',False) if self.map_result else False,
                 fault=self.conflict_latched or self.estop,

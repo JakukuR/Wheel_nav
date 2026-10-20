@@ -119,6 +119,8 @@ class RollingDepthMap:
         # known when stationary, without declaring its surroundings free.
         centers=(self.cells+.5)*self.res
         footprint=np.linalg.norm(centers-pose[:2],axis=-1)<self.robot_radius
+        # Even inside the chassis footprint, current obstacle evidence wins.
+        footprint &= ~((t-self.stamp[self.ix,self.iy]<=self.ttl)&(self.log[self.ix,self.iy]>=0))
         a,b=self.ix[footprint],self.iy[footprint]
         self.log[a,b]=np.minimum(self.log[a,b],-1.);self.stamp[a,b]=t;self._retire_startup_cells(a,b)
         if rebuild:self.rebuild(t)
@@ -127,6 +129,15 @@ class RollingDepthMap:
         log=self.log[self.ix,self.iy];age=t-self.stamp[self.ix,self.iy]
         self.known=age<=self.ttl
         self.occupied=self.known&(log>=0)
+        # Explicit operator assumption, recomputed around the current robot.
+        # Never writes sensor log/stamps, so it cannot erase hits or leave a trail.
+        self.assumed_free=np.zeros_like(self.known)
+        radius=getattr(self,'local_assumed_free_radius',0.)
+        if radius>0:
+            centers=(self.cells+.5)*self.res
+            inside=np.linalg.norm(centers-self.local_assumed_free_center,axis=-1)<radius
+            self.assumed_free=inside&~self.known
+            self.known |= self.assumed_free
         # Pad map boundaries as blocked. EDT lower bounds compensate for cell
         # area and query-point position; interpolation must not overstate safety.
         self.dist=distance_transform_edt(np.pad(~self.occupied,1,constant_values=False))[1:-1,1:-1]*self.res

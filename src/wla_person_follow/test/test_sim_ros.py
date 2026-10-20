@@ -89,7 +89,7 @@ def test_real_depth_tf_wheel_adapter_preview_only():
     from std_msgs.msg import String
     from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
     from wla_person_follow.sim_node import SimulationFollow
-    rclpy.init();f=SimulationFollow(parameter_overrides=[Parameter('depth_stride',value=2),Parameter('startup_clear_radius_m',value=.5)])
+    rclpy.init();f=SimulationFollow(parameter_overrides=[Parameter('depth_stride',value=2),Parameter('startup_clear_radius_m',value=0.),Parameter('local_assumed_free_radius_m',value=.5)])
     fixture=Node('sim_depth_fixture');ex=SingleThreadedExecutor();ex.add_node(f);ex.add_node(fixture)
     broadcaster=StaticTransformBroadcaster(fixture)
     tr=TransformStamped();tr.header.frame_id='r680_mapping_floor';tr.child_frame_id='test_optical'
@@ -126,6 +126,9 @@ def test_real_depth_tf_wheel_adapter_preview_only():
         assert f.direct_pub is None and f.count_publishers('/r680_base/cmd_vel')==0
         assert captured is not None, f.reason
         assert captured['startup_prior'] is None and not captured['startup_prior_consumed']
+        assert captured['local_free_prior']['state']=='continuous'
+        assert captured['local_free_prior']['radius_m']==.5
+        assert captured['local_free_prior']['assumed_cells']>0
         assert clouds and captured['obstacle_points']>0
         pts=read_points_numpy(clouds[-1],field_names=('x','y','z'))
         # Local floor may be below zero: 8cm is only the fallback cutoff.

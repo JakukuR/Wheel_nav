@@ -1,5 +1,8 @@
 # Explicit 0.5m startup free-space prior — 2026-10-20
 
+Superseded in the deployed configuration by [continuous_local_free.md](continuous_local_free.md).
+The one-shot mode below remains available but is disabled on this vehicle.
+
 User requested the real-vehicle equivalent of the simulation's initial free
 patch, with radius0.5m. Deployed `startup_clear_radius_m: 0.5` in sim_follow.yaml;
 the node default remains0 (disabled) for other deployments. Allowed range0..0.5m.

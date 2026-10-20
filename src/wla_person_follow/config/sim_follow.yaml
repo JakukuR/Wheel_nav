@@ -18,6 +18,7 @@ person_follow:
     result_ttl_s: 0.15
     tof_enabled: false
     # Explicit user-requested starting assumption, not measured free space.
-    # Seed once on first follow; start the 12s prior TTL only after translation.
-    startup_clear_radius_m: 0.5
+    # Continuous robot-centered assumption, including idle; sensor obstacles win.
+    local_assumed_free_radius_m: 0.5
+    startup_clear_radius_m: 0.0
     startup_motion_threshold_m: 0.03

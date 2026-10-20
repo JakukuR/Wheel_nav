@@ -76,6 +76,7 @@ reference, not a motion authorization: MPC checks the swept differential arc.
 class BlockedRecovery:
     def __init__(self,config,tuning=RecoveryTuning()):
         self.c=config;self.tuning=tuning;self.state='follow';self.reason=''
+        self.retreat_distance=tuning.retreat_m
         self.since=0.;self.anchor=None;self.retreat_start=None;self.heading=None
         self.route=None;self.events=[];self.attempts=0;self.last_retry=-np.inf
         self.last_goal=None;self.last_infeasible=False;self.samples=[]
@@ -161,15 +162,23 @@ class BlockedRecovery:
         return False
 
     def rear_clear(self,pose,mapping,tracks):
+        # Prefer the original retreat, but permit a shorter fully checked segment.
+        # Includes 5 cm beyond its endpoint; MPC still checks swept body motion.
         heading=np.array([np.cos(pose[2]),np.sin(pose[2])])
-        points=pose[:2]-np.linspace(0,self.tuning.retreat_m+.05,20)[:,None]*heading
-        if np.any(mapping.query(points)<self.c.radius+self.c.margin+.01):return False
-        if np.any(mapping.query(points,unknown=True)<self.c.radius+.02):return False
-        for o in tracks:
-            # Conservative moving-track sweep during a complete retreat.
-            for tau in np.linspace(0,4.,17):
-                if np.any(np.linalg.norm(points-(o['p']+tau*o['v']),axis=1)<o['r']+self.c.radius+self.c.margin+.025*tau):return False
-        return True
+        for distance in np.linspace(self.tuning.retreat_m,.06,16):
+            points=pose[:2]-np.linspace(0,distance+.05,20)[:,None]*heading
+            if np.any(mapping.query(points)<self.c.radius+self.c.margin+.01):continue
+            if np.any(mapping.query(points,unknown=True)<self.c.radius+.02):continue
+            blocked=False
+            for o in tracks:
+                for tau in np.linspace(0,4.,17):
+                    if np.any(np.linalg.norm(points-(o['p']+tau*o['v']),axis=1)<o['r']+self.c.radius+self.c.margin+.025*tau):
+                        blocked=True;break
+                if blocked:break
+            if not blocked:
+                self.retreat_distance=float(distance)
+                return True
+        return False
 
     def update(self,pose,previous,target,velocity,mapping,tracks,status,t,history=None):
         c=self.c;r=self.tuning
@@ -194,7 +203,7 @@ class BlockedRecovery:
             self.transition('follow',t,'standoff_reached');return
         if self.state=='retreat':
             distance=(self.retreat_start-pose[:2])@self.heading
-            if distance>=r.retreat_m-.04 and abs(previous[0])<.06:
+            if distance>=self.retreat_distance-min(.04,self.retreat_distance*.2) and abs(previous[0])<.06:
                 self.route=route_in_known_space(pose,target,mapping,tracks,c)
                 self.last_goal=target.copy();self.last_retry=t
                 points=(mapping.cells[mapping.occupied]+.5)*mapping.res-pose[:2]
