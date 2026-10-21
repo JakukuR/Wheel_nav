@@ -1,16 +1,13 @@
-# Shared nav detector BoT-SORT configuration; validated with Ultralytics 8.3.203.
-# Candidate tracker parameters; revalidate ID stability at the 30 FPS target rate.
-tracker_type: botsort
+# Native BoxMOT 25 BoT-SORT; all person detections use OSNet appearance.
+# This is not an Ultralytics model.track() configuration.
+tracker_type: boxmot_botsort
 track_high_thresh: 0.4
 track_low_thresh: 0.1
 new_track_thresh: 0.5
-track_buffer: 5
+track_buffer: 15
 match_thresh: 0.8
-fuse_score: true
-# ORB retains camera-motion compensation with substantially lower CPU cost on
-# the 15 W Orin than sparse optical flow.
-gmc_method: orb
 proximity_thresh: 0.5
-appearance_thresh: 0.8
-with_reid: false
-model: auto
+appearance_thresh: 0.25
+use_cmc: true
+cmc_method: sof
+use_embeddings: true

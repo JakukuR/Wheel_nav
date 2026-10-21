@@ -19,8 +19,6 @@ def launch_backend(context):
     if backend=='sim':cmd+=['-p','output_mode:='+value('output_mode'),'-p','direct_topic:='+value('direct_topic'),'-p','reid_enabled:='+value('enable_reid')]
     proc=ExecuteProcess(cmd=cmd,output='screen')
     actions=[proc,RegisterEventHandler(OnProcessExit(target_action=proc,on_exit=[EmitEvent(event=Shutdown(reason='person backend exited'))]))]
-    if backend=='sim' and value('enable_reid').lower()=='true':
-        actions.append(ExecuteProcess(cmd=['nice','-n','5',value('reid_python'),'-m','wla_person_follow.reid_node','--model',value('reid_model')],output='screen'))
     return actions
 
 
@@ -31,8 +29,6 @@ def generate_launch_description():
         DeclareLaunchArgument('config',default_value=''),
         DeclareLaunchArgument('enable_motion',default_value='false'),
         DeclareLaunchArgument('enable_reid',default_value='false'),
-        DeclareLaunchArgument('reid_python',default_value=os.environ.get('WLA_REID_PYTHON','/usr/bin/python3')),
-        DeclareLaunchArgument('reid_model',default_value=os.environ.get('WLA_REID_MODEL','')),
         DeclareLaunchArgument('output_mode',default_value='mux'),
         DeclareLaunchArgument('direct_topic',default_value='/r680_base/cmd_vel'),
         OpaqueFunction(function=launch_backend)])

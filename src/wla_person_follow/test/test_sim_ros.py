@@ -259,3 +259,66 @@ def test_unconfirmed_identity_is_waiting_and_never_publishes_movement(graph,iden
     assert received[-1]==(0.,0.)
     assert statuses[-1]['state']=='waiting' and not statuses[-1]['motion_permitted']
     assert reason in statuses[-1]['output_blockers']
+
+
+def test_mask_wire_pairs_depth_and_filters_published_cloud_preview_only():
+    import rclpy
+    from rclpy.node import Node
+    from rclpy.parameter import Parameter
+    from rclpy.executors import SingleThreadedExecutor
+    from rclpy.qos import qos_profile_sensor_data
+    from geometry_msgs.msg import TransformStamped
+    from sensor_msgs.msg import CameraInfo,Image
+    from nav_msgs.msg import Odometry
+    from std_msgs.msg import String
+    from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
+    from wla_r680_navigation_py.target_masks import encode_mask
+    from wla_person_follow.sim_node import SimulationFollow
+    assert os.environ['ROS_DOMAIN_ID']=='198'
+    rclpy.init();f=SimulationFollow(parameter_overrides=[Parameter('depth_stride',value=2),Parameter('output_mode',value='direct')])
+    fixture=Node('mask_depth_fixture');ex=SingleThreadedExecutor();ex.add_node(f);ex.add_node(fixture)
+    broadcaster=StaticTransformBroadcaster(fixture)
+    tr=TransformStamped();tr.header.frame_id='r680_mapping_floor';tr.child_frame_id='mask_optical'
+    tr.transform.translation.z=.5
+    tr.transform.rotation.x=-.5;tr.transform.rotation.y=.5;tr.transform.rotation.z=-.5;tr.transform.rotation.w=.5
+    broadcaster.sendTransform(tr)
+    pd=fixture.create_publisher(Image,f.p['depth_topic'],qos_profile_sensor_data)
+    pi=fixture.create_publisher(CameraInfo,f.p['camera_info_topic'],qos_profile_sensor_data)
+    pw=fixture.create_publisher(Odometry,f.p['wheel_topic'],qos_profile_sensor_data)
+    pr=fixture.create_publisher(String,f.p['relative_topic'],1)
+    pm=fixture.create_publisher(String,'/r680/perception/target_mask',1)
+    mask=np.zeros((48,64),bool);mask[8:42,18:45]=True;bits=encode_mask(mask)
+    try:
+        end=time.monotonic()+4.;next_at=0.;captured=None
+        while time.monotonic()<end:
+            if time.monotonic()>=next_at:
+                next_at=time.monotonic()+.04
+                stamp=fixture.get_clock().now().to_msg();ns=stamp.sec*10**9+stamp.nanosec
+                info=CameraInfo();info.header.stamp=stamp;info.header.frame_id='mask_optical'
+                info.width=64;info.height=48;info.k=[60.,0.,32.,0.,60.,24.,0.,0.,1.]
+                depth=Image();depth.header=info.header;depth.width=64;depth.height=48
+                depth.encoding='16UC1';depth.step=128
+                values=np.full((48,64),2000,dtype='<u2');values[mask]=1200;depth.data=values.tobytes()
+                wheel=Odometry();wheel.header.stamp=stamp;wheel.child_frame_id='r680_mapping_floor'
+                pw.publish(wheel);pi.publish(info);pd.publish(depth)
+                pr.publish(String(data=json.dumps(dict(schema='wla-relative-detections/v1',stamp_ns=ns,
+                    session='mask',epoch=0,enabled=True,base_frame='r680_mapping_floor',
+                    objects=[dict(detected=True,label='person',id='mask:0:1',yaw=0.,distance=1.2)]))))
+                with f.guard:
+                    if 'mask:0:1' in f.core.objects:
+                        if not f.core.active:f.core.command('start','mask-task','follow','mask:0:1',1.,time.monotonic())
+                        else:f.core.command('heartbeat','mask-task',lease_duration_s=1.,now=time.monotonic())
+                pm.publish(String(data=json.dumps(dict(schema='wla-target-mask/v1',stamp_ns=ns,depth_stamp_ns=ns,
+                    session='mask',epoch=0,frame_id='mask_optical',width=64,height=48,
+                    target_id='mask:0:1',request_id='mask-task',bits=bits))))
+            ex.spin_once(timeout_sec=.002)
+            with f.guard:
+                if f.map_result and f.map_result.get('target_mask',{}).get('applied'):
+                    captured=f.map_result;break
+        assert captured is not None
+        assert captured['target_mask']['removed_pixels']==34*27
+        assert captured['obstacle_points']>0  # Background remains measured.
+        assert f.direct_pub is None and not f.p['enable_motion']
+    finally:
+        f.close();ex.remove_node(f);ex.remove_node(fixture)
+        f.destroy_node();fixture.destroy_node();ex.shutdown();rclpy.try_shutdown()

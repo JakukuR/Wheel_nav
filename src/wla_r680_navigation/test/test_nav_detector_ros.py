@@ -41,18 +41,21 @@ class Model:
 @pytest.fixture
 def fixture(monkeypatch):
     # These tests isolate ROS/queue/geometry contracts. Real TrackingRuntime and
-    # bounded GMC are tested separately with the actual YOLOE on GPU0.
+    # BoxMOT tracking is tested separately with the actual YOLOE on GPU0.
     class FixtureRuntime:
-        def __init__(self, model):
+        def __init__(self, model, config=None):
             self.model = model
             self.signature = ('fixture-warmed',)
             self.last_metrics = {}
+            self.use_cmc=True;self.features={}
+            self.reid=NS(model_id='fixture')
+        def reset(self):pass
         def ensure_warm(self, *args, **kwargs):
             return False
         def process(self, *args, **kwargs):
-            return self.model.track(*args, **kwargs)
-    import wla_r680_navigation_py.gmc_recovery as runtime_module
-    monkeypatch.setattr(runtime_module, 'RecoverableTrackingRuntime', FixtureRuntime)
+            return self.model.track(*args, **kwargs)[0], []
+    import wla_r680_navigation_py.boxmot_runtime as runtime_module
+    monkeypatch.setattr(runtime_module, 'TrackingRuntime', FixtureRuntime)
     assert os.environ.get('ROS_DOMAIN_ID')=='198'
     rclpy.init()
     model=Model()
@@ -228,28 +231,51 @@ def test_person_stop_forwards_without_stopping_detection(fixture):
         probe.destroy_node();backend.destroy_node();api.destroy_node()
 
 
-def test_gmc_degradation_publishes_fresh_geometry_without_epoch_change(fixture):
+def test_native_association_has_no_custom_quality_gate_or_public_id_remap(fixture):
     node,model,raw,relative=fixture
-    import torch
-    # The fake detector supplies the same tracker ID; public IDs must change
-    # on entry into fallback so prior identity cannot silently attach to it.
-    box=NS(id=torch.tensor(7.),conf=torch.tensor(.9),cls=torch.tensor(0.),
-           xyxy=torch.tensor([[24.,16.,48.,40.]]))
-    node.runtime.process=lambda *a,**kw:[NS(boxes=[box],names={0:'person'})]
+    row=dict(track_id=7,label='person',confidence=.9,bbox_xyxy=[24.,16.,48.,40.],detection_index=0)
+    node.runtime.process=lambda *a,**kw:(NS(masks=None),[row])
     tf=Transform();tf.rotation.x=-.5;tf.rotation.y=.5;tf.rotation.z=-.5;tf.rotation.w=.5
-    tf.translation.x=.1;tf.translation.z=.25
     node.tf.lookup_transform=lambda *a:NS(transform=tf)
-    def submit(mode):
-        geometry(node)
-        node.runtime.last_metrics={'association_mode':mode,'gmc':[{'valid':mode=='visual'}]}
-        count=len(raw);node.on_image(rgb(node));drain_until(node,lambda:len(raw)>count)
+    epoch=node.epoch
+    for _ in range(3):
+        geometry(node);count=len(raw);node.on_image(rgb(node));drain_until(node,lambda:len(raw)>count)
+        assert raw[-1]['objects'][0]['track_id']==7
+        assert raw[-1]['association']['mode']=='boxmot_native_appearance'
         assert relative[-1]['objects'][0]['distance'] is not None
-        assert raw[-1]['stamp_ns']==relative[-1]['stamp_ns']
-        return raw[-1]['objects'][0]['track_id']
-    old=submit('visual');epoch=node.epoch;last=node.last_valid_result_ns
-    new=submit('uncompensated')
-    assert new!=old and node.epoch==epoch and node.last_valid_result_ns>last
-    assert raw[-1]['association']['mode']=='uncompensated'
-    for mode in ('uncompensated','visual','uncompensated'):
-        assert submit(mode)==new
         assert node.epoch==epoch
+
+
+def test_native_features_reused_and_masks_keep_detector_index_and_stamp(fixture):
+    from wla_r680_navigation_py.target_masks import decode_mask
+    import torch
+    node,model,raw,relative=fixture
+    # Larger fixture crop meets the retained long-term identity quality policy.
+    msg=rgb(node);msg.width=160;msg.height=120;msg.step=480;msg.data=bytes(160*120*3)
+    b=geometry(node)
+    depth=node.depths[-1];info=node.infos[-1]
+    for item in (depth,info):item.header=msg.header;item.width=160;item.height=120
+    depth.step=320;depth.data=np.full((120,160),2000,dtype='<u2').tobytes()
+    info.k=[100.,0.,80.,0.,100.,60.,0.,0.,1.]
+    tf=Transform();tf.rotation.w=1.
+    node.tf.lookup_transform=lambda *a:NS(transform=tf)
+    row=dict(track_id=4,label='person',confidence=.9,bbox_xyxy=[30.,20.,75.,110.],detection_index=1)
+    masks=torch.zeros((2,120,160));masks[1,20:110,30:75]=1
+    node.runtime.process=lambda *a,**kw:(NS(masks=NS(data=masks)),[row])
+    node.runtime.features={4:np.ones(512,dtype=float)/np.sqrt(512)}
+    node.runtime.last_metrics={'reid_ms':2.}
+    ident=f'{node.session}:{node.epoch}:4'
+    node.mask_interest=dict(schema='wla-reid-request/v1',stamp_ns=node.ros_ns(),enabled=True,
+        request_id='mask-task',session=node.session,epoch=node.epoch,target_id=ident,allowed_ids=[ident])
+    reid=[];mask=[]
+    class Pub:
+        def __init__(self,rows):self.rows=rows
+        def publish(self,m):self.rows.append(json.loads(m.data))
+    node.reid_pub=Pub(reid);node.mask_pub=Pub(mask)
+    node.on_image(msg);drain_until(node,lambda:bool(mask))
+    assert reid[-1]['objects'][0]['id']==ident
+    assert len(reid[-1]['objects'][0]['feature'])==512
+    assert reid[-1]['stamp_ns']==mask[-1]['depth_stamp_ns']==raw[-1]['stamp_ns']
+    assert mask[-1]['request_id']=='mask-task' and mask[-1]['target_id']==ident
+    assert decode_mask(mask[-1]['bits'],120,160).sum()==90*45
+    assert '_reid' not in raw[-1] and '_target_mask' not in raw[-1]

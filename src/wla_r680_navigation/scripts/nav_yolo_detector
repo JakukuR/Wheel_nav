@@ -34,9 +34,9 @@ class NavDetector(Node):
     def __init__(self, args, model):
         super().__init__('r680_nav_yolo_detector')
         self.args, self.model = args, model
-        from wla_r680_navigation_py.gmc_recovery import RecoverableTrackingRuntime as TrackingRuntime, AssociationIds
-        self.runtime = TrackingRuntime(model)
-        self.association_ids = AssociationIds()
+        from wla_r680_navigation_py.boxmot_runtime import TrackingRuntime
+        self.runtime = TrackingRuntime(model, args.tracker)
+        self.mask_interest = None
         self.last_valid_result_ns = 0
         self.session, self.epoch = uuid.uuid4().hex, 0
         self.last_stamp, self.last_frame, self.last_receive = 0, None, 0.
@@ -48,6 +48,10 @@ class NavDetector(Node):
         self.listener = TransformListener(self.tf, self)
         self.raw_pub = self.create_publisher(String, '/r680/perception/detections', 1)
         self.relative_pub = self.create_publisher(String, RELATIVE_TOPIC, 1)
+        self.reid_pub = self.create_publisher(String, '/r680/person_follow/reid_features', 1)
+        self.reid_status_pub = self.create_publisher(String, '/r680/person_follow/reid_status', 1)
+        self.mask_pub = self.create_publisher(String, '/r680/perception/target_mask', 1)
+        self.create_subscription(String, '/r680/person_follow/reid_request', self.on_mask_interest, 1)
         self.status_pub = self.create_publisher(String, HEALTH_TOPIC, 1)
         self.metrics_pub = self.create_publisher(String, '/r680_nav/perception/timing', 10)
         image_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
@@ -60,6 +64,19 @@ class NavDetector(Node):
         self.create_timer(.01, self.drain)
         self.create_timer(.05, self.publish_status)
         self.get_logger().info('YOLO processes fresh camera frames; robot-relative RGB-D only')
+
+    def on_mask_interest(self, msg):
+        try:
+            if len(msg.data)>4096:return
+            data=json.loads(msg.data)
+            if (data.get('schema')!='wla-reid-request/v1' or type(data.get('stamp_ns')) is not int
+                    or not 0<=(self.ros_ns()-data['stamp_ns'])/1e9<=.5
+                    or not isinstance(data.get('target_id',''),str)
+                    or not isinstance(data.get('request_id'),str)
+                    or not isinstance(data.get('allowed_ids'),list) or len(data['allowed_ids'])>4
+                    or not all(isinstance(v,str) for v in data['allowed_ids'])):return
+            with self.condition:self.mask_interest=data
+        except (ValueError,TypeError,KeyError):return
 
     def ros_ns(self):
         return self.get_clock().now().nanoseconds
@@ -103,7 +120,6 @@ class NavDetector(Node):
     def infer(self):
         tracker_epoch = -1
         next_at = 0.
-        fallback_id = 1_000_000_000
         while True:
             with self.condition:
                 while not self.stopping and (self.pending is None or time.monotonic() < next_at):
@@ -119,14 +135,13 @@ class NavDetector(Node):
                           inference_start_ns=start_ns, epoch=epoch, session=self.session)
             try:
                 if tracker_epoch != epoch:
-                    for tracker in getattr(getattr(self.model, 'predictor', None), 'trackers', []):
-                        tracker.reset()
+                    self.runtime.reset()
                     tracker_epoch = epoch
                 frame = color_array(message)
                 if frame is None:
                     continue
                 options = dict(persist=True, device=self.args.device,
-                    imgsz=self.args.imgsz, conf=.35, max_det=64, verbose=False,
+                    imgsz=self.args.imgsz, conf=.1, max_det=64, verbose=False,
                     tracker=self.args.tracker)
                 processed = self.runtime.process(frame, **options)
                 if processed is None:
@@ -136,25 +151,44 @@ class NavDetector(Node):
                     self.metrics_pub.publish(String(data=json.dumps(dict(
                         timing, outcome='warmup_discarded', **self.runtime.last_metrics))))
                     continue
-                output = processed[0]
+                output, rows = processed
                 timing['runtime'] = self.runtime.last_metrics
-                self.association_ids.begin_frame(self.runtime.last_metrics.get('association_mode', 'visual'))
-                rows = []
-                for box in output.boxes:
-                    if box.id is None:
-                        fallback_id += 1
-                        identifier = fallback_id
-                    else:
-                        identifier = self.association_ids.resolve(int(box.id.item()))
-                    xyxy = [float(v) for v in box.xyxy[0].tolist()]
-                    xyxy = [max(0., min(v, float(message.width if i%2 == 0 else message.height)))
-                            for i, v in enumerate(xyxy)]
-                    if xyxy[0] >= xyxy[2] or xyxy[1] >= xyxy[3]:
-                        continue
-                    rows.append(dict(track_id=identifier, label=output.names[int(box.cls.item())],
-                                     confidence=float(box.conf.item()), bbox_xyxy=xyxy))
                 batch = json.loads(encode_batch(message, self.session, epoch, rows))
-                batch['association'] = dict(mode=self.association_ids.mode, revision=self.association_ids.revision)
+                batch['association'] = dict(mode='boxmot_native_appearance', cmc=self.runtime.use_cmc, revision=0)
+                # Instance -> detector index, never match a mask to a smoothed box.
+                mask_packet=dict(schema='wla-target-mask/v1',stamp_ns=stamp_ns(message),
+                    session=self.session,epoch=epoch,frame_id=message.header.frame_id,
+                    width=message.width,height=message.height,request_id='',target_id='',bits='')
+                with self.condition:interest=self.mask_interest
+                if (interest and interest.get('enabled') and
+                        (interest.get('session'),interest.get('epoch'))==(self.session,epoch)
+                        and 0<=(self.ros_ns()-interest['stamp_ns'])/1e9<=.5):
+                    mask_packet['request_id']=interest['request_id']
+                    target_id=interest.get('target_id','')
+                    if output.masks is not None:
+                        for row in rows:
+                            if row['label']=='person' and f"{self.session}:{epoch}:{row['track_id']}"==target_id:
+                                from wla_r680_navigation_py.target_masks import encode_mask
+                                mask=output.masks.data[row['detection_index']].detach().cpu().numpy()>.5
+                                if mask.shape==(message.height,message.width):
+                                    mask_packet.update(target_id=target_id,bits=encode_mask(mask))
+                                break
+                batch['_target_mask']=mask_packet
+                # Reuse the current frame's native BoxMOT embeddings. The
+                # request limits publication, not feature computation/association.
+                if (interest and interest.get('enabled') and
+                        (interest.get('session'),interest.get('epoch'))==(self.session,epoch)
+                        and 0<=(self.ros_ns()-interest['stamp_ns'])/1e9<=.5):
+                    allowed=interest.get('allowed_ids',[])
+                    from wla_r680_navigation_py.identity_features import feature_quality
+                    quality={f"{self.session}:{epoch}:{row['track_id']}":feature_quality(row,rows,message.width,message.height)
+                        for row in rows if row['label']=='person'}
+                    features={f"{self.session}:{epoch}:{ident}":v.tolist()
+                        for ident,v in self.runtime.features.items()
+                        if f"{self.session}:{epoch}:{ident}" in allowed}
+                    batch['_reid']=dict(request_id=interest['request_id'],features=features,
+                        model_id=self.runtime.reid.model_id,allowed_ids=allowed,quality=quality)
+
                 timing['inference_end_ns'] = self.ros_ns()
                 with self.condition:
                     if epoch == self.epoch and not self.stopping:
@@ -218,7 +252,8 @@ class NavDetector(Node):
                     stamp=dict(sec=stamp//1_000_000_000,nanosec=stamp%1_000_000_000),
                     session=batch['session'], epoch=batch['epoch'], enabled=True,
                     base_frame=self.args.base_frame, ttl_s=.30, objects=rows,
-                    association=batch.get('association', {}))
+                    association=batch.get('association', {}),
+                    depth_stamp_ns=stamp_ns(depth) if aligned else None)
 
     def drain(self):
         with self.condition:
@@ -234,6 +269,8 @@ class NavDetector(Node):
             timing.update(outcome='expired_or_retired', discarded_ns=now)
         else:
             timing['raw_publish_ns'] = now
+            mask_packet=batch.pop('_target_mask',None)
+            reid_packet=batch.pop('_reid',None)
             batch['timing'] = timing.copy()
             self.raw_pub.publish(String(data=json.dumps(batch, allow_nan=False)))
             try:
@@ -248,6 +285,29 @@ class NavDetector(Node):
                 self.last_valid_result_ns = batch['stamp_ns']
                 relative['timing'] = timing.copy()
                 self.relative_pub.publish(String(data=json.dumps(relative, allow_nan=False)))
+                if reid_packet is not None:
+                    geometry={row['id']:row for row in relative['objects']}
+                    features=[];diagnostics={}
+                    for ident in reid_packet['allowed_ids'][:4]:
+                        row=geometry.get(ident);vector=reid_packet['features'].get(ident)
+                        if vector is None or row is None:diagnostics[ident]='target_not_detected';continue
+                        quality=reid_packet['quality'].get(ident,'target_not_detected')
+                        if quality!='feature_ready':diagnostics[ident]=quality;continue
+                        if row['yaw'] is None or row['distance'] is None:diagnostics[ident]='geometry_unavailable';continue
+                        features.append(dict(id=ident,feature=vector,yaw=row['yaw'],distance=row['distance']))
+                        diagnostics[ident]='feature_ready'
+                    packet=dict(schema='wla-reid-features/v1',stamp_ns=batch['stamp_ns'],
+                        session=batch['session'],epoch=batch['epoch'],request_id=reid_packet['request_id'],
+                        model_id=reid_packet['model_id'],base_frame=self.args.base_frame,
+                        objects=features,diagnostics=diagnostics)
+                    self.reid_pub.publish(String(data=json.dumps(packet,allow_nan=False)))
+                    self.reid_status_pub.publish(String(data=json.dumps(dict(state='ready',
+                        model_id=reid_packet['model_id'],source='boxmot_native_shared_embeddings',
+                        source_stamp_ns=batch['stamp_ns'],stamp_ns=self.ros_ns(),people=len(features),
+                        compute_ms=timing['runtime'].get('reid_ms'),diagnostics=diagnostics))))
+                if mask_packet is not None and relative.get('depth_stamp_ns') is not None:
+                    mask_packet['depth_stamp_ns']=relative['depth_stamp_ns']
+                    self.mask_pub.publish(String(data=json.dumps(mask_packet,allow_nan=False)))
             else:
                 timing['outcome'] = 'expired_in_projection'
         self.metrics_pub.publish(String(data=json.dumps(timing, allow_nan=False)))
@@ -297,10 +357,14 @@ def main():
     model = load_yoloe(args.model, classes=labels, prompts=dict(zip(labels, texts)),
                        text_encoder_path=args.text_encoder)
     if args.check_dependencies:
+        from wla_r680_navigation_py.boxmot_runtime import TrackingRuntime
+        checked_runtime=TrackingRuntime(model,args.tracker)
         print(json.dumps(dict(owner='ros2_ws/wla_r680_navigation', model=args.model,
             sha256=hashlib.sha256(Path(args.model).read_bytes()).hexdigest(),
             cuda_available=torch.cuda.is_available(), classes=list(model.names.values()),
-            detector=model.wla_yoloe_provenance)))
+            detector=model.wla_yoloe_provenance,tracker='boxmot-25.0.0-botsort',
+            native_cmc=checked_runtime.use_cmc,reid_model_id=checked_runtime.reid.model_id,
+            reid_source='native_shared',target_mask_filter=True)))
         return
     rclpy.init(args=[])
     node = NavDetector(args, model)

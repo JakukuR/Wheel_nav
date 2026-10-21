@@ -23,6 +23,7 @@ from std_srvs.srv import SetBool
 from tf2_ros import Buffer, TransformListener
 from wla_behavior_interfaces.srv import PersonCommand
 from .camera import depth_meters
+from wla_r680_navigation_py.target_masks import MaskDepthPairer, filter_target_depth
 from .depth_proc import rotation_from_quaternion
 from .local_memory import LocalMotion
 from .relative_control import RelativeFollower
@@ -49,7 +50,7 @@ class SimulationFollow(Node):
             max_sensor_age_s=.30, depth_stride=4, depth_min_m=.15, depth_max_m=5.,
             surface_to_center_offset_m=.28, camera_min_valid_fraction=.25,
             camera_front_min_valid_fraction=.35, result_ttl_s=.15, startup_clear_radius_m=0., startup_motion_threshold_m=.03,
-            reid_enabled=False, reid_model_id='', reid_max_lost_s=8., reid_similarity=.80,
+            target_mask_enabled=True, reid_enabled=False, reid_model_id='', reid_max_lost_s=8., reid_similarity=.80,
             reid_margin=.08, reid_confirm_frames=3, local_assumed_free_radius_m=0., tof_enabled=False, tof_topics=['/r680/tof/front_left/points',
                 '/r680/tof/front_right/points','/r680/tof/rear_left/points','/r680/tof/rear_right/points'])
         self.p = {k:self.declare_parameter(k,v).value for k,v in defaults.items()}
@@ -78,6 +79,7 @@ class SimulationFollow(Node):
         self.wheel_received = -math.inf
         self.infos = deque(maxlen=24)
         self.pending = None
+        self.depth_pairer = MaskDepthPairer()
         self.last_depth_stamp = 0
         self.tof = {}
         self.event = threading.Event()
@@ -101,7 +103,7 @@ class SimulationFollow(Node):
         self.status_pub=self.create_publisher(String,prefix+'/status',5)
         self.path_pub=self.create_publisher(Path,prefix+'/local_path',1)
         self.grid_pub=self.create_publisher(OccupancyGrid,prefix+'/local_obstacles',1)
-        self.reid_request_pub=self.create_publisher(String,prefix+'/reid_request',1) if self.p['reid_enabled'] else None
+        self.reid_request_pub=self.create_publisher(String,prefix+'/reid_request',1) if self.p['reid_enabled'] or self.p['target_mask_enabled'] else None
         self.obstacles_pub=self.create_publisher(PointCloud2,prefix+'/depth_obstacles',qos_profile_sensor_data)
         self.direct_pub=None
         self.leased_pub=None
@@ -114,6 +116,8 @@ class SimulationFollow(Node):
         self.create_subscription(String,self.p['detection_status_topic'],self.on_status,1)
         if self.p['reid_enabled']:
             self.create_subscription(String,prefix+'/reid_features',self.on_reid,1)
+        if self.p['target_mask_enabled']:
+            self.create_subscription(String,'/r680/perception/target_mask',self.on_target_mask,1)
         self.create_subscription(Image,self.p['depth_topic'],self.on_depth,qos_profile_sensor_data)
         self.create_subscription(CameraInfo,self.p['camera_info_topic'],self.on_info,qos_profile_sensor_data)
         self.create_subscription(Odometry,self.p['wheel_topic'],self.on_wheel,qos_profile_sensor_data)
@@ -188,8 +192,20 @@ class SimulationFollow(Node):
         with self.guard:
             if ns<=self.last_depth_stamp:return
             self.last_depth_stamp=ns
-            self.pending=(msg,time.monotonic()+self.p['max_sensor_age_s']-max(0.,age))
+            self.depth_pairer.put_depth(ns,(msg,time.monotonic()+self.p['max_sensor_age_s']-max(0.,age)))
             self.event.set()
+
+    def on_target_mask(self,msg):
+        try:
+            if len(msg.data)>360000:return
+            data=json.loads(msg.data);ns=data['stamp_ns']
+            if (data.get('schema')!='wla-target-mask/v1' or type(ns) is not int
+                    or not 0<=(self.now_ns()-ns)/1e9<=.30):return
+            with self.guard:
+                if not self.core.active or data.get('request_id')!=self.core.request_id:return
+                if (data.get('session'),data.get('epoch'))!=(self.core.session,self.core.epoch):return
+                self.depth_pairer.put_mask(data);self.event.set()
+        except (ValueError,KeyError,TypeError):return
 
     def on_tof(self,key,msg):
         if msg.width*msg.height>256 or not 0 <= (self.now_ns()-stamp_ns(msg))/1e9 <= .15:return
@@ -245,7 +261,7 @@ class SimulationFollow(Node):
                 self.reid_request_pub.publish(String(data=json.dumps(dict(
                     schema='wla-reid-request/v1',stamp_ns=self.now_ns(),enabled=True,urgent=True,
                     request_id=self.core.request_id,session=self.core.session,epoch=self.core.epoch,
-                    allowed_ids=[self.core.target_id]))))
+                    allowed_ids=[self.core.target_id],target_id=self.core.target_id))))
             return res
 
     def on_estop(self,req,res):
@@ -258,13 +274,14 @@ class SimulationFollow(Node):
     def compute(self):
         next_at=0.;last_tof={};identity=None;identity_key=None
         while not self.done:
-            self.event.wait(.1)
+            self.event.wait(.02)
             if self.done:return
             remaining=next_at-time.monotonic()
             if remaining>0:
                 time.sleep(min(remaining,.1));continue
             with self.guard:
-                self.event.clear();item=self.pending;self.pending=None
+                self.event.clear();paired=self.depth_pairer.take(self.now_ns(),self.core.active and self.p['target_mask_enabled'])
+                item,mask_packet=paired if paired is not None else (None,None)
                 infos=tuple(self.infos);motion=deepcopy(self.motion);key=self.key()
                 active=self.core.active;tof_messages=tuple(self.tof.values())
             if item is None:continue
@@ -288,28 +305,6 @@ class SimulationFollow(Node):
                 h,w=valid.shape;front=valid[int(h*.35):max(int(h*.8),int(h*.35)+1),int(w*.3):max(int(w*.7),int(w*.3)+1)]
                 if np.mean(valid)<self.p['camera_min_valid_fraction'] or not front.size or np.mean(front)<self.p['camera_front_min_valid_fraction']:
                     raise ValueError('insufficient_depth_coverage')
-                frontend_begun=time.monotonic()
-                packet=packet_from_depth(depth,(info.k[0],info.k[4],info.k[2],info.k[5]),r,trans,pose,
-                    self.p['depth_min_m'],self.p['depth_max_m'],self.p['depth_stride'])
-                frontend_ms=(time.monotonic()-frontend_begun)*1000.
-                packets=[(stamp,packet)]
-                # Optional anonymous ToF points: no packets or inferred clear
-                # rays exist while disabled. Only actual newer frames are used.
-                if self.p['tof_enabled']:
-                    from sensor_msgs_py.point_cloud2 import read_points_numpy
-                    for tfmsg in tof_messages:
-                        ts=stamp_ns(tfmsg)/1e9
-                        if not last_tof.get(tfmsg.header.frame_id,-math.inf)<ts<=stamp or stamp-ts>.15:continue
-                        tp=motion.pose_at(ts)
-                        if tp is None:continue
-                        tr2=self.tf.lookup_transform(self.p['base_frame'],tfmsg.header.frame_id,Time(nanoseconds=stamp_ns(tfmsg))).transform
-                        tq=tr2.rotation;rr=rotation_from_quaternion((tq.x,tq.y,tq.z,tq.w))
-                        tt=np.array([tr2.translation.x,tr2.translation.y,tr2.translation.z])
-                        pts=read_points_numpy(tfmsg,field_names=('x','y','z'),skip_nans=True).reshape(-1,3)
-                        pts=pts[np.isfinite(pts).all(axis=1)]@rr.T+tt
-                        last_tof[tfmsg.header.frame_id]=ts
-                        packets.append((ts,dict(points=pts,points_odom=local_points(pts,tp),origin=tt,
-                            origin_odom=local_points(tt[None,:],tp)[0],dynamic=np.zeros(len(pts),dtype=bool))))
                 # Transform measurements at acquisition time, but control from
                 # the latest wheel pose after depth processing, not image pose.
                 with self.guard:
@@ -357,11 +352,39 @@ class SimulationFollow(Node):
                         if key==self.key() and active==self.core.active:
                             self.reid_request_pub.publish(String(data=json.dumps(dict(
                                 schema='wla-reid-request/v1',stamp_ns=self.now_ns(),enabled=active,
-                                request_id=key[0],session=key[2],epoch=key[3],allowed_ids=allowed,
+                                request_id=key[0],session=key[2],epoch=key[3],allowed_ids=allowed,target_id=(resolved_id or '') if active else '',
                                 urgent=active and (resolved_id is None or identity_status.get('state')!='tracking')))))
                 if active and op is not None and 0<=control_stamp-obs_stamp<=self.p['max_sensor_age_s']:
                     target,people=measurements_from_relative(objects,op,resolved_id or '',self.p['surface_to_center_offset_m'])
                     observation=(obs_stamp,target,people,resolved_id)
+                # Only a currently confirmed, same-task target may alter depth.
+                mask_started=time.monotonic()
+                depth,mask_status=filter_target_depth(depth,mask_packet,
+                    target_id=resolved_id if active else None,request_id=key[0],session=key[2],epoch=key[3],
+                    depth_stamp_ns=stamp_ns(msg),frame_id=msg.header.frame_id,now_ns=self.now_ns())
+                mask_status['compute_ms']=(time.monotonic()-mask_started)*1000.
+                frontend_begun=time.monotonic()
+                packet=packet_from_depth(depth,(info.k[0],info.k[4],info.k[2],info.k[5]),r,trans,pose,
+                    self.p['depth_min_m'],self.p['depth_max_m'],self.p['depth_stride'])
+                frontend_ms=(time.monotonic()-frontend_begun)*1000.
+                packets=[(stamp,packet)]
+                # Optional anonymous ToF points: no packets or inferred clear
+                # rays exist while disabled. Only actual newer frames are used.
+                if self.p['tof_enabled']:
+                    from sensor_msgs_py.point_cloud2 import read_points_numpy
+                    for tfmsg in tof_messages:
+                        ts=stamp_ns(tfmsg)/1e9
+                        if not last_tof.get(tfmsg.header.frame_id,-math.inf)<ts<=stamp or stamp-ts>.15:continue
+                        tp=motion.pose_at(ts)
+                        if tp is None:continue
+                        tr2=self.tf.lookup_transform(self.p['base_frame'],tfmsg.header.frame_id,Time(nanoseconds=stamp_ns(tfmsg))).transform
+                        tq=tr2.rotation;rr=rotation_from_quaternion((tq.x,tq.y,tq.z,tq.w))
+                        tt=np.array([tr2.translation.x,tr2.translation.y,tr2.translation.z])
+                        pts=read_points_numpy(tfmsg,field_names=('x','y','z'),skip_nans=True).reshape(-1,3)
+                        pts=pts[np.isfinite(pts).all(axis=1)]@rr.T+tt
+                        last_tof[tfmsg.header.frame_id]=ts
+                        packets.append((ts,dict(points=pts,points_odom=local_points(pts,tp),origin=tt,
+                            origin_odom=local_points(tt[None,:],tp)[0],dynamic=np.zeros(len(pts),dtype=bool))))
                 v=motion.samples[-1][2]
                 begun=time.monotonic()
                 if self.future is not None and not self.future.done():
@@ -374,7 +397,7 @@ class SimulationFollow(Node):
                     result=self.future.result(timeout=self.p['result_ttl_s'])
                 except ComputeTimeout:
                     raise ValueError('compute_deadline_exceeded')
-                result.update(reid=identity_status,resolved_target_id=resolved_id if active else None,key=key,stamp_ns=stamp_ns(msg),valid_until=min(valid_until,begun+self.p['result_ttl_s']),
+                result.update(target_mask=mask_status,reid=identity_status,resolved_target_id=resolved_id if active else None,key=key,stamp_ns=stamp_ns(msg),valid_until=min(valid_until,begun+self.p['result_ttl_s']),
                     frontend_ms=frontend_ms,obstacle_points=len(packet['obstacle_points']),clearing_points=len(packet['points']),
                     observation_stamp_ns=int(obs_stamp*1e9),ready_at=time.monotonic(),
                     latency=dict(depth_start_age_ms=depth_start_age_ms,frontend_ms=frontend_ms,
@@ -493,6 +516,7 @@ class SimulationFollow(Node):
                 startup_prior_consumed=self.map_result.get('startup_prior_consumed',False) if self.map_result else False,
                 fault=self.conflict_latched or self.estop,
                 target_tracking=result['target_state'] if result else 'unavailable',
+                target_mask=self.map_result.get('target_mask') if self.map_result else None,
                 reid_enabled=self.p['reid_enabled'],
                 reid=self.map_result.get('reid') if self.map_result else None,
                 resolved_target_id=self.map_result.get('resolved_target_id') if self.map_result else None,

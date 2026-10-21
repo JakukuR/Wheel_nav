@@ -1,3 +1,5 @@
+> 历史记录：本文件的自写 GMC 实现已在 2026-10-21 删除。当前使用 BoxMOT 原生 SOF CMC，见 [BOXMOT_MIGRATION.md](BOXMOT_MIGRATION.md)。
+
 # Optional GMC — 2026-10-20
 
 This revision supersedes the pre-association discard policy in commit 6f7ebf0.

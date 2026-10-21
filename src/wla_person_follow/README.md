@@ -1,3 +1,5 @@
+> 2026-10-21 当前感知链路：YOLOE-26s-seg + BoxMOT 原生 BoT-SORT/OSNet/SOF CMC；复用人物特征，按已确认目标掩码滤除当前点云。独立 ReID 进程已删除。详见 `wla_r680_navigation/docs/BOXMOT_MIGRATION.md`，以下旧测量仅表示当时版本。
+
 # Relative person approach and follow
 
 人物执行仅使用机器人相对位置，提供 `follow` 与 `approach_interact` 两种模式。人物路径不依赖 map、全局里程计位姿、Nav2 或 MPC。使用轮速机体 twist 补偿短时局部障碍记忆；不自动换 ID。家具语义建图由导航侧独立维护，不受此包影响。
