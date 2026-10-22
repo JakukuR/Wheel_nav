@@ -44,6 +44,7 @@ class GeometryBinding:
         self.last_error = None
         self.last_prediction = None
         self.breaks = 0
+        self.measurement_reason=None
 
     @staticmethod
     def _valid_config(c):
@@ -66,6 +67,11 @@ class GeometryBinding:
                    self.c.jump_radius_m + self.c.jump_growth_mps * max(0., age))
 
     def _row_position(self, row, pose):
+        if not isinstance(row,dict):return None
+        if pose is None or np.asarray(pose).shape!=(3,) or not np.isfinite(np.asarray(pose,dtype=float)).all():
+            self.measurement_reason='observation_pose_unavailable'
+            return None
+        self.measurement_reason='geometry_observed'
         yaw = row.get('yaw')
         distance = row.get('distance')
         pose = np.asarray(pose, dtype=float)
@@ -196,7 +202,7 @@ class GeometryBinding:
     def snapshot(self, now):
         age=None if self.last_seen is None else max(0.,float(now)-self.last_seen)
         pred=self.prediction(now)
-        return dict(state=self.state,reason=self.reason,locked_id=self.locked_id,
+        return dict(state=self.state,reason=self.reason,measurement_reason=self.measurement_reason,locked_id=self.locked_id,
             resolved_id=self.resolved_id or None,source=self.source,last_seen_age_s=age,
             position=None if self.position is None else self.position.tolist(),
             velocity_mps=self.velocity.tolist(),
