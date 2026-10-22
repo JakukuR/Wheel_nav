@@ -79,7 +79,7 @@ class SimulationEngine:
         self.map_stamp = -math.inf
         self.start_time = start_time
 
-    def step(self, pose, previous, packets, observation, now):
+    def step(self, pose, previous, packets, observation, now, policy=None):
         for stamp, packet in sorted(packets, key=lambda item: item[0]):
             if stamp > self.map_stamp:
                 self.mapping.update(packet, pose, stamp, rebuild=False)
@@ -103,11 +103,13 @@ class SimulationEngine:
         tracks = deepcopy(self.people).update({}, pose, now)
         if visible and state != 'lost':
             state = 'visible'
+        if policy is not None and not policy.translation_allowed(now):
+            state='lost'
         # Recovery uses real elapsed time, not the number of surviving callbacks.
         self.controller.calls = max(0., (now-self.start_time)/self.tuning.step)
         self.controller.recovery.diagnostic_map_time=now
         command = self.controller.command(np.asarray(pose), np.asarray(previous),
-            estimate, velocity, self.target.history, self.mapping, tracks, state)
+            estimate, velocity, self.target.history, self.mapping, tracks, state, policy=policy, policy_time=now)
         if not np.isfinite(command).all():
             raise ValueError('nonfinite_core_command')
         recovery = self.controller.recovery
@@ -128,7 +130,8 @@ class SimulationEngine:
         if self.controller.last_infeasible:
             command = np.zeros(2)
             reason = 'no_feasible_candidate'
-        return dict(command=np.asarray(command), target_state=state,
+        if policy is not None:command=policy.limit_command(command,now)
+        return dict(policy_snapshot=policy,command=np.asarray(command), target_state=state,
                     recovery_state=recovery.state, reason=reason,
                     wide_offset=self.controller.last_wide['offset'] if self.controller.last_wide else None,
                     rear_yield=self.controller.last_yield,
@@ -210,7 +213,7 @@ def process_step(job):
         if moved:
             prior['motion_started_s']=now
             prior['expires_s']=now+engine.mapping.ttl
-    result = engine.step(pose, previous, packets, observation, now)
+    result = engine.step(pose, previous, packets, observation, now, policy=startup.get('policy_snapshot'))
     prior=dict(_PROCESS_STARTUP_PRIOR) if _PROCESS_STARTUP_PRIOR else None
     if prior is not None:
         if prior['reference_generation']!=key[-1]:

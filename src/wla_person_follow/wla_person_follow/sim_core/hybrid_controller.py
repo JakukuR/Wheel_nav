@@ -46,7 +46,7 @@ class HybridFollower:
         self.recovery=BlockedRecovery(config,**(recovery_options or {})) if enable_recovery else None
         self.last_infeasible=False
 
-    def command(self, pose, previous, target, velocity, history, local_map, obstacles, status):
+    def command(self, pose, previous, target, velocity, history, local_map, obstacles, status, policy=None, policy_time=None):
         start = time.perf_counter()
         c = self.c
         recovery=self.recovery
@@ -119,6 +119,8 @@ class HybridFollower:
             speeds[:]=0.
         if yielding:speeds=np.linspace(0.,.15,10);offsets=np.zeros(10)
         if lost:speeds[:]=0.;offsets[:]=0.
+        policy_stop=policy is not None and not policy.translation_allowed(policy_time)
+        if policy_stop:speeds[:]=0.
         count = len(speeds)
         states = np.tile(pose,(count,1)); controls = np.tile(previous,(count,1))
         score = np.zeros(count); safe = np.ones(count,dtype=bool)
@@ -150,6 +152,7 @@ class HybridFollower:
             if holding and not lost:want_w=np.zeros(count)
             if lost and search is not None:
                 want_w=np.zeros(count) if search['expired'] else np.clip(want_w,-.3,.3)
+            if policy_stop and not policy.active_search(policy_time):want_w=np.zeros(count)
             if scanning and not lost:
                 scan_offset=recovery.scan_direction*.60*np.sin(2*np.pi*(self.calls*c.step-recovery.since)/recovery.tuning.scan_s)
                 want_w=np.clip(2.*wrap(target_heading+scan_offset-states[:,2]),-.3,.3)
@@ -163,6 +166,9 @@ class HybridFollower:
             old_controls=controls.copy()
             controls[:,0] += np.clip(desired_v-controls[:,0],-c.accel*c.step,c.accel*c.step)
             controls[:,1] += np.clip(want_w-controls[:,1],-c.yaw_accel*c.step,c.yaw_accel*c.step)
+            if policy_stop:
+                controls[:,0]=0.
+                if not policy.active_search(policy_time):controls[:,1]=0.
             if k==0:first=controls.copy()
             old=states[:,:2].copy()
             turn=controls[:,1]*c.step

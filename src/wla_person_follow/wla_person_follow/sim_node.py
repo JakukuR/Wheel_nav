@@ -29,6 +29,7 @@ from .depth_proc import rotation_from_quaternion
 from .local_memory import LocalMotion
 from .relative_control import RelativeFollower
 from .reid_identity import TargetIdentity
+from .follow_policy import PolicySnapshot
 from .follow_config import PENDING_CALIBRATION_PARAMETERS, target_freshness_decision, validate_follow_preset
 from .geometry_binding import GeometryBinding, GeometryBindingConfig
 from .identity_supervisor import IdentitySupervisor, IdentitySupervisorConfig
@@ -438,6 +439,8 @@ class SimulationFollow(Node):
                                 if accepted is not None:
                                     resolved_id=accepted
                                     supervisor.rebind(accepted,control_stamp)
+                            if supervisor.state.startswith('suspect_'):
+                                binding.suspect(supervisor.reason)
                             binding_status=binding.snapshot(control_stamp)
                             supervisor_status=supervisor.snapshot(control_stamp)
                             identity_status=supervisor_status
@@ -545,7 +548,8 @@ class SimulationFollow(Node):
                          front_check_target_offset_m=self.p['front_check_target_offset_m'],
                          retreat_disabled=self.p['retreat_disabled'],
                          reverse_policy_v2=self.p['reverse_policy_v2'],
-                         reverse_policy_allow_retreat=self.p['reverse_policy_allow_retreat'])))
+                         reverse_policy_allow_retreat=self.p['reverse_policy_allow_retreat'],
+                         policy_snapshot=PolicySnapshot.from_binding(binding,control_stamp) if self.p['geometry_binding_v2'] and active and binding is not None else None)))
                 try:
                     result=self.future.result(timeout=self.p['result_ttl_s'])
                 except ComputeTimeout:
@@ -682,6 +686,9 @@ class SimulationFollow(Node):
                     healthy=False
                     blockers.append(identity.get('reason','reid_identity_unconfirmed'))
             command=result['command'] if healthy else np.zeros(2)
+            policy=result.get('policy_snapshot') if result is not None else None
+            if self.p['geometry_binding_v2'] and policy is not None:
+                command=policy.limit_command(command,ns/1e9)
             if healthy and 'first_output_ms' not in result.get('latency',{}):
                 result.setdefault('latency',{}).update(
                     first_output_ms=(now-result.get('ready_at',now))*1000.,
