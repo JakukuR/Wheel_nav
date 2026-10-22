@@ -85,6 +85,8 @@ def test_negative_window_triggers_suspect_and_can_recover():
 def test_view_expansion_learns_a_moderately_similar_view():
     s=seeded();mixed=rows(('s:1:1',(2.,0.),(.8,.6)))
     s.observe(mixed,2.,{'s:1:1':'feature_ready'},geometry_state='bound_tracking',binding_snapshot=healthy())
+    assert len(s.identity.gallery)==2
+    s.observe(mixed,4.01,{'s:1:1':'feature_ready'},geometry_state='bound_tracking',binding_snapshot=healthy())
     assert len(s.identity.gallery)==3
     assert s.template_origins[:2]==['initial','initial'] and s.template_origins[-1]=='expansion'
     assert s.last_template_update['reason']=='view_expansion'

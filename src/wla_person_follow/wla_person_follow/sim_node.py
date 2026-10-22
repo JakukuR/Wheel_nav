@@ -66,7 +66,7 @@ class SimulationFollow(Node):
             enrollment_timeout_s=10., supervision_window=10, suspect_negative_frames=6,
             suspect_recovery_frames=6, suspect_timeout_s=12., neighbor_ambiguity_radius_m=1.5,
             neighbor_clear_hold_s=.50, active_search_s=8., target_release_s=30.,
-            view_expansion_similarity=.75, view_expansion_neighbor_radius_m=1.5,
+            view_expansion_geometry_hold_s=2.,view_expansion_clear_hold_s=2.,view_expansion_similarity=.75, view_expansion_neighbor_radius_m=1.5,
             view_expansion_min_interval_s=1.0, view_expansion_initial_slots=2,
             identity_supervisor_v2=False, lost_task_release=False, mask_binding_v2=False,
             reverse_policy_v2=False, reverse_policy_allow_retreat=False, retreat_disabled=False,
@@ -102,6 +102,8 @@ class SimulationFollow(Node):
             not .5 <= self.p['neighbor_ambiguity_radius_m'] <= 3 or
             not 0 <= self.p['neighbor_clear_hold_s'] <= 2 or
             not 1 <= self.p['active_search_s'] < self.p['target_release_s'] <= 60 or
+            not 0 < self.p['view_expansion_geometry_hold_s'] <= 60 or
+            not 0 < self.p['view_expansion_clear_hold_s'] <= 60 or
             not .5 <= self.p['view_expansion_similarity'] <= self.p['reid_similarity'] or
             not .5 <= self.p['view_expansion_neighbor_radius_m'] <= 3 or
             not .1 <= self.p['view_expansion_min_interval_s'] <= 10 or
@@ -395,6 +397,8 @@ class SimulationFollow(Node):
                                     enrollment_timeout_s=self.p['enrollment_timeout_s'],
                                     active_search_s=self.p['active_search_s'],
                                     release_s=self.p['target_release_s'],
+                                    view_expansion_geometry_hold_s=self.p['view_expansion_geometry_hold_s'],
+                                    view_expansion_clear_hold_s=self.p['view_expansion_clear_hold_s'],
                                     view_expansion_similarity=self.p['view_expansion_similarity'],
                                     view_expansion_neighbor_radius_m=self.p['view_expansion_neighbor_radius_m'],
                                     view_expansion_min_interval_s=self.p['view_expansion_min_interval_s'],
@@ -407,6 +411,10 @@ class SimulationFollow(Node):
                             suspect_reason='neighbor_ambiguity' if neighbor_ambiguity else None
                             resolved_id=binding.update(objects,op,obs_stamp,control_stamp,
                                 enrollment_complete=supervisor.complete,suspect_reason=suspect_reason)
+                            expansion_neighbor=(op is None or control_stamp-obs_stamp>self.p['max_sensor_age_s'] or
+                                supervisor.neighbor_near(objects,op,binding.resolved_id or key[1],
+                                    self.p['view_expansion_neighbor_radius_m'],self.p['surface_to_center_offset_m']))
+                            supervisor.update_environment(control_stamp,binding.state,expansion_neighbor)
                             for batch in reid_frames:
                                 ts=batch['stamp_ns']/1e9
                                 if ts<=supervisor.last_frame_stamp or not 0<=control_stamp-ts<=.6:continue
@@ -426,7 +434,7 @@ class SimulationFollow(Node):
                                 model_ok=batch.get('model_id')==self.p['reid_model_id']
                                 supervisor.observe(rows if model_ok else [],ts,
                                     batch.get('diagnostics') if model_ok else {binding.resolved_id or key[1]:'feature_model_mismatch'},
-                                    geometry_state=binding.state,neighbor_ambiguity=neighbor_ambiguity,
+                                    geometry_state=binding.state,neighbor_ambiguity=neighbor_ambiguity,expansion_neighbor=expansion_neighbor,
                                     binding_snapshot=binding.snapshot(control_stamp))
                                 consumed_identity_frames.append(deepcopy(supervisor.snapshot(control_stamp)))
                             supervisor.advance_time(control_stamp,geometry_state=binding.state,

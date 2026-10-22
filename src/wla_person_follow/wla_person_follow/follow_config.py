@@ -25,6 +25,8 @@ PENDING_CALIBRATION_PARAMETERS = (
     'neighbor_clear_hold_s',
     'active_search_s',
     'target_release_s',
+    'view_expansion_geometry_hold_s',
+    'view_expansion_clear_hold_s',
     'view_expansion_similarity',
     'view_expansion_neighbor_radius_m',
     'view_expansion_min_interval_s',

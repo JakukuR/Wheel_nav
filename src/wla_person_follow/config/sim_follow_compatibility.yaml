@@ -55,6 +55,8 @@ person_follow:
     neighbor_clear_hold_s: 0.50
     active_search_s: 8.0
     target_release_s: 30.0
+    view_expansion_geometry_hold_s: 2.0 # 待校准
+    view_expansion_clear_hold_s: 2.0 # 待校准
     view_expansion_similarity: 0.75
     view_expansion_neighbor_radius_m: 1.50
     view_expansion_min_interval_s: 1.0

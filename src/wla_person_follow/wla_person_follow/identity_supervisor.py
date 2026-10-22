@@ -20,6 +20,8 @@ class IdentitySupervisorConfig:
     enrollment_timeout_s: float = 10.
     active_search_s: float = 8.
     release_s: float = 30.
+    view_expansion_geometry_hold_s: float = 2.
+    view_expansion_clear_hold_s: float = 2.
     view_expansion_similarity: float = .75
     view_expansion_neighbor_radius_m: float = 1.50
     view_expansion_min_interval_s: float = 1.
@@ -55,10 +57,12 @@ class IdentitySupervisor:
         self.last_candidates=[]
         self.last_frame_stamp=-math.inf
         self.reacquire_proposal=None
+        self.geometry_since=None;self.expansion_clear_since=None
+        self.environment_stamp=-math.inf;self.expansion_ready=False;self.expansion_reason='hold_pending'
 
     @staticmethod
     def _valid_config(c):
-        vals=(c.similarity,c.margin,c.suspect_timeout_s,c.neighbor_ambiguity_radius_m,
+        vals=(c.view_expansion_geometry_hold_s,c.view_expansion_clear_hold_s,c.similarity,c.margin,c.suspect_timeout_s,c.neighbor_ambiguity_radius_m,
               c.neighbor_clear_hold_s,c.enrollment_timeout_s,c.active_search_s,c.release_s,
               c.view_expansion_similarity,c.view_expansion_neighbor_radius_m,
               c.view_expansion_min_interval_s)
@@ -72,6 +76,7 @@ class IdentitySupervisor:
             and 0<c.active_search_s<c.release_s<=60
             and .5<=c.view_expansion_similarity<=c.similarity
             and c.view_expansion_neighbor_radius_m>0 and c.view_expansion_min_interval_s>0
+            and c.view_expansion_geometry_hold_s>0 and c.view_expansion_clear_hold_s>0
             and c.gallery_slots==8 and 1<=c.view_expansion_initial_slots<c.gallery_slots)
 
     @property
@@ -208,21 +213,14 @@ class IdentitySupervisor:
             suspect_before=self.state.startswith('suspect_')
             if neighbor_ambiguity:
                 if sim>=.90:self._log_template(t,'frozen','frozen_neighbor_ambiguity',sim)
-            elif self.state=='suspect_negative':
-                # A clean, geometrically continuous moderate view is the only
-                # template update allowed while resolving negative evidence.
-                if sim>=self.c.view_expansion_similarity and float(t)-self.last_expansion>=self.c.view_expansion_min_interval_s:
-                    if self._append_template(target['feature'],'expansion',t,'view_expansion_suspect_recovery',sim):
-                        self.last_expansion=float(t)
-                else:
-                    self._log_template(t,'frozen','frozen_suspect_negative',sim)
             elif suspect_before:
                 self._log_template(t,'frozen','frozen_suspect_ambiguous',sim)
             elif sim>=.90:
                 self._append_template(target['feature'],'strong',t,'strong_match',sim)
-            elif sim>=self.c.view_expansion_similarity and float(t)-self.last_expansion>=self.c.view_expansion_min_interval_s:
+            elif self.expansion_ready and sim>=self.c.view_expansion_similarity and float(t)-self.last_expansion>=self.c.view_expansion_min_interval_s:
                 if self._append_template(target['feature'],'expansion',t,'view_expansion',sim):
                     self.last_expansion=float(t)
+            else:self._log_template(t,'frozen',self.expansion_reason,sim)
         else:
             self.no_evidence_frames+=1
             self.reason='no_supervision_evidence'
@@ -306,7 +304,22 @@ class IdentitySupervisor:
             self.pending_count=0;self.pending_id=None;self.pending_stamp=None
             self.last_position=row['position'].copy();self.last_seen=float(t)
 
-    def observe(self,rows,t,diagnostics,*,geometry_state,neighbor_ambiguity=False,binding_snapshot=None):
+    def update_environment(self,now,geometry_state,expansion_neighbor):
+        if now<self.environment_stamp:return
+        self.environment_stamp=float(now)
+        valid=geometry_state in ('bound_tracking','bound_untracked') and not self.state.startswith('suspect_')
+        if not valid:self.geometry_since=None
+        elif self.geometry_since is None:self.geometry_since=float(now)
+        if not valid or expansion_neighbor:self.expansion_clear_since=None
+        elif self.expansion_clear_since is None:self.expansion_clear_since=float(now)
+        self.expansion_ready=(valid and not expansion_neighbor and self.geometry_since is not None
+            and self.expansion_clear_since is not None
+            and now-self.geometry_since>=self.c.view_expansion_geometry_hold_s
+            and now-self.expansion_clear_since>=self.c.view_expansion_clear_hold_s)
+        self.expansion_reason=('ready' if self.expansion_ready else 'geometry_not_continuous' if not valid
+            else 'expansion_neighbor' if expansion_neighbor else 'continuity_hold_pending')
+
+    def observe(self,rows,t,diagnostics,*,geometry_state,neighbor_ambiguity=False,binding_snapshot=None,expansion_neighbor=None):
         self.advance_time(float(t),geometry_state=geometry_state,binding_snapshot=binding_snapshot)
         if self.end_reason:return
         if not math.isfinite(float(t)) or float(t)<=self.last_frame_stamp:return
@@ -331,7 +344,8 @@ class IdentitySupervisor:
             if self.enrollment_timed_out:
                 self.state='unverified';self.reason='enrollment_timeout_follow_unverified'
             return
-        self._process_healthy(rows,float(t),diagnostics,True,neighbor_ambiguity)
+        self.update_environment(float(t),geometry_state,neighbor_ambiguity if expansion_neighbor is None else expansion_neighbor)
+        self._process_healthy(rows,float(t),diagnostics,geometry_state in ('bound_tracking','bound_untracked'),neighbor_ambiguity)
 
     def rebind(self,target_id,t):
         self.resolved_id=target_id;self.state='tracking';self.reason='reid_reacquired'
@@ -402,6 +416,8 @@ class IdentitySupervisor:
             pending_id=self.pending_id,pending_confirmations=self.pending_count,
             reacquired=self.reacquired,candidates=list(self.last_candidates),
             feature_diagnostics=dict(self.feature_diagnostics),end_reason=self.end_reason,
+            expansion_gate=dict(ready=self.expansion_ready,reason=self.expansion_reason,geometry_since=self.geometry_since,clear_since=self.expansion_clear_since,
+                T1_s=self.c.view_expansion_geometry_hold_s,T2_s=self.c.view_expansion_clear_hold_s,radius_m=self.c.view_expansion_neighbor_radius_m),
             thresholds=dict(similarity=self.c.similarity,margin=self.c.margin,
                 confirmations=self.c.confirmations,view_expansion_similarity=self.c.view_expansion_similarity,
                 neighbor_ambiguity_radius_m=self.c.neighbor_ambiguity_radius_m,
