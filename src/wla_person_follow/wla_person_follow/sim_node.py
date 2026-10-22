@@ -500,8 +500,9 @@ class SimulationFollow(Node):
                         selection=(deepcopy(identity.selection_diagnostics) if op is not None else
                             dict(accepted=False,reason='select_not_called_observation_pose_unavailable')) if identity is not None else None)
                 if active and op is not None and 0<=control_stamp-obs_stamp<=self.p['max_sensor_age_s']:
-                    target,people=measurements_from_relative(objects,op,resolved_id or '',self.p['surface_to_center_offset_m'])
-                    observation=(obs_stamp,target,people,resolved_id)
+                    target_is_obstacle=bool(self.p['geometry_binding_v2'] and binding_status and binding_status.get('state')=='suspect')
+                    target,people=measurements_from_relative(objects,op,resolved_id or '',self.p['surface_to_center_offset_m'],target_is_obstacle=target_is_obstacle)
+                    observation=(obs_stamp,target,people,resolved_id,target_is_obstacle)
                 # In v2 the mask follows the same-task geometry binding, not a
                 # cosmetic ReID state. Legacy mode preserves its old criteria.
                 mask_started=time.monotonic()

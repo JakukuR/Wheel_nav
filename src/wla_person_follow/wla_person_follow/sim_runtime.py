@@ -44,7 +44,7 @@ def packet_from_filtered_points(obstacles, clearing, origin, pose):
                 marking_points_odom=local_points(obstacles,pose))
 
 
-def measurements_from_relative(objects, pose, target_id, center_offset=.28):
+def measurements_from_relative(objects, pose, target_id, center_offset=.28, *, target_is_obstacle=False):
     """Existing detections are measured surfaces; use the demo's body model.
 
     Offset is explicit/configurable, not an observed anatomical center.
@@ -59,6 +59,7 @@ def measurements_from_relative(objects, pose, target_id, center_offset=.28):
         point = rotation(pose[2]) @ body + np.asarray(pose[:2])
         if key == target_id:
             target = point
+            if target_is_obstacle:people[key]=point
         else:
             people[key] = point
     return target, people
@@ -90,7 +91,7 @@ class SimulationEngine:
         visible = False
         if observation is not None:
             stamp, target, people = observation[:3]
-            if len(observation)>3 and target is not None:
+            if len(observation)>3 and target is not None and not (len(observation)>4 and observation[4]):
                 self.people.tracks.pop(observation[3],None)  # Rebound target is not a bystander.
             if self.last_measurement < stamp <= now:
                 self.target.update(target, stamp)
