@@ -346,7 +346,7 @@ class DebugViewer(Node):
             result['obstacle_margin'] = margin
         selected = (status.get('resolved_target_id') or status.get('target_id', '')) if status_fresh and status.get('enabled') else ''
         result['follow'] = {k: status.get(k) for k in
-                           ('state', 'safety_reason', 'recovery_state', 'linear_mps', 'angular_rps', 'compute_ms', 'local_free_prior', 'retreat_distance_m', 'reid', 'resolved_target_id')} if status_fresh else {}
+                           ('state', 'safety_reason', 'recovery_state', 'linear_mps', 'angular_rps', 'compute_ms', 'local_free_prior', 'retreat_distance_m', 'reid', 'resolved_target_id', 'geometry_binding', 'identity_supervision')} if status_fresh else {}
         result['objects_reason'] = 'waiting_for_topic'
         if self.relative:
             rel, received = self.relative[-1]
