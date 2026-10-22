@@ -6,6 +6,7 @@ cells are blocked for recovery. All returned routes still go through MPC.
 from dataclasses import dataclass
 import heapq
 import numpy as np
+from ..diagnostics import occupancy_source, front_distances
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,8 @@ class BlockedRecovery:
         self.scan_direction=1.
         self.stall_since=None;self.episode_since=None
         self.last_seen=None;self.search=None
+        self.front_diagnostics=dict(evaluated=False,reason="not_called")
+        self.diagnostic_time=None
 
     def update_search(self,pose,target,velocity,status,t):
         """Bounded bearing search from the last real observation, never truth."""
@@ -144,10 +147,30 @@ class BlockedRecovery:
         """Return true only when a measured obstacle intersects the travel path."""
         if target is None:target=np.asarray(pose[:2])+np.array([np.cos(pose[2]),np.sin(pose[2])])
         samples=self._path_samples(pose,target,route)
-        if not len(samples):return False
+        self.front_diagnostics=dict(evaluated=True,recovery_elapsed_s=self.diagnostic_time,
+            path_range_m=1.4,sample_step_m=.05,path_samples=len(samples),blocked=False,
+            source=None,person_evaluation='not_reached',nearest_block_path_distance_m=None)
+        if not len(samples):
+            self.front_diagnostics['reason']='empty_path';return False
         # Occupancy distance is measured to the robot footprint, so this gate
         # is about the path itself rather than all points in front of the body.
-        if np.any(mapping.query(samples)<=self.c.radius+self.c.margin+.026):return True
+        queried=mapping.query(samples)
+        try:self.front_diagnostics['all_sources_scan']=front_distances(samples,queried,tracks,self.c,speed)
+        except Exception as exc:self.front_diagnostics['all_sources_scan']=dict(error=str(exc)[:100])
+        threshold=self.c.radius+self.c.margin+.026
+        arc_diagnostic=np.r_[0.,np.cumsum(np.linalg.norm(np.diff(samples,axis=0),axis=1))]
+        self.front_diagnostics.update(static_threshold_m=threshold,
+            min_static_query_distance_m=float(np.min(queried)),
+            min_static_surface_clearance_m=float(np.min(queried)-self.c.radius))
+        if np.any(queried<=threshold):
+            hit=int(np.flatnonzero(queried<=threshold)[0])
+            self.front_diagnostics.update(blocked=True,reason='static_distance_field',
+                nearest_block_path_distance_m=float(arc_diagnostic[hit]),
+                trigger_sample_reference_m=samples[hit].tolist(),query_distance_m=float(queried[hit]))
+            try:self.front_diagnostics['source']=occupancy_source(mapping,samples[hit],getattr(self,'diagnostic_map_time',None))
+            except Exception as exc:self.front_diagnostics['source']=dict(kind='diagnostic_unavailable',error=str(exc)[:100])
+            return True
+        self.front_diagnostics['person_evaluation']='evaluated'
         if not tracks:return False
         # Couple obstacle prediction to distance along the path.  A person
         # beside the path is ignored; a person crossing the path is a blocker.
@@ -158,7 +181,19 @@ class BlockedRecovery:
             a=relative[:-1];delta=np.diff(relative,axis=0)
             u=np.clip(-np.sum(a*delta,axis=1)/np.maximum(np.sum(delta**2,axis=1),1e-12),0.,1.)
             distance=np.linalg.norm(a+u[:,None]*delta,axis=1)
-            if np.any(distance<=o['r']+self.c.radius+self.c.margin+.025*times[1:]):return True
+            if np.any(distance<=o['r']+self.c.radius+self.c.margin+.025*times[1:]):
+                hit=int(np.flatnonzero(distance<=o['r']+self.c.radius+self.c.margin+.025*times[1:])[0])
+                tau=float(times[hit]+u[hit]*(times[hit+1]-times[hit]))
+                self.front_diagnostics.update(blocked=True,reason='predicted_person_intersection',
+                    nearest_block_path_distance_m=None,
+                    trigger_track_path_distance_m=float(arc[hit]+u[hit]*(arc[hit+1]-arc[hit])),
+                    trigger_sample_reference_m=(samples[hit]+u[hit]*(samples[hit+1]-samples[hit])).tolist(),
+                    source=dict(kind='person_track',id=o.get('id'),position_reference_m=np.asarray(o['p']).tolist(),
+                        velocity_reference_mps=np.asarray(o['v']).tolist(),radius_m=float(o['r']),
+                        prediction_s=tau,relative_distance_m=float(distance[hit]),
+                        tested_threshold_m=float(o['r']+self.c.radius+self.c.margin+.025*times[hit+1])),
+                    source_order='first_track_hit; not globally_nearest')
+                return True
         return False
 
     def rear_clear(self,pose,mapping,tracks):
@@ -182,6 +217,8 @@ class BlockedRecovery:
 
     def update(self,pose,previous,target,velocity,mapping,tracks,status,t,history=None):
         c=self.c;r=self.tuning
+        self.diagnostic_time=float(t)
+        self.front_diagnostics=dict(evaluated=False,recovery_elapsed_s=float(t),reason='early_return_before_front_check')
         self.update_search(pose,target,velocity,status,t)
         if self.state in ('retreat','scan','detour') and self.episode_since is not None and t-self.episode_since>r.recovery_timeout_s:
             self.route=None;self.transition('hold',t,'recovery_timeout');return
@@ -198,6 +235,9 @@ class BlockedRecovery:
         active_route=self.route if self.state=='detour' else history
         blocked=self.forward_blocked(pose,mapping,tracks,target=target,route=active_route,
                                      speed=max(abs(previous[0]),np.linalg.norm(velocity),.15))
+        self.front_diagnostics.update(demand=bool(demand),gap_m=float(gap),
+            demand_gap_threshold_m=float(c.desired_gap+.25),target_speed_mps=float(np.linalg.norm(velocity)),
+            measured_v_mps=float(previous[0]),stalled=bool(abs(previous[0])<.06),state_before=self.state)
         if not demand:
             self.route=None;self.anchor=None
             self.transition('follow',t,'standoff_reached');return

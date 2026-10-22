@@ -105,6 +105,7 @@ class SimulationEngine:
             state = 'visible'
         # Recovery uses real elapsed time, not the number of surviving callbacks.
         self.controller.calls = max(0., (now-self.start_time)/self.tuning.step)
+        self.controller.recovery.diagnostic_map_time=now
         command = self.controller.command(np.asarray(pose), np.asarray(previous),
             estimate, velocity, self.target.history, self.mapping, tracks, state)
         if not np.isfinite(command).all():
@@ -132,7 +133,12 @@ class SimulationEngine:
                     wide_offset=self.controller.last_wide['offset'] if self.controller.last_wide else None,
                     rear_yield=self.controller.last_yield,
                     tuning=asdict(self.tuning), path=np.asarray(self.target.history),
-                    candidates=self.controller.last_candidates)
+                    candidates=self.controller.last_candidates,
+                    front_blockage=dict(self.controller.recovery.front_diagnostics,control_stamp_s=now),
+                    planner_target=dict(position_reference_m=None if estimate is None else np.asarray(estimate).tolist(),
+                        velocity_reference_mps=np.asarray(velocity).tolist(),state=state,
+                        last_measurement_stamp_s=None if not math.isfinite(self.last_measurement) else self.last_measurement),
+                    obstacle_track_ids=[o.get('id') for o in tracks])
 
 
 _PROCESS_ENGINE = None

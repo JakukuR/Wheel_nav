@@ -322,3 +322,33 @@ def test_mask_wire_pairs_depth_and_filters_published_cloud_preview_only():
     finally:
         f.close();ex.remove_node(f);ex.remove_node(fixture)
         f.destroy_node();fixture.destroy_node();ex.shutdown();rclpy.try_shutdown()
+
+
+def test_diagnostic_status_and_independent_recorder(graph,tmp_path):
+    import subprocess
+    import sys
+    _,f,pump,_=graph
+    assert os.environ.get('ROS_DOMAIN_ID')=='198'
+    proc=subprocess.Popen([sys.executable,'-m','wla_person_follow.status_recorder',
+        '--directory',str(tmp_path)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    try:
+        pump(1.5);seed(f)
+        now=f.now_ns()/1e9
+        f.computation_diagnostic=dict(key=f.key(),control_stamp_s=now,
+            target_mask=dict(applied=False,reason='no_confirmed_target_mask'),
+            front_blockage=dict(evaluated=False,reason='fixture_no_front_check'),
+            resolved_target_source=dict(source='fixture',accepted_id=None))
+        pump(.6)
+    finally:
+        proc.terminate();proc.wait(timeout=5)
+    records=[]
+    for path in tmp_path.glob('*.jsonl'):
+        records.extend(json.loads(line) for line in path.read_text().splitlines())
+    assert records
+    matching=[r for r in records if r.get('target_observation',{}).get('id')=='fixture:0:1']
+    assert matching
+    record=next(r for r in matching if r.get('diagnostics'))
+    assert record['measured_motion']['pose_source'].startswith('LocalMotion')
+    assert 'actual_published_command' in record and record['diagnostic_sequence']>0
+    assert record['diagnostics']['target_mask']['applied'] is False
+    assert record['_recording']['source']=='/r680/person_follow/status'

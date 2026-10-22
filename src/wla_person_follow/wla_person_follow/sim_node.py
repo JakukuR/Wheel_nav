@@ -23,6 +23,7 @@ from std_srvs.srv import SetBool
 from tf2_ros import Buffer, TransformListener
 from wla_behavior_interfaces.srv import PersonCommand
 from .camera import depth_meters
+from .diagnostics import finite_json, observed_target, wheel_message
 from wla_r680_navigation_py.target_masks import MaskDepthPairer, filter_target_depth
 from .depth_proc import rotation_from_quaternion
 from .local_memory import LocalMotion
@@ -77,6 +78,9 @@ class SimulationFollow(Node):
         self.core = RelativeFollower(base_frame=self.p['base_frame'],max_age=self.p['max_sensor_age_s'])
         self.motion = LocalMotion()
         self.wheel_received = -math.inf
+        self.wheel_diagnostic = None
+        self.computation_diagnostic = None
+        self.status_sequence = 0
         self.infos = deque(maxlen=24)
         self.pending = None
         self.depth_pairer = MaskDepthPairer()
@@ -178,12 +182,15 @@ class SimulationFollow(Node):
     def on_wheel(self,msg):
         with self.guard:
             previous=self.motion.generation
+            diagnostic_accepted=False
             if msg.child_frame_id!=self.p['base_frame']:
                 self.motion.samples.clear();self.motion.generation+=1
             else:
                 v=msg.twist.twist
                 if self.motion.update(stamp_ns(msg)/1e9,(v.linear.x,v.linear.y,v.angular.z),self.now_ns()/1e9):
                     self.wheel_received=time.monotonic()
+                    diagnostic_accepted=True
+            self.wheel_diagnostic=wheel_message(msg,time.monotonic(),diagnostic_accepted,self.motion.generation)
             if previous!=self.motion.generation:self.result=None
 
     def on_depth(self,msg):
@@ -289,6 +296,8 @@ class SimulationFollow(Node):
             msg,valid_until=item;stamp=stamp_ns(msg)/1e9
             processing_started=time.monotonic()
             depth_start_age_ms=(self.now_ns()-stamp_ns(msg))/1e6
+            identity_status=None
+            consumed_identity_frames=[]
             try:
                 if time.monotonic()>=valid_until:raise ValueError('depth_expired_before_processing')
                 pose=motion.pose_at(stamp)
@@ -343,6 +352,7 @@ class SimulationFollow(Node):
                                         position=np.asarray(bp[:2])+d*np.array([np.cos(a),np.sin(a)])))
                                 except (ValueError,KeyError,TypeError,AttributeError):continue
                             identity.consume(rows,ts,batch['model_id'],batch.get('diagnostics'))
+                            consumed_identity_frames.append(deepcopy(identity.candidate_frame))
                         resolved_id=identity.select(objects,op,obs_stamp,control_stamp,self.p['surface_to_center_offset_m']) if op is not None else None
                         identity_status=identity.snapshot(control_stamp)
 
@@ -354,6 +364,14 @@ class SimulationFollow(Node):
                                 schema='wla-reid-request/v1',stamp_ns=self.now_ns(),enabled=active,
                                 request_id=key[0],session=key[2],epoch=key[3],allowed_ids=allowed,target_id=(resolved_id or '') if active else '',
                                 urgent=active and (resolved_id is None or identity_status.get('state')!='tracking')))))
+                if identity is not None and self.p['reid_enabled']:
+                    identity_status['candidate_request']=deepcopy(identity.request_diagnostics)
+                    identity_status['consumed_candidate_frames']=consumed_identity_frames
+                resolved_source=dict(source='TargetIdentity.select' if self.p['reid_enabled'] else 'task_target_reid_disabled',
+                    active=active,accepted_id=resolved_id if active else None,
+                    observation_pose_available=op is not None,
+                    selection=(deepcopy(identity.selection_diagnostics) if op is not None else
+                        dict(accepted=False,reason='select_not_called_observation_pose_unavailable')) if identity is not None else None)
                 if active and op is not None and 0<=control_stamp-obs_stamp<=self.p['max_sensor_age_s']:
                     target,people=measurements_from_relative(objects,op,resolved_id or '',self.p['surface_to_center_offset_m'])
                     observation=(obs_stamp,target,people,resolved_id)
@@ -397,7 +415,10 @@ class SimulationFollow(Node):
                     result=self.future.result(timeout=self.p['result_ttl_s'])
                 except ComputeTimeout:
                     raise ValueError('compute_deadline_exceeded')
-                result.update(target_mask=mask_status,reid=identity_status,resolved_target_id=resolved_id if active else None,key=key,stamp_ns=stamp_ns(msg),valid_until=min(valid_until,begun+self.p['result_ttl_s']),
+                result.update(target_observation=observed_target(objects,key[1],obs_stamp,control_stamp),
+                    resolved_target_observation=observed_target(objects,resolved_id,obs_stamp,control_stamp),
+                    resolved_target_source=resolved_source,
+                    target_mask=mask_status,reid=identity_status,resolved_target_id=resolved_id if active else None,key=key,stamp_ns=stamp_ns(msg),valid_until=min(valid_until,begun+self.p['result_ttl_s']),
                     frontend_ms=frontend_ms,obstacle_points=len(packet['obstacle_points']),clearing_points=len(packet['points']),
                     observation_stamp_ns=int(obs_stamp*1e9),ready_at=time.monotonic(),
                     latency=dict(depth_start_age_ms=depth_start_age_ms,frontend_ms=frontend_ms,
@@ -406,6 +427,13 @@ class SimulationFollow(Node):
                         processing_ms=(time.monotonic()-processing_started)*1000.),
                     compute_ms=(time.monotonic()-begun)*1000.,pose=np.asarray(control_pose),control_stamp_ns=int(control_stamp*1e9))
                 with self.guard:
+                    self.computation_diagnostic=dict(key=key,control_stamp_s=control_stamp,
+                        depth_stamp_ns=stamp_ns(msg),target_mask=deepcopy(mask_status),
+                        target_observation=result['target_observation'],
+                        resolved_target_observation=result['resolved_target_observation'],
+                        resolved_target_source=resolved_source,reid=deepcopy(identity_status),
+                        front_blockage=result.get('front_blockage'),planner_target=result.get('planner_target'),
+                        obstacle_track_ids=result.get('obstacle_track_ids'),compute_error=None)
                     if key==self.key() and time.monotonic()<result['valid_until']:
                         self.result=result;self.map_result=result;self.reason=result['reason'] or 'simulation_core'
                         self.result_ready.trigger()
@@ -419,7 +447,12 @@ class SimulationFollow(Node):
                     header=Header(stamp=msg.header.stamp,frame_id=self.p['base_frame'])
                     self.obstacles_pub.publish(create_cloud_xyz32(header,packet['obstacle_points'].astype(np.float32)))
             except Exception as exc:
-                with self.guard:self.result=None;self.reason=str(exc)[:180]
+                with self.guard:
+                    self.result=None;self.reason=str(exc)[:180]
+                    self.computation_diagnostic=dict(key=key,control_stamp_s=self.now_ns()/1e9,
+                        compute_error=str(exc)[:180],front_blockage=None,target_mask=None,
+                        reid=deepcopy(identity_status) if 'identity_status' in locals() else None,
+                        details_unavailable=True)
 
     def check_direct_owner(self):
         if self.direct_pub is None:return False
@@ -527,6 +560,25 @@ class SimulationFollow(Node):
                 clearing_points=self.map_result.get('clearing_points') if self.map_result else None,
                 latency=self.map_result.get('latency',{}) if self.map_result else {},
                 compute_ms=result['compute_ms'] if result else None)
+            # Diagnostics are attached AFTER the unchanged command decision/publication.
+            self.status_sequence+=1
+            current_pose=self.motion.pose_at(ns/1e9)
+            diagnostic=self.computation_diagnostic
+            same_reference=diagnostic is not None and diagnostic.get('key')==self.key()
+            detail=deepcopy(diagnostic) if same_reference else None
+            if detail is not None:
+                detail.pop('key',None)
+                detail['age_s']=ns/1e9-detail['control_stamp_s']
+                detail['planner_result_fresh']=bool(result is not None and result['key']==self.key() and now<result['valid_until'])
+            state.update(diagnostic_sequence=self.status_sequence,
+                diagnostic_schema='wla-follow-diagnostics/v1',
+                target_observation=observed_target(self.core.objects,self.core.target_id,self.core.last_stamp/1e9,ns/1e9),
+                measured_motion=dict(wheel=deepcopy(self.wheel_diagnostic),
+                    integrated_pose_reference_m_rad=None if current_pose is None else list(current_pose),
+                    pose_stamp_ns=ns,reference_generation=self.motion.generation,
+                    pose_source='LocalMotion wheel-twist integration; not global localization'),
+                actual_published_command=dict(linear_mps=float(actual[0]),angular_rps=float(actual[1])),
+                diagnostics=finite_json(detail))
             self.status_pub.publish(String(data=json.dumps(state,allow_nan=False)))
             mapped=self.map_result
             if (mapped is not None and mapped['key']==self.key() and now<mapped['valid_until'] and
