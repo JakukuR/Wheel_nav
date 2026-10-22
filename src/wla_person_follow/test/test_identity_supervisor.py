@@ -107,6 +107,8 @@ def test_lost_phase_and_four_thresholds_reacquire_new_track_id():
     candidate=rows(('s:1:2',(2.,0.),(1.,0.)))
     for t in (11.1,11.3,11.5):
         s.observe(candidate,t,{'s:1:2':'feature_ready'},geometry_state='lost',binding_snapshot=snap)
-    assert s.state=='tracking' and s.resolved_id=='s:1:2' and s.reacquired==1
+    assert s.reacquire_proposal['id']=='s:1:2' and s.resolved_id=='s:1:1'
+    s.rebind('s:1:2',11.5)
+    assert s.reacquired==1
     snap['lost_s']=30.;s2=seeded();s2.observe([],31.,{},geometry_state='lost',binding_snapshot=snap)
     assert s2.state=='ended' and s2.end_reason=='lost_task_release'

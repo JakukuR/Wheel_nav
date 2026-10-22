@@ -54,6 +54,7 @@ class IdentitySupervisor:
         self.last_position=None;self.last_seen=None;self.velocity=np.zeros(2)
         self.last_candidates=[]
         self.last_frame_stamp=-math.inf
+        self.reacquire_proposal=None
 
     @staticmethod
     def _valid_config(c):
@@ -287,8 +288,9 @@ class IdentitySupervisor:
         else:self.pending_id=row['id'];self.pending_count=1
         self.pending_stamp=float(t);self.last_similarity=sim;self.last_error=error
         if self.pending_count>=self.c.confirmations:
-            self.resolved_id=row['id'];self.reacquired+=1
-            self.state='tracking';self.reason='reacquired_by_appearance_time_position'
+            self.reacquire_proposal=dict(id=row['id'],stamp=float(t),count=self.pending_count,
+                lost_since=binding_snapshot.get('lost_since'))
+            self.reason='reacquisition_confirmation_ready'
             self.pending_count=0;self.pending_id=None;self.pending_stamp=None
             self.last_position=row['position'].copy();self.last_seen=float(t)
 
@@ -319,6 +321,7 @@ class IdentitySupervisor:
 
     def rebind(self,target_id,t):
         self.resolved_id=target_id;self.state='tracking';self.reason='reid_reacquired'
+        self.reacquired+=1;self.reacquire_proposal=None
         self.suspect_type=None;self.suspect_since=None;self.suspect_trigger=None
         self.window.clear();self.pending_count=0;self.pending_id=None;self.pending_stamp=None
         self.last_seen=float(t)

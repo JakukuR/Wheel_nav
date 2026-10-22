@@ -43,7 +43,7 @@ def test_rebind_restarts_track_history_and_source():
     b=GeometryBinding('s:1:1',0.)
     b.update(row(),np.zeros(3),1.,1.)
     b.update({},np.zeros(3),1.6,1.6)
-    b.rebind('s:1:2',row('s:1:2',distance=1.5),np.zeros(3),2.,2.)
+    b.rebind('s:1:2',row('s:1:2',distance=1.5),np.zeros(3),2.,2.,confirmation=dict(id='s:1:2',lost_since=b.lost_since,count=3,stamp=2.))
     assert b.resolved_id=='s:1:2' and b.source=='reid_reacquired'
     assert b.state=='bound_tracking' and b.lost_since is None
 

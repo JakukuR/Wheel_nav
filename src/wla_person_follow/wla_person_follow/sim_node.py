@@ -431,12 +431,13 @@ class SimulationFollow(Node):
                             if binding.state=='lost' and supervisor.last_frame_stamp<control_stamp:
                                 supervisor.observe([],control_stamp,{},geometry_state=binding.state,
                                     binding_snapshot=binding.snapshot(control_stamp))
-                            if supervisor.resolved_id!=binding.resolved_id and binding.state=='lost':
-                                candidate=(objects or {}).get(supervisor.resolved_id)
-                                if candidate is not None:
-                                    resolved_id=binding.rebind(supervisor.resolved_id,objects,op,obs_stamp,
-                                        control_stamp,enrollment_complete=supervisor.complete)
-                                    supervisor.rebind(supervisor.resolved_id,control_stamp)
+                            proposal=supervisor.reacquire_proposal
+                            if binding.state=='lost' and proposal is not None:
+                                accepted=binding.rebind(proposal['id'],objects,op,obs_stamp,
+                                    control_stamp,enrollment_complete=supervisor.complete,confirmation=proposal)
+                                if accepted is not None:
+                                    resolved_id=accepted
+                                    supervisor.rebind(accepted,control_stamp)
                             binding_status=binding.snapshot(control_stamp)
                             supervisor_status=supervisor.snapshot(control_stamp)
                             identity_status=supervisor_status

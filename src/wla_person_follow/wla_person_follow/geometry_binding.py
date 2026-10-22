@@ -99,6 +99,11 @@ class GeometryBinding:
         if not math.isfinite(stamp) or not math.isfinite(now) or now < stamp-.05:
             self._begin_loss(now,'invalid_geometry_time')
             return None
+        if self.state in ('lost','ended'):
+            return None
+        if self.last_seen is not None and now-self.last_seen>self.c.freshness_s+self.c.missing_grace_s:
+            self._begin_loss(now,'target_geometry_lost_timeout')
+            return None
         self.last_source_stamp=max(self.last_source_stamp,stamp)
         row=objects.get(self.resolved_id or self.locked_id) if isinstance(objects,dict) else None
         current_position=self._row_position(row,pose) if row is not None else None
@@ -156,10 +161,19 @@ class GeometryBinding:
             self.state='bound_tracking' if enrollment_complete else 'bound_untracked'
             self.reason='identity_enrolled' if enrollment_complete else 'enrollment_background'
 
-    def rebind(self, target_id, objects, pose, stamp, now, *, enrollment_complete=True):
+    def rebind(self, target_id, objects, pose, stamp, now, *, enrollment_complete=True, confirmation=None):
         if not isinstance(target_id,str) or not target_id:
             raise ValueError('invalid_rebound_target_id')
+        if (self.state!='lost' or not confirmation or confirmation.get('id')!=target_id
+                or confirmation.get('lost_since')!=self.lost_since
+                or confirmation.get('count',0)<3
+                or not 0<=now-confirmation.get('stamp',-math.inf)<=.6):
+            return None
         position=self._row_position((objects or {}).get(target_id),pose)
+        predicted=self.prediction(stamp)
+        if (position is None or predicted is None or not 0<=now-stamp<=self.c.freshness_s
+                or np.linalg.norm(position-predicted)>self.radius(now-self.last_seen)):
+            return None
         self.locked_id=target_id;self.resolved_id=target_id
         self.position=None;self.velocity[:]=0.;self.last_seen=None;self.lost_since=None
         self.last_source_stamp=float(stamp);self.last_error=None;self.last_prediction=None
@@ -189,5 +203,5 @@ class GeometryBinding:
             prediction=None if pred is None else pred.tolist(),last_position_error_m=self.last_error,
             position_jump_limit_m=None if age is None else self.radius(age),
             recovery_phase=self.recovery_phase(now),
-            lost_s=None if self.lost_since is None else max(0.,float(now)-self.lost_since),
+            lost_since=self.lost_since, lost_s=None if self.lost_since is None else max(0.,float(now)-self.lost_since),
             breaks=self.breaks)
