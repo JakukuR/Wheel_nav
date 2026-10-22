@@ -47,7 +47,7 @@ def test_neighbor_ambiguity_freezes_templates_and_requires_clear_hold_plus_rever
     assert s.state=='tracking' and s.reason=='ambiguity_cleared_and_reverified'
 
 
-def test_neighbor_during_enrollment_holds_but_keeps_collecting_frames():
+def test_neighbor_during_enrollment_holds_and_waits_for_unambiguous_pair():
     s=IdentitySupervisor('s:1:1',model_id='test',start_time=0.)
     good=rows(('s:1:1',(2.,0.),(1.,0.)))
     s.observe(good,1.,{'s:1:1':'feature_ready'},geometry_state='bound_untracked',
@@ -57,7 +57,7 @@ def test_neighbor_during_enrollment_holds_but_keeps_collecting_frames():
     s.observe(good,1.2,{'s:1:1':'feature_ready'},geometry_state='bound_untracked',
               neighbor_ambiguity=True,
               binding_snapshot={'state':'bound_untracked','resolved_id':'s:1:1','prediction':[2.,0.]})
-    assert s.complete and s.state=='suspect_ambiguous'
+    assert not s.complete and s.state=='suspect_ambiguous'
     assert s.suspect_trigger=='neighbor_within_radius'
 
 def test_enrollment_timeout_during_ambiguity_still_holds_without_speed_cap():

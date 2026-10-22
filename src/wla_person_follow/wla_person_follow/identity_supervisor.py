@@ -56,6 +56,7 @@ class IdentitySupervisor:
         self.last_position=None;self.last_seen=None;self.velocity=np.zeros(2)
         self.last_candidates=[]
         self.last_frame_stamp=-math.inf
+        self.enrollment_binding_token=None
         self.reacquire_proposal=None
         self.geometry_since=None;self.expansion_clear_since=None
         self.environment_stamp=-math.inf;self.expansion_ready=False;self.expansion_reason='hold_pending'
@@ -183,8 +184,17 @@ class IdentitySupervisor:
         self.suspect_type=None;self.suspect_since=None;self.suspect_trigger=None
         self.ambiguous_since=None;self.clear_since=None
 
+    def _reset_enrollment_pair(self):
+        self.identity.gallery.clear();self.identity.seed_count=0
+        self.identity.last_seen=None;self.identity.position=None
+        self.identity.velocity[:]=0.;self.identity.state='enrolling'
+        self.template_origins=[]
+
     def _enroll(self,rows,t,diagnostics):
-        target=[r for r in rows if r['id']==self.locked_id]
+        target=[r for r in rows if r['id']==self.locked_id and diagnostics.get(r['id'],'feature_ready')=='feature_ready']
+        # Late enrollment is allowed while the geometry episode remains intact.
+        # Keep the legacy two-frame appearance/position/pair-gap rules unchanged.
+        self.identity.start_time=float(t)
         if self.identity.model_id and self.identity.model_id==self.model_id:
             self.identity.consume(target,float(t),self.model_id,diagnostics)
         if self.identity.seed_count>=2:
@@ -330,7 +340,16 @@ class IdentitySupervisor:
             self._observe_lost(rows,float(t),binding_snapshot or {})
             return
         if not self.complete:
-            self._enroll(rows,float(t),diagnostics)
+            snap=binding_snapshot or {}
+            token=(snap.get('locked_id',self.locked_id),snap.get('breaks',0))
+            if self.enrollment_binding_token is not None and token!=self.enrollment_binding_token:
+                self._reset_enrollment_pair()
+            self.enrollment_binding_token=token
+            if neighbor_ambiguity:
+                self._reset_enrollment_pair()
+                self._log_template(t,'frozen','enrollment_neighbor_ambiguity',None)
+            elif geometry_state in ('bound_tracking','bound_untracked','suspect'):
+                self._enroll(rows,float(t),diagnostics)
             if (not self.complete
                     and float(t)-self.start_time>=self.c.enrollment_timeout_s):
                 self.enrollment_timed_out=True
