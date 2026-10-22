@@ -256,14 +256,23 @@ class IdentitySupervisor:
         self.end_reason=('suspect_timeout_before_enrollment' if not self.complete
                          else 'suspect_timeout_after_enrollment')
 
+    def advance_time(self,now,*,geometry_state,binding_snapshot=None):
+        """Advance lifecycle deadlines without consuming a feature timestamp."""
+        if self.end_reason:return
+        if geometry_state=='lost':
+            if not self.complete:
+                self.state='ended';self.end_reason='target_lost_before_enrollment';return
+            snap=binding_snapshot or {}
+            age=max(0.,now-snap['lost_since']) if snap.get('lost_since') is not None else float(snap.get('lost_s') or 0.)
+            self.state='searching' if age<self.c.active_search_s else 'passive_reacquire'
+            self.reason=self.state
+            if age>=self.c.release_s:
+                self.state='ended';self.end_reason='lost_task_release'
+
     def _observe_lost(self,rows,t,binding_snapshot):
-        if not self.complete:
-            self.state='ended';self.end_reason='target_lost_before_enrollment';return
+        self.advance_time(t,geometry_state='lost',binding_snapshot=binding_snapshot)
+        if self.end_reason:return
         lost_s=float(binding_snapshot.get('lost_s') or 0.)
-        self.state='searching' if lost_s<self.c.active_search_s else 'passive_reacquire'
-        self.reason=self.state
-        if lost_s>=self.c.release_s:
-            self.state='ended';self.end_reason='lost_task_release';return
         predicted=binding_snapshot.get('prediction')
         predicted=np.asarray(predicted,dtype=float) if predicted is not None else self.last_position
         if predicted is None:return

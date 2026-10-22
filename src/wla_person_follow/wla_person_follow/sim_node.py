@@ -429,9 +429,8 @@ class SimulationFollow(Node):
                                     geometry_state=binding.state,neighbor_ambiguity=neighbor_ambiguity,
                                     binding_snapshot=binding.snapshot(control_stamp))
                                 consumed_identity_frames.append(deepcopy(supervisor.snapshot(control_stamp)))
-                            if binding.state=='lost' and supervisor.last_frame_stamp<control_stamp:
-                                supervisor.observe([],control_stamp,{},geometry_state=binding.state,
-                                    binding_snapshot=binding.snapshot(control_stamp))
+                            supervisor.advance_time(control_stamp,geometry_state=binding.state,
+                                binding_snapshot=binding.snapshot(control_stamp))
                             proposal=supervisor.reacquire_proposal
                             if binding.state=='lost' and proposal is not None:
                                 accepted=binding.rebind(proposal['id'],objects,op,obs_stamp,
