@@ -652,7 +652,20 @@ class SimulationFollow(Node):
 
     def tick(self):
         with self.guard:
-            now=time.monotonic();ns=self.now_ns();state=self.core.snapshot(now)
+            now=time.monotonic();ns=self.now_ns()
+            if self.p['geometry_binding_v2'] and self.core.active and self.map_result is not None and self.map_result['key']==self.key():
+                supervision=self.map_result.get('identity_supervision') or {}
+                geometry=self.map_result.get('geometry_binding') or {}
+                since=supervision.get('suspect_since')
+                reason=None
+                if since is not None and ns/1e9-since>=self.p['suspect_timeout_s']:
+                    reason='suspect_timeout_'+('after' if supervision.get('completed_enrollment') else 'before')+'_enrollment'
+                lost_since=geometry.get('lost_since')
+                if lost_since is not None and ns/1e9-lost_since>=self.p['target_release_s']:
+                    reason='lost_task_release'
+                if reason:
+                    self.core._terminate('expired',reason);self.result=None;self.reason=reason
+            state=self.core.snapshot(now)
             result=self.result
             target_fresh,target_freshness_reason,target_observation_age=self._target_freshness_for_output(result,state,ns)
             healthy=(result is not None and result['key']==self.key() and now<result['valid_until'] and

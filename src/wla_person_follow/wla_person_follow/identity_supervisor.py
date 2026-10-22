@@ -184,7 +184,8 @@ class IdentitySupervisor:
             self.identity.consume(target,float(t),self.model_id,diagnostics)
         if self.identity.seed_count>=2:
             self.enrolled_at=float(t);self.enrollment_timed_out=False
-            self.state='tracking';self.reason='identity_verified'
+            if self.suspect_since is None:
+                self.state='tracking';self.reason='identity_verified'
             self.template_origins=['initial']*min(self.identity.seed_count,len(self.identity.gallery))
             while len(self.template_origins)<len(self.identity.gallery):self.template_origins.append('initial')
 
@@ -259,6 +260,8 @@ class IdentitySupervisor:
     def advance_time(self,now,*,geometry_state,binding_snapshot=None):
         """Advance lifecycle deadlines without consuming a feature timestamp."""
         if self.end_reason:return
+        if self.suspect_since is not None and now-self.suspect_since>=self.c.suspect_timeout_s:
+            self._suspect_timeout(now);return
         if geometry_state=='lost':
             if not self.complete:
                 self.state='ended';self.end_reason='target_lost_before_enrollment';return
@@ -304,6 +307,8 @@ class IdentitySupervisor:
             self.last_position=row['position'].copy();self.last_seen=float(t)
 
     def observe(self,rows,t,diagnostics,*,geometry_state,neighbor_ambiguity=False,binding_snapshot=None):
+        self.advance_time(float(t),geometry_state=geometry_state,binding_snapshot=binding_snapshot)
+        if self.end_reason:return
         if not math.isfinite(float(t)) or float(t)<=self.last_frame_stamp:return
         self.last_frame_stamp=float(t);self.feature_frames+=1
         diagnostics=self._sanitize_diagnostics(diagnostics)
@@ -385,7 +390,7 @@ class IdentitySupervisor:
             enrollment_timed_out=self.enrollment_timed_out,
             enrollment_completed_s=None if self.enrolled_at is None else max(0.,self.enrolled_at-self.start_time),
             suspect_type=self.suspect_type,suspect_trigger=self.suspect_trigger,
-            suspect_age_s=None if self.suspect_since is None else max(0.,float(now)-self.suspect_since),
+            suspect_since=self.suspect_since, suspect_age_s=None if self.suspect_since is None else max(0.,float(now)-self.suspect_since),
             suspect_timeout_s=self.c.suspect_timeout_s,
             similarity_window=[float(v) for v in self.window],
             similarity=self.last_similarity,quality_frames=self.quality_evidence_frames,
