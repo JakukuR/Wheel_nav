@@ -32,7 +32,7 @@ def generate_launch_description():
         DeclareLaunchArgument('python',default_value=os.environ.get('WLA_FOLLOW_PYTHON','/usr/bin/python3')),
         DeclareLaunchArgument('config',default_value=''),
         DeclareLaunchArgument('enable_motion',default_value='false'),
-        DeclareLaunchArgument('enable_reid',default_value='false'),
+        DeclareLaunchArgument('enable_reid',default_value='true'),
         DeclareLaunchArgument('output_mode',default_value='mux'),
         DeclareLaunchArgument('direct_topic',default_value='/r680_base/cmd_vel'),
         OpaqueFunction(function=launch_backend)])
