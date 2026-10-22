@@ -29,6 +29,9 @@ from .depth_proc import rotation_from_quaternion
 from .local_memory import LocalMotion
 from .relative_control import RelativeFollower
 from .reid_identity import TargetIdentity
+from .follow_config import PENDING_CALIBRATION_PARAMETERS, target_freshness_decision, validate_follow_preset
+from .geometry_binding import GeometryBinding, GeometryBindingConfig
+from .identity_supervisor import IdentitySupervisor, IdentitySupervisorConfig
 from .sim_core.common import rotation
 from .sim_core.rolling_depth_map import native_ray_slots
 from .sim_runtime import packet_from_depth, measurements_from_relative, local_points, process_step, warm_worker, worker_initializer
@@ -53,7 +56,20 @@ class SimulationFollow(Node):
             camera_front_min_valid_fraction=.35, result_ttl_s=.15, startup_clear_radius_m=0., startup_motion_threshold_m=.03,
             target_mask_enabled=True, reid_enabled=False, reid_model_id='', reid_max_lost_s=8., reid_similarity=.80,
             reid_margin=.08, reid_confirm_frames=3, local_assumed_free_radius_m=0., tof_enabled=False, tof_topics=['/r680/tof/front_left/points',
-                '/r680/tof/front_right/points','/r680/tof/rear_left/points','/r680/tof/rear_right/points'])
+                '/r680/tof/front_right/points','/r680/tof/rear_left/points','/r680/tof/rear_right/points'],
+            follow_preset='compatibility', geometry_binding_v2=False,
+            front_check_truncation_enabled=False, front_check_max_m=1.4,
+            front_check_target_offset_m=.87, binding_missing_grace_s=.20,
+            binding_jump_radius_m=.45, binding_jump_growth_mps=.25, binding_jump_radius_max_m=1.5,
+            enrollment_speed_cap_enabled=False, enrollment_speed_cap_mps=.30,
+            enrollment_timeout_s=10., supervision_window=10, suspect_negative_frames=6,
+            suspect_recovery_frames=6, suspect_timeout_s=12., neighbor_ambiguity_radius_m=1.5,
+            neighbor_clear_hold_s=.50, active_search_s=8., target_release_s=30.,
+            view_expansion_similarity=.75, view_expansion_neighbor_radius_m=1.5,
+            view_expansion_min_interval_s=1.0, view_expansion_initial_slots=2,
+            identity_supervisor_v2=False, lost_task_release=False, mask_binding_v2=False,
+            reverse_policy_v2=False, reverse_policy_allow_retreat=False, retreat_disabled=False,
+            diagnostic_v2=False)
         self.p = {k:self.declare_parameter(k,v).value for k,v in defaults.items()}
         if (self.p['output_mode'] not in ('direct','mux') or
             not 0 < self.p['max_sensor_age_s'] <= .30 or
@@ -70,8 +86,27 @@ class SimulationFollow(Node):
             not .1 <= self.p['depth_min_m'] < self.p['depth_max_m'] <= 7 or
             not 0 <= self.p['surface_to_center_offset_m'] <= .5 or
             not .25 <= self.p['camera_min_valid_fraction'] <= 1 or
-            not .35 <= self.p['camera_front_min_valid_fraction'] <= 1):
+            not .35 <= self.p['camera_front_min_valid_fraction'] <= 1 or
+            not 0 <= self.p['binding_missing_grace_s'] <= 1 or
+            not 0 < self.p['binding_jump_radius_m'] <= self.p['binding_jump_radius_max_m'] <= 2 or
+            not 0 <= self.p['binding_jump_growth_mps'] <= 1 or
+            not .1 < self.p['front_check_max_m'] <= 1.4 or
+            not 0 <= self.p['front_check_target_offset_m'] <= .95 or
+            not .1 <= self.p['enrollment_speed_cap_mps'] <= .5 or
+            not 1 <= self.p['enrollment_timeout_s'] <= 60 or
+            not 3 <= self.p['supervision_window'] <= 30 or
+            not 1 <= self.p['suspect_negative_frames'] <= self.p['supervision_window'] or
+            not 1 <= self.p['suspect_recovery_frames'] <= self.p['supervision_window'] or
+            not 1 <= self.p['suspect_timeout_s'] <= 60 or
+            not .5 <= self.p['neighbor_ambiguity_radius_m'] <= 3 or
+            not 0 <= self.p['neighbor_clear_hold_s'] <= 2 or
+            not 1 <= self.p['active_search_s'] < self.p['target_release_s'] <= 60 or
+            not .5 <= self.p['view_expansion_similarity'] <= self.p['reid_similarity'] or
+            not .5 <= self.p['view_expansion_neighbor_radius_m'] <= 3 or
+            not .1 <= self.p['view_expansion_min_interval_s'] <= 10 or
+            not 1 <= self.p['view_expansion_initial_slots'] < 8):
             raise ValueError('invalid_sim_adapter_configuration')
+        self.follow_preset=validate_follow_preset(self.p)
         self.guard = threading.RLock()
         # Only the tested request/identity/lease ledger is reused. Its old
         # proportional/local-planner tick is never called by this backend.
@@ -279,7 +314,7 @@ class SimulationFollow(Node):
             return res
 
     def compute(self):
-        next_at=0.;last_tof={};identity=None;identity_key=None
+        next_at=0.;last_tof={};identity=None;identity_key=None;binding=None;supervisor=None
         while not self.done:
             self.event.wait(.02)
             if self.done:return
@@ -298,6 +333,7 @@ class SimulationFollow(Node):
             depth_start_age_ms=(self.now_ns()-stamp_ns(msg))/1e6
             identity_status=None
             consumed_identity_frames=[]
+            enrollment_speed_cap_status=None
             try:
                 if time.monotonic()>=valid_until:raise ValueError('depth_expired_before_processing')
                 pose=motion.pose_at(stamp)
@@ -326,38 +362,118 @@ class SimulationFollow(Node):
                 if control_pose is None:raise ValueError('control_time_wheel_pose_unavailable')
                 observation=None;op=motion.pose_at(obs_stamp)
                 resolved_id=key[1];identity_status=dict(state='disabled')
+                binding_status=None;supervisor_status=None
                 if self.p['reid_enabled']:
                     if not active:
-                        identity=None;identity_key=None;identity_status=dict(state='inactive')
+                        identity=None;identity_key=None;binding=None;supervisor=None
+                        identity_status=dict(state='inactive')
                     else:
                         if identity_key!=key:
                             identity=TargetIdentity(key[1],max_lost=self.p['reid_max_lost_s'],
                                 similarity=self.p['reid_similarity'],margin=self.p['reid_margin'],
                                 confirmations=self.p['reid_confirm_frames'],model_id=self.p['reid_model_id'],start_time=control_stamp)
+                            binding=GeometryBinding(key[1],control_stamp,GeometryBindingConfig(
+                                freshness_s=self.p['max_sensor_age_s'],
+                                missing_grace_s=self.p['binding_missing_grace_s'],
+                                jump_radius_m=self.p['binding_jump_radius_m'],
+                                jump_growth_mps=self.p['binding_jump_growth_mps'],
+                                jump_radius_max_m=self.p['binding_jump_radius_max_m'],
+                                active_search_s=self.p['active_search_s'],
+                                release_s=self.p['target_release_s'],
+                                surface_to_center_offset_m=self.p['surface_to_center_offset_m']))
+                            supervisor=IdentitySupervisor(key[1],model_id=self.p['reid_model_id'],
+                                start_time=control_stamp,config=IdentitySupervisorConfig(
+                                    similarity=self.p['reid_similarity'],margin=self.p['reid_margin'],
+                                    confirmations=self.p['reid_confirm_frames'],
+                                    supervision_window=self.p['supervision_window'],
+                                    suspect_negative_frames=self.p['suspect_negative_frames'],
+                                    suspect_recovery_frames=self.p['suspect_recovery_frames'],
+                                    suspect_timeout_s=self.p['suspect_timeout_s'],
+                                    neighbor_ambiguity_radius_m=self.p['neighbor_ambiguity_radius_m'],
+                                    neighbor_clear_hold_s=self.p['neighbor_clear_hold_s'],
+                                    enrollment_timeout_s=self.p['enrollment_timeout_s'],
+                                    active_search_s=self.p['active_search_s'],
+                                    release_s=self.p['target_release_s'],
+                                    view_expansion_similarity=self.p['view_expansion_similarity'],
+                                    view_expansion_neighbor_radius_m=self.p['view_expansion_neighbor_radius_m'],
+                                    view_expansion_min_interval_s=self.p['view_expansion_min_interval_s'],
+                                    view_expansion_initial_slots=self.p['view_expansion_initial_slots']))
                             identity_key=key
-                        for batch in reid_frames:
-                            ts=batch['stamp_ns']/1e9
-                            if ts<=identity.frame_stamp or not 0<=control_stamp-ts<=.6:continue
-                            if (batch['session'],batch['epoch'])!=(key[2],key[3]) or batch.get('request_id')!=key[0]:continue
-                            bp=motion.pose_at(ts)
-                            if bp is None:continue
-                            rows=[];prefix=f'{key[2]}:{key[3]}:'
-                            for row in batch['objects']:
-                                try:
-                                    if (not row['id'].startswith(prefix) or not row['id'][len(prefix):].isdigit()
-                                            or not math.isfinite(row['yaw']) or not abs(row['yaw'])<=math.pi
-                                            or not math.isfinite(row['distance']) or not 0<row['distance']<=20):continue
-                                    d=row['distance']+self.p['surface_to_center_offset_m'];a=bp[2]+row['yaw']
-                                    rows.append(dict(id=row['id'],feature=row['feature'],
-                                        position=np.asarray(bp[:2])+d*np.array([np.cos(a),np.sin(a)])))
-                                except (ValueError,KeyError,TypeError,AttributeError):continue
-                            identity.consume(rows,ts,batch['model_id'],batch.get('diagnostics'))
-                            consumed_identity_frames.append(deepcopy(identity.candidate_frame))
-                        resolved_id=identity.select(objects,op,obs_stamp,control_stamp,self.p['surface_to_center_offset_m']) if op is not None else None
-                        identity_status=identity.snapshot(control_stamp)
+                        if self.p['geometry_binding_v2']:
+                            neighbor_ambiguity=bool(op is not None and supervisor is not None and
+                                supervisor.neighbor_near(objects,op,binding.resolved_id or key[1],
+                                    self.p['neighbor_ambiguity_radius_m'],self.p['surface_to_center_offset_m']))
+                            suspect_reason='neighbor_ambiguity' if neighbor_ambiguity else None
+                            resolved_id=binding.update(objects,op,obs_stamp,control_stamp,
+                                enrollment_complete=supervisor.complete,suspect_reason=suspect_reason)
+                            for batch in reid_frames:
+                                ts=batch['stamp_ns']/1e9
+                                if ts<=supervisor.last_frame_stamp or not 0<=control_stamp-ts<=.6:continue
+                                if (batch['session'],batch['epoch'])!=(key[2],key[3]) or batch.get('request_id')!=key[0]:continue
+                                bp=motion.pose_at(ts)
+                                if bp is None:continue
+                                rows=[];prefix=f'{key[2]}:{key[3]}:'
+                                for row in batch['objects']:
+                                    try:
+                                        if (not row['id'].startswith(prefix) or not row['id'][len(prefix):].isdigit()
+                                                or not math.isfinite(row['yaw']) or not abs(row['yaw'])<=math.pi
+                                                or not math.isfinite(row['distance']) or not 0<row['distance']<=20):continue
+                                        d=row['distance']+self.p['surface_to_center_offset_m'];a=bp[2]+row['yaw']
+                                        rows.append(dict(id=row['id'],feature=row['feature'],
+                                            position=np.asarray(bp[:2])+d*np.array([np.cos(a),np.sin(a)])))
+                                    except (ValueError,KeyError,TypeError,AttributeError):continue
+                                model_ok=batch.get('model_id')==self.p['reid_model_id']
+                                supervisor.observe(rows if model_ok else [],ts,
+                                    batch.get('diagnostics') if model_ok else {binding.resolved_id or key[1]:'feature_model_mismatch'},
+                                    geometry_state=binding.state,neighbor_ambiguity=neighbor_ambiguity,
+                                    binding_snapshot=binding.snapshot(control_stamp))
+                                consumed_identity_frames.append(deepcopy(supervisor.snapshot(control_stamp)))
+                            if binding.state=='lost' and supervisor.last_frame_stamp<control_stamp:
+                                supervisor.observe([],control_stamp,{},geometry_state=binding.state,
+                                    binding_snapshot=binding.snapshot(control_stamp))
+                            if supervisor.resolved_id!=binding.resolved_id and binding.state=='lost':
+                                candidate=(objects or {}).get(supervisor.resolved_id)
+                                if candidate is not None:
+                                    resolved_id=binding.rebind(supervisor.resolved_id,objects,op,obs_stamp,
+                                        control_stamp,enrollment_complete=supervisor.complete)
+                                    supervisor.rebind(supervisor.resolved_id,control_stamp)
+                            binding_status=binding.snapshot(control_stamp)
+                            supervisor_status=supervisor.snapshot(control_stamp)
+                            identity_status=supervisor_status
+                            if active and supervisor.end_reason:
+                                with self.guard:
+                                    if key==self.key() and self.core.active:
+                                        self.core._terminate('expired',supervisor.end_reason)
+                                        self.result=None;self.reason=supervisor.end_reason
+                                continue
+                        else:
+                            for batch in reid_frames:
+                                ts=batch['stamp_ns']/1e9
+                                if ts<=identity.frame_stamp or not 0<=control_stamp-ts<=.6:continue
+                                if (batch['session'],batch['epoch'])!=(key[2],key[3]) or batch.get('request_id')!=key[0]:continue
+                                bp=motion.pose_at(ts)
+                                if bp is None:continue
+                                rows=[];prefix=f'{key[2]}:{key[3]}:'
+                                for row in batch['objects']:
+                                    try:
+                                        if (not row['id'].startswith(prefix) or not row['id'][len(prefix):].isdigit()
+                                                or not math.isfinite(row['yaw']) or not abs(row['yaw'])<=math.pi
+                                                or not math.isfinite(row['distance']) or not 0<row['distance']<=20):continue
+                                        d=row['distance']+self.p['surface_to_center_offset_m'];a=bp[2]+row['yaw']
+                                        rows.append(dict(id=row['id'],feature=row['feature'],
+                                            position=np.asarray(bp[:2])+d*np.array([np.cos(a),np.sin(a)])))
+                                    except (ValueError,KeyError,TypeError,AttributeError):continue
+                                identity.consume(rows,ts,batch['model_id'],batch.get('diagnostics'))
+                                consumed_identity_frames.append(deepcopy(identity.candidate_frame))
+                            resolved_id=identity.select(objects,op,obs_stamp,control_stamp,self.p['surface_to_center_offset_m']) if op is not None else None
+                            identity_status=identity.snapshot(control_stamp)
 
                 if self.reid_request_pub is not None:
-                    allowed=identity.candidate_ids(objects,op,obs_stamp,control_stamp,self.p['surface_to_center_offset_m']) if active and identity is not None else []
+                    if self.p['geometry_binding_v2']:
+                        allowed=(supervisor.request_ids(objects,op,binding_snapshot=binding.snapshot(control_stamp),
+                            center_offset=self.p['surface_to_center_offset_m']) if active and supervisor is not None and op is not None else [])
+                    else:
+                        allowed=identity.candidate_ids(objects,op,obs_stamp,control_stamp,self.p['surface_to_center_offset_m']) if active and identity is not None else []
                     with self.guard:
                         if key==self.key() and active==self.core.active:
                             self.reid_request_pub.publish(String(data=json.dumps(dict(
@@ -365,22 +481,34 @@ class SimulationFollow(Node):
                                 request_id=key[0],session=key[2],epoch=key[3],allowed_ids=allowed,target_id=(resolved_id or '') if active else '',
                                 urgent=active and (resolved_id is None or identity_status.get('state')!='tracking')))))
                 if identity is not None and self.p['reid_enabled']:
-                    identity_status['candidate_request']=deepcopy(identity.request_diagnostics)
+                    identity_status['candidate_request']=(supervisor.request_ids(objects,op,
+                        binding_snapshot=binding.snapshot(control_stamp),center_offset=self.p['surface_to_center_offset_m'])
+                        if self.p['geometry_binding_v2'] and supervisor is not None and op is not None else deepcopy(identity.request_diagnostics))
                     identity_status['consumed_candidate_frames']=consumed_identity_frames
-                resolved_source=dict(source='TargetIdentity.select' if self.p['reid_enabled'] else 'task_target_reid_disabled',
-                    active=active,accepted_id=resolved_id if active else None,
-                    observation_pose_available=op is not None,
-                    selection=(deepcopy(identity.selection_diagnostics) if op is not None else
-                        dict(accepted=False,reason='select_not_called_observation_pose_unavailable')) if identity is not None else None)
+                if self.p['geometry_binding_v2'] and binding is not None:
+                    resolved_source=dict(source=('GeometryBinding.select' if self.p['reid_enabled'] else 'task_target_reid_disabled'),
+                        active=active,accepted_id=resolved_id if active else None,
+                        observation_pose_available=op is not None,
+                        selection=deepcopy(binding_status))
+                else:
+                    resolved_source=dict(source='TargetIdentity.select' if self.p['reid_enabled'] else 'task_target_reid_disabled',
+                        active=active,accepted_id=resolved_id if active else None,
+                        observation_pose_available=op is not None,
+                        selection=(deepcopy(identity.selection_diagnostics) if op is not None else
+                            dict(accepted=False,reason='select_not_called_observation_pose_unavailable')) if identity is not None else None)
                 if active and op is not None and 0<=control_stamp-obs_stamp<=self.p['max_sensor_age_s']:
                     target,people=measurements_from_relative(objects,op,resolved_id or '',self.p['surface_to_center_offset_m'])
                     observation=(obs_stamp,target,people,resolved_id)
-                # Only a currently confirmed, same-task target may alter depth.
+                # In v2 the mask follows the same-task geometry binding, not a
+                # cosmetic ReID state. Legacy mode preserves its old criteria.
                 mask_started=time.monotonic()
                 depth,mask_status=filter_target_depth(depth,mask_packet,
                     target_id=resolved_id if active else None,request_id=key[0],session=key[2],epoch=key[3],
                     depth_stamp_ns=stamp_ns(msg),frame_id=msg.header.frame_id,now_ns=self.now_ns())
                 mask_status['compute_ms']=(time.monotonic()-mask_started)*1000.
+                if self.p['mask_binding_v2']:
+                    mask_status['decision_basis']='geometry_binding'
+                    mask_status['binding_state']=None if binding_status is None else binding_status.get('state')
                 frontend_begun=time.monotonic()
                 packet=packet_from_depth(depth,(info.k[0],info.k[4],info.k[2],info.k[5]),r,trans,pose,
                     self.p['depth_min_m'],self.p['depth_max_m'],self.p['depth_stride'])
@@ -410,15 +538,30 @@ class SimulationFollow(Node):
                 self.future=self.pool.submit(process_step,(key,np.asarray(control_pose),np.array([v[0],v[2]]),packets,observation,control_stamp,
                     dict(active=active,radius=self.p['startup_clear_radius_m'],
                          motion_threshold=self.p['startup_motion_threshold_m'],
-                         local_radius=self.p['local_assumed_free_radius_m'])))
+                         local_radius=self.p['local_assumed_free_radius_m'],
+                         front_check_truncation=self.p['front_check_truncation_enabled'],
+                         front_check_max_m=self.p['front_check_max_m'],
+                         front_check_target_offset_m=self.p['front_check_target_offset_m'],
+                         retreat_disabled=self.p['retreat_disabled'],
+                         reverse_policy_v2=self.p['reverse_policy_v2'],
+                         reverse_policy_allow_retreat=self.p['reverse_policy_allow_retreat'])))
                 try:
                     result=self.future.result(timeout=self.p['result_ttl_s'])
                 except ComputeTimeout:
                     raise ValueError('compute_deadline_exceeded')
+                if (self.p['enrollment_speed_cap_enabled'] and identity_status
+                        and identity_status.get('state')=='enrolling'
+                        and result['command'][0]>self.p['enrollment_speed_cap_mps']):
+                    result['command'][0]=float(self.p['enrollment_speed_cap_mps'])
+                    enrollment_speed_cap_status=dict(applied=True,
+                        reason='background_enrollment_speed_cap',
+                        cap_mps=float(self.p['enrollment_speed_cap_mps']))
                 result.update(target_observation=observed_target(objects,key[1],obs_stamp,control_stamp),
                     resolved_target_observation=observed_target(objects,resolved_id,obs_stamp,control_stamp),
                     resolved_target_source=resolved_source,
-                    target_mask=mask_status,reid=identity_status,resolved_target_id=resolved_id if active else None,key=key,stamp_ns=stamp_ns(msg),valid_until=min(valid_until,begun+self.p['result_ttl_s']),
+                    target_mask=mask_status,reid=identity_status,geometry_binding=binding_status,enrollment_speed_cap=enrollment_speed_cap_status,
+                    identity_supervision=supervisor_status,resolved_target_id=resolved_id if active else None,
+                    key=key,stamp_ns=stamp_ns(msg),valid_until=min(valid_until,begun+self.p['result_ttl_s']),
                     frontend_ms=frontend_ms,obstacle_points=len(packet['obstacle_points']),clearing_points=len(packet['points']),
                     observation_stamp_ns=int(obs_stamp*1e9),ready_at=time.monotonic(),
                     latency=dict(depth_start_age_ms=depth_start_age_ms,frontend_ms=frontend_ms,
@@ -432,6 +575,7 @@ class SimulationFollow(Node):
                         target_observation=result['target_observation'],
                         resolved_target_observation=result['resolved_target_observation'],
                         resolved_target_source=resolved_source,reid=deepcopy(identity_status),
+                        geometry_binding=deepcopy(binding_status),identity_supervision=deepcopy(supervisor_status),
                         front_blockage=result.get('front_blockage'),planner_target=result.get('planner_target'),
                         obstacle_track_ids=result.get('obstacle_track_ids'),compute_error=None)
                     if key==self.key() and time.monotonic()<result['valid_until']:
@@ -452,7 +596,45 @@ class SimulationFollow(Node):
                     self.computation_diagnostic=dict(key=key,control_stamp_s=self.now_ns()/1e9,
                         compute_error=str(exc)[:180],front_blockage=None,target_mask=None,
                         reid=deepcopy(identity_status) if 'identity_status' in locals() else None,
+                        geometry_binding=deepcopy(binding_status) if 'binding_status' in locals() else None,
+                        identity_supervision=deepcopy(supervisor_status) if 'supervisor_status' in locals() else None,
                         details_unavailable=True)
+
+    def _target_freshness_for_output(self,result,state,ns):
+        """Apply source freshness, with v2's bounded Kalman coast grace."""
+        binding=result.get('geometry_binding') or {} if result is not None else {}
+        observation_ns=result.get('observation_stamp_ns') if result is not None else None
+        observation_age=(None if type(observation_ns) is not int
+                         else (ns-observation_ns)/1e9)
+        allowed,reason=target_freshness_decision(
+            source_fresh=state['observations_fresh'],
+            geometry_binding_v2=self.p['geometry_binding_v2'],
+            binding_state=binding.get('state'),observation_age_s=observation_age,
+            max_sensor_age_s=self.p['max_sensor_age_s'],
+            missing_grace_s=self.p['binding_missing_grace_s'])
+        return allowed,reason,observation_age
+
+    def _calibration_diagnostic(self,result):
+        binding=(result or {}).get('geometry_binding') or {}
+        supervision=(result or {}).get('identity_supervision') or {}
+        front=(result or {}).get('front_blockage') or {}
+        return dict(status='pending_calibration',
+            reason='v2_defaults_require_real_sensor_and_rosbag_replay',
+            parameters={name:self.p[name] for name in PENDING_CALIBRATION_PARAMETERS},
+            active_triggers=dict(
+                geometry_binding=dict(state=binding.get('state'),reason=binding.get('reason'),
+                    last_position_error_m=binding.get('last_position_error_m'),
+                    position_jump_limit_m=binding.get('position_jump_limit_m'),
+                    lost_s=binding.get('lost_s'),recovery_phase=binding.get('recovery_phase')),
+                identity_supervision=dict(state=supervision.get('state'),reason=supervision.get('reason'),
+                    suspect_type=supervision.get('suspect_type'),suspect_trigger=supervision.get('suspect_trigger'),
+                    suspect_age_s=supervision.get('suspect_age_s'),
+                    latest_template_update=(supervision.get('template_update_log') or [None])[-1]),
+                front_blockage=dict(reason=front.get('reason'),source=front.get('source'),
+                    effective_check_length_m=front.get('effective_check_length_m'),
+                    path_range_m=front.get('path_range_m'),
+                    nearest_block_path_distance_m=front.get('nearest_block_path_distance_m'),
+                    trigger_sample_reference_m=front.get('trigger_sample_reference_m'))))
 
     def check_direct_owner(self):
         if self.direct_pub is None:return False
@@ -468,10 +650,11 @@ class SimulationFollow(Node):
         with self.guard:
             now=time.monotonic();ns=self.now_ns();state=self.core.snapshot(now)
             result=self.result
+            target_fresh,target_freshness_reason,target_observation_age=self._target_freshness_for_output(result,state,ns)
             healthy=(result is not None and result['key']==self.key() and now<result['valid_until'] and
                 0<=(ns-result['stamp_ns'])/1e9<=self.p['max_sensor_age_s'] and
                 self.motion.healthy(ns/1e9) and now-self.wheel_received<=.20 and
-                state['observations_fresh'] and self.core.gate_enabled and state['enabled'] and not self.estop)
+                target_fresh and self.core.gate_enabled and state['enabled'] and not self.estop)
             # Report the exact existing output predicates; do not change their
             # thresholds or renew a command merely because it took long to compute.
             blockers=[]
@@ -485,11 +668,16 @@ class SimulationFollow(Node):
                 if not 0<=(ns-result['stamp_ns'])/1e9<=self.p['max_sensor_age_s']:blockers.append('depth_stale')
             if not self.motion.healthy(ns/1e9):blockers.append('wheel_motion_invalid')
             if now-self.wheel_received>.20:blockers.append('wheel_odom_stale')
-            if not state['observations_fresh']:blockers.append('target_observations_stale')
+            if not target_fresh:blockers.append(target_freshness_reason)
             if not self.core.gate_enabled:blockers.append('detector_gate_closed')
             if self.p['reid_enabled'] and state['enabled'] and result is not None:
                 identity=result.get('reid',{})
-                if identity.get('state') in ('enrolling','expired'):
+                if self.p['geometry_binding_v2']:
+                    binding=result.get('geometry_binding') or {}
+                    if binding.get('state')=='suspect' or str(identity.get('state','')).startswith('suspect_'):
+                        healthy=False
+                        blockers.append('identity_suspect_stop')
+                elif identity.get('state') in ('enrolling','expired'):
                     healthy=False
                     blockers.append(identity.get('reason','reid_identity_unconfirmed'))
             command=result['command'] if healthy else np.zeros(2)
@@ -535,6 +723,8 @@ class SimulationFollow(Node):
                 linear_mps=float(command[0]),angular_rps=float(command[1]),safety_fresh=healthy,
                 safety_reason=blockers[0] if blockers else self.reason,
                 output_blockers=blockers,planner_reason=self.reason,
+                target_freshness_reason=target_freshness_reason,
+                target_observation_age_s=target_observation_age,
                 planner_candidates=result.get('candidates',{}) if result else {},
                 result_remaining_ms=round((result['valid_until']-now)*1000.,1) if result else None,
                 reference_generation=self.motion.generation,
@@ -552,7 +742,23 @@ class SimulationFollow(Node):
                 target_mask=self.map_result.get('target_mask') if self.map_result else None,
                 reid_enabled=self.p['reid_enabled'],
                 reid=self.map_result.get('reid') if self.map_result else None,
+                geometry_binding=self.map_result.get('geometry_binding') if self.map_result else None,
+                identity_supervision=self.map_result.get('identity_supervision') if self.map_result else None,
                 resolved_target_id=self.map_result.get('resolved_target_id') if self.map_result else None,
+                resolved_target_source=self.map_result.get('resolved_target_source') if self.map_result else None,
+                calibration=self._calibration_diagnostic(result),
+                follow_preset=self.follow_preset,
+                follow_config={name:self.p[name] for name in (
+                    'geometry_binding_v2','front_check_truncation_enabled','enrollment_speed_cap_enabled',
+                    'enrollment_speed_cap_mps','identity_supervisor_v2','mask_binding_v2',
+                    'reverse_policy_v2','reverse_policy_allow_retreat','retreat_disabled',
+                    'lost_task_release','diagnostic_v2','binding_missing_grace_s',
+                    'front_check_max_m','front_check_target_offset_m','enrollment_timeout_s',
+                    'supervision_window','suspect_negative_frames','suspect_recovery_frames',
+                    'suspect_timeout_s','neighbor_ambiguity_radius_m','neighbor_clear_hold_s',
+                    'active_search_s','target_release_s','view_expansion_similarity',
+                    'view_expansion_neighbor_radius_m','view_expansion_min_interval_s',
+                    'view_expansion_initial_slots')},
                 recovery_state=result['recovery_state'] if result else 'waiting',
                 wide_offset=result['wide_offset'] if result else None,
                 frontend_ms=self.map_result.get('frontend_ms') if self.map_result else None,

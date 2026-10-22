@@ -65,6 +65,24 @@ def test_direct_output_stale_stop_and_conflict(graph):
     fixture.destroy_publisher(other)
 
 
+def test_v2_target_missing_grace_is_bounded_at_output(graph):
+    _,f,pump,received=graph
+    pump(1.1);seed(f,(.12,.05));pump(.04)
+    with f.guard:
+        f.p['geometry_binding_v2']=True;f.p['binding_missing_grace_s']=.20
+        f.core.expires_at=time.monotonic()-.01
+        f.result['geometry_binding']=dict(state='bound_coasting',reason='target_measurement_missing_grace')
+        f.result['observation_stamp_ns']=f.now_ns()-int(.40e9)
+        f.result['valid_until']=time.monotonic()+.15
+    f.result_ready.trigger();pump(.03)
+    assert received[-1][0]>.01
+    with f.guard:
+        f.result['observation_stamp_ns']=f.now_ns()-int(.51e9)
+        f.result['valid_until']=time.monotonic()+.15
+    f.result_ready.trigger();pump(.03)
+    assert received[-1]==(0.,0.)
+
+
 def test_estop_does_not_resurrect_task(graph):
     from std_srvs.srv import SetBool
     _,f,pump,received=graph;pump(1.1);seed(f);pump(.06)
@@ -232,6 +250,8 @@ def test_status_distinguishes_expired_result_from_planner_clear(graph):
     assert 'planner_result_expired' in latest['output_blockers']
     assert latest['result_remaining_ms']<0
     assert not latest['motion_permitted'] and latest['linear_mps']==0.
+    assert latest['calibration']['status']=='pending_calibration'
+    assert 'binding_missing_grace_s' in latest['calibration']['parameters']
     fixture.destroy_subscription(sub)
 
 
