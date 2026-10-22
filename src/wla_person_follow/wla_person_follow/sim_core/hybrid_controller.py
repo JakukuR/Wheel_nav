@@ -36,14 +36,14 @@ def approach_tangent(pose, command, tracks, target, radius=ROBOT_RADIUS_M):
 
 
 class HybridFollower:
-    def __init__(self, config=Tuning(), enable_recovery=True):
+    def __init__(self, config=Tuning(), enable_recovery=True, recovery_options=None):
         self.c = config
         self.fallbacks = 0
         self.calls = 0
         self.times = []
         self.failure_times = []
         self.failure_reasons = []
-        self.recovery=BlockedRecovery(config) if enable_recovery else None
+        self.recovery=BlockedRecovery(config,**(recovery_options or {})) if enable_recovery else None
         self.last_infeasible=False
 
     def command(self, pose, previous, target, velocity, history, local_map, obstacles, status):

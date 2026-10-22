@@ -66,9 +66,9 @@ def measurements_from_relative(objects, pose, target_id, center_offset=.28):
 
 class SimulationEngine:
     """Task controller owned by one worker; local map can survive task changes."""
-    def __init__(self, pose, start_time):
+    def __init__(self, pose, start_time, recovery_options=None):
         self.tuning = WideTurnTuning()
-        self.controller = HybridFollower(self.tuning)
+        self.controller = HybridFollower(self.tuning,recovery_options=recovery_options)
         self.mapping = RollingDepthMap(robot_radius=self.tuning.radius)  # same 12 m / .1 m / 12 s as demo
         self.mapping.slide(np.asarray(pose[:2]))
         self.mapping.rebuild(start_time)
@@ -175,7 +175,14 @@ def process_step(job):
     if _PROCESS_KEY != key:
         old=_PROCESS_ENGINE
         same_reference=old is not None and _PROCESS_KEY[-1]==key[-1]
-        _PROCESS_ENGINE = SimulationEngine(pose, now)
+        recovery_options=dict(
+            front_check_truncation=startup.get('front_check_truncation',False),
+            front_check_max_m=startup.get('front_check_max_m',1.4),
+            front_check_target_offset_m=startup.get('front_check_target_offset_m',.87),
+            retreat_disabled=startup.get('retreat_disabled',False),
+            reverse_policy_v2=startup.get('reverse_policy_v2',False),
+            reverse_policy_allow_retreat=startup.get('reverse_policy_allow_retreat',False))
+        _PROCESS_ENGINE = SimulationEngine(pose, now, recovery_options=recovery_options)
         # Starting/stopping a task resets target/controller state, not recent
         # obstacle evidence. A wheel reference reset still discards the map.
         if same_reference:

@@ -75,15 +75,24 @@ reference, not a motion authorization: MPC checks the swept differential arc.
 
 
 class BlockedRecovery:
-    def __init__(self,config,tuning=RecoveryTuning()):
+    def __init__(self,config,tuning=RecoveryTuning(),*,front_check_truncation=False,
+                 front_check_max_m=1.4,front_check_target_offset_m=.87,
+                 retreat_disabled=False,reverse_policy_v2=False,
+                 reverse_policy_allow_retreat=False):
         self.c=config;self.tuning=tuning;self.state='follow';self.reason=''
+        self.front_check_truncation=bool(front_check_truncation)
+        self.front_check_max_m=float(front_check_max_m)
+        self.front_check_target_offset_m=float(front_check_target_offset_m)
+        self.retreat_disabled=bool(retreat_disabled)
+        self.reverse_policy_v2=bool(reverse_policy_v2)
+        self.reverse_policy_allow_retreat=bool(reverse_policy_allow_retreat)
         self.retreat_distance=tuning.retreat_m
         self.since=0.;self.anchor=None;self.retreat_start=None;self.heading=None
         self.route=None;self.events=[];self.attempts=0;self.last_retry=-np.inf
         self.last_goal=None;self.last_infeasible=False;self.samples=[]
         self.scan_direction=1.
         self.stall_since=None;self.episode_since=None
-        self.last_seen=None;self.search=None
+        self.last_seen=None;self.search=None;self.lost_since=None
         self.front_diagnostics=dict(evaluated=False,reason="not_called")
         self.diagnostic_time=None
 
@@ -115,11 +124,13 @@ class BlockedRecovery:
         self.reason=reason
 
     def _path_samples(self,pose,target,route=None):
-        """The local route the controller is actually trying to reach.
+        """Return the supervisory path, never beyond the configured horizon.
 
         Follow measured target history or the active detour, projecting onto
-        segments rather than skipping a corner to the nearest vertex. Only
-        the next 1.4 m is a supervisory blockage test; MPC validates motion.
+        segments rather than skipping a corner to the nearest vertex.  The v2
+        option stops before the target's center so a pre-existing point on the
+        target cannot be mistaken for an obstacle on the commanded path.  The
+        surrounding obstacle checks and MPC swept-body validation are unchanged.
         """
         pose=np.asarray(pose);start=pose[:2].copy()
         if route is not None and len(route)>=2:
@@ -133,13 +144,21 @@ class BlockedRecovery:
         else:
             delta=np.asarray(target,dtype=float)-start;distance=np.linalg.norm(delta)
             if distance<1e-9:return np.empty((0,2))
-            points=np.vstack((start,start+delta*min(1.4,distance)/distance))
-        # Remove duplicate vertices and truncate by arc length.
+            points=np.vstack((start,start+delta*distance/max(distance,1e-9)))
+        # Remove duplicate vertices before measuring the route to the target.
         keep=np.r_[True,np.linalg.norm(np.diff(points,axis=0),axis=1)>1e-8]
         points=points[keep]
         if len(points)<2:return np.empty((0,2))
         seg=np.linalg.norm(np.diff(points,axis=0),axis=1);arc=np.r_[0.,np.cumsum(seg)]
-        limit=min(1.4,arc[-1]);s=np.unique(np.r_[np.arange(0.,limit,.05),arc[arc<=limit],limit])
+        limit=min(self.front_check_max_m,arc[-1])
+        if self.front_check_truncation:
+            limit=min(limit,max(0.,arc[-1]-self.front_check_target_offset_m))
+        self.front_diagnostics.update(front_check_truncation=self.front_check_truncation,
+            front_check_max_m=self.front_check_max_m,
+            front_check_target_offset_m=self.front_check_target_offset_m,
+            route_length_m=float(arc[-1]),effective_check_length_m=float(limit))
+        if limit<=1e-9:return np.empty((0,2))
+        s=np.unique(np.r_[np.arange(0.,limit,.05),arc[arc<=limit],limit])
         if len(s)==0:return np.empty((0,2))
         return np.column_stack([np.interp(s,arc,points[:,j]) for j in range(2)])
 
@@ -147,8 +166,10 @@ class BlockedRecovery:
         """Return true only when a measured obstacle intersects the travel path."""
         if target is None:target=np.asarray(pose[:2])+np.array([np.cos(pose[2]),np.sin(pose[2])])
         samples=self._path_samples(pose,target,route)
-        self.front_diagnostics=dict(evaluated=True,recovery_elapsed_s=self.diagnostic_time,
-            path_range_m=1.4,sample_step_m=.05,path_samples=len(samples),blocked=False,
+        path_diagnostics=dict(self.front_diagnostics)
+        self.front_diagnostics=dict(path_diagnostics,evaluated=True,recovery_elapsed_s=self.diagnostic_time,
+            path_range_m=path_diagnostics.get('effective_check_length_m',self.front_check_max_m),
+            sample_step_m=.05,path_samples=len(samples),blocked=False,
             source=None,person_evaluation='not_reached',nearest_block_path_distance_m=None)
         if not len(samples):
             self.front_diagnostics['reason']='empty_path';return False
@@ -223,6 +244,15 @@ class BlockedRecovery:
         if self.state in ('retreat','scan','detour') and self.episode_since is not None and t-self.episode_since>r.recovery_timeout_s:
             self.route=None;self.transition('hold',t,'recovery_timeout');return
         if target is None or status=='lost':
+            if self.lost_since is None:self.lost_since=t
+            if (self.reverse_policy_v2 and self.reverse_policy_allow_retreat
+                    and not self.retreat_disabled and self.state!='retreat'
+                    and t-self.lost_since>=r.wait_s and self.rear_clear(pose,mapping,tracks)):
+                # Candidate policy only; simulation-first preset leaves
+                # reverse_policy_allow_retreat false.  rear_clear is unchanged.
+                self.retreat_start=pose[:2].copy();self.heading=np.array([np.cos(pose[2]),np.sin(pose[2])])
+                self.episode_since=t;self.attempts+=1;self.transition('retreat',t,'target_lost_rear_clear')
+                return
             if self.state=='hold':return
             if target is not None and self.state in ('detour','scan'):
                 # Keep the local route while MPC stops translation and turns
@@ -230,6 +260,7 @@ class BlockedRecovery:
                 self.reason='target_lost_stop';return
             self.route=None;self.anchor=None
             self.transition('follow',t,'target_lost_stop');return
+        self.lost_since=None
         gap=np.linalg.norm(target-pose[:2])
         demand=gap>c.desired_gap+.25 or np.linalg.norm(velocity)>.15
         active_route=self.route if self.state=='detour' else history
@@ -298,7 +329,11 @@ class BlockedRecovery:
             if self.anchor is None or np.linalg.norm(pose[:2]-self.anchor)>.08:
                 self.anchor=pose[:2].copy();self.transition('wait',t,'front_blocked');self.since=t
             if t-self.since>=r.wait_s:
-                if self.rear_clear(pose,mapping,tracks):
+                if self.retreat_disabled:
+                    self.last_retry=t;self.transition('hold',t,'retreat_disabled')
+                elif self.reverse_policy_v2:
+                    self.last_retry=t;self.transition('hold',t,'reverse_policy_v2_no_auto_retreat')
+                elif self.rear_clear(pose,mapping,tracks):
                     self.retreat_start=pose[:2].copy();self.heading=np.array([np.cos(pose[2]),np.sin(pose[2])])
                     self.episode_since=t
                     self.attempts+=1;self.transition('retreat',t,'persistent_front_block')
