@@ -68,3 +68,9 @@ def target_freshness_decision(*, source_fresh, geometry_binding_v2,
             return True, 'geometry_binding_missing_grace'
         return False, 'target_observation_missing_grace_expired'
     return False, 'target_observations_stale'
+
+
+def validate_detection_status_topic(topic):
+    # Contract with nav_yolo_detector. Regression checks its actual publisher constant.
+    if topic!='/r680_nav/perception/status':
+        raise ValueError('detection_status_topic_mismatch: expected /r680_nav/perception/status')

@@ -30,7 +30,7 @@ from .local_memory import LocalMotion
 from .relative_control import RelativeFollower
 from .reid_identity import TargetIdentity
 from .follow_policy import PolicySnapshot
-from .follow_config import PENDING_CALIBRATION_PARAMETERS, target_freshness_decision, validate_follow_preset
+from .follow_config import PENDING_CALIBRATION_PARAMETERS, target_freshness_decision, validate_follow_preset, validate_detection_status_topic
 from .geometry_binding import GeometryBinding, GeometryBindingConfig
 from .identity_supervisor import IdentitySupervisor, IdentitySupervisorConfig
 from .sim_core.common import rotation
@@ -109,6 +109,7 @@ class SimulationFollow(Node):
             not .1 <= self.p['view_expansion_min_interval_s'] <= 10 or
             not 1 <= self.p['view_expansion_initial_slots'] < 8):
             raise ValueError('invalid_sim_adapter_configuration')
+        validate_detection_status_topic(self.p['detection_status_topic'])
         self.follow_preset=validate_follow_preset(self.p)
         self.guard = threading.RLock()
         # Only the tested request/identity/lease ledger is reused. Its old

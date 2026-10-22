@@ -6,7 +6,7 @@ person_follow:
     output_mode: mux
     direct_topic: /r680_base/cmd_vel
     relative_topic: /r680/perception/relative_objects
-    detection_status_topic: /r680/nav/perception/status
+    detection_status_topic: /r680_nav/perception/status
     depth_topic: /r680/d455/aligned_depth_to_color/image_raw
     camera_info_topic: /r680/d455/color/camera_info
     wheel_topic: /wheel/odom
