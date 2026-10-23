@@ -165,14 +165,15 @@ class NavDetector(Node):
                         and 0<=(self.ros_ns()-interest['stamp_ns'])/1e9<=.5):
                     mask_packet['request_id']=interest['request_id']
                     target_id=interest.get('target_id','')
-                    if output.masks is not None:
-                        for row in rows:
-                            if row['label']=='person' and f"{self.session}:{epoch}:{row['track_id']}"==target_id:
+                    for row in rows:
+                        if row['label']=='person' and f"{self.session}:{epoch}:{row['track_id']}"==target_id:
+                            mask_packet.update(target_id=target_id,bbox_xyxy=[float(v) for v in row['bbox_xyxy']])
+                            if output.masks is not None:
                                 from wla_r680_navigation_py.target_masks import encode_mask
                                 mask=output.masks.data[row['detection_index']].detach().cpu().numpy()>.5
                                 if mask.shape==(message.height,message.width):
-                                    mask_packet.update(target_id=target_id,bits=encode_mask(mask))
-                                break
+                                    mask_packet['bits']=encode_mask(mask)
+                            break
                 batch['_target_mask']=mask_packet
                 # Reuse the current frame's native BoxMOT embeddings. The
                 # request limits publication, not feature computation/association.

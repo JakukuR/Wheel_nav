@@ -25,6 +25,47 @@ def test_target_silhouette_only_preserves_background_and_front_object():
     assert np.isnan(result[15,15]) and np.isfinite(d).all()
 
 
+def test_v2_target_box_excludes_all_live_depth_in_box_but_not_outside():
+    d,m,p,a=fixture()
+    p['bbox_xyxy']=[8.,8.,34.,42.]
+    # A segmentation hole and a farther surface both lie in the selected box.
+    d[12,31]=1.2
+    result,status,confirmed=filter_target_depth(d,p,mode='bbox',return_confirmed=True,**a)
+    assert status['applied'] and status['source']=='target_bbox'
+    assert np.isnan(result[12,31])
+    assert np.isnan(result[20,20]) and result[20,16]==.5
+    assert np.isnan(result[9,9])  # Even uncertain background is not a live obstacle hit.
+    np.testing.assert_equal(result[~_box_region(d.shape,p['bbox_xyxy'])],d[~_box_region(d.shape,p['bbox_xyxy'])])
+    assert confirmed[20,20] and not confirmed[9,9]
+    assert not confirmed[20,16]  # Closer, non-target surface is never ghost-cleared.
+    assert status['foreground_preserved_pixels']==25
+
+
+def _box_region(shape,box):
+    region=np.zeros(shape,bool)
+    region[int(box[1]):int(box[3]),int(box[0]):int(box[2])]=True
+    return region
+
+
+def test_v2_box_works_without_segmentation_but_cannot_retire_old_hits():
+    d,m,p,a=fixture();p['bbox_xyxy']=[10,10,30,40];p['bits']=''
+    result,status,confirmed=filter_target_depth(d,p,mode='bbox',return_confirmed=True,**a)
+    assert status['applied'] and status['source']=='target_bbox'
+    assert np.isnan(result[15,15])
+    assert result[20,16]==.5
+    assert not confirmed.any()
+
+
+def test_v2_box_rejects_bad_geometry_and_stale_identity():
+    d,m,p,a=fixture();p['bbox_xyxy']=[-100,10,30,40]
+    result,status=filter_target_depth(d,p,mode='bbox',**a)
+    assert status['applied'] and status['source']=='target_segmentation'
+    np.testing.assert_equal(result[~m],d[~m])
+    p['bbox_xyxy']=[10,10,30,40];a['target_id']='other'
+    result,status=filter_target_depth(d,p,mode='bbox',**a)
+    assert not status['applied'];np.testing.assert_equal(result,d)
+
+
 @pytest.mark.parametrize('change',[{'target_id':'s:1:8'},{'target_id':None},{'request_id':'other'},
     {'epoch':2},{'session':'retired'},{'depth_stamp_ns':1_001_000_000},{'frame_id':'other'}, {'now_ns':1_301_000_000}])
 def test_lost_stale_mispaired_and_other_target_never_remove(change):

@@ -336,15 +336,19 @@ def test_mask_wire_pairs_depth_and_filters_published_cloud_preview_only(preset):
                         else:f.core.command('heartbeat','mask-task',lease_duration_s=1.,now=time.monotonic())
                 pm.publish(String(data=json.dumps(dict(schema='wla-target-mask/v1',stamp_ns=ns,depth_stamp_ns=ns,
                     session='mask',epoch=0,frame_id='mask_optical',width=64,height=48,
-                    target_id='mask:0:1',request_id='mask-task',bits=bits))))
+                    target_id='mask:0:1',request_id='mask-task',bits=bits,
+                    bbox_xyxy=[16.,6.,47.,44.]))))
             ex.spin_once(timeout_sec=.002)
             with f.guard:
                 if f.map_result and f.map_result.get('target_mask',{}).get('applied'):
                     captured=f.map_result;break
         assert captured is not None
-        assert captured['target_mask']['removed_pixels']==34*27
         if preset=='first_batch_v2':
+            assert captured['target_mask']['removed_pixels']==38*31
+            assert captured['target_mask']['source']=='target_bbox'
             assert captured['target_mask']['target_ghost_points']>0
+        else:
+            assert captured['target_mask']['removed_pixels']==34*27
         assert captured['obstacle_points']>0  # Background remains measured.
         assert f.direct_pub is None and not f.p['enable_motion']
     finally:

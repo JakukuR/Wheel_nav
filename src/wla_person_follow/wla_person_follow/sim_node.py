@@ -70,7 +70,7 @@ class SimulationFollow(Node):
             view_expansion_min_interval_s=1.0, view_expansion_initial_slots=2,
             identity_supervisor_v2=False, lost_task_release=False, mask_binding_v2=False,
             reverse_policy_v2=False, reverse_policy_allow_retreat=False, retreat_disabled=False,
-            diagnostic_v2=False,target_ghost_clear_enabled=False,
+            diagnostic_v2=False,target_ghost_clear_enabled=False,target_bbox_filter_enabled=False,
             target_ghost_clear_radius_m=.35,target_ghost_clear_ttl_s=.5)
         self.p = {k:self.declare_parameter(k,v).value for k,v in defaults.items()}
         if (self.p['output_mode'] not in ('direct','mux') or
@@ -519,9 +519,11 @@ class SimulationFollow(Node):
                 # cosmetic ReID state. Legacy mode preserves its old criteria.
                 mask_started=time.monotonic()
                 original_depth=depth
-                depth,mask_status=filter_target_depth(depth,mask_packet,
+                depth,mask_status,confirmed_target_mask=filter_target_depth(depth,mask_packet,
                     target_id=resolved_id if active else None,request_id=key[0],session=key[2],epoch=key[3],
-                    depth_stamp_ns=stamp_ns(msg),frame_id=msg.header.frame_id,now_ns=self.now_ns())
+                    depth_stamp_ns=stamp_ns(msg),frame_id=msg.header.frame_id,now_ns=self.now_ns(),
+                    mode='bbox' if self.p['target_bbox_filter_enabled'] else 'segmentation',return_confirmed=True)
+                mask_status['bbox_filter_enabled']=self.p['target_bbox_filter_enabled']
                 mask_status['compute_ms']=(time.monotonic()-mask_started)*1000.
                 if self.p['mask_binding_v2']:
                     mask_status['decision_basis']='geometry_binding'
@@ -529,16 +531,15 @@ class SimulationFollow(Node):
                 frontend_begun=time.monotonic()
                 packet=packet_from_depth(depth,(info.k[0],info.k[4],info.k[2],info.k[5]),r,trans,pose,
                     self.p['depth_min_m'],self.p['depth_max_m'],self.p['depth_stride'])
-                # Retire only cells touched by this acquisition's confirmed
-                # target silhouette.  The radius limits those points; it never
-                # carves an unobserved disk around a tracked coordinate.
+                # The full box is omitted from live cloud, but only the
+                # independently confirmed silhouette may retire old map hits.
                 target_points=np.empty((0,3),dtype=float)
                 ghost_reason=('disabled' if not self.p['target_ghost_clear_enabled'] else
-                    'mask_not_applied' if not mask_status['applied'] else
+                    'no_mask_confirmed_target_pixels' if not np.any(confirmed_target_mask) else
                     'target_geometry_not_synchronized' if observation is None or observation[1] is None or abs(obs_stamp-stamp)>.05
                     else 'mask_confirmed')
                 if ghost_reason=='mask_confirmed':
-                    removed_depth=np.where(np.isfinite(original_depth)&~np.isfinite(depth),original_depth,np.nan)
+                    removed_depth=np.where(confirmed_target_mask,original_depth,np.nan)
                     target_points=target_points_from_removed_depth(removed_depth,
                         (info.k[0],info.k[4],info.k[2],info.k[5]),r,trans,pose,
                         observation[1],radius=self.p['target_ghost_clear_radius_m'],stride=self.p['depth_stride'],

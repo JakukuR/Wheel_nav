@@ -277,5 +277,28 @@ def test_native_features_reused_and_masks_keep_detector_index_and_stamp(fixture)
     assert len(reid[-1]['objects'][0]['feature'])==512
     assert reid[-1]['stamp_ns']==mask[-1]['depth_stamp_ns']==raw[-1]['stamp_ns']
     assert mask[-1]['request_id']=='mask-task' and mask[-1]['target_id']==ident
+    assert mask[-1]['bbox_xyxy']==[30.,20.,75.,110.]
     assert decode_mask(mask[-1]['bits'],120,160).sum()==90*45
     assert '_reid' not in raw[-1] and '_target_mask' not in raw[-1]
+
+
+def test_target_box_is_published_when_segmentation_is_missing(fixture):
+    node,_,raw,_=fixture
+    msg=rgb(node)
+    geometry(node)
+    for item in (node.depths[-1],node.infos[-1]):item.header=msg.header
+    row=dict(track_id=4,label='person',confidence=.9,
+             bbox_xyxy=[12.,8.,42.,44.],detection_index=0)
+    node.runtime.process=lambda *a,**kw:(NS(masks=None),[row])
+    ident=f'{node.session}:{node.epoch}:4'
+    node.mask_interest=dict(schema='wla-reid-request/v1',stamp_ns=node.ros_ns(),enabled=True,
+        request_id='mask-task',session=node.session,epoch=node.epoch,
+        target_id=ident,allowed_ids=[ident])
+    masks=[]
+    class Pub:
+        def publish(self,m):masks.append(json.loads(m.data))
+    node.mask_pub=Pub()
+    node.on_image(msg);drain_until(node,lambda:bool(masks))
+    assert raw and masks[-1]['target_id']==ident
+    assert masks[-1]['bbox_xyxy']==row['bbox_xyxy']
+    assert masks[-1]['bits']==''

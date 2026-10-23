@@ -1,7 +1,8 @@
-"""Bounded target mask wire format and exact RGB/aligned-depth pairing.
+"""Bounded target mask/box wire format and exact RGB/aligned-depth pairing.
 
-No mask predicts free space. Removed pixels produce neither obstacle hits nor
-clearing rays; missing/invalid/expired masks leave the original depth intact.
+Filtered pixels do not predict free space. Removed pixels produce neither
+obstacle hits nor clearing rays; only mask-confirmed target pixels may retire
+old hits. Missing/invalid/expired target packets leave depth unchanged.
 """
 import base64
 import zlib
@@ -26,33 +27,85 @@ def decode_mask(bits,height,width):
     return np.unpackbits(np.frombuffer(data,dtype=np.uint8),count=height*width).reshape(height,width).astype(bool)
 
 
-def filter_target_depth(depth,packet,*,target_id,request_id,session,epoch,depth_stamp_ns,frame_id,now_ns):
+def filter_target_depth(depth,packet,*,target_id,request_id,session,epoch,depth_stamp_ns,frame_id,now_ns,
+                        mode='segmentation',return_confirmed=False):
+    """Drop same-frame target pixels; only mask-confirmed pixels may retire old hits.
+
+    In bbox mode the full current target box is considered, while a distinctly
+    nearer surface remains an obstacle. This does not certify free space.
+    """
     status=dict(applied=False,removed_pixels=0,reason='no_confirmed_target_mask')
-    if not packet or not target_id:return depth,status
+    confirmed=np.zeros(depth.shape,dtype=bool)
+    def finish(result):
+        return (result,status,confirmed) if return_confirmed else (result,status)
+    if mode not in ('segmentation','bbox'):raise ValueError('invalid_target_filter_mode')
+    if not packet or not target_id:return finish(depth)
     if (packet.get('schema')!='wla-target-mask/v1' or packet.get('target_id')!=target_id
             or packet.get('request_id')!=request_id or packet.get('session')!=session or packet.get('epoch')!=epoch
             or packet.get('depth_stamp_ns')!=depth_stamp_ns or packet.get('frame_id')!=frame_id
             or not 0<=(now_ns-packet.get('stamp_ns',0))/1e9<=.30
             or abs(packet['stamp_ns']-depth_stamp_ns)>35_000_000
             or (packet.get('height'),packet.get('width'))!=depth.shape):
-        status['reason']='mask_identity_or_stamp_mismatch';return depth,status
-    if not packet.get('bits'):return depth,status
-    try:
-        mask=decode_mask(packet['bits'],packet['height'],packet['width'])
-    except (ValueError,TypeError,zlib.error):
-        status['reason']='invalid_mask_payload';return depth,status
-    # Use the actual silhouette, not its box or an eroded rim that would
-    # leave target-outline points marked as persistent obstacles.
-    valid=mask&np.isfinite(depth)&(depth>0)
-    # Disconnected depths inside a silhouette can be foreground objects or
-    # background leaks. Only the dominant target surface band is removed.
-    if np.count_nonzero(valid)<10:
-        status['reason']='insufficient_target_depth';return depth,status
-    median=float(np.median(depth[valid]))
-    valid &= np.abs(depth-median)<=.35
-    result=depth.copy();result[valid]=np.nan
-    status.update(applied=True,removed_pixels=int(np.count_nonzero(valid)),reason='current_target_segmentation',surface_depth_m=median)
-    return result,status
+        status['reason']='mask_identity_or_stamp_mismatch';return finish(depth)
+    if packet.get('bits'):
+        try:
+            mask=decode_mask(packet['bits'],packet['height'],packet['width'])
+        except (ValueError,TypeError,zlib.error):
+            status['reason']='invalid_mask_payload'
+        else:
+            valid=mask&np.isfinite(depth)&(depth>0)
+            # Only the dominant target surface band can retire old map hits.
+            if np.count_nonzero(valid)>=10:
+                median=float(np.median(depth[valid]))
+                confirmed=valid&(np.abs(depth-median)<=.35)
+                status['surface_depth_m']=median
+            else:
+                status['reason']='insufficient_target_depth'
+    if mode=='bbox':
+        box=packet.get('bbox_xyxy')
+        if isinstance(box,(list,tuple)) and len(box)==4:
+            try:
+                x1,y1,x2,y2=(float(v) for v in box)
+                h,w=depth.shape
+                if (all(np.isfinite((x1,y1,x2,y2))) and 0<=x1<x2<=w and 0<=y1<y2<=h):
+                    region=np.zeros(depth.shape,dtype=bool)
+                    ix1,iy1,ix2,iy2=int(np.floor(x1)),int(np.floor(y1)),int(np.ceil(x2)),int(np.ceil(y2))
+                    region[iy1:iy2,ix1:ix2]=True
+                    reference=status.get('surface_depth_m')
+                    reference_source='target_segmentation' if reference is not None else 'bbox_center'
+                    if reference is None:
+                        # Broad center patch is less sensitive to one small
+                        # foreground object than a single center depth pixel.
+                        xs=ix1+(ix2-ix1)//4;xe=ix2-(ix2-ix1)//4
+                        ys=iy1+(iy2-iy1)//4;ye=iy2-(iy2-iy1)//4
+                        center=depth[ys:ye,xs:xe]
+                        samples=center[np.isfinite(center)&(center>0)]
+                        if len(samples)>=10:reference=float(np.median(samples))
+                    if reference is None:
+                        status['reason']='insufficient_bbox_depth'
+                        return finish(depth)
+                    present=region&np.isfinite(depth)&(depth>0)
+                    near=present&(depth<reference-.35)
+                    remove=present&~near
+                    if np.any(remove):
+                        confirmed &= remove
+                        result=depth.copy();result[remove]=np.nan
+                        status.update(applied=True,removed_pixels=int(np.count_nonzero(remove)),
+                                      confirmed_pixels=int(np.count_nonzero(confirmed)),
+                                      foreground_preserved_pixels=int(np.count_nonzero(near)),
+                                      reference_depth_m=reference,reference_source=reference_source,
+                                      reason='current_target_bbox',source='target_bbox')
+                        return finish(result)
+            except (TypeError,ValueError,OverflowError):
+                pass
+        status['reason']='invalid_or_missing_target_bbox'
+    if np.any(confirmed):
+        result=depth.copy();result[confirmed]=np.nan
+        status.update(applied=True,removed_pixels=int(np.count_nonzero(confirmed)),
+                      confirmed_pixels=int(np.count_nonzero(confirmed)),
+                      reason='current_target_segmentation',source='target_segmentation')
+        return finish(result)
+    return finish(depth)
 
 
 class MaskDepthPairer:

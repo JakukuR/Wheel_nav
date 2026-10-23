@@ -8,6 +8,7 @@ NEW_PRESET_FLAGS = (
     'reverse_policy_v2',
     'diagnostic_v2',
     'target_ghost_clear_enabled',
+    'target_bbox_filter_enabled',
 )
 
 PENDING_CALIBRATION_PARAMETERS = (

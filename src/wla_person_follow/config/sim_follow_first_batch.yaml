@@ -37,6 +37,7 @@ person_follow:
     diagnostic_v2: true
     front_check_truncation_enabled: true
     target_ghost_clear_enabled: true
+    target_bbox_filter_enabled: true
     target_ghost_clear_radius_m: 0.35
     target_ghost_clear_ttl_s: 0.50
 
