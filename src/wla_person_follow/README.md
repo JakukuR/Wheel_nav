@@ -1,3 +1,9 @@
+# 当前人物跟随入口
+
+默认 `backend=sim` 使用 `tracker_follow`：选 ID → 同帧目标点云屏蔽 → MPC 跟随；ReID 只负责后台模板收集和丢失恢复。丢失后预测 2 秒，随后前往最后真实位置并按消失前运动方向搜索；速度不可靠时使用最后观测方位。详见 [当前链路与状态机](docs/tracker_follow.md)。
+
+以下为仍提供 `approach_interact` 的 **legacy 后端文档**；其中的距离、身份及规划描述不适用于上述默认跟随后端。
+
 > 2026-10-21 当前感知链路：YOLOE-26s-seg + BoxMOT 原生 BoT-SORT/OSNet/SOF CMC；复用人物特征，按已确认目标掩码滤除当前点云。独立 ReID 进程已删除。详见 `wla_r680_navigation/docs/BOXMOT_MIGRATION.md`，以下旧测量仅表示当时版本。
 
 # Relative person approach and follow

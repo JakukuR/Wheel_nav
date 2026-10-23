@@ -1,3 +1,5 @@
+> 2026-10-23：当前配置与状态机以 [tracker_follow.md](docs/tracker_follow.md) 为准。旧 first_batch/compatibility preset 已删除。必须同时更新检测端目标掩码协议与 follower；本轮源码修改不会自动重启运行进程。
+
 > 2026-10-21 当前感知链路：YOLOE-26s-seg + BoxMOT 原生 BoT-SORT/OSNet/SOF CMC；复用人物特征，按已确认目标掩码滤除当前点云。独立 ReID 进程已删除。详见 `wla_r680_navigation/docs/BOXMOT_MIGRATION.md`，以下旧测量仅表示当时版本。
 
 # close-wide-flex vehicle port — 2026-10-20

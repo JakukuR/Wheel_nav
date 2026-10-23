@@ -71,7 +71,7 @@ window.TopdownView = (() => {
     const identity=follow.reid, binding=follow.geometry_binding, supervision=follow.identity_supervision;
     const reidText=identity&&identity.state!=='disabled'?` · ReID ${identity.state}${Number.isFinite(identity.lost_s)?' · 未核验 '+identity.lost_s.toFixed(1)+' s':''}`:'';
     const bindingText=binding?.state?` · 几何 ${binding.state}${binding.reason?`(${binding.reason})`:''}`:'';
-    const supervisionText=supervision?.state?` · ReID监督 ${supervision.state}${supervision.reason?`(${supervision.reason})`:''}`:'';
+    const supervisionText=supervision?.state?` · ReID恢复旁路 ${supervision.state}${supervision.reason?`(${supervision.reason})`:''}`:'';
     el('topFollow').textContent=follow.state?`${follow.state} · ${follow.safety_reason||'—'}${velocity}${bindingText}${supervisionText||reidText}`:'暂无新鲜跟随状态';
     const states=el('topLayers'),entries=(top?.layers||[]).map(l=>[l.id,`${l.label}：${l.reason==='ok'?`${l.count} 个 · ${l.age_ms} ms 前`:l.reason}`]);
     entries.push(['objects',`目标观测：${top?.objects_reason||'等待数据'}${top?.objects_age_ms===undefined?'':` · ${top.objects_age_ms} ms 前`}`]);

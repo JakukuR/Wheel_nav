@@ -4,6 +4,7 @@ Engineering sampling MPC; NOT the paper's ACADOS NMPC or upstream ROG-Map.
 No scene, true obstacle geometry, or invisible target truth is accepted here.
 """
 import time
+from dataclasses import replace
 import numpy as np
 from .common import Tuning, wrap, ROBOT_RADIUS_M
 from .common import rotation
@@ -36,8 +37,9 @@ def approach_tangent(pose, command, tracks, target, radius=ROBOT_RADIUS_M):
 
 
 class HybridFollower:
-    def __init__(self, config=Tuning(), enable_recovery=True, recovery_options=None):
+    def __init__(self, config=Tuning(), enable_recovery=True, recovery_options=None, direct_tracking=False):
         self.c = config
+        self.direct_tracking = direct_tracking
         self.fallbacks = 0
         self.calls = 0
         self.times = []
@@ -49,16 +51,29 @@ class HybridFollower:
     def command(self, pose, previous, target, velocity, history, local_map, obstacles, status, policy=None, policy_time=None):
         start = time.perf_counter()
         c = self.c
+        searching=self.direct_tracking and status in ('search_last_seen','search_heading')
+        scanning_heading=self.direct_tracking and status=='search_heading'
+        if searching:
+            # This is a historical waypoint, not a physical person to stand off from.
+            arrival=policy.search_arrival_m if policy is not None else .35
+            c=replace(c,desired_gap=arrival,target_stop_gap=arrival,target_hard_gap=0.,
+                      target_clearance_max=0.,max_v=min(c.max_v,.20),wide_turn=False)
         recovery=self.recovery
         wide=None
         if getattr(c,'wide_turn',False) and status!='lost':
             source=recovery.route if recovery is not None and recovery.state=='detour' and recovery.route is not None else history
             wide=outside_reference(pose,source,target,local_map,obstacles,c)
         travel_history=wide['path'] if wide is not None else history
-        if recovery is not None:
+        if recovery is not None and not self.direct_tracking:
             recovery.last_infeasible=self.last_infeasible
             recovery.update(pose,previous,target,velocity,local_map,obstacles,status,self.calls*c.step,
                             history=travel_history)
+        if self.direct_tracking and recovery is not None:
+            recovery.state=status if searching else 'follow'
+            recovery.reason=(status if searching else 'geometry_unavailable' if status=='lost'
+                             else 'tracker_prediction' if status=='coast' else 'tracker_follow')
+            recovery.search=None;recovery.route=None
+            recovery.front_diagnostics=dict(evaluated=False,reason='mpc_owns_collision_decision')
         state='follow' if recovery is None else recovery.state
         retreat=state=='retreat'
         holding=state in ('wait','hold')
@@ -74,7 +89,7 @@ class HybridFollower:
             target = pose[:2] + rotation(pose[2]) @ np.array([1.6, 0.])
         if lost:
             velocity = np.zeros(2)
-        yielding=rear_yield_plan(pose,target,local_map,obstacles,c) if not lost and wide is None and state in ('follow','wait','hold') else None
+        yielding=rear_yield_plan(pose,target,local_map,obstacles,c) if not self.direct_tracking and not lost and wide is None and state in ('follow','wait','hold') else None
         self.last_yield=bool(yielding)
         if yielding:holding=False
         comfort=getattr(c,'smooth_reference',False) and comfort_allowed(pose,previous,obstacles,c)
@@ -119,6 +134,10 @@ class HybridFollower:
             speeds[:]=0.
         if yielding:speeds=np.linspace(0.,.15,10);offsets=np.zeros(10)
         if lost:speeds[:]=0.;offsets[:]=0.
+        search_heading=None
+        if scanning_heading and policy is not None and policy.search_heading is not None:
+            phase=0. if policy.search_started is None else max(0.,policy_time-policy.search_started)
+            search_heading=policy.search_heading+.60*np.sin(2*np.pi*phase/8.)
         policy_stop=policy is not None and not policy.translation_allowed(policy_time)
         if policy_stop:speeds[:]=0.
         count = len(speeds)
@@ -152,6 +171,8 @@ class HybridFollower:
             if holding and not lost:want_w=np.zeros(count)
             if lost and search is not None:
                 want_w=np.zeros(count) if search['expired'] else np.clip(want_w,-.3,.3)
+            if search_heading is not None:
+                want_w=np.clip(2.*wrap(search_heading-states[:,2])+.25*offsets,-.3,.3)
             if policy_stop and not policy.active_search(policy_time):want_w=np.zeros(count)
             if scanning and not lost:
                 scan_offset=recovery.scan_direction*.60*np.sin(2*np.pi*(self.calls*c.step-recovery.since)/recovery.tuning.scan_s)
@@ -215,6 +236,7 @@ class HybridFollower:
                 clearance=np.minimum(clearance,person_clear)
             minimum=np.minimum(minimum,clearance)
             angle=wrap(np.arctan2(goal[1]-states[:,1],goal[0]-states[:,0])-states[:,2])
+            if search_heading is not None:angle=wrap(search_heading-states[:,2])
             if tau<=.6:near_fov &= np.abs(angle)<=(c.camera_half_angle if detour or wide is not None else c.central_half_angle)
             gap=np.linalg.norm(goal-states[:,:2],axis=1)
             safe &= gap >= getattr(c,'target_hard_gap',.8)

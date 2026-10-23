@@ -89,9 +89,9 @@ def measurements_from_relative(objects, pose, target_id, center_offset=.28, *, t
 
 class SimulationEngine:
     """Task controller owned by one worker; local map can survive task changes."""
-    def __init__(self, pose, start_time, recovery_options=None):
+    def __init__(self, pose, start_time, recovery_options=None, direct_tracking=False):
         self.tuning = WideTurnTuning()
-        self.controller = HybridFollower(self.tuning,recovery_options=recovery_options)
+        self.controller = HybridFollower(self.tuning,recovery_options=recovery_options,direct_tracking=direct_tracking)
         self.mapping = RollingDepthMap(robot_radius=self.tuning.radius)  # same 12 m / .1 m / 12 s as demo
         self.mapping.slide(np.asarray(pose[:2]))
         self.mapping.rebuild(start_time)
@@ -102,7 +102,7 @@ class SimulationEngine:
         self.map_stamp = -math.inf
         self.start_time = start_time
 
-    def step(self, pose, previous, packets, observation, now, policy=None):
+    def step(self, pose, previous, packets, observation, now, policy=None, tracker_snapshot=None):
         for stamp, packet in sorted(packets, key=lambda item: item[0]):
             if stamp > self.map_stamp:
                 self.mapping.update(packet, pose, stamp, rebuild=False)
@@ -116,23 +116,31 @@ class SimulationEngine:
             if len(observation)>3 and target is not None and not (len(observation)>4 and observation[4]):
                 self.people.tracks.pop(observation[3],None)  # Rebound target is not a bystander.
             if self.last_measurement < stamp <= now:
-                self.target.update(target, stamp)
+                if tracker_snapshot is None:self.target.update(target, stamp)
                 self.people.update(people, pose, stamp)
                 self.last_measurement = stamp
                 visible = target is not None
         # Predict copies to control time; delayed observations never update an
         # already future-propagated filter. Accepted history stays in the original.
-        estimate, velocity, state = deepcopy(self.target).update(None, now)
         tracks = deepcopy(self.people).update({}, pose, now)
-        if visible and state != 'lost':
-            state = 'visible'
-        if policy is not None and not policy.translation_allowed(now):
-            state='lost'
+        if tracker_snapshot is None:
+            estimate, velocity, state = deepcopy(self.target).update(None, now)
+            history=self.target.history
+            if visible and state != 'lost':state='visible'
+            if policy is not None and not policy.translation_allowed(now):state='lost'
+        else:
+            binding_state=tracker_snapshot['state']
+            value=tracker_snapshot['position'] if binding_state.startswith('search_') else tracker_snapshot['prediction']
+            estimate=None if value is None else np.asarray(value,dtype=float)
+            velocity=np.asarray(tracker_snapshot['velocity_mps'],dtype=float)
+            history=[np.asarray(p,dtype=float) for p in tracker_snapshot['history']] or [np.asarray(pose[:2])]
+            state={'tracking':'visible','coasting':'coast'}.get(binding_state,binding_state)
+            if state in ('binding','holding'):state='lost'
         # Recovery uses real elapsed time, not the number of surviving callbacks.
         self.controller.calls = max(0., (now-self.start_time)/self.tuning.step)
         self.controller.recovery.diagnostic_map_time=now
         command = self.controller.command(np.asarray(pose), np.asarray(previous),
-            estimate, velocity, self.target.history, self.mapping, tracks, state, policy=policy, policy_time=now)
+            estimate, velocity, history, self.mapping, tracks, state, policy=policy, policy_time=now)
         if not np.isfinite(command).all():
             raise ValueError('nonfinite_core_command')
         recovery = self.controller.recovery
@@ -158,12 +166,12 @@ class SimulationEngine:
                     recovery_state=recovery.state, reason=reason,
                     wide_offset=self.controller.last_wide['offset'] if self.controller.last_wide else None,
                     rear_yield=self.controller.last_yield,
-                    tuning=asdict(self.tuning), path=np.asarray(self.target.history),
+                    tuning=asdict(self.tuning), path=np.asarray(history),
                     candidates=self.controller.last_candidates,
                     front_blockage=dict(self.controller.recovery.front_diagnostics,control_stamp_s=now),
                     planner_target=dict(position_reference_m=None if estimate is None else np.asarray(estimate).tolist(),
                         velocity_reference_mps=np.asarray(velocity).tolist(),state=state,
-                        last_measurement_stamp_s=None if not math.isfinite(self.last_measurement) else self.last_measurement),
+                        last_measurement_stamp_s=tracker_snapshot['last_seen'] if tracker_snapshot is not None else None if not math.isfinite(self.last_measurement) else self.last_measurement),
                     obstacle_track_ids=[o.get('id') for o in tracks])
 
 
@@ -208,7 +216,7 @@ def process_step(job):
             retreat_disabled=startup.get('retreat_disabled',False),
             reverse_policy_v2=startup.get('reverse_policy_v2',False),
             reverse_policy_allow_retreat=startup.get('reverse_policy_allow_retreat',False))
-        _PROCESS_ENGINE = SimulationEngine(pose, now, recovery_options=recovery_options)
+        _PROCESS_ENGINE = SimulationEngine(pose, now, recovery_options=recovery_options,direct_tracking=startup.get('direct_tracking',False))
         # Starting/stopping a task resets target/controller state, not recent
         # obstacle evidence. A wheel reference reset still discards the map.
         if same_reference:
@@ -237,7 +245,7 @@ def process_step(job):
         if moved:
             prior['motion_started_s']=now
             prior['expires_s']=now+engine.mapping.ttl
-    result = engine.step(pose, previous, packets, observation, now, policy=startup.get('policy_snapshot'))
+    result = engine.step(pose, previous, packets, observation, now, policy=startup.get('policy_snapshot'),tracker_snapshot=startup.get('tracker_snapshot'))
     prior=dict(_PROCESS_STARTUP_PRIOR) if _PROCESS_STARTUP_PRIOR else None
     if prior is not None:
         if prior['reference_generation']!=key[-1]:

@@ -1,3 +1,5 @@
+> 历史设计记录：注册等待、ReID 超时及身份否决逻辑已删除。当前实现见 [tracker_follow.md](tracker_follow.md)，ReID 仅作为恢复旁路。
+
 # Target-only ReID and bounded identity recovery — 2026-10-20
 
 Requested policy: extract appearance only for the explicitly selected target.

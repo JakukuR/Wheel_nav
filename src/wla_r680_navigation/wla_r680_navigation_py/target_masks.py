@@ -128,13 +128,14 @@ class MaskDepthPairer:
         self.masks[stamp]=packet
         while len(self.masks)>16:self.masks.popitem(last=False)
 
-    def take(self,now_ns,active):
+    def take(self,now_ns,active,*,require_mask=False):
         ready=[s for s in self.depths if s>self.last and 0<=(now_ns-s)/1e9<=.30
-               and (not active or s in self.masks or now_ns-s>=120_000_000)]
+               and (not active or s in self.masks or (not require_mask and now_ns-s>=120_000_000))]
         if not ready:return None
         # Prefer the newest paired frame; an unpaired newer frame waits only
         # for its own bounded deadline, never reuses the previous segmentation.
-        stamp=max(ready);payload=self.depths[stamp];mask=self.masks.get(stamp)
+        paired=[s for s in ready if s in self.masks]
+        stamp=max(paired if active and paired else ready);payload=self.depths[stamp];mask=self.masks.get(stamp)
         self.last=stamp
         for cache in (self.depths,self.masks):
             for key in list(cache):

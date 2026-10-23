@@ -7,7 +7,6 @@ from wla_person_follow.diagnostics import finite_json, occupancy_source, front_d
 from wla_person_follow.sim_core.rolling_depth_map import RollingDepthMap
 from wla_person_follow.sim_core.wide_turn import WideTurnTuning
 from wla_person_follow.sim_core.blocked_recovery import BlockedRecovery
-from wla_person_follow.reid_identity import TargetIdentity
 from wla_person_follow.status_recorder import make_handler
 
 
@@ -39,36 +38,8 @@ def test_static_short_circuit_source_and_independent_nearest_scan():
     assert r.front_diagnostics['all_sources_scan']['nearest_block_source']['id']=='person'
 
 
-def test_no_measurement_or_expired_frame_does_not_invent_scores():
-    identity=TargetIdentity('s:1:2',model_id='fixture')
-    feature=np.eye(1,512,0).ravel()
-    row=dict(id='s:1:2',feature=feature,position=[2.,0.])
-    for t in [.1,.2]:identity.consume([row],t,'fixture',{'s:1:2':'feature_ready'})
-    old_seen=identity.last_seen
-    identity.consume([], .3,'fixture',{'s:1:2':'low_confidence'})
-    d=identity.snapshot(.3)['candidate_frame']['candidates'][0]
-    assert d['quality']=='low_confidence' and d['similarity'] is None
-    assert not d['evaluated'] and identity.last_seen==old_seen and identity.state=='searching'
-    identity.consume([row],9.,'fixture',{'s:1:2':'feature_ready'})
-    d=identity.snapshot(9.)['candidate_frame']['candidates'][0]
-    assert d['reason']=='identity_expired_no_evaluation' and d['similarity'] is None
-    count=identity.feature_frames
-    identity.consume([row],10.,'fixture',{'s:1:2':'feature_ready'})
-    assert identity.feature_frames==count+1 and identity.last_seen==old_seen
 
 
-def test_candidate_scores_and_rejections_are_per_acquisition_frame():
-    identity=TargetIdentity('s:1:2',model_id='fixture')
-    f=np.eye(1,512,0).ravel();other=np.eye(1,512,1).ravel()
-    row=dict(id='s:1:2',feature=f,position=[2.,0.])
-    for t in [.1,.2]:identity.consume([row],t,'fixture')
-    identity.consume([dict(row,id='far',position=[5.,0.]),dict(row,id='wrong',feature=other)],1.,'fixture')
-    entries={r['id']:r for r in identity.candidate_frame['candidates']}
-    assert identity.candidate_frame['stamp_s']==1.
-    assert entries['far']['reason']=='position_outside_gate' and entries['far']['similarity']==1.
-    assert entries['wrong']['reason']=='appearance_below_threshold' and entries['wrong']['similarity']==0.
-    assert identity.select({},np.zeros(3),1.,1.) is None
-    assert identity.selection_diagnostics['reason']=='identity_not_tracking_or_stale'
 
 
 def test_missing_target_and_nonfinite_diagnostics_are_explicit():

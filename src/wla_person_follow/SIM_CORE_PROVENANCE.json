@@ -12,5 +12,9 @@
     "common.py": "stable_follow.py:Tuning,wrap; simulate.py:rotation",
     "tracking.py": "hybrid_follow.py:VisualTrack,PeopleTracks"
   },
-  "changes": "Relative imports only for the six complete source files; no algorithm changes."
+  "changes": "Baseline hashes above identify the original simulation extraction, not current file contents. Runtime adaptations include native map/frontend, tracker-owned observations and bounded prediction, and direct MPC follow/search without the legacy recovery pre-gate.",
+  "tracker_mainline_20261023": {
+    "hybrid_controller.py": "8d3c52b6ec4aeeb68840b038093e0f168890aad166dcd5474cbddc8e36bc8a37",
+    "tracking.py": "f4fbb4e5acf41100bec155fbb2c022978f6a0941368e43c3fa5350d23d1e161c"
+  }
 }

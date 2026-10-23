@@ -11,7 +11,8 @@ class VisualTrack:
             if z is None:return None,np.zeros(2),'lost'
             self.x=np.r_[z,0.,0.];self.P=np.diag([.01,.01,.2,.2])
             self.seen=t;self.time=t
-        dt=max(0.,t-self.time);self.time=t
+        prediction_time=t if z is not None else min(t,self.seen+self.timeout)
+        dt=max(0.,prediction_time-self.time);self.time=prediction_time
         F=np.eye(4);F[:2,2:]=np.eye(2)*dt
         G=np.vstack((np.eye(2)*dt*dt/2,np.eye(2)*dt))
         self.x=F@self.x;self.P=F@self.P@F.T+.7**2*G@G.T

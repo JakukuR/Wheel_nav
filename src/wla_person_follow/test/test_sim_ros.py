@@ -44,7 +44,9 @@ def seed(follower,command=(.12,.05)):
             assert c.command('start','task','follow','fixture:0:1',1.,now)[0]
         c.expires_at=now+.3
         follower.motion.update(t,(0.,0.,0.),t);follower.wheel_received=now
-        follower.result=dict(key=follower.key(),stamp_ns=ns,valid_until=now+.15,command=np.array(command),
+        follower._tracking_update_locked()
+        snapshot=follower.tracker.snapshot(t,np.zeros(3))
+        follower.result=dict(policy_snapshot=follower._tracking_policy(snapshot),geometry_binding=snapshot,key=follower.key(),stamp_ns=ns,valid_until=now+.15,command=np.array(command),
             target_state='visible',recovery_state='follow',wide_offset=None,compute_ms=1.,
             pose=np.zeros(3),path=np.array([[0.,0.],[1.5,0.]]),map_lower=np.array([-2,-2]),resolution=.1,grid=np.zeros((4,4),np.int8))
 
@@ -63,24 +65,6 @@ def test_direct_output_stale_stop_and_conflict(graph):
     before=len(received);pump(.2)
     assert len(received)==before  # no repeated competing zeros after latching
     fixture.destroy_publisher(other)
-
-
-def test_v2_target_missing_grace_is_bounded_at_output(graph):
-    _,f,pump,received=graph
-    pump(1.1);seed(f,(.12,.05));pump(.04)
-    with f.guard:
-        f.p['geometry_binding_v2']=True;f.p['binding_missing_grace_s']=.20
-        f.core.expires_at=time.monotonic()-.01
-        f.result['geometry_binding']=dict(state='bound_coasting',reason='target_measurement_missing_grace')
-        f.result['observation_stamp_ns']=f.now_ns()-int(.40e9)
-        f.result['valid_until']=time.monotonic()+.15
-    f.result_ready.trigger();pump(.03)
-    assert received[-1][0]>.01
-    with f.guard:
-        f.result['observation_stamp_ns']=f.now_ns()-int(.51e9)
-        f.result['valid_until']=time.monotonic()+.15
-    f.result_ready.trigger();pump(.03)
-    assert received[-1]==(0.,0.)
 
 
 def test_estop_does_not_resurrect_task(graph):
@@ -266,23 +250,8 @@ def test_result_event_publishes_without_periodic_tick_and_retains_stop_gate(grap
     assert received[-1]==(0.,0.)
 
 
-@pytest.mark.parametrize('identity_state,reason',[('enrolling','enrollment_crop_overlap'),('expired','reid_enrollment_timeout')])
-def test_unconfirmed_identity_is_waiting_and_never_publishes_movement(graph,identity_state,reason):
-    from std_msgs.msg import String
-    fixture,f,pump,received=graph;pump(1.1)
-    statuses=[];fixture.create_subscription(String,'/r680/person_follow/status',lambda m:statuses.append(json.loads(m.data)),5)
-    seed(f,command=(.12,.2))
-    with f.guard:
-        f.p['reid_enabled']=True
-        f.result['reid']=dict(state=identity_state,reason=reason)
-    f.result_ready.trigger();pump(.04)
-    assert received[-1]==(0.,0.)
-    assert statuses[-1]['state']=='waiting' and not statuses[-1]['motion_permitted']
-    assert reason in statuses[-1]['output_blockers']
-
-
-@pytest.mark.parametrize('preset',['compatibility','first_batch_v2'])
-def test_mask_wire_pairs_depth_and_filters_published_cloud_preview_only(preset):
+@pytest.mark.parametrize('reid_enabled',[False,True])
+def test_mask_wire_pairs_depth_and_filters_published_cloud_preview_only(reid_enabled):
     import rclpy
     from rclpy.node import Node
     from rclpy.parameter import Parameter
@@ -295,12 +264,8 @@ def test_mask_wire_pairs_depth_and_filters_published_cloud_preview_only(preset):
     from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
     from wla_r680_navigation_py.target_masks import encode_mask
     from wla_person_follow.sim_node import SimulationFollow
-    from wla_person_follow.follow_config import NEW_PRESET_FLAGS
     assert os.environ['ROS_DOMAIN_ID']=='198'
-    options=dict(depth_stride=2,output_mode='direct')
-    if preset=='first_batch_v2':
-        options.update(follow_preset=preset,reid_enabled=True,reid_model_id='test',
-                       **dict.fromkeys(NEW_PRESET_FLAGS,True))
+    options=dict(depth_stride=2,output_mode='direct',reid_enabled=reid_enabled,reid_model_id='test')
     rclpy.init();f=SimulationFollow(parameter_overrides=[Parameter(k,value=v) for k,v in options.items()])
     fixture=Node('mask_depth_fixture');ex=SingleThreadedExecutor();ex.add_node(f);ex.add_node(fixture)
     broadcaster=StaticTransformBroadcaster(fixture)
@@ -336,19 +301,17 @@ def test_mask_wire_pairs_depth_and_filters_published_cloud_preview_only(preset):
                         else:f.core.command('heartbeat','mask-task',lease_duration_s=1.,now=time.monotonic())
                 pm.publish(String(data=json.dumps(dict(schema='wla-target-mask/v1',stamp_ns=ns,depth_stamp_ns=ns,
                     session='mask',epoch=0,frame_id='mask_optical',width=64,height=48,
-                    target_id='mask:0:1',request_id='mask-task',bits=bits,
+                    target_id='mask:0:1',requested_target_id='mask:0:1',target_revision=0,
+                    target_present=True,request_id='mask-task',bits=bits,
                     bbox_xyxy=[16.,6.,47.,44.]))))
             ex.spin_once(timeout_sec=.002)
             with f.guard:
                 if f.map_result and f.map_result.get('target_mask',{}).get('applied'):
                     captured=f.map_result;break
         assert captured is not None
-        if preset=='first_batch_v2':
-            assert captured['target_mask']['removed_pixels']==38*31
-            assert captured['target_mask']['source']=='target_bbox'
-            assert captured['target_mask']['target_ghost_points']>0
-        else:
-            assert captured['target_mask']['removed_pixels']==34*27
+        assert captured['target_mask']['removed_pixels']==38*31
+        assert captured['target_mask']['source']=='target_bbox'
+        assert captured['target_mask']['target_ghost_points']>0
         assert captured['obstacle_points']>0  # Background remains measured.
         assert f.direct_pub is None and not f.p['enable_motion']
     finally:

@@ -72,6 +72,8 @@ class NavDetector(Node):
             if (data.get('schema')!='wla-reid-request/v1' or type(data.get('stamp_ns')) is not int
                     or not 0<=(self.ros_ns()-data['stamp_ns'])/1e9<=.5
                     or not isinstance(data.get('target_id',''),str)
+                    or type(data.get('target_revision',0)) is not int
+                    or data.get('target_revision',0)<0
                     or not isinstance(data.get('request_id'),str)
                     or not isinstance(data.get('allowed_ids'),list) or len(data['allowed_ids'])>4
                     or not all(isinstance(v,str) for v in data['allowed_ids'])):return
@@ -164,10 +166,13 @@ class NavDetector(Node):
                         (interest.get('session'),interest.get('epoch'))==(self.session,epoch)
                         and 0<=(self.ros_ns()-interest['stamp_ns'])/1e9<=.5):
                     mask_packet['request_id']=interest['request_id']
+                    mask_packet['requested_target_id']=interest.get('target_id','')
+                    mask_packet['target_revision']=interest.get('target_revision',0)
+                    mask_packet['target_present']=False
                     target_id=interest.get('target_id','')
                     for row in rows:
                         if row['label']=='person' and f"{self.session}:{epoch}:{row['track_id']}"==target_id:
-                            mask_packet.update(target_id=target_id,bbox_xyxy=[float(v) for v in row['bbox_xyxy']])
+                            mask_packet.update(target_present=True,target_id=target_id,bbox_xyxy=[float(v) for v in row['bbox_xyxy']])
                             if output.masks is not None:
                                 from wla_r680_navigation_py.target_masks import encode_mask
                                 mask=output.masks.data[row['detection_index']].detach().cpu().numpy()>.5
@@ -181,14 +186,22 @@ class NavDetector(Node):
                         (interest.get('session'),interest.get('epoch'))==(self.session,epoch)
                         and 0<=(self.ros_ns()-interest['stamp_ns'])/1e9<=.5):
                     allowed=interest.get('allowed_ids',[])
-                    from wla_r680_navigation_py.identity_features import feature_quality
-                    quality={f"{self.session}:{epoch}:{row['track_id']}":feature_quality(row,rows,message.width,message.height)
-                        for row in rows if row['label']=='person'}
-                    features={f"{self.session}:{epoch}:{ident}":v.tolist()
-                        for ident,v in self.runtime.features.items()
-                        if f"{self.session}:{epoch}:{ident}" in allowed}
-                    batch['_reid']=dict(request_id=interest['request_id'],features=features,
-                        model_id=self.runtime.reid.model_id,allowed_ids=allowed,quality=quality)
+                    try:
+                        from wla_r680_navigation_py.identity_features import feature_quality
+                        quality={f"{self.session}:{epoch}:{row['track_id']}":feature_quality(row,rows,message.width,message.height)
+                            for row in rows if row['label']=='person'}
+                        features={f"{self.session}:{epoch}:{ident}":v.tolist()
+                            for ident,v in self.runtime.features.items()
+                            if f"{self.session}:{epoch}:{ident}" in allowed}
+                        batch['_reid']=dict(request_id=interest['request_id'],target_revision=interest.get('target_revision',0),features=features,
+                            model_id=self.runtime.reid.model_id,allowed_ids=allowed,quality=quality)
+                    except Exception as exc:
+                        # Optional feature export cannot retire the detector epoch.
+                        timing['reid_sidecar_error']=str(exc)[:160]
+                        batch['_reid']=dict(request_id=interest['request_id'],
+                            target_revision=interest.get('target_revision',0),features={},
+                            model_id=getattr(self.runtime.reid,'model_id',''),allowed_ids=allowed,
+                            quality={ident:'feature_export_failed' for ident in allowed})
 
                 timing['inference_end_ns'] = self.ros_ns()
                 with self.condition:
@@ -286,29 +299,33 @@ class NavDetector(Node):
                 self.last_valid_result_ns = batch['stamp_ns']
                 relative['timing'] = timing.copy()
                 self.relative_pub.publish(String(data=json.dumps(relative, allow_nan=False)))
-                if reid_packet is not None:
-                    geometry={row['id']:row for row in relative['objects']}
-                    features=[];diagnostics={}
-                    for ident in reid_packet['allowed_ids'][:4]:
-                        row=geometry.get(ident);vector=reid_packet['features'].get(ident)
-                        if vector is None or row is None:diagnostics[ident]='target_not_detected';continue
-                        quality=reid_packet['quality'].get(ident,'target_not_detected')
-                        if quality!='feature_ready':diagnostics[ident]=quality;continue
-                        if row['yaw'] is None or row['distance'] is None:diagnostics[ident]='geometry_unavailable';continue
-                        features.append(dict(id=ident,feature=vector,yaw=row['yaw'],distance=row['distance']))
-                        diagnostics[ident]='feature_ready'
-                    packet=dict(schema='wla-reid-features/v1',stamp_ns=batch['stamp_ns'],
-                        session=batch['session'],epoch=batch['epoch'],request_id=reid_packet['request_id'],
-                        model_id=reid_packet['model_id'],base_frame=self.args.base_frame,
-                        objects=features,diagnostics=diagnostics)
-                    self.reid_pub.publish(String(data=json.dumps(packet,allow_nan=False)))
-                    self.reid_status_pub.publish(String(data=json.dumps(dict(state='ready',
-                        model_id=reid_packet['model_id'],source='boxmot_native_shared_embeddings',
-                        source_stamp_ns=batch['stamp_ns'],stamp_ns=self.ros_ns(),people=len(features),
-                        compute_ms=timing['runtime'].get('reid_ms'),diagnostics=diagnostics))))
                 if mask_packet is not None and relative.get('depth_stamp_ns') is not None:
                     mask_packet['depth_stamp_ns']=relative['depth_stamp_ns']
                     self.mask_pub.publish(String(data=json.dumps(mask_packet,allow_nan=False)))
+                if reid_packet is not None:
+                    try:
+                        geometry={row['id']:row for row in relative['objects']}
+                        features=[];diagnostics={}
+                        for ident in reid_packet['allowed_ids'][:4]:
+                            row=geometry.get(ident);vector=reid_packet['features'].get(ident)
+                            if vector is None or row is None:diagnostics[ident]='target_not_detected';continue
+                            quality=reid_packet['quality'].get(ident,'target_not_detected')
+                            if quality!='feature_ready':diagnostics[ident]=quality;continue
+                            if row['yaw'] is None or row['distance'] is None:diagnostics[ident]='geometry_unavailable';continue
+                            features.append(dict(id=ident,feature=vector,yaw=row['yaw'],distance=row['distance']))
+                            diagnostics[ident]='feature_ready'
+                        packet=dict(schema='wla-reid-features/v1',stamp_ns=batch['stamp_ns'],
+                            session=batch['session'],epoch=batch['epoch'],request_id=reid_packet['request_id'],target_revision=reid_packet.get('target_revision',0),
+                            model_id=reid_packet['model_id'],base_frame=self.args.base_frame,
+                            objects=features,diagnostics=diagnostics)
+                        self.reid_pub.publish(String(data=json.dumps(packet,allow_nan=False)))
+                        self.reid_status_pub.publish(String(data=json.dumps(dict(state='ready',
+                            model_id=reid_packet['model_id'],source='boxmot_native_shared_embeddings',
+                            source_stamp_ns=batch['stamp_ns'],stamp_ns=self.ros_ns(),people=len(features),
+                            compute_ms=timing['runtime'].get('reid_ms'),diagnostics=diagnostics))))
+                    except Exception as exc:
+                        # Geometry and target filtering have already been published.
+                        timing['reid_sidecar_error']=str(exc)[:160]
             else:
                 timing['outcome'] = 'expired_in_projection'
         self.metrics_pub.publish(String(data=json.dumps(timing, allow_nan=False)))

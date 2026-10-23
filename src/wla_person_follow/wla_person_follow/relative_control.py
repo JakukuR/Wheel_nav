@@ -195,7 +195,9 @@ class RelativeFollower:
                         return False, 'request_history_full_restart_required'
                     self.requests[request_id] = None  # A stop may overtake an in-flight start.
                 return True, 'request_cancelled_before_start'
-            self._terminate('stopped', 'stopped_by_agent')
+            # A client's finally/cleanup stop must not overwrite the first cause.
+            if self.active or not self.request_id:
+                self._terminate('stopped', 'stopped_by_agent')
             return True, 'stopped'
         if command not in ('start', 'heartbeat'):
             return False, 'unknown_command'
