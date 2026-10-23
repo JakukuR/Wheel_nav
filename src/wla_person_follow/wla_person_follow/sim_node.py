@@ -35,7 +35,7 @@ from .geometry_binding import GeometryBinding, GeometryBindingConfig
 from .identity_supervisor import IdentitySupervisor, IdentitySupervisorConfig
 from .sim_core.common import rotation
 from .sim_core.rolling_depth_map import native_ray_slots
-from .sim_runtime import packet_from_depth, measurements_from_relative, local_points, process_step, warm_worker, worker_initializer
+from .sim_runtime import packet_from_depth, target_points_from_removed_depth, measurements_from_relative, local_points, process_step, warm_worker, worker_initializer
 
 
 def stamp_ns(msg):
@@ -70,7 +70,8 @@ class SimulationFollow(Node):
             view_expansion_min_interval_s=1.0, view_expansion_initial_slots=2,
             identity_supervisor_v2=False, lost_task_release=False, mask_binding_v2=False,
             reverse_policy_v2=False, reverse_policy_allow_retreat=False, retreat_disabled=False,
-            diagnostic_v2=False)
+            diagnostic_v2=False,target_ghost_clear_enabled=False,
+            target_ghost_clear_radius_m=.35,target_ghost_clear_ttl_s=.5)
         self.p = {k:self.declare_parameter(k,v).value for k,v in defaults.items()}
         if (self.p['output_mode'] not in ('direct','mux') or
             not 0 < self.p['max_sensor_age_s'] <= .30 or
@@ -107,7 +108,9 @@ class SimulationFollow(Node):
             not .5 <= self.p['view_expansion_similarity'] <= self.p['reid_similarity'] or
             not .5 <= self.p['view_expansion_neighbor_radius_m'] <= 3 or
             not .1 <= self.p['view_expansion_min_interval_s'] <= 10 or
-            not 1 <= self.p['view_expansion_initial_slots'] < 8):
+            not 1 <= self.p['view_expansion_initial_slots'] < 8 or
+            not 0 < self.p['target_ghost_clear_radius_m'] <= .35 or
+            not 0 < self.p['target_ghost_clear_ttl_s'] <= 1.):
             raise ValueError('invalid_sim_adapter_configuration')
         validate_detection_status_topic(self.p['detection_status_topic'])
         self.follow_preset=validate_follow_preset(self.p)
@@ -515,6 +518,7 @@ class SimulationFollow(Node):
                 # In v2 the mask follows the same-task geometry binding, not a
                 # cosmetic ReID state. Legacy mode preserves its old criteria.
                 mask_started=time.monotonic()
+                original_depth=depth
                 depth,mask_status=filter_target_depth(depth,mask_packet,
                     target_id=resolved_id if active else None,request_id=key[0],session=key[2],epoch=key[3],
                     depth_stamp_ns=stamp_ns(msg),frame_id=msg.header.frame_id,now_ns=self.now_ns())
@@ -525,6 +529,26 @@ class SimulationFollow(Node):
                 frontend_begun=time.monotonic()
                 packet=packet_from_depth(depth,(info.k[0],info.k[4],info.k[2],info.k[5]),r,trans,pose,
                     self.p['depth_min_m'],self.p['depth_max_m'],self.p['depth_stride'])
+                # Retire only cells touched by this acquisition's confirmed
+                # target silhouette.  The radius limits those points; it never
+                # carves an unobserved disk around a tracked coordinate.
+                target_points=np.empty((0,3),dtype=float)
+                ghost_reason=('disabled' if not self.p['target_ghost_clear_enabled'] else
+                    'mask_not_applied' if not mask_status['applied'] else
+                    'target_geometry_not_synchronized' if observation is None or observation[1] is None or abs(obs_stamp-stamp)>.05
+                    else 'mask_confirmed')
+                if ghost_reason=='mask_confirmed':
+                    removed_depth=np.where(np.isfinite(original_depth)&~np.isfinite(depth),original_depth,np.nan)
+                    target_points=target_points_from_removed_depth(removed_depth,
+                        (info.k[0],info.k[4],info.k[2],info.k[5]),r,trans,pose,
+                        observation[1],radius=self.p['target_ghost_clear_radius_m'],stride=self.p['depth_stride'],
+                        minimum=self.p['depth_min_m'],maximum=self.p['depth_max_m'])
+                packet['target_points_odom']=target_points
+                mask_status['target_ghost_points']=len(target_points)
+                mask_status['target_ghost_reason']=ghost_reason
+                mask_status['target_ghost_radius_m']=self.p['target_ghost_clear_radius_m']
+                mask_status['target_ghost_clear_enabled']=self.p['target_ghost_clear_enabled']
+                mask_status['target_ghost_clear_ttl_s']=self.p['target_ghost_clear_ttl_s']
                 frontend_ms=(time.monotonic()-frontend_begun)*1000.
                 packets=[(stamp,packet)]
                 # Optional anonymous ToF points: no packets or inferred clear
@@ -555,6 +579,7 @@ class SimulationFollow(Node):
                          front_check_truncation=self.p['front_check_truncation_enabled'],
                          front_check_max_m=self.p['front_check_max_m'],
                          front_check_target_offset_m=self.p['front_check_target_offset_m'],
+                         target_clear_ttl_s=self.p['target_ghost_clear_ttl_s'],
                          retreat_disabled=self.p['retreat_disabled'],
                          reverse_policy_v2=self.p['reverse_policy_v2'],
                          reverse_policy_allow_retreat=self.p['reverse_policy_allow_retreat'],

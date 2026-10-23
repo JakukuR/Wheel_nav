@@ -27,6 +27,28 @@ def packet_from_depth(depth, intrinsics, camera_rotation, translation, pose,
     return packet_from_filtered_points(obstacles, clearing, translation, pose)
 
 
+def target_points_from_removed_depth(depth, intrinsics, camera_rotation, translation,
+                                     pose, center_odom, *, radius=.35, stride=2,
+                                     minimum=.15, maximum=5.):
+    """Project only same-frame mask-removed target pixels into odom.
+
+    The radius limits a verified silhouette; it never selects unrelated cloud
+    points or clears an entire disk around a tracked coordinate.
+    """
+    empty=np.empty((0,3),dtype=float)
+    if center_odom is None or not np.isfinite(depth).any():return empty
+    center=np.asarray(center_odom,dtype=float)
+    if center.shape!=(2,) or not np.isfinite(center).all() or not 0<radius<=.35:
+        return empty
+    from _wla_sim_geometry import deproject
+    points=deproject(depth,np.asarray(intrinsics,dtype=float),
+        np.asarray(camera_rotation,dtype=float),np.asarray(translation,dtype=float),
+        minimum,maximum,stride)
+    if not len(points):return empty
+    world=local_points(points,pose)
+    return world[np.linalg.norm(world[:,:2]-center,axis=1)<=radius]
+
+
 def packet_from_filtered_points(obstacles, clearing, origin, pose):
     """Separate accepted obstacle endpoints from measured clearing rays.
 
@@ -195,6 +217,7 @@ def process_step(job):
         _PROCESS_KEY = key
     engine = _PROCESS_ENGINE
     engine.mapping.local_assumed_free_radius=local_radius
+    engine.mapping.target_clear_ttl=float(startup.get('target_clear_ttl_s',.5))
     if startup['active'] and local_radius==0 and radius>0 and not _PROCESS_STARTUP_USED:
         # User-authorized assumption, once at the first follow task, not during
         # idle warm-up. Never erase observed obstacles or renew on task changes.

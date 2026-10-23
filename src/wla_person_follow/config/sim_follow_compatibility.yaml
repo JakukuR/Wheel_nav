@@ -36,6 +36,9 @@ person_follow:
     reverse_policy_v2: false
     diagnostic_v2: false
     front_check_truncation_enabled: false
+    target_ghost_clear_enabled: false
+    target_ghost_clear_radius_m: 0.35
+    target_ghost_clear_ttl_s: 0.50
 
     # New defaults are provisional (待校准), configurable, and logged.
     front_check_max_m: 1.4

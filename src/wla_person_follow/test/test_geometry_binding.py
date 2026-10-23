@@ -49,19 +49,17 @@ def test_rebind_restarts_track_history_and_source():
 
 
 def test_only_complete_compatibility_and_first_batch_presets_are_accepted():
-    from wla_person_follow.follow_config import validate_follow_preset
+    from wla_person_follow.follow_config import NEW_PRESET_FLAGS, validate_follow_preset
     p=dict(follow_preset='compatibility',geometry_binding_v2=False,
         front_check_truncation_enabled=False,identity_supervisor_v2=False,
         lost_task_release=False,mask_binding_v2=False,reverse_policy_v2=False,
         diagnostic_v2=False,reid_enabled=False,reid_model_id='')
     assert validate_follow_preset(p)=='compatibility'
     p['follow_preset']='first_batch_v2';p['reid_enabled']=True;p['reid_model_id']='fixture'
-    for name in ('geometry_binding_v2','front_check_truncation_enabled','identity_supervisor_v2',
-                 'lost_task_release','mask_binding_v2','reverse_policy_v2','diagnostic_v2'):
+    for name in NEW_PRESET_FLAGS:
         p[name]=True
     assert validate_follow_preset(p)=='first_batch_v2'
-    for name in ('geometry_binding_v2','front_check_truncation_enabled','identity_supervisor_v2',
-                 'lost_task_release','mask_binding_v2','reverse_policy_v2','diagnostic_v2'):
+    for name in NEW_PRESET_FLAGS:
         p[name]=True
         broken=dict(p);broken[name]=False
         try:validate_follow_preset(broken)

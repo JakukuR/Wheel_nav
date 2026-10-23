@@ -14,9 +14,13 @@ except ImportError:  # Keep the standalone simulation's NumPy reference usable.
 
 
 class RollingDepthMap:
-    def __init__(self,resolution=.1,size=120,ttl=12.,robot_radius=ROBOT_RADIUS_M):
+    def __init__(self,resolution=.1,size=120,ttl=12.,robot_radius=ROBOT_RADIUS_M,target_clear_ttl=.5):
         self.res=resolution;self.n=size;self.ttl=ttl;self.robot_radius=robot_radius
+        self.target_clear_ttl=target_clear_ttl
         self.log=np.zeros((size,size));self.stamp=np.full((size,size),-np.inf)
+        # A matched target silhouette may retire earlier, unattributed person
+        # hits in the exact same cells.  This short-lived clear is not a ray.
+        self.target_clear_stamp=np.full((size,size),-np.inf)
         self.tags=np.full((size,size,2),-10**9,dtype=np.int64)
         self.lower=np.zeros(2,dtype=int);self.replacements=0
 
@@ -26,7 +30,8 @@ class RollingDepthMap:
         self.cells=np.stack((x,y),axis=-1);self.ix=x%self.n;self.iy=y%self.n
         changed=np.any(self.tags[self.ix,self.iy]!=self.cells,axis=-1)
         a,b=self.ix[changed],self.iy[changed]
-        self.log[a,b]=0.;self.stamp[a,b]=-np.inf;self.tags[a,b]=self.cells[changed]
+        self.log[a,b]=0.;self.stamp[a,b]=-np.inf;self.target_clear_stamp[a,b]=-np.inf
+        self.tags[a,b]=self.cells[changed]
         self.replacements+=np.sum(changed)
 
     def _slots(self,xy):
@@ -89,6 +94,14 @@ class RollingDepthMap:
         occupied_points=[]
         for cloud in clouds:
             p=cloud['points'];dynamic=cloud['dynamic']
+            # Only points removed by a same-frame, ID-matched segmentation may
+            # retire old occupancy. A radius alone never clears neighboring
+            # cells, and a non-target hit below wins later in this update.
+            target_points=np.asarray(cloud.get('target_points_odom',np.empty((0,3))),dtype=float).reshape(-1,3)
+            if len(target_points):
+                a,b=self._slots(target_points[:,:2])
+                self.log[a,b]=-2.;self.stamp[a,b]=t;self.target_clear_stamp[a,b]=t
+                self._retire_startup_cells(a,b)
             # Perception has already applied the timestamped full 3-D odom transform.
             origin=cloud['origin_odom'][:2]
             world=cloud['points_odom'][:,:2]
@@ -112,9 +125,11 @@ class RollingDepthMap:
                     points=origin+delta[:,None,:]/np.maximum(length[:,None,None],1e-9)*distance[None,:,None]
                     mask=distance[None,:]<length[:,None]-.12
                     a,b=self._slots(points[mask])
-                self.log[a,b]=np.maximum(-2.,self.log[a,b]-.8);self.stamp[a,b]=t;self._retire_startup_cells(a,b)
+                self.log[a,b]=np.maximum(-2.,self.log[a,b]-.8);self.stamp[a,b]=t
+                self.target_clear_stamp[a,b]=-np.inf;self._retire_startup_cells(a,b)
             # Floor endpoints certify traversable ground only in this flat-floor demo.
-            a,b=self._slots(world[p[:,2]<.04]);self.log[a,b]=np.maximum(-2.,self.log[a,b]-.8);self.stamp[a,b]=t;self._retire_startup_cells(a,b)
+            a,b=self._slots(world[p[:,2]<.04]);self.log[a,b]=np.maximum(-2.,self.log[a,b]-.8);self.stamp[a,b]=t
+            self.target_clear_stamp[a,b]=-np.inf;self._retire_startup_cells(a,b)
             if 'marking_points_odom' in cloud:
                 # Already filtered by the very same producer as the live view.
                 occupied_points.append(cloud['marking_points_odom'][:,:2])
@@ -122,7 +137,8 @@ class RollingDepthMap:
                 hits=(p[:,2]>=.08)&(p[:,2]<=1.6)&~dynamic
                 occupied_points.append(world[hits])
         hits=np.concatenate(occupied_points) if occupied_points else np.empty((0,2))
-        a,b=self._slots(hits);self.log[a,b]=np.minimum(3.,self.log[a,b]+2.);self.stamp[a,b]=t;self._retire_startup_cells(a,b)
+        a,b=self._slots(hits);self.log[a,b]=np.minimum(3.,self.log[a,b]+2.);self.stamp[a,b]=t
+        self.target_clear_stamp[a,b]=-np.inf;self._retire_startup_cells(a,b)
         # The robot itself occupies this footprint; keep its current cell region
         # known when stationary, without declaring its surroundings free.
         centers=(self.cells+.5)*self.res
@@ -130,12 +146,17 @@ class RollingDepthMap:
         # Even inside the chassis footprint, current obstacle evidence wins.
         footprint &= ~((t-self.stamp[self.ix,self.iy]<=self.ttl)&(self.log[self.ix,self.iy]>=0))
         a,b=self.ix[footprint],self.iy[footprint]
-        self.log[a,b]=np.minimum(self.log[a,b],-1.);self.stamp[a,b]=t;self._retire_startup_cells(a,b)
+        self.log[a,b]=np.minimum(self.log[a,b],-1.);self.stamp[a,b]=t
+        self.target_clear_stamp[a,b]=-np.inf;self._retire_startup_cells(a,b)
         if rebuild:self.rebuild(t)
 
     def rebuild(self,t):
         log=self.log[self.ix,self.iy];age=t-self.stamp[self.ix,self.iy]
         self.known=age<=self.ttl
+        # A person mask is evidence about ownership, not a long-lived free ray.
+        # If no ordinary ray updates the cell, it soon becomes unknown.
+        target_age=t-self.target_clear_stamp[self.ix,self.iy]
+        self.known &= ~(np.isfinite(target_age)&(target_age>self.target_clear_ttl))
         self.occupied=self.known&(log>=0)
         # Explicit operator assumption, recomputed around the current robot.
         # Never writes sensor log/stamps, so it cannot erase hits or leave a trail.

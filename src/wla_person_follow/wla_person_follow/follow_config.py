@@ -7,6 +7,7 @@ NEW_PRESET_FLAGS = (
     'mask_binding_v2',
     'reverse_policy_v2',
     'diagnostic_v2',
+    'target_ghost_clear_enabled',
 )
 
 PENDING_CALIBRATION_PARAMETERS = (
@@ -31,6 +32,8 @@ PENDING_CALIBRATION_PARAMETERS = (
     'view_expansion_neighbor_radius_m',
     'view_expansion_min_interval_s',
     'view_expansion_initial_slots',
+    'target_ghost_clear_radius_m',
+    'target_ghost_clear_ttl_s',
 )
 
 

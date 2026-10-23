@@ -281,7 +281,8 @@ def test_unconfirmed_identity_is_waiting_and_never_publishes_movement(graph,iden
     assert reason in statuses[-1]['output_blockers']
 
 
-def test_mask_wire_pairs_depth_and_filters_published_cloud_preview_only():
+@pytest.mark.parametrize('preset',['compatibility','first_batch_v2'])
+def test_mask_wire_pairs_depth_and_filters_published_cloud_preview_only(preset):
     import rclpy
     from rclpy.node import Node
     from rclpy.parameter import Parameter
@@ -294,8 +295,13 @@ def test_mask_wire_pairs_depth_and_filters_published_cloud_preview_only():
     from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
     from wla_r680_navigation_py.target_masks import encode_mask
     from wla_person_follow.sim_node import SimulationFollow
+    from wla_person_follow.follow_config import NEW_PRESET_FLAGS
     assert os.environ['ROS_DOMAIN_ID']=='198'
-    rclpy.init();f=SimulationFollow(parameter_overrides=[Parameter('depth_stride',value=2),Parameter('output_mode',value='direct')])
+    options=dict(depth_stride=2,output_mode='direct')
+    if preset=='first_batch_v2':
+        options.update(follow_preset=preset,reid_enabled=True,reid_model_id='test',
+                       **dict.fromkeys(NEW_PRESET_FLAGS,True))
+    rclpy.init();f=SimulationFollow(parameter_overrides=[Parameter(k,value=v) for k,v in options.items()])
     fixture=Node('mask_depth_fixture');ex=SingleThreadedExecutor();ex.add_node(f);ex.add_node(fixture)
     broadcaster=StaticTransformBroadcaster(fixture)
     tr=TransformStamped();tr.header.frame_id='r680_mapping_floor';tr.child_frame_id='mask_optical'
@@ -337,6 +343,8 @@ def test_mask_wire_pairs_depth_and_filters_published_cloud_preview_only():
                     captured=f.map_result;break
         assert captured is not None
         assert captured['target_mask']['removed_pixels']==34*27
+        if preset=='first_batch_v2':
+            assert captured['target_mask']['target_ghost_points']>0
         assert captured['obstacle_points']>0  # Background remains measured.
         assert f.direct_pub is None and not f.p['enable_motion']
     finally:
