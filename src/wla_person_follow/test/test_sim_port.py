@@ -59,7 +59,7 @@ def test_repeated_observation_does_not_renew_tracking():
     for i in range(12):
         e.step(np.zeros(3),np.zeros(2),[],obs,1.+i*.1)
     assert e.target.seen==1.
-    assert len(e.target.history)==2
+    assert len(e.target.history)==1  # Only the observation; no robot-position history knot.
     assert e.controller.recovery.search is not None
 
 

@@ -12,6 +12,7 @@ from .blocked_recovery import BlockedRecovery
 from .close_follow import rear_yield_plan,rear_cell_clearance
 from .smooth_follow import smooth_reference,comfort_allowed
 from .wide_turn import outside_reference
+from .target_reference import bezier_reference
 
 
 def approach_tangent(pose, command, tracks, target, radius=ROBOT_RADIUS_M):
@@ -47,6 +48,7 @@ class HybridFollower:
         self.failure_reasons = []
         self.recovery=BlockedRecovery(config,**(recovery_options or {})) if enable_recovery else None
         self.last_infeasible=False
+        self.last_reference_path=np.empty((0,2))
 
     def command(self, pose, previous, target, velocity, history, local_map, obstacles, status, policy=None, policy_time=None):
         start = time.perf_counter()
@@ -60,7 +62,7 @@ class HybridFollower:
                       target_clearance_max=0.,max_v=min(c.max_v,.20),wide_turn=False)
         recovery=self.recovery
         wide=None
-        if getattr(c,'wide_turn',False) and status!='lost':
+        if not self.direct_tracking and getattr(c,'wide_turn',False) and status!='lost':
             source=recovery.route if recovery is not None and recovery.state=='detour' and recovery.route is not None else history
             wide=outside_reference(pose,source,target,local_map,obstacles,c)
         travel_history=wide['path'] if wide is not None else history
@@ -92,17 +94,30 @@ class HybridFollower:
         yielding=rear_yield_plan(pose,target,local_map,obstacles,c) if not self.direct_tracking and not lost and wide is None and state in ('follow','wait','hold') else None
         self.last_yield=bool(yielding)
         if yielding:holding=False
-        comfort=getattr(c,'smooth_reference',False) and comfort_allowed(pose,previous,obstacles,c)
-        path = np.array(wide['path'] if wide is not None else (recovery.route if detour else history))
-        if len(path) < 2:
-            path = np.vstack((path, target))
+        comfort=not self.direct_tracking and getattr(c,'smooth_reference',False) and comfort_allowed(pose,previous,obstacles,c)
+        path = (bezier_reference(history) if self.direct_tracking else
+                np.asarray(wide['path'] if wide is not None else (recovery.route if detour else history),dtype=float).reshape(-1,2))
+        if len(path) == 0:
+            path = np.asarray(target,dtype=float).reshape(1,2)
         # Append only the current estimate, never the future prescribed route.
+        # Prediction is an MPC endpoint extension, not an observed history knot.
         if np.linalg.norm(path[-1]-target)>.01:
             path = np.vstack((path, target))
-        if len(path) == 0:
-            path = np.vstack((pose[:2], target))
+        if len(path) < 2:
+            path = np.vstack((pose[:2], path))
         if comfort and not (retreat or yielding or lost):
             path=smooth_reference(path,local_map,obstacles,c)
+        if self.direct_tracking and len(path)>1:
+            # The sparse trail contains only person observations. When the
+            # robot is behind its beginning, supply an approach segment so
+            # arc-length standoff still works at startup / window rollover.
+            edge=np.diff(path,axis=0)
+            fraction=np.clip(np.sum((pose[:2]-path[:-1])*edge,axis=1)/
+                             np.maximum(np.sum(edge*edge,axis=1),1e-12),0.,1.)
+            nearest=int(np.argmin(np.linalg.norm(path[:-1]+fraction[:,None]*edge-pose[:2],axis=1)))
+            if nearest==0 and fraction[0]<=1e-6 and np.linalg.norm(path[0]-pose[:2])>.03:
+                path=np.vstack((pose[:2],path))
+        self.last_reference_path=path.copy()
         segments = np.diff(path, axis=0)
         lengths = np.linalg.norm(segments, axis=1)
         arcs = np.r_[0., np.cumsum(lengths)]

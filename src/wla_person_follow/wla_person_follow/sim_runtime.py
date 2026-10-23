@@ -1,6 +1,6 @@
 """Real observations -> frozen close-wide-flex core. No ROS or actuator I/O."""
 from copy import deepcopy
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import math
 import numpy as np
 from .sim_core.common import rotation
@@ -91,12 +91,13 @@ class SimulationEngine:
     """Task controller owned by one worker; local map can survive task changes."""
     def __init__(self, pose, start_time, recovery_options=None, direct_tracking=False):
         self.tuning = WideTurnTuning()
+        if direct_tracking:self.tuning=replace(self.tuning,wide_turn=False)
         self.controller = HybridFollower(self.tuning,recovery_options=recovery_options,direct_tracking=direct_tracking)
         self.mapping = RollingDepthMap(robot_radius=self.tuning.radius)  # same 12 m / .1 m / 12 s as demo
         self.mapping.slide(np.asarray(pose[:2]))
         self.mapping.rebuild(start_time)
         # Empty by default. Only the explicit, one-shot startup policy may seed it.
-        self.target = VisualTrack(pose[:2], self.tuning.coast_timeout)
+        self.target = VisualTrack(timeout=self.tuning.coast_timeout)
         self.people = PeopleTracks()
         self.last_measurement = -math.inf
         self.map_stamp = -math.inf
@@ -133,7 +134,7 @@ class SimulationEngine:
             value=tracker_snapshot['position'] if binding_state.startswith('search_') else tracker_snapshot['prediction']
             estimate=None if value is None else np.asarray(value,dtype=float)
             velocity=np.asarray(tracker_snapshot['velocity_mps'],dtype=float)
-            history=[np.asarray(p,dtype=float) for p in tracker_snapshot['history']] or [np.asarray(pose[:2])]
+            history=[np.asarray(p,dtype=float) for p in tracker_snapshot['history']]
             state={'tracking':'visible','coasting':'coast'}.get(binding_state,binding_state)
             if state in ('binding','holding'):state='lost'
         # Recovery uses real elapsed time, not the number of surviving callbacks.
@@ -166,11 +167,14 @@ class SimulationEngine:
                     recovery_state=recovery.state, reason=reason,
                     wide_offset=self.controller.last_wide['offset'] if self.controller.last_wide else None,
                     rear_yield=self.controller.last_yield,
-                    tuning=asdict(self.tuning), path=np.asarray(history),
+                    tuning=asdict(self.tuning), path=self.controller.last_reference_path.copy(),
                     candidates=self.controller.last_candidates,
                     front_blockage=dict(self.controller.recovery.front_diagnostics,control_stamp_s=now),
                     planner_target=dict(position_reference_m=None if estimate is None else np.asarray(estimate).tolist(),
                         velocity_reference_mps=np.asarray(velocity).tolist(),state=state,
+                        reference_method='windowed_cubic_bezier' if self.controller.direct_tracking else 'legacy_reference',
+                        history_point_count=len(history),reference_point_count=len(self.controller.last_reference_path),
+                        history_sampling=tracker_snapshot.get('history_sampling') if tracker_snapshot is not None else self.target.trail.diagnostic(),
                         last_measurement_stamp_s=tracker_snapshot['last_seen'] if tracker_snapshot is not None else None if not math.isfinite(self.last_measurement) else self.last_measurement),
                     obstacle_track_ids=[o.get('id') for o in tracks])
 

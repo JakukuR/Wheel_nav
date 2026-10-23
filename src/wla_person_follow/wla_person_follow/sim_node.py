@@ -57,6 +57,7 @@ class SimulationFollow(Node):
             tof_topics=['/r680/tof/front_left/points','/r680/tof/front_right/points',
                         '/r680/tof/rear_left/points','/r680/tof/rear_right/points'],
             follow_preset='tracker_follow', target_prediction_s=2., search_arrival_m=.35,
+            target_history_window_s=5., target_history_sample_period_s=.4,
             binding_jump_radius_m=.45, binding_jump_growth_mps=.25, binding_jump_radius_max_m=1.5,
             neighbor_ambiguity_radius_m=1.5,
             target_ghost_clear_enabled=True,target_bbox_filter_enabled=True,
@@ -65,6 +66,9 @@ class SimulationFollow(Node):
         if (self.p['output_mode'] not in ('direct','mux') or
             not 0 < self.p['max_sensor_age_s'] <= .30 or
             not .3 <= self.p['target_prediction_s'] <= 3. or
+            not 2. <= self.p['target_history_window_s'] <= 20. or
+            not .2 <= self.p['target_history_sample_period_s'] <= 1. or
+            self.p['target_history_window_s']/self.p['target_history_sample_period_s'] > 64 or
             not .25 <= self.p['search_arrival_m'] <= .6 or
             not 0 < self.p['result_ttl_s'] <= .20 or
             not 0 <= self.p['startup_clear_radius_m'] <= .5 or
@@ -325,7 +329,9 @@ class SimulationFollow(Node):
                 freshness_s=self.p['max_sensor_age_s'],offset=self.p['surface_to_center_offset_m'],
                 jump_radius=self.p['binding_jump_radius_m'],jump_growth=self.p['binding_jump_growth_mps'],
                 jump_max=self.p['binding_jump_radius_max_m'],confirmations=self.p['reid_confirm_frames'],
-                search_arrival=self.p['search_arrival_m'])
+                search_arrival=self.p['search_arrival_m'],
+                history_window_s=self.p['target_history_window_s'],
+                history_sample_period_s=self.p['target_history_sample_period_s'])
             self.recovery_identity=RecoveryIdentity(similarity=self.p['reid_similarity'],margin=self.p['reid_margin'],
                 confirmations=self.p['reid_confirm_frames']) if self.p['reid_enabled'] else None
             self.tracker_key=task_key;self.interest_at=-math.inf;self.result=None
@@ -687,6 +693,7 @@ class SimulationFollow(Node):
                 follow_preset=self.follow_preset,
                 follow_config={name:self.p[name] for name in (
                     'target_prediction_s','search_arrival_m','binding_jump_radius_m',
+                    'target_history_window_s','target_history_sample_period_s',
                     'binding_jump_growth_mps','binding_jump_radius_max_m','reid_enabled',
                     'reid_similarity','reid_margin','reid_confirm_frames','neighbor_ambiguity_radius_m',
                     'target_mask_enabled','target_bbox_filter_enabled','target_ghost_clear_enabled')},

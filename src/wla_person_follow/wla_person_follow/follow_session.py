@@ -57,12 +57,16 @@ class FollowTracker:
     """Only real, distinct geometry frames update the single Kalman tracker."""
     def __init__(self, target_id, now, *, prediction_s=2., freshness_s=.3,
                  offset=.28, jump_radius=.45, jump_growth=.25, jump_max=1.5,
-                 confirmations=3, search_arrival=.35):
+                 confirmations=3, search_arrival=.35, history_window_s=5.,
+                 history_sample_period_s=.4):
         self.selected_id = self.target_id = target_id
         self.started = now
         self.prediction_s, self.freshness_s, self.offset = prediction_s, freshness_s, offset
         self.jump_radius, self.jump_growth, self.jump_max = jump_radius, jump_growth, jump_max
         self.confirmations, self.search_arrival = confirmations, search_arrival
+        self.history_options = dict(history_window_s=history_window_s,
+            history_sample_period_s=history_sample_period_s,
+            history_max_gap_s=min(2., max(.1, freshness_s*2)))
         self.track = None
         self.observations = deque(maxlen=32)
         self.last_seen = None
@@ -97,7 +101,7 @@ class FollowTracker:
 
     def _accept(self, point, pose, stamp):
         if self.track is None:
-            self.track = VisualTrack(np.asarray(pose[:2]), timeout=self.prediction_s)
+            self.track = VisualTrack(timeout=self.prediction_s, **self.history_options)
             self.observations.clear()
         self.track.update(point, stamp)
         velocity = self.track.x[2:].copy()
@@ -188,6 +192,7 @@ class FollowTracker:
             position=None if self.last_position is None else self.last_position.tolist(),
             prediction=None if estimate is None else estimate.tolist(), velocity_mps=velocity.tolist(),
             history=[] if self.track is None else [p.tolist() for p in self.track.history],
+            history_sampling=None if self.track is None else self.track.trail.diagnostic(),
             search_heading=self.heading, search_arrival_m=self.search_arrival,
             search_started=self.sweep_started, search_arrived_at=self.search_started,
             missing_since=self.missing_since, last_position_error_m=self.last_error,

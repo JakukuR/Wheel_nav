@@ -28,6 +28,9 @@ person_follow:
     reid_margin: 0.08
     reid_confirm_frames: 3
     target_prediction_s: 2.0
+    # Sparse accepted observations; freeze on loss for last-seen search.
+    target_history_window_s: 5.0
+    target_history_sample_period_s: 0.4
     search_arrival_m: 0.35
     binding_jump_radius_m: 0.45
     binding_jump_growth_mps: 0.25

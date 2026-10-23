@@ -1,10 +1,17 @@
 import numpy as np
+from .target_reference import TargetHistory
 
 class VisualTrack:
     """Constant-velocity Kalman estimate; no invisible truth updates."""
-    def __init__(self,start,timeout=.8):
+    def __init__(self,timeout=.8,*,history_window_s=5.,history_sample_period_s=.4,
+                 history_max_gap_s=.6):
         self.x=None;self.P=np.eye(4);self.time=None;self.seen=None
-        self.timeout=timeout;self.history=[np.array(start,dtype=float)]
+        self.timeout=timeout
+        self.trail=TargetHistory(history_window_s,history_sample_period_s,history_max_gap_s)
+
+    @property
+    def history(self):
+        return self.trail.points()
 
     def update(self,z,t):
         if self.x is None:
@@ -22,9 +29,7 @@ class VisualTrack:
             self.x+=K@(z-self.x[:2]);self.P-=K@self.P[:2,:]
             self.seen=t
             vnorm=np.linalg.norm(self.x[2:]);self.x[2:]*=min(1.,1./max(vnorm,1e-9))
-            if np.linalg.norm(self.x[:2]-self.history[-1])>.075:
-                self.history.append(self.x[:2].copy())
-                self.history=self.history[-400:]
+            self.trail.update(self.x[:2],t)
         if t-self.seen>self.timeout:
             self.x[2:]=0.
             return self.x[:2].copy(),np.zeros(2),'lost'
@@ -35,7 +40,7 @@ class PeopleTracks:
 
     def update(self,detections,pose,t):
         for key,z in detections.items():
-            if key not in self.tracks:self.tracks[key]=VisualTrack(pose[:2],timeout=1.5)
+            if key not in self.tracks:self.tracks[key]=VisualTrack(timeout=1.5)
         result=[]
         for key,track in list(self.tracks.items()):
             z=detections[key][:2] if key in detections else None

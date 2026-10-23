@@ -12,9 +12,14 @@
     "common.py": "stable_follow.py:Tuning,wrap; simulate.py:rotation",
     "tracking.py": "hybrid_follow.py:VisualTrack,PeopleTracks"
   },
-  "changes": "Baseline hashes above identify the original simulation extraction, not current file contents. Runtime adaptations include native map/frontend, tracker-owned observations and bounded prediction, and direct MPC follow/search without the legacy recovery pre-gate.",
+  "changes": "Baseline hashes above identify the original simulation extraction, not current file contents. Runtime adaptations include native map/frontend, tracker-owned observations and bounded prediction, and direct MPC follow/search without the legacy recovery pre-gate. The time-window reference update replaces distance-triggered 400-point history with 5 s / 0.4 s observation resampling and bounded piecewise cubic Bezier references for direct tracking; legacy wide-turn shaping is bypassed on that path.",
   "tracker_mainline_20261023": {
     "hybrid_controller.py": "8d3c52b6ec4aeeb68840b038093e0f168890aad166dcd5474cbddc8e36bc8a37",
     "tracking.py": "f4fbb4e5acf41100bec155fbb2c022978f6a0941368e43c3fa5350d23d1e161c"
+  },
+  "bezier_reference_20261023": {
+    "tracking.py": "616087034bf491ff529b544ce8cc9034a86bcadad0b67b3c48ed1d975a0aed83",
+    "hybrid_controller.py": "3b801711d3ede2aa3ea3a4e2728d4c708ecad7d8b371d77968dd7d8a69e0b43e",
+    "target_reference.py": "71cafdabdd53b345305232a00dbb42350d6f3ecc6ab522da21885f61bba7dd97"
   }
 }
