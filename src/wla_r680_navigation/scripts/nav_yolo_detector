@@ -3,6 +3,7 @@
 
 ROS callbacks never run inference. A single newest-frame slot bounds backlog;
 results keep acquisition time and cannot cross a camera/tracker epoch.
+RGB and depth arrive serialized; only frames that are used get deserialized.
 """
 import argparse
 from collections import deque
@@ -25,6 +26,7 @@ from std_msgs.msg import String
 from tf2_ros import Buffer, TransformListener
 from wla_detection_bridge.stream import encode_batch, stamp_ns
 from wla_r680_navigation_py.perception_geometry import color_array, depth_array, bbox_point, transform_point
+from wla_r680_navigation_py.raw_image import as_frame, frame_message, frame_meta
 
 RELATIVE_TOPIC = '/r680/perception/relative_objects'
 HEALTH_TOPIC = '/r680_nav/perception/status'
@@ -55,8 +57,8 @@ class NavDetector(Node):
         self.status_pub = self.create_publisher(String, HEALTH_TOPIC, 1)
         self.metrics_pub = self.create_publisher(String, '/r680_nav/perception/timing', 10)
         image_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
-        self.create_subscription(Image, '/r680/d455/color/image_raw', self.on_image, image_qos)
-        self.create_subscription(Image, '/r680/d455/aligned_depth_to_color/image_raw', lambda m: self.depths.append(m), qos_profile_sensor_data)
+        self.create_subscription(Image, '/r680/d455/color/image_raw', self.on_image, image_qos, raw=True)
+        self.create_subscription(Image, '/r680/d455/aligned_depth_to_color/image_raw', self.on_depth, qos_profile_sensor_data, raw=True)
         self.create_subscription(CameraInfo, '/r680/d455/color/camera_info', lambda m: self.infos.append(m), qos_profile_sensor_data)
         self.observation_exporter = None
         if getattr(args, 'observation_socket', None):
@@ -74,9 +76,12 @@ class NavDetector(Node):
             except Exception as exc:
                 self.get_logger().error('Optional Agent observation export unavailable: '+str(exc))
         self.previous_ros = self.ros_ns()
+        # The worker wakes the executor when a result is ready; the slow timer
+        # only rechecks expiry if a wake-up is ever missed.
+        self.result_ready = self.create_guard_condition(self.drain)
         self.worker = threading.Thread(target=self.infer, name='nav-yolo', daemon=True)
         self.worker.start()
-        self.create_timer(.01, self.drain)
+        self.create_timer(.1, self.drain)
         self.create_timer(.05, self.publish_status)
         self.get_logger().info('YOLO processes fresh camera frames; robot-relative RGB-D only')
 
@@ -115,23 +120,27 @@ class NavDetector(Node):
                     session=self.session, epoch=self.epoch, enabled=True,
                     base_frame=self.args.base_frame, ttl_s=.30, objects=[])
 
-    def on_image(self, message):
+    def on_depth(self, data):
+        self.depths.append(as_frame(data))
+
+    def on_image(self, data):
         now, received = self.ros_ns(), time.monotonic()
-        stamp = stamp_ns(message)
+        frame = as_frame(data)
+        stamp, frame_id, height, width = frame_meta(frame)
         if (stamp <= 0 or not -.05 <= (now-stamp)/1e9 <= .3
-                or message.header.frame_id != 'd455_color_optical_frame'
-                or not 0 < message.width*message.height <= 2_000_000):
+                or frame_id != 'd455_color_optical_frame'
+                or not 0 < width*height <= 2_000_000):
             return
         with self.condition:
             if self.stopping:
                 return
-            if ((self.last_frame is not None and message.header.frame_id != self.last_frame)
+            if ((self.last_frame is not None and frame_id != self.last_frame)
                     or (self.last_receive and received-self.last_receive > .75)):
                 self.reset_epoch()
             if stamp <= self.last_stamp:
                 return
-            self.last_stamp, self.last_frame, self.last_receive = stamp, message.header.frame_id, received
-            self.pending = (message, self.epoch, now)
+            self.last_stamp, self.last_frame, self.last_receive = stamp, frame_id, received
+            self.pending = (frame, self.epoch, now)
             self.condition.notify()
 
     def infer(self):
@@ -143,14 +152,16 @@ class NavDetector(Node):
                     self.condition.wait(timeout=max(.001, next_at-time.monotonic()) if self.pending else None)
                 if self.stopping:
                     return
-                message, epoch, received_ns = self.pending
+                source, epoch, received_ns = self.pending
                 self.pending = None
             start_ns = self.ros_ns()
-            if (start_ns-stamp_ns(message))/1e9 > .3:
+            frame_stamp = frame_meta(source)[0]
+            if (start_ns-frame_stamp)/1e9 > .3:
                 continue
-            timing = dict(stamp_ns=stamp_ns(message), rgb_received_ns=received_ns,
+            timing = dict(stamp_ns=frame_stamp, rgb_received_ns=received_ns,
                           inference_start_ns=start_ns, epoch=epoch, session=self.session)
             try:
+                message = frame_message(source)
                 if tracker_epoch != epoch:
                     self.runtime.reset()
                     tracker_epoch = epoch
@@ -225,6 +236,7 @@ class NavDetector(Node):
                 with self.condition:
                     if epoch == self.epoch and not self.stopping:
                         self.result = (batch, timing)
+                self.result_ready.trigger()
             except Exception as exc:
                 self.get_logger().error('YOLO failed: '+str(exc))
                 with self.condition:
@@ -232,6 +244,7 @@ class NavDetector(Node):
                         self.reset_epoch()
                         self.result = (None, dict(epoch=self.epoch, error=str(exc),
                             outcome='inference_rejected', runtime=self.runtime.last_metrics))
+                self.result_ready.trigger()
             next_at = time.monotonic()+max(0., 1/self.args.hz-(self.ros_ns()-start_ns)/1e9)
 
     def publish_status(self):
@@ -255,11 +268,13 @@ class NavDetector(Node):
     def project(self, batch):
         stamp = batch['stamp_ns']
         info = min(self.infos, key=lambda m: abs(stamp_ns(m)-stamp), default=None)
-        depth = min(self.depths, key=lambda m: abs(stamp_ns(m)-stamp), default=None)
+        depth = min(self.depths, key=lambda f: abs(frame_meta(f)[0]-stamp), default=None)
+        depth_stamp, depth_frame, depth_height, depth_width = frame_meta(depth) if depth is not None else (0, '', 0, 0)
         aligned = (info is not None and depth is not None
-            and abs(stamp_ns(info)-stamp) <= 250_000_000 and abs(stamp_ns(depth)-stamp) <= 35_000_000
-            and all(m.header.frame_id == batch['frame_id'] and (m.width,m.height) == (batch['width'],batch['height']) for m in (info,depth)))
-        data = depth_array(depth) if aligned else None
+            and abs(stamp_ns(info)-stamp) <= 250_000_000 and abs(depth_stamp-stamp) <= 35_000_000
+            and info.header.frame_id == batch['frame_id'] and (info.width, info.height) == (batch['width'], batch['height'])
+            and depth_frame == batch['frame_id'] and (depth_width, depth_height) == (batch['width'], batch['height']))
+        data = depth_array(frame_message(depth)) if aligned else None
         tf = None
         if data is not None:
             try:
@@ -285,7 +300,7 @@ class NavDetector(Node):
                     session=batch['session'], epoch=batch['epoch'], enabled=True,
                     base_frame=self.args.base_frame, ttl_s=.30, objects=rows,
                     association=batch.get('association', {}),
-                    depth_stamp_ns=stamp_ns(depth) if aligned else None)
+                    depth_stamp_ns=depth_stamp if aligned else None)
 
     def drain(self):
         with self.condition:

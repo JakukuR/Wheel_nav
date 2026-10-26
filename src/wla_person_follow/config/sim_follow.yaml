@@ -9,7 +9,8 @@ person_follow:
     detection_status_topic: /r680_nav/perception/status
     depth_topic: /r680/d455/aligned_depth_to_color/image_raw
     camera_info_topic: /r680/d455/color/camera_info
-    wheel_topic: /wheel/odom
+    # 50 Hz window mean from the chassis driver; the 200 Hz topic costs rclpy ~30% CPU.
+    wheel_topic: /wheel/odom_50hz
     base_frame: r680_mapping_floor
     depth_stride: 4
     depth_min_m: 0.15

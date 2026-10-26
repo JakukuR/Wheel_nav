@@ -25,6 +25,7 @@ from wla_behavior_interfaces.srv import PersonCommand
 from .camera import depth_meters
 from .diagnostics import finite_json, observed_target, wheel_message
 from wla_r680_navigation_py.target_masks import MaskDepthPairer, filter_target_depth
+from wla_r680_navigation_py.raw_image import as_frame, frame_message, frame_meta
 from .depth_proc import rotation_from_quaternion
 from .motion_memory import LocalMotion
 from .task_session import TaskSession
@@ -147,7 +148,8 @@ class SimulationFollow(Node):
             self.create_subscription(String,prefix+'/reid_features',self.on_reid,1)
         if self.p['target_mask_enabled']:
             self.create_subscription(String,'/r680/perception/target_mask',self.on_target_mask,1)
-        self.create_subscription(Image,self.p['depth_topic'],self.on_depth,qos_profile_sensor_data)
+        # Depth arrives serialized; only the ~10 Hz frames compute() takes are deserialized.
+        self.create_subscription(Image,self.p['depth_topic'],self.on_depth,qos_profile_sensor_data,raw=True)
         self.create_subscription(CameraInfo,self.p['camera_info_topic'],self.on_info,qos_profile_sensor_data)
         self.create_subscription(Odometry,self.p['wheel_topic'],self.on_wheel,qos_profile_sensor_data)
         self.create_subscription(String,'/r680_base/control_state',self.on_control,5)
@@ -220,16 +222,17 @@ class SimulationFollow(Node):
                 if self.motion.update(stamp_ns(msg)/1e9,(v.linear.x,v.linear.y,v.angular.z),self.now_ns()/1e9):
                     self.wheel_received=time.monotonic()
                     diagnostic_accepted=True
-            self.wheel_diagnostic=wheel_message(msg,time.monotonic(),diagnostic_accepted,self.motion.generation)
+            # Built only when status is published, not for every wheel sample.
+            self.wheel_diagnostic=(msg,time.monotonic(),diagnostic_accepted,self.motion.generation)
             if previous!=self.motion.generation:self.result=None
 
-    def on_depth(self,msg):
-        ns=stamp_ns(msg); age=(self.now_ns()-ns)/1e9
-        if ns<=0 or not -.05<=age<=self.p['max_sensor_age_s'] or not 0<msg.width*msg.height<=2_000_000:return
+    def on_depth(self,data):
+        frame=as_frame(data);ns,_,height,width=frame_meta(frame);age=(self.now_ns()-ns)/1e9
+        if ns<=0 or not -.05<=age<=self.p['max_sensor_age_s'] or not 0<width*height<=2_000_000:return
         with self.guard:
             if ns<=self.last_depth_stamp:return
             self.last_depth_stamp=ns
-            self.depth_pairer.put_depth(ns,(msg,time.monotonic()+self.p['max_sensor_age_s']-max(0.,age)))
+            self.depth_pairer.put_depth(ns,(frame,time.monotonic()+self.p['max_sensor_age_s']-max(0.,age)))
             self.event.set()
 
     def on_target_mask(self,msg):
@@ -398,7 +401,7 @@ class SimulationFollow(Node):
                 active=self.core.active;tof_messages=tuple(self.tof.values())
             if item is None:continue
             next_at=time.monotonic()+.1
-            msg,valid_until=item;stamp=stamp_ns(msg)/1e9
+            frame,valid_until=item;msg=frame_message(frame);stamp=stamp_ns(msg)/1e9
             processing_started=time.monotonic()
             depth_start_age_ms=(self.now_ns()-stamp_ns(msg))/1e6
             identity_status=None
@@ -800,7 +803,7 @@ class SimulationFollow(Node):
             state.update(diagnostic_sequence=self.status_sequence,
                 diagnostic_schema='wla-follow-diagnostics/v1',
                 target_observation=observed_target(self.core.objects,self.core.target_id,self.core.last_stamp/1e9,ns/1e9),
-                measured_motion=dict(wheel=deepcopy(self.wheel_diagnostic),
+                measured_motion=dict(wheel=wheel_message(*self.wheel_diagnostic,source=self.p['wheel_topic']) if self.wheel_diagnostic else None,
                     integrated_pose_reference_m_rad=None if current_pose is None else list(current_pose),
                     pose_stamp_ns=ns,reference_generation=self.motion.generation,
                     pose_source='LocalMotion wheel-twist integration; not global localization'),

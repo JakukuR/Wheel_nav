@@ -80,9 +80,9 @@ def front_distances(samples, queried, tracks, config, speed):
         diagnostic_scan_only=True)
 
 
-def wheel_message(msg, received_s, accepted, generation):
+def wheel_message(msg, received_s, accepted, generation, source='/wheel/odom'):
     p=msg.pose.pose.position;q=msg.pose.pose.orientation;v=msg.twist.twist
-    return finite_json(dict(source='/wheel/odom',stamp_ns=msg.header.stamp.sec*10**9+msg.header.stamp.nanosec,
+    return finite_json(dict(source=source,stamp_ns=msg.header.stamp.sec*10**9+msg.header.stamp.nanosec,
         received_monotonic_s=received_s,accepted_by_local_motion=accepted,reference_generation=generation,
         frame_id=msg.header.frame_id,child_frame_id=msg.child_frame_id,
         twist=dict(vx_mps=v.linear.x,vy_mps=v.linear.y,omega_rps=v.angular.z),
