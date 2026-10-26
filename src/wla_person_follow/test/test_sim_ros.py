@@ -41,7 +41,7 @@ def seed(follower,command=(.12,.05)):
         c.receive(dict(schema='wla-relative-detections/v1',stamp_ns=ns,session='fixture',epoch=0,
             enabled=True,base_frame='r680_mapping_floor',objects=[dict(detected=True,label='person',id='fixture:0:1',yaw=0.,distance=1.5)]),now,ns)
         if not c.active:
-            assert c.command('start','task','follow','fixture:0:1',1.,now)[0]
+            assert c.command("start","task",0,'fixture:0:1',1.,now)[0]
         c.expires_at=now+.3
         follower.motion.update(t,(0.,0.,0.),t);follower.wheel_received=now
         follower._tracking_update_locked()
