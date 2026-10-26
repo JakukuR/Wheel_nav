@@ -106,3 +106,14 @@ Socket 限同 UID，权限0600、单消费者锁；消息头<=256KiB、图像<=8
 旧 Jev 测试夹具补上现有 social_request 问题，不改变断言或模型决策规则。
 
 新入口安装后须重新启动对应感知进程才加载；本次没有重启底盘、启动相机或进行真人/实机模型验收。
+
+
+## 2026-10-26：授权重启后的真实相机验证
+
+用户明确要求重启测试后，于车端 domain73 停止原 debug-camera 的旧感知进程树，启动正式 `r680_perception.sh run --base-frame r680_mapping_floor`，再启动 `debug-camera --port 18081` 复用其唯一检测器。相机、YOLO、窗口状态话题各一个发布者，调试界面18081继续可用。没有启动底盘/导航运动，也没有发送运动命令。新链路已实际加载，替代上一节“尚未重启”的部署状态；历史测试记录保留。
+
+真实640×480 RGB/metadata已进入窗口。首个观察到的activation仅冻结一次，选8帧，post_roll_complete=true；随后明确报 system1_provider_unavailable。车端未配置System1提供方，因此没有真实模型提交或PerceptionFrame结果，不能记作模型端到端通过。后续活动正常退役，20秒稳态记录中累计冻结数保持3不再增长，IDLE期间缓存持续更新。采样末累计接纳1290包、接纳拒绝0，缓存114–117条、105681902–108464234字节（约101–103MiB），符合8秒/256条/256MiB上限。
+
+20秒稳态检测约14.65Hz，最大相邻接收间隔约90ms，末次camera/result均fresh。独立20秒进程资源采样：窗口进程约15.32%单CPU核、RSS335008KiB（约327MiB），包含ROS、IPC、校验和对象开销；这不是早先四段合成基准的3.55%，也不是整机A/B或峰值保证。未新增GPU模型实例。相机重启时出现短暂libusb Resource temporarily unavailable警告，随后真实流和检测持续正常。
+
+证据：`ros2_ws/.staging/observation-live-20261026/` 中的 restart-receipt.json、restart-observation.json、steady-observation.json、live-resources.json、live-validation.json。保持新感知链路运行；真实System1、原音频与实车运动仍未验证。
