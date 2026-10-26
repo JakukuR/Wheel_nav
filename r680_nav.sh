@@ -4,6 +4,8 @@ set -Ee -o pipefail
 usage() {
   cat <<'EOF'
 用法: r680_nav.sh [选项]
+  前提：D455 由独立终端的 r680_camera.sh 启动，导航只复用、不再自己打开相机
+        （--cuvslam / --openvins 需要 run --infra；OpenVINS 用 D455 IMU 时再加 --imu）
 
   --map NAME             选择 maps 下的地图目录；默认读取 storage.yaml 的 active_map
   --storage-config PATH  指定存储配置文件
@@ -367,6 +369,20 @@ trap 'exit 130' INT TERM HUP
   echo '[R680 NAV] 未找到候选底盘串口 0002' >&2; exit 1;
 }
 
+# D455 is owned by r680_camera.sh in its own terminal; navigation only reuses it.
+CAMERA_NEEDS=()
+if [[ "$ODOM_SOURCE" == cuvslam || "$ODOM_SOURCE" == openvins ]]; then CAMERA_NEEDS+=(--infra); fi
+if [[ "$USE_D455_IMU" == true ]]; then CAMERA_NEEDS+=(--imu); fi
+if ! CAMERA_REPORT="$(bash "$WORKSPACE/r680_camera.sh" check "${CAMERA_NEEDS[@]}")"; then
+  echo "[R680 NAV] D455 未就绪：$CAMERA_REPORT" >&2
+  echo "[R680 NAV] 请先在独立终端运行：bash $WORKSPACE/r680_camera.sh run ${CAMERA_NEEDS[*]}" >&2
+  exit 1
+fi
+echo "[R680 NAV] 复用独立 D455：$CAMERA_REPORT"
+if [[ "$ODOM_SOURCE" == openvins && "$CAMERA_REPORT" == *'"emitter": "on"'* ]]; then
+  echo '[R680 NAV] 提示：OpenVINS 原配置关闭红外发射器；需要一致时用 r680_camera.sh run --infra --emitter off 重启相机。'
+fi
+
 if systemctl --user is-active --quiet r680-readonly-inputs.service; then
   READONLY_INPUTS_ACTIVE=true
 fi
@@ -378,10 +394,6 @@ if [[ "$ODOM_SOURCE" == cuvslam || "$ODOM_SOURCE" == openvins ]]; then
       systemctl --user stop "$unit"
     fi
   done
-else
-  if ! systemctl --user is-active --quiet r680-d455-observation.service; then
-    systemctl --user restart r680-readonly-inputs.service
-  fi
 fi
 for unit in "${PAUSE_UNITS[@]}"; do
   if systemctl --user is-active --quiet "$unit"; then
@@ -389,20 +401,6 @@ for unit in "${PAUSE_UNITS[@]}"; do
     systemctl --user stop "$unit"
   fi
 done
-
-if [[ "$ODOM_SOURCE" == cuvslam || "$ODOM_SOURCE" == openvins ]]; then
-  python3 - <<'PYCAMERA'
-from pathlib import Path
-import os
-for entry in Path('/proc').iterdir():
-    if not entry.name.isdigit(): continue
-    try:
-        target = os.readlink(entry / 'exe')
-    except OSError: continue
-    if target.endswith('/realsense2_camera_node'):
-        raise SystemExit('仍有独立 RealSense 驱动运行；请先关闭该相机会话，避免重复打开 D455。')
-PYCAMERA
-fi
 
 echo "[R680 NAV] 地图：$MAP_DIR"
 echo "[R680 NAV] 二维栅格：$MAP_YAML"
@@ -465,7 +463,7 @@ LAUNCH_ARGS=(
   nav_params_file:="$NAV2_PARAMS_FILE"
   obstacle_scan:="$SCAN_OBSTACLES"
   start_dynamic_obstacles:="$START_DYNAMIC_OBSTACLES"
-  start_d455:="$(if [[ "$ODOM_SOURCE" == cuvslam || "$ODOM_SOURCE" == openvins ]]; then echo true; else echo false; fi)" start_chassis:="$START_CHASSIS" start_nav2:=true start_navigation_servers:=true
+  start_d455:=false start_chassis:="$START_CHASSIS" start_nav2:=true start_navigation_servers:=true
   start_state_estimation:=true use_d455_imu:="$USE_D455_IMU" use_chassis_imu:=true
   odom_source:="$ODOM_SOURCE" cuvslam_statistics_path:="$NAV_RUN_DIR/cuvslam_statistics.json"
   auto_vio_init:="$AUTO_VIO_INIT" vio_init_result_path:="$NAV_RUN_DIR/vio_init.json"

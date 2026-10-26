@@ -1,0 +1,2 @@
+# Flat RealSense parameters (r680_camera.sh --emitter off): projector off for cleaner stereo VIO.
+depth_module.emitter_enabled: 0

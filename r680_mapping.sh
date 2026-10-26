@@ -15,6 +15,8 @@ usage() {
   cat <<'EOF'
 用法: r680_mapping.sh [--openvins|--cuvslam|--rgbd] [--auto-vio-init] [--dry-run]
                        [--storage-config PATH] [--no-rviz] [--no-semantics]
+  前提：D455 由独立终端的 r680_camera.sh 启动，建图只复用、不再自己打开相机
+        （--cuvslam / --openvins 需要 run --infra；OpenVINS 用 D455 IMU 时再加 --imu）
   --openvins       OpenVINS 双目 VIO，默认 D455 内置 IMU，候选配置仅预览
   --openvins-imu d455|wheel  选择成套 IMU 标定
   --openvins-config PATH  使用指定完整配置目录
@@ -220,6 +222,17 @@ fi
   echo '[R680] 未找到候选底盘串口 0002' >&2; exit 1;
 }
 
+# D455 is owned by r680_camera.sh in its own terminal; mapping only reuses it.
+CAMERA_NEEDS=()
+if [[ "$ODOM_SOURCE" == cuvslam || "$ODOM_SOURCE" == openvins ]]; then CAMERA_NEEDS+=(--infra); fi
+if [[ "$USE_D455_IMU" == true ]]; then CAMERA_NEEDS+=(--imu); fi
+if ! CAMERA_REPORT="$(bash "$WORKSPACE/r680_camera.sh" check "${CAMERA_NEEDS[@]}")"; then
+  echo "[R680] D455 未就绪：$CAMERA_REPORT" >&2
+  echo "[R680] 请先在独立终端运行：bash $WORKSPACE/r680_camera.sh run ${CAMERA_NEEDS[*]}" >&2
+  exit 1
+fi
+echo "[R680] 复用独立 D455：$CAMERA_REPORT"
+
 if systemctl --user is-active --quiet r680-readonly-inputs.service; then READONLY_INPUTS_ACTIVE=true; fi
 systemctl --user stop r680-d455-localization-stack.service
 if [[ "$ODOM_SOURCE" == cuvslam || "$ODOM_SOURCE" == openvins ]]; then
@@ -228,10 +241,6 @@ if [[ "$ODOM_SOURCE" == cuvslam || "$ODOM_SOURCE" == openvins ]]; then
       PAUSED_UNITS+=("$unit"); systemctl --user stop "$unit"
     fi
   done
-else
-  if ! systemctl --user is-active --quiet r680-d455-observation.service; then
-    systemctl --user restart r680-readonly-inputs.service
-  fi
 fi
 for unit in "${PAUSE_UNITS[@]}"; do
   if systemctl --user is-active --quiet "$unit"; then
@@ -239,18 +248,6 @@ for unit in "${PAUSE_UNITS[@]}"; do
     systemctl --user stop "$unit"
   fi
 done
-if [[ "$ODOM_SOURCE" == cuvslam || "$ODOM_SOURCE" == openvins ]]; then
-  python3 - <<'PYCAMERA'
-from pathlib import Path
-import os
-for p in Path('/proc').iterdir():
-    if not p.name.isdigit(): continue
-    try: target = os.readlink(p/'exe')
-    except OSError: continue
-    if target.endswith('/realsense2_camera_node'):
-        raise SystemExit('仍有独立 RealSense 驱动，请先关闭该相机会话。')
-PYCAMERA
-fi
 
 RUN_DIR=$(ros2 run wla_r680_navigation prepare_mapping_run "${PREPARE_ARGS[@]}")
 if [[ "$ODOM_SOURCE" == openvins ]]; then
@@ -279,7 +276,7 @@ else
 fi
 setsid ros2 launch wla_r680_navigation bringup.launch.py \
   mode:=mapping database_path:="$DB_PATH" \
-  start_d455:="$(if [[ "$ODOM_SOURCE" == cuvslam || "$ODOM_SOURCE" == openvins ]]; then echo true; else echo false; fi)" \
+  start_d455:=false \
   start_chassis:="$START_CHASSIS" start_nav2:=true start_navigation_servers:=false start_dynamic_obstacles:=false \
   start_state_estimation:=true use_d455_imu:="$USE_D455_IMU" use_chassis_imu:=true \
   openvins_config_dir:="$OPENVINS_CONFIG" openvins_allow_commissioning:="$OPENVINS_ALLOW_COMMISSIONING" \

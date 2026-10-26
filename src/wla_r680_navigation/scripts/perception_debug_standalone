@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Camera + detector + local depth obstacles + viewer. No Nav2 or motion nodes."""
+"""Detector + viewer on the shared D455 (r680_camera.sh). No camera, Nav2 or motion nodes.
+
+depth_to_points is opt-in (--with-points): navigation runs its own, and the
+follow/debug pages do not consume this one.
+"""
 import argparse
 import json
 import os
@@ -16,6 +20,8 @@ from launch.events import Shutdown
 
 
 POINTS = '/r680/perception/local_obstacles'
+NAV_POINTS = '/r680_nav/d455/points'
+CAMERA_HINT = 'bash ~/ros2_ws/r680_camera.sh run'
 FOLLOW_POINTS = '/r680/person_follow/depth_obstacles'
 
 
@@ -37,7 +43,7 @@ def discover():
             raise RuntimeError('Multiple RGB publishers; resolve camera ownership before debug')
         owners = {'camera': publishers('/r680/d455/color/image_raw') > 0,
                   'detector': publishers('/r680/perception/detections') > 0,
-                  'points': publishers(POINTS) > 0,
+                  'points': publishers(POINTS) > 0 or publishers(NAV_POINTS) > 0,
                   'mount': tf.can_transform('r680_mapping_floor', 'd455_link', Time())}
         # A driver in a different ROS domain can still own the physical D455.
         if not owners['camera']:
@@ -81,16 +87,8 @@ def commands(args, owners, viewer_running):
     share = Path(get_package_share_directory('wla_r680_navigation'))
     result = []
     if not owners['camera']:
-        camera_env = {}
-        sdk = Path.home()/'robot_sensors/realsense/current/lib'
-        if os.environ.get('R680_REALSENSE_BACKEND', 'rsusb') != 'system' and (sdk/'librealsense2.so.2.58').is_file():
-            camera_env['LD_LIBRARY_PATH'] = str(sdk)+':'+os.environ.get('LD_LIBRARY_PATH', '')
-        result.append(('camera', ['ros2','launch','realsense2_camera','rs_launch.py',
-            'camera_namespace:=r680','camera_name:=d455','serial_no:=_260922306083',
-            'depth_module.depth_profile:=640x480x30','rgb_camera.color_profile:=640x480x30',
-            'enable_depth:=true','enable_color:=true','enable_infra1:=false','enable_infra2:=false',
-            'enable_gyro:=false','enable_accel:=false','publish_tf:=true',
-            'align_depth.enable:=true','enable_sync:=true'],camera_env))
+        # The camera has a single owner shared with navigation.
+        raise RuntimeError('No D455 topics in this ROS domain; start the camera first: '+CAMERA_HINT)
     if not owners['mount']:
         # Same measured mounting transform as the deployed robot configuration.
         mount_executable=Path(get_package_prefix('tf2_ros'))/'lib/tf2_ros/static_transform_publisher'
@@ -102,7 +100,7 @@ def commands(args, owners, viewer_running):
         result.append(('detector', [args.python,str(nav/'nav_yolo_detector'),'--model',args.model,
             '--tracker',args.tracker,'--classes-file',args.classes_file,
             '--text-encoder',args.text_encoder,'--device',args.device,'--base-frame','r680_mapping_floor'],{}))
-    if not owners['points']:
+    if args.with_points and not owners['points']:
         result.append(('local_obstacles', [str(nav/'depth_to_points'),'--ros-args',
             '--params-file',str(share/'config/d455_points.yaml'),
             '-p','output_topic:='+POINTS,
@@ -125,6 +123,7 @@ def main():
     p.add_argument('--device',default='0')
     p.add_argument('--port',type=int,default=18081)
     p.add_argument('--check',action='store_true',help='Read-only preflight and print the exact launch plan')
+    p.add_argument('--with-points',action='store_true',help='Also run depth_to_points when nobody else does')
     args=p.parse_args()
     if not 0 < args.port < 65536:p.error('Invalid port')
     # Prevent two simultaneous preflights from both deciding to own the camera.

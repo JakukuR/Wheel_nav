@@ -1,0 +1,2 @@
+# Flat RealSense parameters (r680_camera.sh --emitter on): dot projector on for depth obstacles.
+depth_module.emitter_enabled: 1

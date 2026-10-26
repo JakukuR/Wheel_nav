@@ -34,5 +34,5 @@ case "$operation" in
   debug-camera)
     exec /usr/bin/python3 "$task_nav/lib/wla_r680_navigation/perception_debug_standalone" --python "$task_python" "${task_args[@]}" "$@"
     ;;
-  *) echo 'Usage: r680_perception.sh check | run [--no-agent] [--no-window] [--cache-only] [--debug] | window [--check] | debug [--mode local|odom] | debug-camera [--port 18081]' >&2; exit 2 ;;
+  *) echo 'Usage: r680_perception.sh check | run [--no-agent] [--no-window] [--cache-only] [--debug] | window [--check] | debug [--mode local|odom] | debug-camera [--port 18081] [--with-points]（相机先用 r680_camera.sh run 启动）' >&2; exit 2 ;;
 esac
