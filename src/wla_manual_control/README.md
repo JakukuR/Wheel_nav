@@ -4,6 +4,19 @@
 `command_mux.py` 是 `/r680_base/cmd_vel` 的唯一发布者。
 当前执行策略是 `VelocityPolicy`；`control_policy.Policy` 保留公用手柄/急停工具和旧策略回归。
 
+## C++ 实现（可选）
+
+`command_mux`（`src/command_mux.cpp` + `src/velocity_policy.cpp`）是同一策略的 C++ 移植：
+话题、服务、QoS、50 Hz 输出、5 Hz `control_state` 字段与 Python 版相同，SIGINT/SIGTERM 后发 5 次零速。
+默认仍运行 Python 版；`manual_base.launch.py mux_impl:=cpp` 或服务环境变量
+`R680_MUX_IMPL=cpp` 切换，回退改回 `python`。2026-10-26 在域 198 模拟负载
+（200 Hz odom、50 Hz 手柄、5 Hz 状态）下 CPU 约 5%，Python 版约 39%；尚未实车验证。
+
+`test/test_cpp_policy_equivalence.py` 用随机事件序列（含过期、乱序、重复、畸形 JSON、
+NaN/Inf）同时驱动两版策略，逐事件比较全部状态，已注册为 colcon 测试。
+修改 `velocity_policy.py` 时须同步修改 C++ 版，否则该测试失败。
+`test/test_mux_impl_ros.py <可执行文件>` 在域 198 检查单个实现并测量 CPU。
+
 ## 无模式切换
 
 收到新鲜合法的速度即可参与仲裁，无需 PERSON/OBJECT 来源选择、AUTO 切换或状态握手。
