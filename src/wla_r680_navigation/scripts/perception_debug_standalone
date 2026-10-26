@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Detector + viewer on the shared D455 (r680_camera.sh). No camera, Nav2 or motion nodes.
+"""Detector + Kalo debug page on the shared D455 (r680_camera.sh). No camera, Nav2 or motion nodes.
+
+The page is three small processes: foxglove_bridge (read-only, whitelisted
+topics), kalo_jpeg (camera stream, only while viewed) and kalo_debug_web
+(static files). Each is reused when it already runs.
 
 depth_to_points is opt-in (--with-points): navigation runs its own, and the
 follow/debug pages do not consume this one.
@@ -22,7 +26,8 @@ from launch.events import Shutdown
 POINTS = '/r680/perception/local_obstacles'
 NAV_POINTS = '/r680_nav/d455/points'
 CAMERA_HINT = 'bash ~/ros2_ws/r680_camera.sh run'
-FOLLOW_POINTS = '/r680/person_follow/depth_obstacles'
+JPEG_TOPIC = '/r680/debug/color/compressed'
+BRIDGE_PORT = 8765
 
 
 def discover():
@@ -43,6 +48,7 @@ def discover():
             raise RuntimeError('Multiple RGB publishers; resolve camera ownership before debug')
         owners = {'camera': publishers('/r680/d455/color/image_raw') > 0,
                   'detector': publishers('/r680/perception/detections') > 0,
+                  'jpeg': publishers(JPEG_TOPIC) > 0,
                   'points': publishers(POINTS) > 0 or publishers(NAV_POINTS) > 0,
                   'mount': tf.can_transform('r680_mapping_floor', 'd455_link', Time())}
         # A driver in a different ROS domain can still own the physical D455.
@@ -61,28 +67,50 @@ def discover():
         node.destroy_node();rclpy.shutdown()
 
 
-def viewer_available(port):
+def port_free(port):
     sock = socket.socket()
+    # Same reuse rule as the servers: a TIME_WAIT left by a closed browser tab is not "in use".
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         sock.bind(('0.0.0.0', port))
-        return False
+        return True
     except OSError:
-        try:
-            with urllib.request.urlopen(f'http://127.0.0.1:{port}/api/config', timeout=2) as response:
-                cfg = json.load(response)
-            expected = {'schema':'wla-perception-debug/v1', 'mode':'local',
-                        'domain':os.environ.get('ROS_DOMAIN_ID', '0'),
-                        'base_frame':'r680_mapping_floor', 'points_topic':FOLLOW_POINTS, 'voxel_topic':FOLLOW_POINTS}
-            if all(cfg.get(k) == v for k,v in expected.items()):
-                return True
-        except Exception:
-            pass
-        raise RuntimeError(f'Port {port} is occupied by a different viewer/configuration; use --port or close that viewer in its owning terminal')
+        return False
     finally:
         sock.close()
 
 
-def commands(args, owners, viewer_running):
+def web_available(port):
+    """True when our page already serves this domain on port; False when the port is free."""
+    if port_free(port):
+        return False
+    try:
+        with urllib.request.urlopen(f'http://127.0.0.1:{port}/config.json', timeout=2) as response:
+            cfg = json.load(response)
+        if cfg.get('schema') == 'kalo-debug/v1' and cfg.get('domain') == os.environ.get('ROS_DOMAIN_ID', '0'):
+            return True
+    except Exception:
+        pass
+    raise RuntimeError(f'Port {port} is used by something else; pass --port or close it in its owning terminal')
+
+
+def bridge_available(port):
+    """True when a foxglove bridge already listens on port; False when the port is free."""
+    if port_free(port):
+        return False
+    try:
+        with socket.create_connection(('127.0.0.1', port), timeout=2) as sock:
+            sock.sendall(b'GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n'
+                         b'Sec-WebSocket-Key: a2Fsb2thbG9rYWxva2Fsbw==\r\nSec-WebSocket-Version: 13\r\n'
+                         b'Sec-WebSocket-Protocol: foxglove.sdk.v1\r\n\r\n')
+            if b' 101 ' in sock.recv(64):
+                return True
+    except OSError:
+        pass
+    raise RuntimeError(f'Port {port} is used by something other than foxglove_bridge; close it in its owning terminal')
+
+
+def commands(args, owners, web_running, bridge_running):
     nav = Path(get_package_prefix('wla_r680_navigation'))/'lib/wla_r680_navigation'
     share = Path(get_package_share_directory('wla_r680_navigation'))
     result = []
@@ -107,9 +135,14 @@ def commands(args, owners, viewer_running):
             '-p','safety_output_topic:=/r680/perception/local_obstacles_safety',
             '-p','clearing_output_topic:=/r680/perception/local_clearing_points',
             '-p','visualization_output_topic:=/r680/perception/local_obstacles_viz'],{}))
-    if not viewer_running:
-        result.append(('viewer', ['/usr/bin/python3',str(nav/'nav_perception_debug'),
-            '--mode','local','--port',str(args.port)],{}))
+    if not bridge_running:
+        result.append(('bridge', ['ros2','run','foxglove_bridge','foxglove_bridge','--ros-args',
+            '-r','__node:=kalo_bridge','--params-file',str(share/'config/kalo_bridge.yaml')],{}))
+    if not owners['jpeg']:
+        result.append(('jpeg', [str(nav/'kalo_jpeg'),'--ros-args','-r','__node:=kalo_jpeg'],{}))
+    if not web_running:
+        result.append(('web', ['/usr/bin/python3',str(nav/'kalo_debug_web'),'--port',str(args.port),
+            '--bridge-port',str(BRIDGE_PORT)],{}))
     return result
 
 
@@ -140,16 +173,16 @@ def main():
             print('Standalone camera debug is already running in this ROS domain; reuse its windows.',file=sys.stderr)
             return 2
     try:
-        viewer_running=viewer_available(args.port)
+        web_running=web_available(args.port)
+        bridge_running=bridge_available(BRIDGE_PORT)
         owners=discover()
-        plan=commands(args,owners,viewer_running)
+        plan=commands(args,owners,web_running,bridge_running)
     except RuntimeError as error:
         if lock_file:lock_file.close()
         print(str(error),file=sys.stderr);return 2
     print(json.dumps({'mode':'standalone_local','domain':os.environ.get('ROS_DOMAIN_ID','0'),
-        'reuse':dict(owners,viewer=viewer_running),'start':[name for name,_,_ in plan],
-        'detections':f'http://<robot-ip>:{args.port}/detections',
-        'planning':f'http://<robot-ip>:{args.port}/planning'},ensure_ascii=False,indent=2),flush=True)
+        'reuse':dict(owners,web=web_running,bridge=bridge_running),'start':[name for name,_,_ in plan],
+        'page':f'http://<robot-ip>:{args.port}/'},ensure_ascii=False,indent=2),flush=True)
     if args.check:
         for name,cmd,_ in plan:print(name, json.dumps(cmd))
         return 0

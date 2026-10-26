@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kalo 调试台</title>
+<link rel="icon" href="kalo.jpg">
+<link rel="stylesheet" href="kalo.css">
+<script defer src="kalo.js"></script>
+</head>
+<body>
+<header class="bar">
+  <img class="avatar" src="kalo.jpg" width="34" height="34" alt="">
+  <h1>Kalo 调试台</h1>
+  <span class="grow"></span>
+  <span class="pill" id="link">正在连接</span>
+  <span class="pill" id="domain">ROS 域 —</span>
+  <span class="pill" id="wire">0.00 MB/s</span>
+  <span class="pill quiet">只读</span>
+</header>
+<main>
+  <section class="stage">
+    <figure class="panel cam">
+      <div class="frame" id="camFrame">
+        <canvas id="camGl" width="640" height="480" aria-label="相机画面与投影图层"></canvas>
+        <canvas id="camOverlay" width="640" height="480" aria-hidden="true"></canvas>
+        <p class="empty" id="camEmpty">等待相机画面……</p>
+      </div>
+      <figcaption><span id="camCaption">相机</span><span id="camMeta" class="meta"></span></figcaption>
+    </figure>
+    <figure class="panel top">
+      <div class="frame square">
+        <canvas id="topGl" width="600" height="600" aria-label="车体坐标俯视图"></canvas>
+        <canvas id="topOverlay" width="600" height="600" aria-hidden="true"></canvas>
+      </div>
+      <figcaption>
+        <span>俯视 · 车头向上</span>
+        <label class="range">视野
+          <select id="range"><option value="4">4 m</option><option value="8" selected>8 m</option><option value="12">12 m</option></select>
+        </label>
+      </figcaption>
+    </figure>
+  </section>
+  <section class="layers" id="layers" aria-label="图层开关（关闭后不再订阅对应话题）"></section>
+  <section class="stats">
+    <div class="stat"><b id="sDet">—</b><span>检测输出</span></div>
+    <div class="stat"><b id="sLat">—</b><span>相机→检测发布（中位）</span></div>
+    <div class="stat"><b id="sFollow">—</b><span id="sFollowWhy">跟随状态</span></div>
+    <div class="stat"><b id="sCam">—</b><span>画面帧率 · 帧龄</span></div>
+  </section>
+  <p class="foot">数据由 foxglove_bridge 推送，浏览器负责投影和绘制。关掉的图层不再订阅对应话题；没有人打开本页时，车上不订阅相机。</p>
+</main>
+</body>
+</html>

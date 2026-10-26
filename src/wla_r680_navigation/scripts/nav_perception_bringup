@@ -3,7 +3,7 @@
 import argparse
 import sys
 from pathlib import Path
-from ament_index_python.packages import get_package_prefix
+from ament_index_python.packages import get_package_prefix, get_package_share_directory
 from launch import LaunchDescription, LaunchService
 from launch.actions import ExecuteProcess, RegisterEventHandler, EmitEvent
 from launch.event_handlers import OnProcessExit
@@ -14,7 +14,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument('--python', required=True)
     p.add_argument('--no-agent', action='store_true')
-    p.add_argument('--debug', action='store_true', help='Start read-only detection and RGB geometry windows')
+    p.add_argument('--debug', action='store_true', help='Also start the read-only Kalo debug page')
     p.add_argument('--no-window', action='store_true', help='Disable frozen-window consumer/export')
     p.add_argument('--window-config', default=None)
     p.add_argument('--cache-only', action='store_true')
@@ -41,8 +41,12 @@ def main():
     detector = ExecuteProcess(cmd=[args.python,str(nav),*detector_args],output='screen')
     processes = [window, detector] if window else [detector]
     if args.debug:
-        viewer = nav.with_name('nav_perception_debug')
-        processes.append(ExecuteProcess(cmd=['/usr/bin/python3', str(viewer), '--port', str(args.debug_port)], output='screen'))
+        share = Path(get_package_share_directory('wla_r680_navigation'))
+        processes += [
+            ExecuteProcess(cmd=['ros2', 'run', 'foxglove_bridge', 'foxglove_bridge', '--ros-args', '-r', '__node:=kalo_bridge',
+                                '--params-file', str(share/'config/kalo_bridge.yaml')], output='screen'),
+            ExecuteProcess(cmd=[str(nav.with_name('kalo_jpeg')), '--ros-args', '-r', '__node:=kalo_jpeg'], output='screen'),
+            ExecuteProcess(cmd=['/usr/bin/python3', str(nav.with_name('kalo_debug_web')), '--port', str(args.debug_port)], output='screen')]
     if not args.no_agent:
         bridge = Path(get_package_prefix('wla_behavior_bridge'))/'lib/wla_behavior_bridge/nav_perception_adapter'
         processes.append(ExecuteProcess(cmd=['/usr/bin/python3',str(bridge)],output='screen'))

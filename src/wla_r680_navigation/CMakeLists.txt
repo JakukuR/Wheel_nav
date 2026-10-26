@@ -60,15 +60,24 @@ ament_target_dependencies(interface_monitor nav_msgs rclcpp sensor_msgs std_msgs
 ament_target_dependencies(depth_to_points geometry_msgs rclcpp sensor_msgs tf2 tf2_ros)
 ament_target_dependencies(point_to_scan rclcpp sensor_msgs)
 
-install(TARGETS degraded_odometry command_guard vio_initializer mapping_odom_gate imu_conditioner path_speed_profile goal_approach_limiter dynamic_obstacle_memory vo_watchdog interface_monitor depth_to_points point_to_scan DESTINATION lib/${PROJECT_NAME})
+# Kalo debug page camera stream: NVJPG through GStreamer, software jpegenc fallback.
+find_package(OpenCV REQUIRED COMPONENTS core imgproc)  # no imgcodecs: its libjpeg clashes with nvjpegenc
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(GST REQUIRED IMPORTED_TARGET gstreamer-1.0 gstreamer-app-1.0)
+add_executable(kalo_jpeg src/kalo_jpeg.cpp)
+target_compile_features(kalo_jpeg PRIVATE cxx_std_17)
+target_link_libraries(kalo_jpeg ${OpenCV_LIBS} PkgConfig::GST)
+ament_target_dependencies(kalo_jpeg rclcpp sensor_msgs)
+
+install(TARGETS degraded_odometry command_guard vio_initializer mapping_odom_gate imu_conditioner path_speed_profile goal_approach_limiter dynamic_obstacle_memory vo_watchdog interface_monitor depth_to_points point_to_scan kalo_jpeg DESTINATION lib/${PROJECT_NAME})
 ament_python_install_package(wla_r680_navigation_py)
-install(PROGRAMS scripts/navigation_goal_bridge scripts/web_gateway scripts/furniture_semantic.py scripts/nav_yolo_detector scripts/nav_perception_bringup scripts/agent_observation_window scripts/nav_perception_debug scripts/perception_debug_standalone
+install(PROGRAMS scripts/navigation_goal_bridge scripts/web_gateway scripts/furniture_semantic.py scripts/nav_yolo_detector scripts/nav_perception_bringup scripts/agent_observation_window scripts/kalo_debug_web scripts/perception_debug_standalone
   DESTINATION lib/${PROJECT_NAME})
 install(PROGRAMS scripts/mapping_mission scripts/prepare_mapping_run scripts/save_manual_map
   scripts/r680_nav.sh scripts/wait_mapping_ready scripts/openvins_nav_startup.py scripts/openvins_motion_init.py scripts/navigation_motion_session.py
   scripts/resolve_navigation_map scripts/accept_navigation_map_edit
   scripts/r680_mapping.sh scripts/r680_teleop.sh scripts/r680_mode_lock.sh DESTINATION lib/${PROJECT_NAME})
-install(DIRECTORY config launch docs web debug_web DESTINATION share/${PROJECT_NAME}
+install(DIRECTORY config launch docs web kalo_web DESTINATION share/${PROJECT_NAME}
   PATTERN "__pycache__" EXCLUDE PATTERN "*.pyc" EXCLUDE)
 install(FILES README.md DESTINATION share/${PROJECT_NAME})
 
@@ -153,17 +162,12 @@ if(BUILD_TESTING)
   ament_target_dependencies(test_timed_obstacle_layer nav2_costmap_2d pluginlib rclcpp sensor_msgs std_msgs tf2_ros)
   add_test(NAME timed_obstacle_layer COMMAND test_timed_obstacle_layer)
   set_tests_properties(timed_obstacle_layer PROPERTIES ENVIRONMENT "ROS_DOMAIN_ID=74" TIMEOUT 20)
-  ament_add_pytest_test(test_debug_projection test/test_debug_projection.py)
-  add_test(NAME debug_viewer_ros COMMAND ${Python3_EXECUTABLE}
-    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_debug_viewer_ros.py)
-  set_tests_properties(debug_viewer_ros PROPERTIES
-    ENVIRONMENT "ROS_DOMAIN_ID=197;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST;RMW_IMPLEMENTATION=rmw_cyclonedds_cpp"
+  add_test(NAME kalo_debug_ros COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_kalo_debug_ros.py)
+  set_tests_properties(kalo_debug_ros PROPERTIES
+    ENVIRONMENT "ROS_DOMAIN_ID=196;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST;RMW_IMPLEMENTATION=rmw_cyclonedds_cpp;KALO_LIB=${CMAKE_INSTALL_PREFIX}/lib/${PROJECT_NAME}"
     RUN_SERIAL TRUE TIMEOUT 45)
-  add_test(NAME debug_viewer_local_ros COMMAND ${Python3_EXECUTABLE}
-    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_debug_viewer_ros.py --local)
-  set_tests_properties(debug_viewer_local_ros PROPERTIES
-    ENVIRONMENT "ROS_DOMAIN_ID=197;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST;RMW_IMPLEMENTATION=rmw_cyclonedds_cpp"
-    RUN_SERIAL TRUE TIMEOUT 45)
+  ament_add_pytest_test(test_raw_image test/test_raw_image.py)
   add_test(NAME debug_standalone_plan COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/test/test_debug_standalone.py)
   ament_add_pytest_test(test_perception_geometry test/test_perception_geometry.py)

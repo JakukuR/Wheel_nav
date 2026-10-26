@@ -1,4 +1,4 @@
-"""Read-only launch-plan and local projection policy tests; no hardware start."""
+"""Read-only launch-plan tests for the Kalo debug entry; no hardware start."""
 import argparse
 import importlib.machinery
 import importlib.util
@@ -8,14 +8,15 @@ import unittest
 from unittest import mock
 import tempfile
 import fcntl
-from types import SimpleNamespace
 
 base=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(base))
 loader=importlib.machinery.SourceFileLoader('standalone',str(base/'scripts/perception_debug_standalone'))
 spec=importlib.util.spec_from_loader(loader.name,loader);standalone=importlib.util.module_from_spec(spec);loader.exec_module(standalone)
-from wla_r680_navigation_py.debug_viewer import DebugViewer
-from sensor_msgs.msg import PointCloud2, Image
+
+ARGS=dict(python='/usr/bin/python3',model='m.pt',tracker='t.yaml',device='0',port=18081,
+          classes_file='classes.json',text_encoder='text.ts',with_points=False)
+NOTHING=dict(camera=True,mount=False,detector=False,points=False,jpeg=False)
 
 
 class StandaloneTest(unittest.TestCase):
@@ -30,28 +31,28 @@ class StandaloneTest(unittest.TestCase):
                     self.assertEqual(standalone.main(),2)
                     discover.assert_not_called()
 
-    def test_launch_plan_contains_no_navigation_or_actuation(self):
-        args=argparse.Namespace(python='/usr/bin/python3',model='m.pt',tracker='t.yaml',device='0',port=18081,
-                                classes_file='classes.json',text_encoder='text.ts')
-        plan=standalone.commands(args,dict(camera=False,mount=False,detector=False,points=False),False)
-        self.assertEqual([x[0] for x in plan],['camera','mount','detector','local_obstacles','viewer'])
+    def test_launch_plan_is_read_only_and_starts_the_kalo_page(self):
+        plan=standalone.commands(argparse.Namespace(**ARGS),NOTHING,False,False)
+        self.assertEqual([x[0] for x in plan],['mount','detector','bridge','jpeg','web'])
         text=' '.join(' '.join(row[1]) for row in plan)
-        for bad in ['nav2','bringup.launch.py','r680_nav.sh','command_guard','wheeltec_robot','enable_motion:=true']:
+        for bad in ['nav2','bringup.launch.py','r680_nav.sh','command_guard','wheeltec_robot','enable_motion:=true',
+                    'realsense2_camera','nav_perception_debug','depth_to_points']:
             self.assertNotIn(bad,text)
-        self.assertIn('/r680/perception/local_obstacles',text)
+        self.assertIn('config/kalo_bridge.yaml',text)
+        self.assertIn('kalo_jpeg',text)
+        self.assertIn('kalo_debug_web --port 18081 --bridge-port 8765',text)
         self.assertIn('--classes-file classes.json',text)
         self.assertIn('--text-encoder text.ts',text)
-        self.assertEqual(standalone.commands(args,dict(camera=True,mount=True,detector=True,points=True),True),[])
 
-    def test_local_projection_rejects_world_frame_and_time_skew(self):
-        fake=SimpleNamespace(args=SimpleNamespace(mode='local',base_frame='r680_mapping_floor'))
-        msg=PointCloud2();msg.header.frame_id='map';msg.header.stamp.sec=10
-        img=Image();img.header.frame_id='d455_color_optical_frame';img.header.stamp.sec=10
-        with self.assertRaisesRegex(ValueError,'requires_robot_or_camera_frame'):
-            DebugViewer.source_transform(fake,msg,img)
-        msg.header.frame_id='r680_mapping_floor';msg.header.stamp.nanosec=31_000_000
-        with self.assertRaisesRegex(ValueError,'skew_over_30ms'):
-            DebugViewer.source_transform(fake,msg,img)
+    def test_camera_is_never_started_here(self):
+        with self.assertRaisesRegex(RuntimeError,'r680_camera.sh run'):
+            standalone.commands(argparse.Namespace(**ARGS),dict(NOTHING,camera=False),False,False)
+
+    def test_depth_points_only_on_request_and_running_parts_are_reused(self):
+        args=argparse.Namespace(**dict(ARGS,with_points=True))
+        self.assertIn('local_obstacles',[x[0] for x in standalone.commands(args,NOTHING,False,False)])
+        running=dict(camera=True,mount=True,detector=True,points=True,jpeg=True)
+        self.assertEqual(standalone.commands(args,running,True,True),[])
 
 
 if __name__=='__main__':unittest.main()

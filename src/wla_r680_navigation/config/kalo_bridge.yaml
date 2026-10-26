@@ -1,0 +1,25 @@
+# foxglove_bridge for the Kalo debug page: read only, debug topics only. Local
+# only; browsers reach it through kalo_debug_web's /ws relay on the page port.
+# No client publishing, services or parameters ("none" is not a capability,
+# so the advertised capability list is empty).
+/**:
+  ros__parameters:
+    port: 8765
+    address: 127.0.0.1
+    topic_whitelist:
+      - "^/r680/debug/color/compressed$"
+      - "^/r680/d455/color/camera_info$"
+      - "^/tf$"
+      - "^/tf_static$"
+      - "^/r680/perception/(detections|relative_objects|target_mask)$"
+      - "^/r680_nav/perception/(status|timing)$"
+      - "^/r680/person_follow/(status|depth_obstacles|local_obstacles|local_path)$"
+      - "^/r680_nav/d455/(points|points_confirmed)$"
+      - "^/plan$"
+      - "^/optimal_trajectory$"
+    client_topic_whitelist: ["^$"]
+    service_whitelist: ["^$"]
+    param_whitelist: ["^$"]
+    capabilities: ["none"]
+    max_qos_depth: 10
+    send_buffer_limit: 10000000

@@ -28,11 +28,8 @@ case "$operation" in
   window)
     exec /usr/bin/python3 "$task_nav/lib/wla_r680_navigation/agent_observation_window" --config "$task_nav/share/wla_r680_navigation/config/agent_observation_window.json" "$@"
     ;;
-  debug)
-    exec /usr/bin/python3 "$task_nav/lib/wla_r680_navigation/nav_perception_debug" "$@"
-    ;;
-  debug-camera)
+  debug|debug-camera)
     exec /usr/bin/python3 "$task_nav/lib/wla_r680_navigation/perception_debug_standalone" --python "$task_python" "${task_args[@]}" "$@"
     ;;
-  *) echo 'Usage: r680_perception.sh check | run [--no-agent] [--no-window] [--cache-only] [--debug] | window [--check] | debug [--mode local|odom] | debug-camera [--port 18081] [--with-points]（相机先用 r680_camera.sh run 启动）' >&2; exit 2 ;;
+  *) echo 'Usage: r680_perception.sh check | run [--no-agent] [--no-window] [--cache-only] [--debug] | window [--check] | debug-camera [--port 18081] [--with-points]（Kalo 调试台；相机先用 r680_camera.sh run 启动）' >&2; exit 2 ;;
 esac

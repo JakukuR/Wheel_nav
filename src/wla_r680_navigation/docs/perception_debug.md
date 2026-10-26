@@ -1,73 +1,69 @@
-# 独立相机、检测、局部体素与路径调试
+# Kalo 调试台
 
-默认链路不依赖 Nav2、地图、OpenVINS 或里程计。窗口只读取数据；独立入口仅启动相机、安装 TF、检测器、深度障碍转换和窗口，不启动运动控制或发送跟随任务。
+只读的感知调试网页。车上只负责转发已经序列化的消息，投影、按时间配对和绘制都在浏览器里完成（WebGL）。不启动 Nav2、定位或运动控制，也不发送跟随任务。
 
-## 一条命令
+## 启动
 
 ```bash
 cd /home/orin/ros2_ws
-./r680_perception.sh debug-camera
+bash r680_camera.sh run                # 相机单独一个终端
+./r680_perception.sh debug-camera      # 检测器（如未运行）+ Kalo 调试台
 ```
 
-- 检测窗口：`http://<robot-ip>:18081/detections`
-- 体素/局部路径窗口：`http://<robot-ip>:18081/planning`
-- 页面“打开另一窗口”可同时打开第二视图；支持独立图层开关和暂停。
-- 默认 ROS 域 73；`ROS_DOMAIN_ID=...` 可覆盖。`--port 18082` 可换端口。
-- `debug-camera --check` 仅检查现有发布者、打印实际启动计划，不打开相机。
-- RGB、检测、局部障碍点发布者存在时复用；安装 TF 已存在时不重复发布。端口被相同配置的局部调试窗口占用时复用，否则明确报冲突。发现其他域的 RealSense 进程时拒绝再占用设备。
-- Ctrl+C 只结束本入口创建的进程；复用的相机/检测/窗口由原终端管理。未设置开机自启。
+- 页面：`http://<robot-ip>:18081/`。`--port 18082` 可以换端口；默认 ROS 域 73，可以用 `ROS_DOMAIN_ID=...` 覆盖。
+- `debug-camera --check`：只做检查，打印实际启动计划，不启动任何进程。
+- 已经在运行的部分直接复用：检测器、安装 TF、桥接器（8765 端口能完成 `foxglove.sdk.v1` 握手）、画面节点（`/r680/debug/color/compressed` 已有发布者）、网页（端口返回本域的 `kalo-debug/v1` 配置）。端口被其他程序占用时直接报错。
+- 不启动相机。没有 D455 话题时报错，并提示先运行 `r680_camera.sh run`。
+- `depth_to_points` 只在加 `--with-points` 时才启动；如果导航已经在发布 `/r680_nav/d455/points`，也不启动。
+- `nav_perception_bringup --debug` 和 `r680_perception.sh debug` 启动的是同一个页面。
 
-相机与数据源已经运行，只需要窗口时：
+## 组成
 
-```bash
-./r680_perception.sh debug
-```
+| 进程 | 作用 |
+| --- | --- |
+| `foxglove_bridge`（节点名 `kalo_bridge`） | 只监听 `127.0.0.1:8765`，按 `config/kalo_bridge.yaml` 的白名单转发话题。不开放客户端发布、服务调用和参数修改，公布的能力列表为空。只有浏览器订阅了某个话题，它才去订阅对应的 ROS 话题 |
+| `kalo_jpeg` | 只在有人订阅输出时才订阅彩色原图，最多 10 Hz，用 Orin NVJPG 硬件编码（GStreamer `nvjpegenc`），建不起来时退回 OpenCV CPU 编码。输出 `/r680/debug/color/compressed`，消息头与原图相同 |
+| `kalo_debug_web` | 发静态文件和 `/config.json`，并把同端口的 `/ws` 原样转发给本机桥接器（只搬运字节，不解析消息）。所以只需要开放一个端口，浏览器也不必单独访问 8765 |
 
-## 两窗口显示什么
+## 图层
 
-| 内容 | 数据源 | 含义 |
-|---|---|---|
-| RGB/内参 | `/r680/d455/color/image_raw`、`/r680/d455/color/camera_info` | 相机原始 RGB、K 和畸变系数 D |
-| 人物/物品 | `/r680/perception/detections`、`/r680/perception/relative_objects` | 同帧识别框、类别、置信度、跟踪 ID、水平距离和方位 |
-| 当前局部障碍/体素 | `/r680/perception/local_obstacles` | 当前对齐深度帧，地面/高度及孤立簇过滤后，显示点或 0.10 m 体素线框 |
-| 人物局部路径 | `/r680/person_follow/local_path` | 人物跟随自身的局部规划结果 |
-| 物品局部路径 | `/r680/object_follow/local_path` | 物品跟随自身的局部规划结果 |
-| 二维局部障碍格 | `/r680/{person,object}_follow/local_obstacles` | 跟随模块的二维占用栅格，仅画地面轮廓 |
+| 图层 | 话题 | 画法 |
+| --- | --- | --- |
+| 相机画面 | `/r680/debug/color/compressed`、`/r680/d455/color/camera_info` | JPEG 解码后作为 WebGL 纹理 |
+| 检测框 | `/r680/perception/detections`、`relative_objects` | 选与当前画面时间最接近的一帧（相差 150 ms 以内），标出类别、跟踪 ID 和距离；俯视图上标出目标位置 |
+| 目标掩膜 | `/r680/perception/target_mask` | zlib + packbits 解码后作为半透明叠加层 |
+| 深度障碍点 | `/r680/person_follow/depth_obstacles` | 着色器里按针孔模型投影到画面（相差 60 ms 以内），俯视图显示最新一帧 |
+| 障碍栅格 / 跟随路径 | `/r680/person_follow/local_obstacles`、`local_path` | 俯视图，栅格作为纹理绘制 |
+| 导航点云 / 路径 | `/r680_nav/d455/points`、`/plan`、`/optimal_trajectory` | 导航运行时才有数据；通过 `/tf` 用最新变换转到车体坐标系 |
 
-`depth_to_points` 是复用的独立深度处理可执行文件，虽然位于 `wla_r680_navigation` 包中，但此入口不启动该包的整套 bringup，也不启动 Nav2 节点。局部体素在显示端从当前障碍点按 `floor(point / voxel_size)` 计算，不是跨帧累积地图或确认障碍记忆，不依赖 `d455_floor_odom`。
+- 关掉的图层会退订对应话题，选择保存在浏览器本地。
+- 图层按钮上显示实际频率，以及与当前画面的时间差。
+- 状态卡片显示检测频率、相机到检测发布的延迟（中位数）、跟随状态，以及画面帧率和帧龄（相机时间戳到桥接器收到的时间）。
 
-跟随节点尚未启动时，对应图层显示“尚未收到数据”；没有有效跟随任务/目标时路径为空，显示“暂无路径”。单纯看相机不会自动发起跟随，也不会伪造一条规划路径。需要运行对应跟随模块时，可在另一终端使用现有预览入口：
+## 资源（2026-10-26 实车，30 s 平均，CPU 调频为 schedutil）
 
-```bash
-./r680_object_follow.sh run enable_motion:=false
-# 或人物：./r680_person_follow.sh run enable_motion:=false
-```
+| 状态 | 桥接器 | 画面节点 | 网页 / 转发 | 合计 |
+| --- | --- | --- | --- | --- |
+| 一个浏览器打开页面（约 1.5 MB/s） | 7.0% | 6.5% | 2.9% | 约 16% |
+| 没人打开页面 | 0.3% | 0.1% | 0.4% | 不到 1%，并且不订阅相机 |
 
-预览入口仍需原有明确的任务/目标输入才产生跟随路径；这里不替代任务协议，不改变运动授权。
+原来的 Python 服务端渲染网页一直占 26–33%，而且不管有没有人看都在订阅 30 Hz 彩色图。
 
-## 对齐与限制
+## 限制
 
-- 检测框匹配 RGB 的 `stamp_ns + frame_id + width + height`；距离进一步匹配 `session + epoch + track_id + stamp_ns`。检测代次变化后不复用旧 ID。
-- 默认 `--mode local`：选择与当前障碍点时间最接近的 RGB，只允许车体 `r680_mapping_floor` 或该相机光学坐标系的几何，使用安装外参投影。每个图层与 RGB 的时间差必须 ≤30 ms；超出则不叠加。**这个小时间区间内的运动没有里程计补偿**，快速运动时可能仍有投影误差，页面明确标记该模式和时间差。不把车体坐标系伪装成静止世界坐标系。
-- 跟随路径/栅格保留有限时间历史以匹配图像；新的空路径会立即清除旧路径。源数据和本地接收时间都要新鲜。
-- RGB 最长 0.8 秒有效；CameraInfo 与 RGB 差 ≤0.3 秒，帧名/尺寸匹配。支持 plumb_bob、rational_polynomial、equidistant 畸变；ROI 裁剪和 binning 暂不支持并明确报错。
-- 负深度、NaN/Inf 不绘制；裁剪近裁剪面和画面外线段。**不做深度遮挡消除**，后方几何可能显示在前景物体上，不能据此判断通行安全。
-- RGB 缓存上限 24 帧/64 MiB；最多显示 600 个体素、4000 个障碍点、500 个二维格/图层、500 条路径细分段。目标 5 Hz，5 秒没有页面访问就暂停投影计算。断流清空实时画面，主动暂停保留画面并标记非实时。
-- 窗口 HTTP 只读，限可信机器人局域网；仅本机访问可用 `debug --host 127.0.0.1`。
-
-已有世界系障碍记忆/里程计数据需跨时间转换时，可显式用 `debug --mode odom --port 18082`。这是可选兼容模式，使用 `lookup_transform_full` 和实际固定里程计坐标系，不自动启动任何导航节点；默认局部模式不订阅 Nav2 路径。
+- 投影使用针孔模型和内参 K，不做畸变校正（D455 彩色相机畸变很小）。不做深度遮挡消除，后方的点可能画在前景物体上，不能据此判断能否通行。
+- 画面只有 10 Hz，点云与画面的时间差最大约 60 ms，这段时间内的车体运动没有补偿。
+- 导航相关图层用的是最新 TF，没有按消息时间回查。
+- 网页和桥接器都不需要登录，只在可信的机器人局域网内使用。
 
 ## 测试
 
 ```bash
-source /opt/ros/jazzy/setup.bash
-source install/setup.bash
-/usr/bin/python3 src/wla_r680_navigation/test/test_debug_projection.py
-/usr/bin/python3 src/wla_r680_navigation/test/test_debug_standalone.py
-ROS_DOMAIN_ID=197 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
-  /usr/bin/python3 src/wla_r680_navigation/test/test_debug_viewer_ros.py --local
+source /opt/ros/jazzy/setup.bash && source install/setup.bash
+python3 src/wla_r680_navigation/test/test_debug_standalone.py
+ROS_DOMAIN_ID=196 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST python3 src/wla_r680_navigation/test/test_kalo_debug_ros.py
 ```
 
-隔离测试的图像明确标记 SYNTHETIC FIXTURE。测试覆盖独立局部投影、无 map/odom TF、无 Nav2 节点、同帧检测、时间差/世界坐标拒绝、CameraInfo 错配、断流恢复和 HTTP 拒绝写操作。软件测试不等于实车标定/投影精度验收。
+第二个测试在隔离域里验证：画面节点按需订阅、频率不超过 10 Hz、JPEG 有效且消息头正确；同时验证网页的配置和静态文件。
 
-2026-10-16 真实 D455 静态观察测试：独立入口只启动 camera、mount、detector、local_obstacles，复用窗口；未启动 Nav2/定位/运动控制。RGB 640×480、检测数据和局部体素投影接通，记录到 person 检测；采样记录 308 个体素、2981 个障碍点、几何/RGB 时间差 0 ms。测试结束后本次相机、检测、深度处理进程已退出，窗口保留。未下发跟随任务，真实跟随路径和运动中的投影精度尚未验收。
+2026-10-26 起，这个页面替代了原来的 Python 服务端渲染网页（`debug_viewer.py`、`debug_web/`、`nav_perception_debug`）。
