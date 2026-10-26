@@ -94,14 +94,34 @@ class SimulationEngine:
         self.last_measurement=self.map_stamp=-math.inf
         self.approach=ApproachGoal()
 
-    def step(self, pose, previous, packets, observation, now, policy=None,
-             tracker_snapshot=None, task_mode='0', object_surface=None):
+    def update_map(self, pose, packets, now):
+        """Maintain obstacle evidence and its expiry independently of task activity."""
         for stamp,packet in sorted(packets,key=lambda item:item[0]):
             if stamp>self.map_stamp:
                 self.mapping.update(packet,pose,stamp,rebuild=False);self.map_stamp=stamp
         self.mapping.slide(np.asarray(pose[:2]))
         self.mapping.local_assumed_free_center=np.asarray(pose[:2]).copy()
         self.mapping.rebuild(now)
+
+    def step(self, pose, previous, packets, observation, now, policy=None,
+             tracker_snapshot=None, task_mode='0', object_surface=None, *, active=True):
+        self.update_map(pose,packets,now)
+        if not active:
+            # Do not predict people, generate approach goals or invoke the MPC.
+            # Return fresh empty planning fields rather than the previous task's path.
+            return dict(policy_snapshot=None,command=np.zeros(2),target_state='idle',
+                recovery_state='idle',reason='task_inactive',tuning=asdict(self.tuning),
+                path=np.empty((0,2)),candidates={},approach_goal=None,planner_feasible=False,
+                planner_activity='idle_map_only',
+                front_blockage=dict(evaluated=False,reason='task_inactive',control_stamp_s=now),
+                planner_target=dict(position_reference_m=None,velocity_reference_mps=[0.,0.],
+                    state='idle',task_mode=task_mode,reference_method='none',
+                    history_point_count=0,reference_point_count=0,history_sampling=None,
+                    last_measurement_stamp_s=None),obstacle_track_ids=[])
+        return self._plan(pose,previous,observation,now,policy,tracker_snapshot,task_mode,object_surface)
+
+    def _plan(self, pose, previous, observation, now, policy, tracker_snapshot,
+              task_mode, object_surface):
         if observation is not None:
             stamp,target,people,resolved_id=observation
             if target is not None:self.people.tracks.pop(resolved_id,None)
@@ -147,6 +167,7 @@ class SimulationEngine:
             for k,v in approach.items() if k!='path'}
         return dict(policy_snapshot=policy,command=np.asarray(command),target_state=state,
             recovery_state=state,reason=reason,tuning=asdict(tuning),
+            planner_activity='candidate_evaluation' if self.controller.last_candidates else 'waiting_target',
             path=self.controller.last_reference_path.copy(),candidates=self.controller.last_candidates,
             approach_goal=diagnostic,planner_feasible=bool(self.controller.last_candidates.get('feasible',0)>0),
             front_blockage=dict(evaluated=False,reason='mpc_owns_collision_decision',control_stamp_s=now),
@@ -222,7 +243,7 @@ def process_step(job):
         if moved:
             prior['motion_started_s']=now
             prior['expires_s']=now+engine.mapping.ttl
-    result = engine.step(pose, previous, packets, observation, now, policy=startup.get('policy_snapshot'),tracker_snapshot=startup.get('tracker_snapshot'),task_mode=startup.get('task_mode','0'),object_surface=startup.get('object_surface'))
+    result = engine.step(pose, previous, packets, observation, now, policy=startup.get('policy_snapshot'),tracker_snapshot=startup.get('tracker_snapshot'),task_mode=startup.get('task_mode','0'),object_surface=startup.get('object_surface'),active=startup['active'])
     prior=dict(_PROCESS_STARTUP_PRIOR) if _PROCESS_STARTUP_PRIOR else None
     if prior is not None:
         if prior['reference_generation']!=key[-1]:

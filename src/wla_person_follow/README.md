@@ -54,6 +54,12 @@ request_id。mode 只接受数字字符串 `0/1/2`，不再接受旧英文模式
 统一速度通道仍使用 `/r680/person_follow/command_candidate`，由 mux 保留手柄优先和急停。
 状态中的 `mode`、`target_label`、`approach_goal`、`arrival`、`output_blockers` 报告当前决策。
 
+停止、到达或租约结束后的非活动任务只维护地图（深度处理、占据更新及过期清理），
+跳过动态轨迹预测、靠近终点搜索和 MPC 调用，参考路径及候选为空、输出为零。
+`planner_activity=idle_map_only` 表示本帧仅维护地图；活动任务进行候选计算时为
+`candidate_evaluation`，尚无可规划目标时为 `waiting_target`。
+地图维护仍按原来的约 10 Hz 上限运行；本改动未测量整机 CPU 或耗时收益。
+
 ## 验证边界
 
 本轮只做静态检查、构建及安装导入检查；没有执行单元测试、ROS 联调或机器人运动测试。

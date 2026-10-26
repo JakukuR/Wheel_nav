@@ -575,6 +575,7 @@ class SimulationFollow(Node):
                         resolved_target_source=resolved_source,reid=deepcopy(identity_status),
                         geometry_binding=deepcopy(binding_status),identity_supervision=deepcopy(supervisor_status),
                         front_blockage=result.get('front_blockage'),planner_target=result.get('planner_target'),
+                        planner_activity=result.get('planner_activity'),
                         obstacle_track_ids=result.get('obstacle_track_ids'),compute_error=None)
                     if key==self.key() and time.monotonic()<result['valid_until']:
                         self.result=result;self.map_result=result;self.reason=result['reason'] or 'simulation_core'
@@ -746,6 +747,7 @@ class SimulationFollow(Node):
                 target_freshness_reason=target_freshness_reason,
                 target_observation_age_s=target_observation_age,
                 planner_candidates=result.get('candidates',{}) if result else {},
+                planner_activity=result.get('planner_activity','waiting_result') if result else 'waiting_result',
                 result_remaining_ms=round((result['valid_until']-now)*1000.,1) if result else None,
                 reference_generation=self.motion.generation,
                 robot_radius_m=(result.get('tuning',self.model_tuning)['radius'] if result else self.model_tuning['radius']),obstacle_margin_m=self.model_tuning['margin'],
