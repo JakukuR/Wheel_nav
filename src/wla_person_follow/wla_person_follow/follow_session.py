@@ -7,12 +7,13 @@ import numpy as np
 from .sim_core.tracking import VisualTrack
 
 
-def position(row, pose, offset=.28):
+def position(row, pose, offset=.28, expected_label='person'):
     if not isinstance(row, dict) or pose is None:
         return None
     p = np.asarray(pose, dtype=float)
     yaw, distance = row.get('yaw'), row.get('distance')
-    if (row.get('detected') is not True or row.get('label') != 'person'
+    if (row.get('detected') is not True or
+            (expected_label is not None and row.get('label') != expected_label)
             or p.shape != (3,) or not np.isfinite(p).all()
             or not isinstance(yaw, (int, float)) or isinstance(yaw, bool)
             or not isinstance(distance, (int, float)) or isinstance(distance, bool)
@@ -33,9 +34,13 @@ class TrackingPolicy:
     search_heading: float | None = None
     search_arrival_m: float = .35
     search_started: float | None = None
+    mode: str = '0'
 
     def translation_allowed(self, now):
         # A stale solution cannot extend prediction or start a new search leg.
+        if self.mode == '2':
+            return self.state == 'tracking' and self.last_seen is not None and \
+                0 <= now-self.last_seen <= .3
         if self.state == 'search_last_seen':
             return True
         return (self.state in ('tracking', 'coasting') and self.last_seen is not None
@@ -58,8 +63,10 @@ class FollowTracker:
     def __init__(self, target_id, now, *, prediction_s=2., freshness_s=.3,
                  offset=.28, jump_radius=.45, jump_growth=.25, jump_max=1.5,
                  confirmations=3, search_arrival=.35, history_window_s=5.,
-                 history_sample_period_s=.4):
+                 history_sample_period_s=.4, expected_label='person', mode='0'):
         self.selected_id = self.target_id = target_id
+        self.expected_label = expected_label
+        self.mode = str(mode)
         self.started = now
         self.prediction_s, self.freshness_s, self.offset = prediction_s, freshness_s, offset
         self.jump_radius, self.jump_growth, self.jump_max = jump_radius, jump_growth, jump_max
@@ -129,7 +136,7 @@ class FollowTracker:
         if pose is None:
             return False
         self.last_frame = stamp
-        point = position(objects.get(self.target_id), pose, self.offset)
+        point = position(objects.get(self.target_id), pose, self.offset, self.expected_label)
         if point is None:
             self.return_count = 0
             if self.missing_since is None:
@@ -148,7 +155,8 @@ class FollowTracker:
         # First inspect CURRENT evidence; worker scheduling delay is not loss.
         long_gap = self.last_seen is not None and stamp-self.last_seen > self.prediction_s
         if self.hard_break or long_gap:
-            other = [position(row, pose, self.offset) for ident,row in objects.items() if ident != self.target_id]
+            other = [position(row, pose, self.offset, self.expected_label)
+                     for ident,row in objects.items() if ident != self.target_id]
             ambiguous = any(p is not None and np.linalg.norm(p-point) < .5 for p in other)
             if ambiguous:
                 self.return_count = 0
@@ -178,15 +186,19 @@ class FollowTracker:
             arrived = (robot_pose is not None and np.linalg.norm(np.asarray(robot_pose[:2])-self.last_position) <= self.search_arrival+.10)
             if arrived and self.search_started is None:
                 self.search_started = now
-            state = 'search_heading' if self.search_started is not None else 'search_last_seen'
+            state = ('coasting' if self.mode == '2' else
+                     ('search_heading' if self.search_started is not None else 'search_last_seen'))
             if state == 'search_heading' and self.sweep_started is None and robot_pose is not None:
                 error = (self.heading-float(robot_pose[2])+math.pi) % (2*math.pi)-math.pi
                 if abs(error) <= .15:self.sweep_started = now
+        if self.mode == '2' and state != 'tracking':
+            state = 'holding'
         estimate = self.prediction(now)
         velocity = np.zeros(2) if self.track is None else self.track.x[2:].copy()
         if state not in ('tracking','coasting'):
             velocity[:] = 0.
-        return dict(state=state, reason=self.reason, locked_id=self.selected_id,
+        return dict(state=state, mode=self.mode, expected_label=self.expected_label, surface_offset_m=self.offset,
+            reason=self.reason, locked_id=self.selected_id,
             resolved_id=self.target_id, revision=self.revision, last_seen=self.last_seen,
             last_seen_age_s=age, prediction_s=self.prediction_s,
             position=None if self.last_position is None else self.last_position.tolist(),
@@ -203,7 +215,7 @@ class FollowTracker:
                 or not 0 <= now-proposal['stamp'] <= .6 or proposal['count'] < self.confirmations
                 or not 0 <= now-stamp <= self.freshness_s):
             return False
-        point = position(objects.get(proposal['id']), pose, self.offset)
+        point = position(objects.get(proposal['id']), pose, self.offset, self.expected_label)
         predicted = self.prediction(stamp)
         if point is None or predicted is None or np.linalg.norm(point-predicted) > self.radius(now):
             return False

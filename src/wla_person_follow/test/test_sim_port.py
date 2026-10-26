@@ -2,12 +2,12 @@ import math
 import numpy as np
 import pytest
 from wla_person_follow.sim_runtime import SimulationEngine, measurements_from_relative, packet_from_depth
-from wla_person_follow.sim_core.wide_turn import WideTurnTuning
+from wla_person_follow.sim_core.common import Tuning
 from wla_person_follow.sim_core.common import rotation
 
 
 def test_deployed_chassis_and_follow_clearances():
-    c=WideTurnTuning()
+    c=Tuning()
     assert (c.step,c.horizon,c.max_v,c.max_w)==(.1,24,.65,.9)
     assert c.desired_gap==pytest.approx(.87)
     assert c.target_hard_gap==pytest.approx(.57)
@@ -15,13 +15,12 @@ def test_deployed_chassis_and_follow_clearances():
     assert c.target_stop_gap-c.radius-c.target_radius == pytest.approx(.36)
     assert c.desired_gap-c.radius-c.target_radius == pytest.approx(.40)
     assert c.target_hard_gap-c.radius-c.target_radius == pytest.approx(.10)
-    assert c.margin==.1 and c.rear_yield and c.wide_turn
+    assert c.margin==.1
 
 
 def test_unknown_start_is_not_fabricated():
     e=SimulationEngine(np.zeros(3),1.)
     assert not e.mapping.known.any()
-    assert not e.controller.recovery.rear_clear(np.zeros(3),e.mapping,[])
 
 
 def test_cpp_projection_matches_numpy_full_se3():
@@ -53,21 +52,12 @@ def test_relative_observation_id_and_reference():
     target,_=measurements_from_relative(rows,np.zeros(3),'s:0:99');assert target is None
 
 
-def test_repeated_observation_does_not_renew_tracking():
-    e=SimulationEngine(np.zeros(3),1.)
-    obs=(1.,np.array([1.6,0.]),{})
-    for i in range(12):
-        e.step(np.zeros(3),np.zeros(2),[],obs,1.+i*.1)
-    assert e.target.seen==1.
-    assert len(e.target.history)==1  # Only the observation; no robot-position history knot.
-    assert e.controller.recovery.search is not None
 
 
 def test_no_feasible_fallback_is_not_forwarded():
     e=SimulationEngine(np.zeros(3),1.)
     def bad(*args,**kwargs):
-        e.controller.last_infeasible=True;e.controller.last_wide=None
-        e.controller.last_yield=False;e.controller.last_candidates={}
+        e.controller.last_infeasible=True;e.controller.last_candidates={}
         return np.array([.4,.3])
     e.controller.command=bad
     result=e.step(np.zeros(3),np.array([.4,.3]),[],None,1.)
@@ -109,11 +99,13 @@ def test_bitmap_slots_match_row_sort_across_ring_wrap():
 
 def test_unknown_forward_space_is_reported_without_changing_stop():
     e=SimulationEngine(np.zeros(3),1.)
-    result=e.step(np.zeros(3),np.zeros(2),[],(1.,np.array([2.,0.]),{}),1.)
+    snapshot=dict(state='tracking',prediction=[2.,0.],position=[2.,0.],
+                  velocity_mps=[0.,0.],history=[],last_seen=1.)
+    result=e.step(np.zeros(3),np.zeros(2),[],(1.,np.array([2.,0.]),{},'target'),1.,tracker_snapshot=snapshot)
     assert result['command'][0]==0.
     assert result['candidates']['forward_total']>0
     assert result['candidates']['forward_known']==0
-    assert result['reason']=='forward_space_unobserved'
+    assert result['reason']=='no_feasible_candidate'
 
 
 def reference_display_filter(points):
@@ -331,52 +323,3 @@ def test_continuous_prior_obstacles_win_including_inside_footprint(startup_worke
     step(15.,local_radius=.5)
     assert not m.occupied[ij[:,0],ij[:,1]].any()
     assert m.known[ij[:,0],ij[:,1]].all()
-
-
-def test_short_reverse_recovery_with_half_meter_prior():
-    from wla_person_follow.sim_runtime import packet_from_filtered_points
-    e=SimulationEngine(np.zeros(3),1.)
-    e.mapping.local_assumed_free_radius=.5
-    wall=np.array([[.8,y,.2] for y in np.arange(-.5,.51,.1)])
-    packet=packet_from_filtered_points(wall,np.empty((0,3)),[.18,0,.5],np.zeros(3))
-    pose=np.zeros(3); target=np.array([2.,0.])
-    first=e.step(pose,np.zeros(2),[(1.,packet)],(1.,target,{}),1.)
-    assert first['recovery_state']=='wait'
-    result=e.step(pose,np.zeros(2),[],(3.1,target,{}),3.1)
-    r=e.controller.recovery
-    assert result['recovery_state']=='retreat'
-    assert .06<=r.retreat_distance<.35
-    assert result['command'][0]<0, result
-    # A new rear obstacle or a predicted rear pedestrian vetoes the retreat.
-    rear=np.array([[-.35,.05,.2]])
-    p=packet_from_filtered_points(rear,np.empty((0,3)),[.18,0,.5],pose)
-    result=e.step(pose,np.zeros(2),[(3.2,p)],(3.2,target,{}),3.2)
-    assert not r.rear_clear(pose,e.mapping,[])
-    assert result['command'][0]>=0
-    clean=SimulationEngine(pose,1.)
-    clean.mapping.local_assumed_free_radius=.5
-    clean.step(pose,np.zeros(2),[],None,1.)
-    assert not clean.controller.recovery.rear_clear(pose,clean.mapping,[dict(p=np.array([-.5,0.]),v=np.zeros(2),r=.25)])
-
-
-def test_short_reverse_finishes_and_replans_without_extending_goal():
-    from wla_person_follow.sim_runtime import packet_from_filtered_points
-    e=SimulationEngine(np.zeros(3),1.)
-    e.mapping.local_assumed_free_radius=.5
-    pose=np.zeros(3); previous=np.zeros(2); target=np.array([2.,0.])
-    wall=np.array([[.8,y,.2] for y in np.arange(-.5,.51,.1)])
-    packet=packet_from_filtered_points(wall,np.empty((0,3)),[.18,0,.5],pose)
-    e.step(pose,previous,[(1.,packet)],(1.,target,{}),1.)
-    result=e.step(pose,previous,[],(3.1,target,{}),3.1)
-    r=e.controller.recovery;planned=r.retreat_distance
-    assert r.state=='retreat'
-    for t in np.arange(3.2,8.,.1):
-        previous=result['command']
-        turn=previous[1]*.1
-        pose[:2]+=previous[0]*.1*np.sinc(turn/(2*np.pi))*np.array([np.cos(pose[2]+turn/2),np.sin(pose[2]+turn/2)])
-        pose[2]+=turn
-        result=e.step(pose,previous,[],(float(t),target,{}),float(t))
-        assert r.retreat_distance==planned
-        if r.state!='retreat':break
-    assert r.state in ('scan','detour'), result
-    assert .01 < -pose[0] <= planned+.02

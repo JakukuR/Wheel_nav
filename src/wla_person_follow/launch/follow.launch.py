@@ -11,23 +11,19 @@ from launch.substitutions import LaunchConfiguration
 
 def launch_backend(context):
     value=lambda name:LaunchConfiguration(name).perform(context)
-    backend=value('backend')
-    if backend not in ('sim','legacy'):raise ValueError('backend must be sim or legacy')
-    config=value('config') or str(Path(get_package_share_directory('wla_person_follow'))/'config'/('sim_follow.yaml' if backend=='sim' else 'follow.yaml'))
-    module='wla_person_follow.sim_node' if backend=='sim' else 'wla_person_follow.node'
+    config=value('config') or str(Path(get_package_share_directory('wla_person_follow'))/'config'/'sim_follow.yaml')
+    module='wla_person_follow.sim_node'
     cmd=[value('python'),'-m',module,'--ros-args','--params-file',config,'-p','enable_motion:='+value('enable_motion')]
-    if backend=='sim':cmd+=['-p','output_mode:='+value('output_mode'),'-p','direct_topic:='+value('direct_topic'),'-p','reid_enabled:='+value('enable_reid')]
+    cmd+=['-p','output_mode:='+value('output_mode'),'-p','direct_topic:='+value('direct_topic'),'-p','reid_enabled:='+value('enable_reid')]
     proc=ExecuteProcess(cmd=cmd,output='screen')
     actions=[proc,RegisterEventHandler(OnProcessExit(target_action=proc,on_exit=[EmitEvent(event=Shutdown(reason='person backend exited'))]))]
-    if backend=='sim':
-        actions.append(ExecuteProcess(cmd=[value('python'),'-m','wla_person_follow.status_recorder',
-            '--directory',value('diagnostic_log_directory')],output='screen'))
+    actions.append(ExecuteProcess(cmd=[value('python'),'-m','wla_person_follow.status_recorder',
+        '--directory',value('diagnostic_log_directory')],output='screen'))
     return actions
 
 
 def generate_launch_description():
     return LaunchDescription([
-        DeclareLaunchArgument('backend',default_value='sim'),
         DeclareLaunchArgument('diagnostic_log_directory',default_value=str(Path.home()/'ros2_ws/.runtime/follow-diagnostics')),
         DeclareLaunchArgument('python',default_value=os.environ.get('WLA_FOLLOW_PYTHON','/usr/bin/python3')),
         DeclareLaunchArgument('config',default_value=''),

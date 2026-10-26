@@ -60,17 +60,15 @@ class DebugViewer(Node):
         self.create_subscription(String, '/r680/perception/detections', lambda m: self.on_json(m, self.raw), qos_profile_sensor_data)
         self.create_subscription(String, '/r680/perception/relative_objects', lambda m: self.on_json(m, self.relative), qos_profile_sensor_data)
         for key, topic in [('detector', '/r680_nav/perception/status'),
-                           ('person', '/r680/person_follow/status'), ('object', '/r680/object_follow/status')]:
+                           ('person', '/r680/person_follow/status')]:
             self.create_subscription(String, topic, lambda m, k=key: self.on_status(k, m), qos_profile_sensor_data)
         self.specs = {
             'voxels': (PointCloud2, args.voxel_topic, 1., '#54e0ce', '当前帧局部体素' if args.mode == 'local' else '3D 确认体素'),
             'points': (PointCloud2, args.points_topic, .8, '#b5d5ff', '实时障碍点'),
-            'person_path': (Path, '/r680/person_follow/local_path', 1., '#54e0ce', '人物路径'),
-            'object_path': (Path, '/r680/object_follow/local_path', 1., '#ffbe69', '物品路径'),
+            'person_path': (Path, '/r680/person_follow/local_path', 1., '#54e0ce', '目标任务路径'),
             'nav_path': (Path, args.nav_path_topic, 5., '#b6a1ff', 'Nav2 全局路径'),
             'local_path': (Path, args.local_path_topic, 1., '#ff8db5', 'Nav2 局部轨迹'),
-            'person_grid': (OccupancyGrid, '/r680/person_follow/local_obstacles', 1., '#71a7de', '人物二维障碍栅格'),
-            'object_grid': (OccupancyGrid, '/r680/object_follow/local_obstacles', 1., '#c18a61', '物品二维障碍栅格'),
+            'person_grid': (OccupancyGrid, '/r680/person_follow/local_obstacles', 1., '#71a7de', '目标任务障碍栅格'),
         }
         if args.mode == 'local':
             self.specs.pop('nav_path')

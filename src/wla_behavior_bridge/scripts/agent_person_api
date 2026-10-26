@@ -10,7 +10,22 @@ from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallb
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from wla_behavior_interfaces.srv import PersonCommand
-from wla_sim.behavior_bridge.person_transport import command_values
+from wla_person_follow.task_modes import normalize_mode
+
+
+def command_values(command, request_id, mode, target_id, lease_duration_s):
+    import math
+    if command not in {'start','stop','heartbeat','status'}:
+        raise ValueError('unknown_command')
+    if any(not isinstance(v,str) or len(v)>256 for v in (request_id,mode,target_id)):
+        raise ValueError('invalid_command_text')
+    if command == 'start':
+        normalize_mode(mode)
+        if not request_id or not target_id:raise ValueError('request_and_target_required')
+    if command == 'heartbeat' and not request_id:raise ValueError('request_required')
+    if command in {'start','heartbeat'} and (type(lease_duration_s) not in (int,float) or
+            not math.isfinite(lease_duration_s) or not .1<=lease_duration_s<=2.):
+        raise ValueError('invalid_lease_duration')
 
 
 class AgentPersonAPI(Node):

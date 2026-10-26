@@ -4,7 +4,7 @@
  <description>Native robot-frame obstacle planning kernels for relative person following.</description>
  <maintainer email="1330367040@qq.com">JakukuR</maintainer><license>MIT</license>
  <buildtool_depend>ament_cmake</buildtool_depend><buildtool_depend>ament_cmake_python</buildtool_depend>
- <build_depend>pybind11-dev</build_depend><build_depend>eigen</build_depend>
+ <build_depend>pybind11-dev</build_depend>
  <exec_depend>python3-numpy</exec_depend>
  <export><build_type>ament_cmake</build_type></export>
 </package>

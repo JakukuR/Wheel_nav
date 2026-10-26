@@ -1,3 +1,4 @@
+# Unified target task: mode string must be "0" person follow, "1" person approach, "2" object approach.
 # Atomic relative person task. A start never enables perception implicitly.
 string command
 string request_id

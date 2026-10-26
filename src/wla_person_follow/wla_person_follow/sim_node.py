@@ -26,13 +26,14 @@ from .camera import depth_meters
 from .diagnostics import finite_json, observed_target, wheel_message
 from wla_r680_navigation_py.target_masks import MaskDepthPairer, filter_target_depth
 from .depth_proc import rotation_from_quaternion
-from .local_memory import LocalMotion
-from .relative_control import RelativeFollower
+from .motion_memory import LocalMotion
+from .task_session import TaskSession
 from .follow_config import PENDING_CALIBRATION_PARAMETERS, validate_follow_config, validate_detection_status_topic
 from .follow_session import FollowTracker, RecoveryIdentity, TrackingPolicy, position, frame_target_ready
 from .sim_core.common import rotation
 from .sim_core.rolling_depth_map import native_ray_slots
 from .sim_runtime import packet_from_depth, target_points_from_removed_depth, measurements_from_relative, local_points, process_step, warm_worker, worker_initializer
+from .task_modes import mode_config, MODE_PERSON_FOLLOW, MODE_PERSON_APPROACH, MODE_OBJECT_APPROACH
 
 
 def stamp_ns(msg):
@@ -94,9 +95,7 @@ class SimulationFollow(Node):
         self.tracker=None;self.recovery_identity=None;self.tracker_key=None
         self.interest_at=-math.inf
         self.guard = threading.RLock()
-        # Only the tested request/identity/lease ledger is reused. Its old
-        # proportional/local-planner tick is never called by this backend.
-        self.core = RelativeFollower(base_frame=self.p['base_frame'],max_age=self.p['max_sensor_age_s'])
+        self.core = TaskSession(base_frame=self.p['base_frame'],max_age=self.p['max_sensor_age_s'])
         self.motion = LocalMotion()
         self.wheel_received = -math.inf
         self.wheel_diagnostic = None
@@ -120,6 +119,11 @@ class SimulationFollow(Node):
         self.control_until = -math.inf
         self.retired_control_sessions = set()
         self.last_permission = False
+        self.arrival_count = 0
+        self.arrival_stamp = 0
+        self.arrival_started = None
+        self.arrival_detail = None
+        self.arrival_goal_generation = None
         self.started_at = time.monotonic()
         self.tf = Buffer()
         self.listener = TransformListener(self.tf,self)
@@ -162,7 +166,7 @@ class SimulationFollow(Node):
         self.worker=threading.Thread(target=self.compute,name='sim-follow-compute',daemon=True)
         self.worker.start()
         self.control_timer=self.create_timer(.05,self.tick)
-        self.get_logger().info('close-wide-flex backend; output='+self.p['output_mode']+
+        self.get_logger().info('unified tracker/MPC backend; output='+self.p['output_mode']+
             '; enable_motion='+str(self.p['enable_motion'])+'; waiting for explicit target request')
 
     def now_ns(self):
@@ -170,7 +174,7 @@ class SimulationFollow(Node):
 
     def key(self):
         c=self.core
-        return (c.request_id,c.target_id,c.session,c.epoch,
+        return (c.request_id,c.mode,c.target_id,c.session,c.epoch,
                 self.tracker.revision if self.tracker is not None else 0,
                 c.active,self.motion.generation)
 
@@ -273,9 +277,7 @@ class SimulationFollow(Node):
 
     def on_command(self,req,res):
         with self.guard:
-            if req.command=='start' and req.mode!='follow':
-                accepted,reason=False,'simulation_backend_supports_follow_only_use_legacy_for_approach'
-            elif req.command=='start' and (self.estop or self.conflict_latched):
+            if req.command=='start' and (self.estop or self.conflict_latched):
                 accepted,reason=False,'estop_or_direct_publisher_conflict'
             else:
                 old_key=self.key()
@@ -315,33 +317,38 @@ class SimulationFollow(Node):
         if snapshot is None:return None
         return TrackingPolicy(snapshot['state'],snapshot['last_seen'],snapshot['prediction_s'],
                               snapshot['resolved_id'],snapshot['revision'],snapshot['search_heading'],
-                              snapshot['search_arrival_m'],snapshot['search_started'])
+                              snapshot['search_arrival_m'],snapshot['search_started'],snapshot.get('mode','0'))
 
     def _tracking_update_locked(self):
         now=self.now_ns()/1e9
         c=self.core
         c._expire(time.monotonic())
-        task_key=(c.request_id,c.target_id,c.session,c.epoch,self.motion.generation)
+        task_key=(c.request_id,c.mode,c.target_id,c.session,c.epoch,self.motion.generation)
         if not c.active:
             self.tracker=None;self.recovery_identity=None;self.tracker_key=None
         elif task_key!=self.tracker_key:
+            cfg=mode_config(c.mode)
             self.tracker=FollowTracker(c.target_id,now,prediction_s=self.p['target_prediction_s'],
-                freshness_s=self.p['max_sensor_age_s'],offset=self.p['surface_to_center_offset_m'],
+                freshness_s=self.p['max_sensor_age_s'],offset=0. if c.mode == MODE_OBJECT_APPROACH else self.p['surface_to_center_offset_m'],
                 jump_radius=self.p['binding_jump_radius_m'],jump_growth=self.p['binding_jump_growth_mps'],
                 jump_max=self.p['binding_jump_radius_max_m'],confirmations=self.p['reid_confirm_frames'],
                 search_arrival=self.p['search_arrival_m'],
                 history_window_s=self.p['target_history_window_s'],
-                history_sample_period_s=self.p['target_history_sample_period_s'])
+                history_sample_period_s=self.p['target_history_sample_period_s'],
+                expected_label=c.target_label, mode=c.mode)
             self.recovery_identity=RecoveryIdentity(similarity=self.p['reid_similarity'],margin=self.p['reid_margin'],
-                confirmations=self.p['reid_confirm_frames']) if self.p['reid_enabled'] else None
+                confirmations=self.p['reid_confirm_frames']) if self.p['reid_enabled'] and cfg['reid'] else None
             self.tracker_key=task_key;self.interest_at=-math.inf;self.result=None
+            self.arrival_count=0;self.arrival_stamp=0;self.arrival_started=None
+            self.arrival_detail=None;self.arrival_goal_generation=None
         allowed=[]
         if c.active:
             stamp=c.last_stamp/1e9;pose=self.motion.pose_at(stamp)
             before=self.tracker.revision
             self.tracker.observe(c.objects,pose,stamp,now)
             snap=self.tracker.snapshot(now,self.motion.pose_at(now))
-            points={ident:position(row,pose,self.p['surface_to_center_offset_m']) for ident,row in c.objects.items()}
+            cfg=mode_config(c.mode)
+            points={ident:position(row,pose,self.tracker.offset,c.target_label) for ident,row in c.objects.items()}
             target=points.get(self.tracker.target_id)
             neighbor=target is not None and any(p is not None and ident!=self.tracker.target_id and np.linalg.norm(p-target)<self.p['neighbor_ambiguity_radius_m'] for ident,p in points.items())
             if self.recovery_identity is not None:
@@ -349,7 +356,7 @@ class SimulationFollow(Node):
                 for batch in self.reid_frames:
                     ts=batch['stamp_ns']/1e9
                     if ts<=sidecar.last_frame_stamp or not 0<=now-ts<=.6:continue
-                    if (batch.get('request_id'),batch.get('session'),batch.get('epoch'))!=task_key[:1]+task_key[2:4]:continue
+                    if (batch.get('request_id'),batch.get('session'),batch.get('epoch')) != (task_key[0],task_key[3],task_key[4]):continue
                     if batch.get('target_revision')!=self.tracker.revision:continue
                     bp=self.motion.pose_at(ts)
                     if bp is None:continue
@@ -370,6 +377,7 @@ class SimulationFollow(Node):
                 schema='wla-reid-request/v1',stamp_ns=self.now_ns(),enabled=c.active,
                 request_id=c.request_id,session=c.session,epoch=c.epoch,allowed_ids=allowed,
                 target_id=self.tracker.target_id if self.tracker is not None else '',
+                target_label=c.target_label if c.active else 'person',
                 target_revision=self.tracker.revision if self.tracker is not None else 0,
                 urgent=c.active))))
             self.interest_at=time.monotonic()
@@ -420,7 +428,7 @@ class SimulationFollow(Node):
                 control_pose=motion.pose_at(control_stamp)
                 if control_pose is None:raise ValueError('control_time_wheel_pose_unavailable')
                 observation=None;op=motion.pose_at(obs_stamp)
-                resolved_id=key[1];identity_status=dict(state='disabled')
+                resolved_id=key[2];identity_status=dict(state='disabled')
                 binding_status=None;supervisor_status=None
                 with self.guard:
                     self._tracking_update_locked()
@@ -434,23 +442,27 @@ class SimulationFollow(Node):
                     active=active,accepted_id=resolved_id if active else None,
                     observation_pose_available=op is not None,selection=deepcopy(binding_status))
                 if active and op is not None and 0<=control_stamp-obs_stamp<=self.p['max_sensor_age_s']:
-                    target,people=measurements_from_relative(objects,op,resolved_id or '',self.p['surface_to_center_offset_m'])
-                    if binding_status['state']!='tracking':target=None
-                    observation=(obs_stamp,target,people,resolved_id,False)
+                    cfg=mode_config(key[1])
+                    target,people=measurements_from_relative(objects,op,resolved_id or '',binding_status['surface_offset_m'])
+                    if binding_status['state'] not in ('tracking','coasting'):
+                        target=None
+                    observation=(obs_stamp,target,people,resolved_id)
                 mask_started=time.monotonic()
                 original_depth=depth
+                mode=key[1] if active else MODE_PERSON_FOLLOW
+                filter_target=active and mask_geometry is not None
                 depth,mask_status,confirmed_target_mask=filter_target_depth(depth,mask_packet,
-                    target_id=resolved_id if active and mask_geometry is not None else None,
-                    request_id=key[0],session=key[2],epoch=key[3],
+                    target_id=resolved_id if filter_target else None,
+                    request_id=key[0],session=key[3],epoch=key[4],
                     depth_stamp_ns=stamp_ns(msg),frame_id=msg.header.frame_id,now_ns=self.now_ns(),
-                    mode='bbox' if self.p['target_bbox_filter_enabled'] else 'segmentation',return_confirmed=True)
+                    mode='bbox' if mode != MODE_OBJECT_APPROACH and self.p['target_bbox_filter_enabled'] else 'segmentation',return_confirmed=True)
                 mask_status['bbox_filter_enabled']=self.p['target_bbox_filter_enabled']
                 mask_status['compute_ms']=(time.monotonic()-mask_started)*1000.
                 mask_status['decision_basis']='follow_tracker'
                 mask_status['geometry_synchronized']=mask_geometry is not None
                 if active:
                     ready=frame_target_ready(mask_packet,target_id=resolved_id,revision=binding_status['revision'],
-                        request_id=key[0],session=key[2],epoch=key[3],stamp_ns=stamp_ns(msg),
+                        request_id=key[0],session=key[3],epoch=key[4],stamp_ns=stamp_ns(msg),
                         frame_id=msg.header.frame_id,shape=depth.shape,now_ns=self.now_ns(),mask_applied=mask_status['applied'])
                     mask_status['frame_ready']=ready
                     mask_status['target_present']=None if mask_packet is None else mask_packet.get('target_present')
@@ -462,13 +474,23 @@ class SimulationFollow(Node):
                                     target_mask=deepcopy(mask_status),geometry_binding=deepcopy(binding_status),
                                     identity_supervision=deepcopy(identity_status),compute_error=None)
                         continue
+                # Object segmentation extracts its observed surface only; every
+                # original depth pixel remains in obstacle/clearing processing.
+                object_surface=None
+                if mode == MODE_OBJECT_APPROACH:
+                    depth=original_depth
+                    mask_status['surface_extracted']=mask_status['applied']
+                    mask_status['applied']=False
+                    mask_status['removed_pixels']=0
+                    mask_status['reason']='object_cloud_preserved'
                 frontend_begun=time.monotonic()
                 packet=packet_from_depth(depth,(info.k[0],info.k[4],info.k[2],info.k[5]),r,trans,pose,
                     self.p['depth_min_m'],self.p['depth_max_m'],self.p['depth_stride'])
                 # The full box is omitted from live cloud, but only the
                 # independently confirmed silhouette may retire old map hits.
                 target_points=np.empty((0,3),dtype=float)
-                ghost_reason=('disabled' if not self.p['target_ghost_clear_enabled'] else
+                ghost_reason=('object_cloud_preserved' if mode == MODE_OBJECT_APPROACH else
+                    'disabled' if not self.p['target_ghost_clear_enabled'] else
                     'no_mask_confirmed_target_pixels' if not np.any(confirmed_target_mask) else
                     'target_geometry_not_synchronized' if mask_geometry is None
                     else 'mask_confirmed')
@@ -478,6 +500,19 @@ class SimulationFollow(Node):
                         (info.k[0],info.k[4],info.k[2],info.k[5]),r,trans,pose,
                         mask_geometry,radius=self.p['target_ghost_clear_radius_m'],stride=self.p['depth_stride'],
                         minimum=self.p['depth_min_m'],maximum=self.p['depth_max_m'])
+                if mode == MODE_OBJECT_APPROACH and np.any(confirmed_target_mask):
+                    from _wla_sim_geometry import deproject
+                    body_surface=deproject(np.where(confirmed_target_mask,original_depth,np.nan),
+                        np.array([info.k[0],info.k[4],info.k[2],info.k[5]]),r,trans,
+                        self.p['depth_min_m'],self.p['depth_max_m'],self.p['depth_stride'])
+                    body_surface=body_surface[(body_surface[:,2]>.04)&(body_surface[:,2]<2.)]
+                    surface=local_points(body_surface,pose)
+                    if len(surface)>=3:
+                        object_surface=surface[:,:2]
+                        # Selected object points remain occupied even if cluster
+                        # filtering would discard a small item in this frame.
+                        packet['marking_points_odom']=np.vstack((packet['marking_points_odom'],surface))
+                        packet['obstacle_points']=np.vstack((packet['obstacle_points'],body_surface))
                 packet['target_points_odom']=target_points
                 mask_status['target_ghost_points']=len(target_points)
                 mask_status['target_ghost_reason']=ghost_reason
@@ -513,13 +548,13 @@ class SimulationFollow(Node):
                          local_radius=self.p['local_assumed_free_radius_m'],
                          target_clear_ttl_s=self.p['target_ghost_clear_ttl_s'],
                          tracker_snapshot=binding_status,
-                         direct_tracking=True,
+                         task_mode=mode,object_surface=object_surface,
                          policy_snapshot=self._tracking_policy(binding_status) if active else None)))
                 try:
                     result=self.future.result(timeout=self.p['result_ttl_s'])
                 except ComputeTimeout:
                     raise ValueError('compute_deadline_exceeded')
-                result.update(target_observation=observed_target(objects,key[1],obs_stamp,control_stamp),
+                result.update(target_observation=observed_target(objects,key[2],obs_stamp,control_stamp),
                     resolved_target_observation=observed_target(objects,resolved_id,obs_stamp,control_stamp),
                     resolved_target_source=resolved_source,
                     target_mask=mask_status,reid=identity_status,geometry_binding=binding_status,
@@ -568,6 +603,47 @@ class SimulationFollow(Node):
         fresh=bool(state['observations_fresh'])
         age=None if self.tracker is None or self.tracker.last_seen is None else ns/1e9-self.tracker.last_seen
         return fresh, 'source_observations_fresh' if fresh else 'target_observations_stale', age
+
+    def _terminal_arrival_locked(self, result, healthy, now, ns):
+        """Finite tasks latch only after fresh, observed, stationary confirmations."""
+        mode=self.core.mode
+        if not healthy or mode not in ('1','2') or self.tracker is None:
+            self.arrival_count=0;self.arrival_started=None
+            return False
+        row=self.core.objects.get(self.tracker.target_id)
+        live=self.tracker.snapshot(ns/1e9,self.motion.pose_at(ns/1e9))
+        if (live['state']!='tracking' or row is None or not row.get('detected') or
+                row.get('distance') is None or row.get('yaw') is None):
+            self.arrival_count=0;self.arrival_started=None
+            return False
+        stamp=result['stamp_ns']
+        if stamp==self.arrival_stamp:return False
+        self.arrival_stamp=stamp
+        v=self.motion.samples[-1][2]
+        stationary=abs(v[0])<.04 and abs(v[2])<.08
+        goal=result.get('approach_goal')
+        if mode=='1':
+            close=.65<=row['distance']<=.99 and abs(row['yaw'])<=.16
+            detail=dict(reason='person_surface_distance_reached',surface_distance_m=row['distance'],requested_distance_m=.95)
+        else:
+            generation=None if goal is None else goal['generation']
+            if generation!=self.arrival_goal_generation:
+                self.arrival_count=0;self.arrival_started=None
+                self.arrival_goal_generation=generation
+            close=(goal is not None and goal['stable_s']>=.6 and goal['endpoint_distance_m']<=.065 and
+                goal['current_clearance_m']>=.15 and abs(row['yaw'])<=.22)
+            detail=goal
+        confirmed=close and stationary and result.get('planner_feasible',False)
+        if not confirmed:
+            self.arrival_count=0;self.arrival_started=None
+            return False
+        if self.arrival_started is None:self.arrival_started=now
+        self.arrival_count+=1
+        if self.arrival_count<3 or now-self.arrival_started<.2:return False
+        self.arrival_detail=detail
+        self.core._terminate('arrived',detail['reason'])
+        self.result=None
+        return True
 
     def _calibration_diagnostic(self,result):
         return dict(status='pending_calibration',
@@ -644,8 +720,10 @@ class SimulationFollow(Node):
             if self.conflict_latched:command=np.zeros(2);healthy=False
             if not permitted:blockers.append('motion_permission_unavailable')
             if self.conflict_latched:blockers.insert(0,'direct_publisher_conflict')
+            if self._terminal_arrival_locked(result,healthy,now,ns):
+                command=np.zeros(2);healthy=False;blockers.append('task_arrived')
             if self.core.active:
-                self.core.state=('searching' if result.get('geometry_binding',{}).get('state','').startswith('search_') else 'following') if healthy else 'waiting'
+                self.core.state=('searching' if result.get('geometry_binding',{}).get('state','').startswith('search_') else 'following' if self.core.mode=='0' else 'approaching') if healthy else 'waiting'
                 self.core.reason=self.reason if healthy else ('direct_publisher_conflict' if self.conflict_latched else 'waiting_for_fresh_inputs')
             state=self.core.snapshot(now)
             preview=Twist();preview.linear.x=float(command[0]);preview.angular.z=float(command[1])
@@ -658,7 +736,7 @@ class SimulationFollow(Node):
                     follow_session=self.follow_session,request_id=state['request_id'],stamp_ns=ns,
                     linear=float(actual[0]),angular=float(actual[1])))))
             state.update(schema='wla-person-status/v1',stamp_ns=ns,follow_session=self.follow_session,
-                planner='close-wide-flex',numeric_backend='python_mpc_cpp_map' if native_ray_slots is not None else 'python_reference',native_frontend='cpp_deproject_ground_cluster_filter',
+                planner='tracker_sampling_mpc',numeric_backend='python_mpc_cpp_map' if native_ray_slots is not None else 'python_reference',native_frontend='cpp_deproject_ground_cluster_filter',
                 obstacle_topic=self.p['prefix']+'/depth_obstacles',
                 base_frame=self.p['base_frame'],output_mode=self.p['output_mode'],
                 candidate_only=not self.p['enable_motion'],motion_permitted=permitted and healthy,
@@ -670,13 +748,12 @@ class SimulationFollow(Node):
                 planner_candidates=result.get('candidates',{}) if result else {},
                 result_remaining_ms=round((result['valid_until']-now)*1000.,1) if result else None,
                 reference_generation=self.motion.generation,
-                robot_radius_m=self.model_tuning['radius'],obstacle_margin_m=self.model_tuning['margin'],
+                robot_radius_m=(result.get('tuning',self.model_tuning)['radius'] if result else self.model_tuning['radius']),obstacle_margin_m=self.model_tuning['margin'],
                 tof_enabled=self.p['tof_enabled'],direct_publisher_conflict=self.conflict_latched,
                 startup_clear_radius_m=self.p['startup_clear_radius_m'],
                 startup_motion_threshold_m=self.p['startup_motion_threshold_m'],
                 local_assumed_free_radius_m=self.p['local_assumed_free_radius_m'],
                 local_free_prior=self.map_result.get('local_free_prior') if self.map_result else None,
-                retreat_distance_m=self.map_result.get('retreat_distance_m') if self.map_result else None,
                 startup_prior=self.map_result.get('startup_prior') if self.map_result else None,
                 startup_prior_consumed=self.map_result.get('startup_prior_consumed',False) if self.map_result else False,
                 fault=self.conflict_latched or self.estop,
@@ -697,8 +774,12 @@ class SimulationFollow(Node):
                     'binding_jump_growth_mps','binding_jump_radius_max_m','reid_enabled',
                     'reid_similarity','reid_margin','reid_confirm_frames','neighbor_ambiguity_radius_m',
                     'target_mask_enabled','target_bbox_filter_enabled','target_ghost_clear_enabled')},
+                approach_goal=result.get('approach_goal') if result else None,
+                arrival=self.arrival_detail,
+                task_mode=self.core.mode,
+                task_mode_label=mode_config(self.core.mode)['label'] if self.core.mode in ('0','1','2') else None,
+                terminal_arrival=state['state'] == 'arrived',
                 recovery_state=result['recovery_state'] if result else 'waiting',
-                wide_offset=result['wide_offset'] if result else None,
                 frontend_ms=self.map_result.get('frontend_ms') if self.map_result else None,
                 filtered_obstacle_points=self.map_result.get('obstacle_points') if self.map_result else None,
                 clearing_points=self.map_result.get('clearing_points') if self.map_result else None,

@@ -47,7 +47,7 @@ case "$command" in
     exec bash "$workspace/r680_nav.sh" --agent-control "$@"
     ;;
   -h|--help|help)
-    echo 'r680_agent.sh person-api | person visible | person start --mode follow|approach_interact --target-id ID [--request-id RID] [--seconds N] | person heartbeat|stop|status [--request-id RID] | observations [--whitelist FILE] | preview | execute | query map|visible|navigate|REQUEST.json | bridge SELECTED_MAP.json [launch arguments] | navigation [r680_nav.sh arguments]'
+    echo 'r680_agent.sh person-api | person visible | person start --mode 0|1|2 --target-id ID [--request-id RID] [--seconds N] | person heartbeat|stop|status [--request-id RID] | observations [--whitelist FILE] | preview | execute | query map|visible|navigate|REQUEST.json | bridge SELECTED_MAP.json [launch arguments] | navigation [r680_nav.sh arguments]'
     ;;
   *) echo "Unknown operation: $command" >&2; exit 2 ;;
 esac

@@ -15,7 +15,7 @@ from std_msgs.msg import String
 from wla_behavior_interfaces.srv import PersonCommand
 
 
-def visible_people(data, now_ns):
+def visible_people(data, now_ns, label='person'):
     """A choice binds to the current full ID, never a future reused short ID."""
     if (data.get('schema')!='wla-relative-detections/v1' or data.get('enabled') is not True
             or not isinstance(data.get('session'),str) or not data['session']
@@ -28,7 +28,7 @@ def visible_people(data, now_ns):
     for row in data.get('objects',[]):
         if not isinstance(row,dict):continue
         ident=row.get('id','')
-        if (row.get('detected') is not True or row.get('label')!='person'
+        if (row.get('detected') is not True or (row.get('label')=='person' if label=='object' else row.get('label')!=label)
                 or not isinstance(ident,str) or not ident.startswith(prefix)
                 or not ident[len(prefix):].isdigit()):continue
         if ident in ids:raise RuntimeError('人物 ID 重复，无法唯一选择')
@@ -51,10 +51,10 @@ def resolve_target(selector, people):
 
 
 def show_people(people):
-    print('\n序号  画面 ID       距离      方位',flush=True)
+    print('\n序号  画面 ID       类别          距离      方位',flush=True)
     for index,row in enumerate(people,1):
         yaw=math.degrees(row['yaw']);side='左' if yaw>=0 else '右'
-        print(f"{index:>3}   {row['id'].rsplit(':',2)[-2]+':'+row['id'].rsplit(':',1)[-1]:<12} {row['distance']:.2f} m   {side} {abs(yaw):.0f}°",flush=True)
+        print(f"{index:>3}   {row['id'].rsplit(':',2)[-2]+':'+row['id'].rsplit(':',1)[-1]:<12} {row['label']:<12} {row['distance']:.2f} m   {side} {abs(yaw):.0f}°",flush=True)
     if not people:print('当前没有位置有效的人物。',flush=True)
     print('输入序号后回车；r 刷新；q 取消：',end='',flush=True)
 
@@ -88,6 +88,8 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('operation', choices=['list', 'status', 'follow'])
     p.add_argument('--target-id', default='', help='Full ID, short ID (e.g. 190), or epoch:ID; omit for interactive selection')
+    p.add_argument('--mode', choices=['0','1','2'], default='0',
+                   help='0 人物跟随；1 人物靠近并停车；2 物体靠近并停车')
     duration = p.add_mutually_exclusive_group()
     duration.add_argument('--seconds', type=float, default=30., help='Timed follow duration, 1–120 s (default: 30)')
     duration.add_argument('--continuous', action='store_true', help='Keep renewing the task until Ctrl+C or a backend stop/failure')
@@ -133,12 +135,14 @@ def main():
 
     def command(kind):
         request = PersonCommand.Request(command=kind, request_id=request_id,
-            mode='follow', target_id=args.target_id, lease_duration_s=1.5)
+            mode=args.mode, target_id=args.target_id, lease_duration_s=1.5)
         future = client.call_async(request)
         rclpy.spin_until_future_complete(node, future, timeout_sec=.7)
         if not future.done():
             raise RuntimeError(kind + '_response_unknown; lease will expire without renewal')
         response = future.result()
+        if response is not None and kind=='heartbeat' and response.request_id==request_id and response.state=='arrived':
+            return response
         if response is None or not response.accepted:
             raise RuntimeError(kind + '_rejected:' + (response.reason if response else 'no_response'))
         return response
@@ -160,7 +164,8 @@ def main():
             raise RuntimeError('another_task_is_active; stop it through its owner first')
         if state.get('fault') or state.get('direct_publisher_conflict'):
             raise RuntimeError('backend_fault_or_output_conflict')
-        people_now=lambda:visible_people(fresh('objects'),node.get_clock().now().nanoseconds)
+        target_label = 'object' if args.mode == '2' else 'person'
+        people_now=lambda:visible_people(fresh('objects'),node.get_clock().now().nanoseconds,target_label)
         if args.target_id:
             args.target_id=resolve_target(args.target_id,people_now())
         else:
@@ -179,7 +184,7 @@ def main():
         if state.get('fault') or state.get('direct_publisher_conflict'):
             raise RuntimeError('backend_fault_or_output_conflict')
         args.target_id=resolve_target(args.target_id,people_now())
-        print('已选择人物：'+args.target_id,flush=True)
+        print(('已选择物体：' if args.mode == '2' else '已选择人物：')+args.target_id,flush=True)
         start_attempted = True
         response = command('start')
         print(json.dumps({'request_id': request_id, 'target_id': args.target_id,
@@ -196,9 +201,15 @@ def main():
             if not args.allow_motion and state.get('candidate_only') is not True:
                 raise RuntimeError('backend_motion_mode_changed')
             if state.get('request_id') == request_id and not state.get('enabled'):
+                if state.get('state') == 'arrived':
+                    print(json.dumps(state.get('arrival'),ensure_ascii=False),flush=True)
+                    return 0
                 raise RuntimeError('task_ended:' + state.get('reason', 'unknown'))
             if time.monotonic() >= next_heartbeat:
-                command('heartbeat')
+                response=command('heartbeat')
+                if response.state=='arrived':
+                    print('任务到达并结束：'+response.reason,flush=True)
+                    return 0
                 next_heartbeat = time.monotonic()+.4
             if state.get('request_id') == request_id and time.monotonic() >= next_print:
                 print(json.dumps({k: state.get(k) for k in ('state', 'target_id', 'safety_reason',

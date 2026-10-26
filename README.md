@@ -116,3 +116,10 @@ cd ~/ros2_ws
 ## 提交历史
 
 原导航历史及其他 6 个包的原提交已接入工作区 `main`，原提交号保留。路径对应关系和查询方法见 [源码包历史索引](docs/package-history.md)。
+
+## 2026-10-26 目标模式统一
+
+当前人物跟随、人物靠近和物体靠近只保留 `wla_person_follow` 一个执行链路，
+分别使用数字模式 0/1/2；接口和命令见 [当前包说明](src/wla_person_follow/README.md)。
+旧 wla_object_follow、wla_follow_mpc 与 legacy 人物节点已移除，wla_diff_mpc 是 Nav2
+导航控制器，继续保留。主入口不再叠加 releases。历史日志与算法来源记录不是当前运行入口。

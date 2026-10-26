@@ -35,7 +35,6 @@ class Policy:
         self.person_fault = False
         self.blocked_person_request_id = ''
         self.blocked_person_session = ''
-        self.object_channel = ObjectChannel(self)
 
     @staticmethod
     def zero(v):
@@ -58,7 +57,7 @@ class Policy:
         self.clear_person()
 
     def set_manual(self):
-        if self.mode == 'AUTO' and self.automatic_source in ('PERSON','OBJECT'):
+        if self.mode == 'AUTO' and self.automatic_source == 'PERSON':
             self.tracking_channel().revoke_person()
         if self.automatic_source == 'NAV':
             self.auto = (0., 0.); self.auto_at = -1e9
@@ -213,22 +212,13 @@ class Policy:
         return t - self.wheel_at <= .2 and self.zero(self.wheel)
 
     def tracking_channel(self):
-        return self.object_channel if self.automatic_source=='OBJECT' else self
-
-    def object_status_input(self,message,t,now_ns):
-        return self.object_channel.person_status_input(message,t,now_ns)
-
-    def object_input(self,message,t,now_ns):
-        return self.object_channel.person_input(message,t,now_ns)
+        return self
 
     def set_person_source(self, enabled, t, now_ns):
         return self.set_tracking_source('PERSON' if enabled else 'NAV',t,now_ns)
 
-    def set_object_source(self, enabled, t, now_ns):
-        return self.set_tracking_source('OBJECT' if enabled else 'NAV',t,now_ns)
-
     def set_tracking_source(self, source, t, now_ns):
-        if source not in ('NAV','PERSON','OBJECT'):return False,'invalid_automatic_source'
+        if source not in ('NAV','PERSON'):return False,'invalid_automatic_source'
 
         if source == self.automatic_source:
             return True, 'automatic_source_already_' + source.lower()
@@ -238,42 +228,13 @@ class Policy:
             return False, 'manual_takeover_active'
         if not self.stopped(t):
             return False, 'chassis_not_stopped'
-        if self.automatic_source in ('PERSON','OBJECT'):
+        if self.automatic_source == 'PERSON':
             self.tracking_channel().revoke_person()
         self.mode = 'AUTO' if source == 'NAV' else 'MANUAL'; self.automatic_source = source
         self.source_generation += 1; self.source_after = t; self.source_ros_ns = now_ns
-        self.auto = (0., 0.); self.auto_at = -1e9; self.clear_person(); self.object_channel.clear_person()
+        self.auto = (0., 0.); self.auto_at = -1e9; self.clear_person()
         return True, ('navigation/manual sharing; waiting for fresh commands' if source == 'NAV'
                       else 'automatic_source_' + source.lower() + '; MANUAL; explicit AUTO required')
-
-    def object_control(self, command, source_generation, revoke_generation, request_id, follow_session, t, now_ns):
-        channel=self.object_channel
-        if source_generation!=self.source_generation or revoke_generation!=channel.person_revoke_generation:
-            return False,'object_control_generation_changed'
-        if command=='select':
-            if self.mode!='AUTO' or self.estop_latched or self.manual_requested(t):
-                return False,'existing_auto_authorization_required'
-            if not self.stopped(t):return False,'chassis_not_stopped'
-            if self.automatic_source=='OBJECT':
-                if channel.person_enabled:
-                    return False,'object_task_already_active'
-                # Even same-source selection goes through a zero-output handshake.
-                self.set_manual()
-                self.source_generation+=1;self.source_after=t;self.source_ros_ns=now_ns
-                return True,'object_selected; explicit_bound_activation_required'
-            return self.set_object_source(True,t,now_ns)
-        if self.automatic_source!='OBJECT':return False,'object_source_not_owned'
-        if command=='activate':
-            if self.mode!='MANUAL':return False,'object_not_waiting_for_activation'
-            if not request_id or (request_id,follow_session)!=(channel.person_request_id,channel.person_session):
-                return False,'object_task_identity_mismatch'
-            return self.set_auto(t,now_ns)
-        if command=='release':
-            if channel.person_enabled and (request_id,follow_session)!=(channel.person_request_id,channel.person_session):
-                return False,'object_task_identity_mismatch'
-            self.set_manual()
-            return True,'object_authority_released'
-        return False,'invalid_object_control_command'
 
     def set_auto(self, t, now_ns=0):
         if self.estop_latched:
@@ -284,7 +245,7 @@ class Policy:
             return False, 'manual_takeover_active'
         if not self.stopped(t):
             return False, 'chassis_not_stopped'
-        if self.automatic_source in ('PERSON','OBJECT'):
+        if self.automatic_source == 'PERSON':
             channel=self.tracking_channel()
             if (not channel.person_ready(t) or t > channel.person_until
                     or channel.person_at <= self.source_after or not self.zero(channel.person)):
@@ -315,7 +276,7 @@ class Policy:
                 return (0., 0.)
             v = self.auto; self.output_source = 'NAV'
         elif self.mode == 'AUTO':
-            if self.automatic_source in ('PERSON','OBJECT'):
+            if self.automatic_source == 'PERSON':
                 channel=self.tracking_channel()
                 if t > channel.person_status_until or channel.person_fault:
                     self.set_manual(); return (0., 0.)
@@ -331,29 +292,3 @@ class Policy:
             v = self.manual; self.output_source = 'MANUAL'
         forward, reverse, turn = self.limits
         return (max(-reverse, min(forward, v[0])), max(-turn, min(turn, v[1])))
-
-
-class ObjectChannel:
-    """Reuse the exact leased-candidate validation, with independent state.
-
-    The internal person_* names retain the established tested validator API;
-    schemas, sessions, revocations and selected output are object-specific.
-    """
-    STATUS_SCHEMA='wla-object-status/v1'
-    COMMAND_SCHEMA='wla-object-candidate/v1'
-    PERSON_COMMAND_AGE=Policy.PERSON_COMMAND_AGE
-    PERSON_STATUS_AGE=Policy.PERSON_STATUS_AGE
-    valid_stamp=staticmethod(Policy.valid_stamp)
-    clear_person=Policy.clear_person
-    revoke_person=Policy.revoke_person
-    person_ready=Policy.person_ready
-    person_status_input=Policy.person_status_input
-    person_input=Policy.person_input
-
-    def __init__(self,owner):
-        self.owner=owner;self.person_revoke_generation=0
-        self.blocked_person_request_id='';self.blocked_person_session=''
-        self.clear_person()
-
-    @property
-    def source_ros_ns(self):return self.owner.source_ros_ns

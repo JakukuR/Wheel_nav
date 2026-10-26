@@ -171,7 +171,7 @@ class NavDetector(Node):
                     mask_packet['target_present']=False
                     target_id=interest.get('target_id','')
                     for row in rows:
-                        if row['label']=='person' and f"{self.session}:{epoch}:{row['track_id']}"==target_id:
+                        if row['label']==interest.get('target_label','person') and f"{self.session}:{epoch}:{row['track_id']}"==target_id:
                             mask_packet.update(target_present=True,target_id=target_id,bbox_xyxy=[float(v) for v in row['bbox_xyxy']])
                             if output.masks is not None:
                                 from wla_r680_navigation_py.target_masks import encode_mask

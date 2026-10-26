@@ -16,8 +16,12 @@ class Tuning:
     accel: float = .65
     yaw_accel: float = 1.5
     radius: float = ROBOT_RADIUS_M
-    margin: float = .20
-    desired_gap: float = 1.6
+    margin: float = .10
+    desired_gap: float = ROBOT_RADIUS_M+.28+.40
+    target_radius: float = .28
+    target_stop_gap: float = ROBOT_RADIUS_M+.28+.36
+    target_hard_gap: float = ROBOT_RADIUS_M+.28+.10
+    target_clearance_max: float = .50
     camera_half_angle: float = float(np.arctan(.8))
     central_half_angle: float = float(np.arctan(.64))
     coast_timeout: float = .8

@@ -6,23 +6,16 @@ if [[ $# -gt 0 ]]; then shift; fi
 case "$operation" in
   -h|--help|help)
     echo 'r680_person_follow.sh check | run [enable_motion:=false|true] [ROS launch arguments]'
-    echo '默认 close-wide-flex 仿真后端，follow 指定人物；backend:=legacy 可回退原实现。'
-    echo '默认预览；需要共享D455/检测/轮速。默认走原人物跟随 mux 接口，保留手柄接管。'
+    echo '当前统一链路：mode 0 人物跟随，mode 1 人物靠近，mode 2 物体靠近。'
+    echo '默认预览；follow 命令由操作者选择目标 ID 后启动。'
     exit 0 ;;
   check|run) ;;
   indoor|outdoor)
-    echo '旧场景入口统一使用相对人物执行，不再启用地图规划。' >&2 ;;
+    echo '场景参数已移除；请使用统一跟随链路。' >&2; exit 2 ;;
   *) echo "Unknown operation: $operation" >&2; exit 2 ;;
 esac
 source /opt/ros/jazzy/setup.bash
 source "$workspace/install/setup.bash"
-# Keep the verified mux overlay, then load the optimized follower/native map.
-source "$workspace/releases/sim-follow-20261020-v1/install/local_setup.bash"
-source "$workspace/releases/sim-follow-20261020-latency/install/local_setup.bash"
-source "$workspace/releases/sim-follow-20261020-reidfix/install/local_setup.bash"
-source "$workspace/releases/sim-follow-20261021-boxmot/install/local_setup.bash"
-# Read-only diagnostic fields and independent status recorder; control policy unchanged.
-source "$workspace/releases/sim-follow-20261022-diagnostics/install/local_setup.bash"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-73}"
 export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
 export CYCLONEDDS_URI="${CYCLONEDDS_URI:-file://$workspace/install/wla_manual_control/share/wla_manual_control/config/cyclonedds-local.xml}"
@@ -32,10 +25,10 @@ export WLA_FOLLOW_PYTHON="${WLA_FOLLOW_PYTHON:-/usr/bin/python3}"
 "$WLA_FOLLOW_PYTHON" - <<'PY'
 import importlib, json, sys
 from ament_index_python.packages import get_package_prefix
-report = {'owner':'ros2_ws/wla_person_follow', 'mode':'simulation_close_wide_flex',
+report = {'owner':'ros2_ws/wla_person_follow', 'modes':['0_person_follow','1_person_approach','2_object_approach'],
           'input':'/r680/perception/relative_objects',
           'command_service':'/r680/person_follow/command', 'errors':[]}
-for module in ('rclpy', 'numpy', 'cv2', 'tf2_ros', 'wla_person_follow.relative_control', 'wla_person_follow.sim_node', '_wla_sim_geometry'):
+for module in ('rclpy', 'numpy', 'cv2', 'tf2_ros', 'wla_person_follow.task_session', 'wla_person_follow.sim_node', '_wla_sim_geometry'):
     try: importlib.import_module(module)
     except Exception as exc: report['errors'].append(module+':'+str(exc))
 try:

@@ -1,6 +1,5 @@
-"""Relative person control: explicit identity, bounded leases, no world frame."""
-from dataclasses import dataclass
-from .target_tracking import TargetEstimate
+"""Target task ledger: explicit identity, bounded leases, no motion controller."""
+from .task_modes import normalize_mode
 import json
 import math
 
@@ -28,58 +27,25 @@ def source_stamp(data):
     return stamp
 
 
-@dataclass(frozen=True)
-class Safety:
-    valid: bool = False
-    front_distance: float = 0.
-    forward_clear: bool = False
-
-
-class RelativeFollower:
-    """All clocks passed explicitly so replay, expiry and mode changes are testable."""
-    def __init__(self, base_frame='r680_mapping_floor', max_age=.30,
-                 follow_distance=1.4, approach_distance=.95,
-                 max_linear=.20, max_angular=.45, emergency_distance=.60, local_planner=None, require_estimate=False, lost_target_stop_distance=.35):
-        if (not base_frame or not 0 < max_age <= .30 or
-                not 0 < max_linear <= .20 or not 0 < max_angular <= .45 or
-                not .50 <= emergency_distance < approach_distance <= follow_distance):
-            raise ValueError('invalid_control_configuration')
-        self.target_label = 'person'
-        self.follow_mode = 'follow'
-        self.approach_mode = 'approach_interact'
-        self.local_planner = local_planner
-        self.require_estimate = require_estimate
-        if not .20 <= lost_target_stop_distance <= approach_distance:
-            raise ValueError("invalid_lost_target_stop_distance")
-        self.lost_target_stop_distance = lost_target_stop_distance
+class TaskSession:
+    """Identity, detector epoch, idempotence and lease ledger; no controller."""
+    def __init__(self, base_frame='r680_mapping_floor', max_age=.30):
+        if not base_frame or not 0 < max_age <= .30:
+            raise ValueError('invalid_task_configuration')
         self.base_frame, self.max_age = base_frame, max_age
-        self.follow_distance, self.approach_distance = follow_distance, approach_distance
-        self.max_linear, self.max_angular = max_linear, max_angular
-        self.emergency_distance = emergency_distance
         self.session, self.epoch, self.last_stamp = None, -1, 0
         self.retired_sessions = set()
         self.gate_enabled = False
         self.objects, self.expires_at = {}, -math.inf
         self.status_stamp, self.disabled_stamp = 0, 0
-        self.request_id = self.mode = self.target_id = ''
+        self.request_id = self.mode = self.target_id = self.target_label = ''
         self.active, self.state, self.reason = False, 'idle', 'waiting_for_command'
         self.lease_until = -math.inf
         self.requests = {}
-        self.arrival_count, self.arrival_stamp = 0, 0
-        self.previous_v = self.previous_w = 0.
-        self.previous_tick = None
-
-    def _zero(self):
-        self.previous_v = self.previous_w = 0.
-        return 0., 0.
 
     def _terminate(self, state, reason):
         self.active, self.state, self.reason = False, state, reason
-        if self.local_planner is not None:
-            self.local_planner.reset()
         self.lease_until = -math.inf
-        self.arrival_count, self.arrival_stamp = 0, 0
-        self._zero()
 
     def _generation(self, session, epoch):
         if (not isinstance(session, str) or not session or ':' in session or len(session) > 128 or
@@ -144,12 +110,9 @@ class RelativeFollower:
             if not self.gate_enabled:
                 if self.active:
                     self._terminate('cancelled', 'detection_disabled')
-                else:
-                    self._zero()
             return True
         except (ValueError, KeyError, TypeError, AttributeError):
             self.objects, self.expires_at = {}, -math.inf
-            self._zero()
             return False
 
     def receive_status(self, payload, now, ros_ns):
@@ -172,8 +135,6 @@ class RelativeFollower:
                 self.objects, self.expires_at = {}, -math.inf
                 if self.active:
                     self._terminate('cancelled', 'detection_disabled')
-                else:
-                    self._zero()
             return True
         except (ValueError, KeyError, TypeError, AttributeError):
             return False
@@ -210,8 +171,10 @@ class RelativeFollower:
                 return False, 'no_matching_active_request'
             self.lease_until = now + lease_duration_s
             return True, 'lease_renewed'
-        if mode not in (self.follow_mode, self.approach_mode):
-            return False, 'invalid_mode'
+        try:
+            mode = normalize_mode(mode)
+        except ValueError as exc:
+            return False, str(exc)
         if request_id in self.requests:
             if self.requests[request_id] is None:
                 return False, 'request_already_terminal'
@@ -223,111 +186,25 @@ class RelativeFollower:
         if len(self.requests) >= 10000:
             return False, 'request_history_full_restart_required'
         row = self.objects.get(target_id)
+        valid_label = row is not None and ((row['label'] == 'person') if mode != '2' else row['label'] != 'person')
         if not self.gate_enabled:
             return False, 'detection_disabled'
         if now >= self.expires_at:
             return False, 'observations_stale'
-        if row is None or not row['detected'] or row['label'] != self.target_label:
-            return False, 'person_id_not_visible'
+        if row is None or not row['detected'] or not valid_label:
+            return False, 'target_id_not_visible'
         if row['yaw'] is None or row['distance'] is None:
-            return False, 'person_geometry_unavailable'
-        if self.local_planner is not None:
-            self.local_planner.reset()
+            return False, 'target_geometry_unavailable'
+        self.target_label = row['label']
         self.request_id, self.mode, self.target_id = request_id, mode, target_id
         self.requests[request_id] = (mode, target_id)
         self.active, self.state, self.reason = True, 'waiting', 'waiting_for_safe_depth'
         self.lease_until = now + lease_duration_s
-        self.arrival_count, self.arrival_stamp = 0, 0
-        self.previous_tick = now
-        self._zero()
         return True, 'started'
-
-    def tick(self, now, safety=None, scene=None, estimate=None):
-        self._expire(now)
-        previous_tick, self.previous_tick = self.previous_tick, now
-        dt = .05 if previous_tick is None else max(.001, min(.10, now-previous_tick))
-        if not self.active:
-            return self._zero()
-        row = self.objects.get(self.target_id)
-        tracked = (isinstance(estimate, TargetEstimate) and estimate.target_id == self.target_id and
-                   all(finite(v) for v in (estimate.yaw,estimate.distance,estimate.age,estimate.std)) and
-                   abs(estimate.yaw) <= math.pi and 0 < estimate.distance <= 20 and
-                   0 <= estimate.age <= 2. and 0 <= estimate.std <= 1. and
-                   finite(estimate.last_seen_yaw) and abs(estimate.last_seen_yaw)<=math.pi and
-                   finite(estimate.last_seen_distance) and 0<=estimate.last_seen_distance<=20)
-        reason = ('detection_disabled' if not self.gate_enabled else
-                  'observations_stale' if now >= self.expires_at else
-                  'target_estimate_unavailable' if self.require_estimate and not tracked else
-                  'target_not_visible' if not tracked and (row is None or not row['detected'] or row['label'] != self.target_label) else
-                  'target_geometry_unavailable' if not tracked and (row['yaw'] is None or row['distance'] is None) else
-                  'depth_safety_unavailable' if safety is None or not safety.valid else
-                  'emergency_obstacle' if safety.front_distance < self.emergency_distance else
-                  'local_scene_unavailable' if self.local_planner is not None and scene is None else '')
-        if reason:
-            self.state, self.reason = 'waiting', reason
-            self.arrival_count = 0
-            return self._zero()
-        yaw, distance = (estimate.yaw, estimate.distance) if tracked else (row['yaw'], row['distance'])
-        predicted = tracked and not estimate.observed
-        if distance < self.emergency_distance:
-            self.state, self.reason = 'waiting', 'target_too_close'
-            self.arrival_count = 0
-            return self._zero()
-        target_distance = self.follow_distance if self.mode == self.follow_mode else self.approach_distance
-        arrived = distance <= target_distance+.10 and abs(yaw) <= .12
-        if self.mode == self.approach_mode:
-            if self.last_stamp != self.arrival_stamp:
-                self.arrival_count = self.arrival_count + 1 if arrived and not predicted else 0
-                self.arrival_stamp = self.last_stamp
-            if self.arrival_count >= 3:
-                self._terminate('arrived', 'interaction_distance_reached')
-                return self._zero()
-        if predicted:
-            # Translation goal is the last accepted observation, not an
-            # extrapolated moving point. Orientation goal is predicted bearing.
-            if estimate.last_seen_distance <= self.lost_target_stop_distance+.10:
-                v, w = 0., (max(-self.max_angular,min(self.max_angular,1.2*yaw)) if abs(yaw)>.08 else 0.)
-            elif self.local_planner is None:
-                self.state,self.reason='waiting','prediction_requires_local_planner'
-                return self._zero()
-            else:
-                v,w=self.local_planner.command(scene,estimate.last_seen_yaw,
-                    estimate.last_seen_distance,self.lost_target_stop_distance,
-                    self.max_linear,self.max_angular,target_is_person=False)
-                if not self.local_planner.last.path:
-                    self.state,self.reason='waiting',self.local_planner.last.reason
-                    return self._zero()
-        elif self.local_planner is not None:
-            v, w = self.local_planner.command(scene, yaw, distance, target_distance,
-                                               self.max_linear, self.max_angular)
-            if not self.local_planner.last.path:
-                self.state, self.reason = 'waiting', self.local_planner.last.reason
-                return self._zero()
-        else:
-            v = max(0., min(self.max_linear, .45*(distance-target_distance)))
-            if distance <= target_distance+.10 or abs(yaw) >= .55 or not safety.forward_clear:
-                v = 0.
-            w = 0. if abs(yaw) <= .08 else max(-self.max_angular, min(self.max_angular, 1.2*yaw))
-        # Stops are immediate; only nonzero commands ramp upward from rest.
-        v = min(v, self.previous_v+.4*dt) if v else 0.
-        if w:
-            if w*self.previous_w < 0:
-                self.previous_w = 0.
-            w = max(self.previous_w-.8*dt, min(self.previous_w+.8*dt, w))
-        if self.local_planner is not None and not scene.command_clear(v, w):
-            v = 0.
-            if not scene.command_clear(v, w):
-                w = 0.
-        self.previous_v, self.previous_w = v, w
-        self.state = 'approaching' if self.mode == self.approach_mode else 'following'
-        self.reason = (('target_prediction_align' if estimate.last_seen_distance <= self.lost_target_stop_distance+.10 else 'target_prediction_last_seen') if predicted else
-                       self.local_planner.last.reason if self.local_planner is not None else
-                       'obstacle_blocks_forward' if not safety.forward_clear and distance > target_distance+.10 else 'relative_control')
-        return v, w
 
     def snapshot(self, now):
         self._expire(now)
-        return dict(request_id=self.request_id, mode=self.mode, target_id=self.target_id,
+        return dict(request_id=self.request_id, mode=self.mode, target_id=self.target_id, target_label=self.target_label,
                     enabled=self.active, state=self.state, reason=self.reason,
                     session=self.session or '', epoch=self.epoch,
                     detection_enabled=self.gate_enabled,

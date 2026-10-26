@@ -11,7 +11,6 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from std_msgs.msg import String
 from std_srvs.srv import SetBool
-from wla_behavior_interfaces.srv import ObjectControl
 from action_msgs.srv import CancelGoal
 from velocity_policy import VelocityPolicy as Policy
 
@@ -28,14 +27,10 @@ class Mux(Node):
         self.create_subscription(Twist, '/r680_nav/chassis_cmd_vel', self.auto, 1)
         self.create_subscription(String, '/r680/person_follow/command_candidate', self.person, 1)
         self.create_subscription(String, '/r680/person_follow/status', self.person_status, 1)
-        self.create_subscription(String, '/r680/object_follow/command_candidate', self.object, 1)
-        self.create_subscription(String, '/r680/object_follow/status', self.object_status, 1)
         self.create_subscription(String, '/gamepad_status', self.status, 10)
         self.create_subscription(Odometry, '/wheel/odom', self.wheel, qos_profile_sensor_data)
         self.create_service(SetBool, '/r680_base/set_automatic', self.mode)
         self.create_service(SetBool, '/r680_base/set_person_source', self.source)
-        self.create_service(SetBool, '/r680_base/set_object_source', self.object_source)
-        self.create_service(ObjectControl, '/r680_base/object_control', self.object_control)
         self.create_service(SetBool, '/r680_base/set_estop', self.estop)
         self.cancel = [self.create_client(CancelGoal, '/' + action + '/_action/cancel_goal')
                        for action in ('navigate_to_pose', 'navigate_through_poses')]
@@ -71,34 +66,6 @@ class Mux(Node):
 
     def person_status(self, msg):
         self.p.person_status_input(self.decode(msg), time.monotonic(), self.get_clock().now().nanoseconds)
-
-    def object(self,msg):
-        self.p.object_input(self.decode(msg),time.monotonic(),self.get_clock().now().nanoseconds)
-
-    def object_status(self,msg):
-        self.p.object_status_input(self.decode(msg),time.monotonic(),self.get_clock().now().nanoseconds)
-
-    def object_control(self,req,res):
-        now_ns=self.get_clock().now().nanoseconds
-        if req.control_session!=self.control_session or not 0<=now_ns-req.stamp_ns<=200_000_000:
-            res.success,res.reason=False,'object_control_session_or_stamp_invalid'
-        else:
-            res.success,res.reason=self.p.object_control(req.command,req.source_generation,
-                req.object_revoke_generation,req.request_id,req.follow_session,time.monotonic(),now_ns)
-            if res.success:
-                # Source hints do not switch or cancel another producer.
-                self.last_report=0.
-        res.control_session=self.control_session
-        res.source_generation=self.p.source_generation
-        res.object_revoke_generation=self.p.object_channel.person_revoke_generation
-        return res
-
-    def object_source(self,req,res):
-        previous=self.p.automatic_source
-        res.success,res.message=self.p.set_object_source(req.data,time.monotonic(),self.get_clock().now().nanoseconds)
-        if res.success and previous!=self.p.automatic_source:
-            self.last_report=0.
-        return res
 
     def status(self, msg):
         previous = self.p.mode
@@ -154,7 +121,7 @@ class Mux(Node):
                 'mode': self.p.mode, 'armed': self.p.armed,
                 'mode_required': False,
                 'velocity_passthrough': True,
-                'priority': ['MANUAL', 'PERSON', 'OBJECT', 'NAV'],
+                'priority': ['MANUAL', 'PERSON', 'NAV'],
                 'nav_manual_coexist': self.p.nav_manual_coexist,
                 'output_source': self.p.output_source,
                 'manual_ready': self.p.manual_ready(now),
@@ -163,10 +130,6 @@ class Mux(Node):
                 'automatic_source': self.p.automatic_source,
                 'source_generation': self.p.source_generation,
                 'person_revoke_generation': self.p.person_revoke_generation,
-                'object_revoke_generation': self.p.object_channel.person_revoke_generation,
-                'object_request_id': self.p.object_channel.person_request_id,
-                'object_follow_session': self.p.object_channel.person_session,
-                'object_fresh': self.p.command_fresh('OBJECT', now),
                 'person_request_id': self.p.person_request_id,
                 'follow_session': self.p.person_session,
                 'gamepad': self.p.status, 'linear': v, 'angular': w,

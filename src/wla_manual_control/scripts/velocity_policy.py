@@ -1,4 +1,4 @@
-"""Modeless velocity priority: manual > person > object > navigation."""
+"""Modeless velocity priority: manual > unified target task > navigation."""
 import math
 from control_policy import Policy
 
@@ -41,9 +41,6 @@ class VelocityPolicy(Policy):
     def person_input(self, message, t, now_ns):
         return self.candidate('PERSON', message, t, now_ns)
 
-    def object_input(self, message, t, now_ns):
-        return self.candidate('OBJECT', message, t, now_ns)
-
     def manual_input(self, values, t):
         if not all(type(v) in (int, float) and math.isfinite(v) for v in values):
             self.latch_stop('invalid_manual_input')
@@ -55,7 +52,6 @@ class VelocityPolicy(Policy):
         # Legacy explicit stop request: clear caches, never latch a drive mode.
         self.commands.clear()
         self.revoke_person()
-        self.object_channel.revoke_person()
         self.mode = 'AUTO'
 
     def set_auto(self, t, now_ns=0):
@@ -64,23 +60,12 @@ class VelocityPolicy(Policy):
         return True, 'velocity priority active; no AUTO switch required'
 
     def set_tracking_source(self, source, t, now_ns):
-        if source not in ('NAV', 'PERSON', 'OBJECT'):
+        if source not in ('NAV', 'PERSON'):
             return False, 'invalid_automatic_source'
         # Compatibility hint for older producers only; output ignores this field.
         self.automatic_source = source
         self.mode = 'AUTO'
         return True, 'compatibility hint only; velocity priority does not select sources'
-
-    def object_control(self, command, source_generation, revoke_generation, request_id, follow_session, t, now_ns):
-        if command == 'select':
-            return self.set_tracking_source('OBJECT', t, now_ns)
-        if command == 'activate':
-            return self.set_auto(t, now_ns)
-        if command == 'release':
-            self.commands.pop('OBJECT', None)
-            self.object_channel.revoke_person()
-            return True, 'object cached velocity cleared'
-        return False, 'invalid_object_control_command'
 
     def output(self, t):
         self.output_source = 'NONE'
@@ -99,7 +84,7 @@ class VelocityPolicy(Policy):
             self.output_source = 'MANUAL'
         else:
             values = (0., 0.)
-            for source in ('PERSON', 'OBJECT', 'NAV'):
+            for source in ('PERSON', 'NAV'):
                 command, received, until = self.commands.get(source, ((0., 0.), -math.inf, -math.inf))
                 if received > self.resume_after and t <= until and not self.zero(command):
                     values, self.output_source = command, source
