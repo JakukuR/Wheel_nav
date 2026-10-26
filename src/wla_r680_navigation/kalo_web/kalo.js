@@ -83,11 +83,13 @@ const tf = {
 // ------------------------------------------------------------- layers ---
 // ttl: how far (ms) a layer's stamp may be from the camera frame it is projected on. The camera
 // stream is 10 Hz, so geometry is paired within 60 ms; the top-down view always shows the newest data.
+// The obstacle cloud lands 60-100 ms after its frame, later than the JPEG, so it may use the previous
+// cloud until the exact one arrives and redraws; a tighter window would blink every frame.
 const LAYERS = [
   { id: 'camera', label: '相机画面', color: '--azure', topics: ['/r680/debug/color/compressed', '/r680/d455/color/camera_info'], on: true },
   { id: 'boxes', label: '检测框', color: '--sakura', topics: ['/r680/perception/detections', '/r680/perception/relative_objects'], ttl: 150, on: true },
   { id: 'mask', label: '目标掩膜', color: '--sakura', topics: ['/r680/perception/target_mask'], ttl: 150, on: true },
-  { id: 'points', label: '深度障碍点', color: '--azure', topics: ['/r680/person_follow/depth_obstacles'], ttl: 60, on: true },
+  { id: 'points', label: '障碍体素', color: '--mint', topics: ['/r680/person_follow/depth_obstacles'], ttl: 150, on: true },
   { id: 'grid', label: '障碍栅格', color: '--sun', topics: ['/r680/person_follow/local_obstacles'], ttl: 1000, on: true },
   { id: 'path', label: '跟随路径', color: '--mint', topics: ['/r680/person_follow/local_path'], ttl: 1000, on: true },
   { id: 'navpoints', label: '导航点云', color: '--sun', topics: ['/r680_nav/d455/points'], ttl: 60, on: true },
@@ -110,6 +112,25 @@ function nearest(topic, t, ttl) {
   let best = null;
   for (const e of store.get(topic) || []) if (!best || Math.abs(e.t - t) < Math.abs(best.t - t)) best = e;
   return best && Math.abs(best.t - t) <= ttl ? best : null;
+}
+
+// Obstacle cloud -> cubes [cx, cy, cz, edge] in the cloud frame, cached on the message. The edge grows
+// with range (an octree-like level of detail without a tree); a cell needs two points, so one stray
+// depth pixel draws nothing. Sorted by height so the top view paints the highest cube last.
+const VOXEL = [.03, .06, .12, .2], HEIGHT = [.05, .5];  // follow keeps obstacles up to 0.5 m
+function voxelize(msg) {
+  if (msg.vox) return msg.vox;
+  const xyz = msg.xyz, cells = new Map();
+  for (let i = 0; i < xyz.length; i += 3) {
+    const x = xyz[i], y = xyz[i + 1], z = xyz[i + 2]; if (!Number.isFinite(x + y + z)) continue;
+    const r = Math.hypot(x, y), level = r < 1.2 ? 0 : r < 2.5 ? 1 : r < 4 ? 2 : 3, e = VOXEL[level];
+    const ix = Math.floor(x / e), iy = Math.floor(y / e), iz = Math.floor(z / e);
+    const key = ((level * 4096 + ix + 2048) * 4096 + iy + 2048) * 4096 + iz + 2048, c = cells.get(key);
+    if (c) c[0]++; else cells.set(key, [1, (ix + .5) * e, (iy + .5) * e, (iz + .5) * e, e]);
+  }
+  const kept = [...cells.values()].filter(c => c[0] >= 2).sort((a, b) => a[3] - b[3]);
+  const out = new Float32Array(kept.length * 4); kept.forEach((c, i) => out.set(c.slice(1), 4 * i));
+  return (msg.vox = out);
 }
 
 // -------------------------------------------------------------- bridge ---
@@ -199,6 +220,15 @@ function program(gl, vs, fs) {
 }
 function upload(gl, buf, data) { gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STREAM_DRAW); }
 function attrib(gl, buf, size) { gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, size, gl.FLOAT, false, 0, 0); }
+// Height ramp shared by both views: mint floor -> sun -> sakura top.
+const RAMP = 'uniform vec3 c0; uniform vec3 c1; uniform vec3 c2; vec3 ramp(float h){ return h<.5 ? mix(c0,c1,h*2.) : mix(c1,c2,h*2.-1.); }';
+function setRamp(gl, u) { gl.uniform3fv(u.c0, rgb('--mint')); gl.uniform3fv(u.c1, rgb('--sun')); gl.uniform3fv(u.c2, rgb('--sakura')); gl.uniform2fv(u.zr, HEIGHT); }
+const CUBE = (() => { // 36 vertices of a unit cube centred on 0, with face normals
+  const v = [], n = [];
+  for (let axis = 0; axis < 3; axis++) for (const s of [-1, 1]) for (const [a, b] of [[-1, -1], [1, -1], [1, 1], [-1, -1], [1, 1], [-1, 1]]) {
+    const p = [0, 0, 0], q = [0, 0, 0]; p[axis] = s * .5; p[(axis + 1) % 3] = a * .5; p[(axis + 2) % 3] = b * .5; q[axis] = s; v.push(...p); n.push(...q); }
+  return { v: new Float32Array(v), n: new Float32Array(n) };
+})();
 
 // Camera: image quad + points projected with the pinhole model in the shader.
 const cam = (() => {
@@ -209,9 +239,24 @@ const cam = (() => {
     void main(){ vec4 p=T*vec4(a,1.); d=p.z; if(p.z<.1){ gl_Position=vec4(2.,2.,2.,1.); return; }
       vec2 px=vec2(K.x*p.x/p.z+K.z, K.y*p.y/p.z+K.w); gl_Position=vec4(px.x/S.x*2.-1., 1.-px.y/S.y*2., 0., 1.); gl_PointSize=clamp(7./p.z,2.,6.); }`,
     'uniform vec3 near; uniform vec3 far; in float d; out vec4 o; void main(){ o=vec4(mix(near,far,clamp((d-.5)/4.,0.,1.)),.85); }');
+  // Voxels: instanced cubes in the cloud frame, real perspective depth so nearer cubes hide farther ones.
+  const vox = program(gl, `layout(location=0) in vec3 a; layout(location=1) in vec3 nrm; layout(location=2) in vec4 v;
+    uniform mat4 T; uniform vec4 K; uniform vec2 S; uniform vec2 zr; out vec3 lc; out float h; out float lit;
+    void main(){ lc=a*2.; h=clamp((v.z-zr.x)/(zr.y-zr.x),0.,1.); lit=.74+.26*max(dot(nrm,normalize(vec3(-.35,.25,.9))),0.);
+      vec4 p=T*vec4(v.xyz+a*v.w,1.); const float n=.1, f=30.;
+      gl_Position=vec4((K.x*p.x+K.z*p.z)/S.x*2.-p.z, p.z-(K.y*p.y+K.w*p.z)/S.y*2., (f+n)/(f-n)*p.z-2.*f*n/(f-n), p.z); }`,
+    RAMP + ` in vec3 lc; in float h; in float lit; out vec4 o;
+    void main(){ vec3 q=abs(lc); float mid=q.x+q.y+q.z-max(q.x,max(q.y,q.z))-min(q.x,min(q.y,q.z));
+      float w=min(fwidth(mid),.2); float edge=smoothstep(1.-1.6*w,1.-.4*w,mid); vec3 c=ramp(h);
+      o=vec4(mix(c*lit,c*.45,edge), mix(.72,.95,edge)); }`);
+  const vao = gl.createVertexArray(), vbuf = gl.createBuffer(); gl.bindVertexArray(vao);
+  for (const [loc, data] of [[0, CUBE.v], [1, CUBE.n]]) { const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, 0, 0); }
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbuf); gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 0, 0); gl.vertexAttribDivisor(2, 1);
+  gl.bindVertexArray(null);
   const qbuf = gl.createBuffer(); upload(gl, qbuf, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]));
   const pbuf = gl.createBuffer(), tex = gl.createTexture();
-  return { gl, quad, pts, qbuf, pbuf, tex };
+  return { gl, quad, pts, vox, vao, vbuf, qbuf, pbuf, tex };
 })();
 
 // Top-down: robot frame, x forward is up, y left is left.
@@ -221,7 +266,9 @@ const topView = (() => {
     'uniform vec4 c; out vec4 o; void main(){ o=c; }');
   const grid = program(gl, 'layout(location=0) in vec2 a; uniform mat4 T; uniform vec2 G; uniform float s; uniform vec2 S; out vec2 uv; void main(){ uv=a; vec4 p=T*vec4(a*G,0.,1.); vec2 px=vec2(S.x*.5-p.y*s, S.y-28.-p.x*s); gl_Position=vec4(px.x/S.x*2.-1.,1.-px.y/S.y*2.,0.,1.); }',
     'uniform sampler2D g; uniform vec3 free; uniform vec3 occ; in vec2 uv; out vec4 o; void main(){ float v=texture(g,uv).r; if(v<.5/255.) discard; o = v>.6 ? vec4(occ,.75) : vec4(free,.16); }');
-  return { gl, geo, grid, buf: gl.createBuffer(), gbuf: gl.createBuffer(), gtex: gl.createTexture() };
+  const vox = program(gl, 'layout(location=0) in vec4 a; uniform mat4 T; uniform float s; uniform vec2 S; uniform vec2 zr; out float h; out float ps; void main(){ vec4 p=T*vec4(a.xyz,1.); h=clamp((a.z-zr.x)/(zr.y-zr.x),0.,1.); vec2 px=vec2(S.x*.5-p.y*s, S.y-28.-p.x*s); gl_Position=vec4(px.x/S.x*2.-1.,1.-px.y/S.y*2.,0.,1.); ps=max(a.w*s,2.); gl_PointSize=ps; }',
+    RAMP + ' in float h; in float ps; out vec4 o; void main(){ vec2 q=abs(gl_PointCoord-.5)*2.; float edge=step(1.-2.2/ps,max(q.x,q.y)); vec3 c=ramp(h); o=vec4(mix(c,c*.5,edge*.7),.9); }');
+  return { gl, geo, grid, vox, buf: gl.createBuffer(), gbuf: gl.createBuffer(), gtex: gl.createTexture() };
 })();
 
 function drawCamera() {
@@ -234,8 +281,22 @@ function drawCamera() {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   attrib(gl, cam.qbuf, 2); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   const info = state.info, layerNotes = {};
-  gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-  for (const [layer, topic] of [['points', '/r680/person_follow/depth_obstacles'], ['navpoints', '/r680_nav/d455/points']]) {
+  gl.enable(gl.BLEND); gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  const vl = LAYERS.find(l => l.id === 'points'), obstacles = vl.on && info && nearest('/r680/person_follow/depth_obstacles', state.imageT, vl.ttl);
+  const To = obstacles && tf.lookup(state.imageFrame, obstacles.msg.header.frame);
+  if (To) {
+    const v = voxelize(obstacles.msg), n = v.length / 4;
+    layerNotes.points = `${n} 块 · ${(obstacles.t - state.imageT).toFixed(0)} ms`;
+    gl.useProgram(cam.vox.p); gl.bindVertexArray(cam.vao); upload(gl, cam.vbuf, v);
+    gl.uniformMatrix4fv(cam.vox.u.T, false, mat.colMajor(To)); gl.uniform4f(cam.vox.u.K, info.k[0], info.k[4], info.k[2], info.k[5]);
+    gl.uniform2f(cam.vox.u.S, W, H); setRamp(gl, cam.vox.u);
+    // Depth pre-pass, then colour only the front-most faces: each surface blends over the image once.
+    gl.enable(gl.DEPTH_TEST); gl.clear(gl.DEPTH_BUFFER_BIT); gl.depthFunc(gl.LESS); gl.colorMask(false, false, false, false);
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, 36, n);
+    gl.colorMask(true, true, true, true); gl.depthFunc(gl.LEQUAL); gl.drawArraysInstanced(gl.TRIANGLES, 0, 36, n);
+    gl.disable(gl.DEPTH_TEST); gl.bindVertexArray(null);
+  } else if (vl.on) layerNotes.points = !store.get('/r680/person_follow/depth_obstacles') ? '' : obstacles ? '缺少 TF' : '时间不匹配';
+  for (const [layer, topic] of [['navpoints', '/r680_nav/d455/points']]) {
     const L = LAYERS.find(l => l.id === layer); if (!L.on || !info) continue;
     const e = nearest(topic, state.imageT, L.ttl); if (!e) { layerNotes[layer] = store.get(topic) ? '时间不匹配' : ''; continue; }
     const T = tf.lookup(state.imageFrame, e.msg.header.frame); if (!T) { layerNotes[layer] = '缺少 TF'; continue; }
@@ -293,8 +354,12 @@ function drawTop() {
       gl.uniformMatrix4fv(topView.grid.u.T, false, mat.colMajor(Tg)); gl.uniform2f(topView.grid.u.G, g.width * g.resolution, g.height * g.resolution);
       gl.uniform1f(topView.grid.u.s, s); gl.uniform2fv(topView.grid.u.S, S); gl.uniform3fv(topView.grid.u.free, rgb('--mint')); gl.uniform3fv(topView.grid.u.occ, rgb('--sun'));
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); } }
+  if (on('points')) { const e = pick('/r680/person_follow/depth_obstacles'); const T = e && tf.lookup(base, e.msg.header.frame);
+    if (T) { const v = voxelize(e.msg); gl.useProgram(topView.vox.p); upload(gl, topView.buf, v); attrib(gl, topView.buf, 4);
+      gl.uniformMatrix4fv(topView.vox.u.T, false, mat.colMajor(T)); gl.uniform1f(topView.vox.u.s, s); gl.uniform2fv(topView.vox.u.S, S); setRamp(gl, topView.vox.u);
+      gl.drawArrays(gl.POINTS, 0, v.length / 4); } }
   gl.useProgram(topView.geo.p); gl.uniform1f(topView.geo.u.s, s); gl.uniform2fv(topView.geo.u.S, S);
-  for (const [layer, topic, color] of [['points', '/r680/person_follow/depth_obstacles', '--azure'], ['navpoints', '/r680_nav/d455/points', '--sun']]) {
+  for (const [layer, topic, color] of [['navpoints', '/r680_nav/d455/points', '--sun']]) {
     if (!on(layer)) continue; const e = pick(topic); const T = e && tf.lookup(base, e.msg.header.frame); if (!T) continue;
     upload(gl, topView.buf, e.msg.xyz); attrib(gl, topView.buf, 3); gl.uniformMatrix4fv(topView.geo.u.T, false, mat.colMajor(T)); gl.uniform4f(topView.geo.u.c, ...rgb(color), .85);
     gl.drawArrays(gl.POINTS, 0, e.msg.xyz.length / 3);
