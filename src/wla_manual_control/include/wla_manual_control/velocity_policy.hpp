@@ -23,7 +23,7 @@ struct Result
 
 // json.loads equivalent; returns a discarded value on malformed input.
 nlohmann::json decode(const std::string & data);
-// msg.data.split(']', 1)[0].lstrip('[') from command_mux.py.
+// Python msg.data.split(']', 1)[0].lstrip('[') semantics.
 std::string parse_gamepad_status(const std::string & data);
 
 class VelocityPolicy

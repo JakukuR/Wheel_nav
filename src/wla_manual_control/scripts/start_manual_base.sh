@@ -11,4 +11,4 @@ flock -n 9 || exit 1
 task_port=/dev/serial/by-id/usb-WCH.CN_USB_Single_Serial_0002-if00
 while [[ ! -e "$task_port" ]]; do sleep 2; done
 if fuser -s "$task_port"; then echo 'Chassis serial port already owned' >&2; exit 1; fi
-exec ros2 launch wla_manual_control manual_base.launch.py mux_impl:="${R680_MUX_IMPL:-cpp}"
+exec ros2 launch wla_manual_control manual_base.launch.py

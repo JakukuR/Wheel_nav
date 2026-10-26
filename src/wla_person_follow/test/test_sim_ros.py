@@ -148,31 +148,31 @@ def test_real_depth_tf_wheel_adapter_preview_only():
 
 
 def test_default_mux_modeless_output_and_estop():
-    """Exercise the deployed mux protocol, with no hardware in domain 198."""
+    """Exercise the deployed C++ mux process, with no hardware in domain 198."""
     assert os.environ.get('ROS_DOMAIN_ID') == '198'
-    import sys
-    import importlib.util
-    from pathlib import Path
-    from ament_index_python.packages import get_package_prefix
+    import signal
+    import subprocess
+    import tempfile
     import rclpy
     from rclpy.node import Node
     from rclpy.parameter import Parameter
     from rclpy.executors import SingleThreadedExecutor
     from geometry_msgs.msg import Twist
     from nav_msgs.msg import Odometry
+    from std_msgs.msg import String
     from std_srvs.srv import SetBool
     from wla_person_follow.sim_node import SimulationFollow
-    folder = Path(get_package_prefix('wla_manual_control'))/'lib/wla_manual_control'
-    sys.path.insert(0, str(folder))
-    spec = importlib.util.spec_from_file_location('trial_mux', folder/'command_mux.py')
-    module = importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    log = tempfile.TemporaryFile(mode='w+')
+    mux = subprocess.Popen(['ros2', 'run', 'wla_manual_control', 'command_mux'],
+                           stdout=log, stderr=log, start_new_session=True)
     rclpy.init()
     f = SimulationFollow(parameter_overrides=[Parameter('enable_motion', value=True)])
-    mux = module.Mux();fixture = Node('sim_mux_fixture')
+    fixture = Node('sim_mux_fixture')
     ex = SingleThreadedExecutor()
-    for node in (f, mux, fixture):ex.add_node(node)
-    velocities = []
+    for node in (f, fixture):ex.add_node(node)
+    velocities = [];states = []
     fixture.create_subscription(Twist, '/r680_base/cmd_vel', lambda m:velocities.append(m.linear.x), 10)
+    fixture.create_subscription(String, '/r680_base/control_state', lambda m:states.append(json.loads(m.data)), 10)
     wheel = fixture.create_publisher(Odometry, '/wheel/odom', 10)
     feed = False
 
@@ -197,13 +197,15 @@ def test_default_mux_modeless_output_and_estop():
         fixture.destroy_client(client)
 
     try:
-        pump(.5)
+        end = time.monotonic()+5.
+        while not states and time.monotonic()<end:pump(.1)
+        assert states, 'mux process did not come up'
         assert f.p['output_mode']=='mux' and f.direct_pub is None
         assert [p.node_name for p in fixture.get_publishers_info_by_topic('/r680_base/cmd_vel')]==['r680_command_mux']
-        assert mux.p.mode=='AUTO' and mux.p.automatic_source=='NAV'
-        feed=True;pump(.3)
+        assert states[-1]['mode']=='AUTO' and states[-1]['automatic_source']=='NAV'
+        feed=True;pump(.5)
         assert any(v>0. for v in velocities), 'No source or AUTO service was called'
-        assert mux.p.output_source=='PERSON'
+        assert states[-1]['output_source']=='PERSON'
         feed=False
         call('/r680_base/set_estop',True)
         pump(.3)
@@ -211,9 +213,11 @@ def test_default_mux_modeless_output_and_estop():
         assert not f.core.command('heartbeat','task',lease_duration_s=1.,now=time.monotonic())[0]
     finally:
         f.close()
-        for node in (f,mux,fixture):ex.remove_node(node);node.destroy_node()
+        for node in (f,fixture):ex.remove_node(node);node.destroy_node()
         ex.shutdown();rclpy.try_shutdown()
-        sys.path.remove(str(folder))
+        os.killpg(mux.pid, signal.SIGINT);mux.wait(timeout=10)
+        log.seek(0);output=log.read();log.close()
+        assert mux.returncode in (0, 130), output
 
 
 def test_status_distinguishes_expired_result_from_planner_clear(graph):

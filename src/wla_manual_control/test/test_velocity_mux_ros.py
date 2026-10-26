@@ -1,4 +1,4 @@
-"""Real mux process with synthetic publishers in domain 198; no chassis."""
+"""Real C++ mux process with synthetic publishers in domain 198; no chassis."""
 import json
 import os
 import signal
@@ -22,11 +22,10 @@ def main():
     manual=n.create_publisher(Twist,'/r680_manual/cmd_vel',1)
     nav=n.create_publisher(Twist,'/r680_nav/chassis_cmd_vel',1)
     people=n.create_publisher(String,'/r680/person_follow/command_candidate',1)
-    objects=n.create_publisher(String,'/r680/object_follow/command_candidate',1)
     pad=n.create_publisher(String,'/gamepad_status',1)
     wheel=n.create_publisher(Odometry,'/wheel/odom',1)
 
-    def pump(seconds, person=None, obj=None, navigation=None, hand=None, pad_status='DISCONNECTED', old=False):
+    def pump(seconds, person=None, navigation=None, hand=None, pad_status='DISCONNECTED', old=False):
         end=time.monotonic()+seconds;next_at=0.
         while time.monotonic()<end:
             if time.monotonic()>=next_at:
@@ -34,10 +33,9 @@ def main():
                 stamp=n.get_clock().now().nanoseconds
                 pad.publish(String(data=pad_status))
                 w=Odometry();w.header.stamp=n.get_clock().now().to_msg();wheel.publish(w)
-                for source,pub,value in [('person',people,person),('object',objects,obj)]:
-                    if value is not None:
-                        pub.publish(String(data=json.dumps(dict(schema='wla-'+source+'-candidate/v1',
-                            stamp_ns=stamp-(int(1e9) if old else 0),linear=value,angular=0.))))
+                if person is not None:
+                    people.publish(String(data=json.dumps(dict(schema='wla-person-candidate/v1',
+                        stamp_ns=stamp-(int(1e9) if old else 0),linear=person,angular=0.))))
                 for pub,value in [(nav,navigation),(manual,hand)]:
                     if value is not None:
                         twist=Twist();twist.linear.x=value;pub.publish(twist)
@@ -53,18 +51,16 @@ def main():
         n.destroy_client(client)
 
     with tempfile.TemporaryFile(mode='w+') as log:
-        process=subprocess.Popen(['ros2','run','wla_manual_control','command_mux.py'],
+        process=subprocess.Popen(['ros2','run','wla_manual_control','command_mux'],
             stdout=log,stderr=log,start_new_session=True)
         try:
             pump(1.5,person=.65)
             assert received[-1]==(.65,0.),'PERSON without status, source selection or AUTO'
             assert states[-1]['velocity_passthrough'] and not states[-1]['mode_required']
-            pump(.3,person=.4,obj=.2,navigation=.1)
+            pump(.3,person=.4,navigation=.1)
             assert received[-1]==(.4,0.)
-            pump(.3,person=0.,obj=.2,navigation=.1)
-            assert received[-1]==(.2,0.),'zero releases PERSON priority'
-            pump(.3,person=0.,obj=0.,navigation=.1)
-            assert received[-1]==(.1,0.)
+            pump(.3,person=0.,navigation=.1)
+            assert received[-1]==(.1,0.),'zero releases PERSON priority'
             pump(.3)
             assert received[-1]==(0.,0.),'all commands expired'
             pump(.3,person=.4,old=True)
@@ -76,7 +72,7 @@ def main():
             pump(.3,person=.4,hand=0.,pad_status='ACTIVE')
             assert received[-1]==(.4,0.),'fresh follower resumes without a mode switch'
             estop(True)
-            pump(.3,person=.4,obj=.3,navigation=.2)
+            pump(.3,person=.4,navigation=.2)
             assert received[-1]==(0.,0.)
             pump(.3,pad_status='ESTOP')
             estop(False,expected=False,pad_status='ESTOP')

@@ -30,7 +30,7 @@ def dec(v):
     return {'nan': math.nan, 'inf': math.inf, '-inf': -math.inf}.get(v, v) if isinstance(v, str) else v
 
 
-def decode(data):  # command_mux.py Mux.decode
+def decode(data):  # message decode used by the arbiter
     try:
         return json.loads(data)
     except (ValueError, TypeError):

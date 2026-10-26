@@ -1,6 +1,6 @@
-// C++ replacement for scripts/command_mux.py: same topics, services, QoS,
-// 50 Hz output and 5 Hz control_state report. The policy is the C++ port in
-// velocity_policy.cpp. The Python node stays installed for rollback.
+// Velocity-priority arbiter, sole publisher of /r680_base/cmd_vel: 50 Hz output
+// and 5 Hz control_state report. The policy is velocity_policy.cpp, checked
+// against the reference scripts/velocity_policy.py by the equivalence test.
 #include <atomic>
 #include <chrono>
 #include <csignal>

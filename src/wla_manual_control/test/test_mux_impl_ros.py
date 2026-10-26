@@ -1,9 +1,9 @@
-"""Run one mux executable in isolated domain 198 with synthetic inputs (no chassis).
+"""Run the mux executable in isolated domain 198 with synthetic inputs (no chassis).
 
 Checks priority, expiry, manual override, estop service, clamp, control_state keys
 and final zero on SIGINT, then measures mux CPU under production-like rates:
 200 Hz /wheel/odom, 50 Hz /r680_manual/cmd_vel, 5 Hz /gamepad_status.
-Usage: ROS_DOMAIN_ID=198 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST python3 test_mux_impl_ros.py <path to command_mux or command_mux.py>
+Usage: ROS_DOMAIN_ID=198 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST python3 test_mux_impl_ros.py install/wla_manual_control/lib/wla_manual_control/command_mux
 """
 import json
 import os
