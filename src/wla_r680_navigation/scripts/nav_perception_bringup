@@ -15,11 +15,31 @@ def main():
     p.add_argument('--python', required=True)
     p.add_argument('--no-agent', action='store_true')
     p.add_argument('--debug', action='store_true', help='Start read-only detection and RGB geometry windows')
+    p.add_argument('--no-window', action='store_true', help='Disable frozen-window consumer/export')
+    p.add_argument('--window-config', default=None)
+    p.add_argument('--cache-only', action='store_true')
     p.add_argument('--debug-port', type=int, default=18081)
     args, detector_args = p.parse_known_args()
     nav = Path(get_package_prefix('wla_r680_navigation'))/'lib/wla_r680_navigation/nav_yolo_detector'
+    window = None
+    if not args.no_agent and not args.no_window:
+        from wla_sim.perception.observation_ipc import default_socket
+        sock = default_socket()
+        config = args.window_config or str(Path(get_package_prefix('wla_r680_navigation'))/'share/wla_r680_navigation/config/agent_observation_window.json')
+        import json
+        from wla_sim.perception.observation_window import WindowConfig
+        settings = WindowConfig(**json.loads(Path(config).read_text()))
+        detector_args += ['--observation-socket', sock,
+            '--observation-max-age', str(settings.source_max_age_s),
+            '--observation-metadata-items', str(settings.metadata_items),
+            '--observation-clock-jump', str(settings.clock_jump_s),
+            '--observation-queue-items', str(settings.export_queue_items),
+            '--observation-queue-bytes', str(settings.export_queue_bytes),
+            '--observation-ipc-timeout', str(settings.ipc_timeout_s)]
+        window = ExecuteProcess(cmd=['/usr/bin/python3', str(nav.with_name('agent_observation_window')),
+            '--config', config, '--socket', sock, *(['--cache-only'] if args.cache_only else [])], output='screen')
     detector = ExecuteProcess(cmd=[args.python,str(nav),*detector_args],output='screen')
-    processes = [detector]
+    processes = [window, detector] if window else [detector]
     if args.debug:
         viewer = nav.with_name('nav_perception_debug')
         processes.append(ExecuteProcess(cmd=['/usr/bin/python3', str(viewer), '--port', str(args.debug_port)], output='screen'))
@@ -36,6 +56,8 @@ def main():
             failures.append(event.returncode)
         return [EmitEvent(event=Shutdown(reason='perception component exited'))]
     for process in processes:
+        if process is window:
+            continue  # Agent exit cannot stop shared perception/Nav.
         actions.append(RegisterEventHandler(OnProcessExit(target_action=process,
             on_exit=exited)))
     service = LaunchService(noninteractive=not sys.stdin.isatty())

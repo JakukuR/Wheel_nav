@@ -58,6 +58,21 @@ class NavDetector(Node):
         self.create_subscription(Image, '/r680/d455/color/image_raw', self.on_image, image_qos)
         self.create_subscription(Image, '/r680/d455/aligned_depth_to_color/image_raw', lambda m: self.depths.append(m), qos_profile_sensor_data)
         self.create_subscription(CameraInfo, '/r680/d455/color/camera_info', lambda m: self.infos.append(m), qos_profile_sensor_data)
+        self.observation_exporter = None
+        if getattr(args, 'observation_socket', None):
+            try:
+                from realsense2_camera_msgs.msg import Metadata
+                from wla_r680_navigation_py.observation_export import ObservationExporter
+                self.observation_exporter = ObservationExporter(args.observation_socket,
+                    sensor_id=args.observation_sensor_id,max_age_s=args.observation_max_age,metadata_items=args.observation_metadata_items,
+                    clock_jump_s=args.observation_clock_jump,queue_items=args.observation_queue_items,
+                    queue_bytes=args.observation_queue_bytes,ipc_timeout_s=args.observation_ipc_timeout,
+                    provenance=dict(model=getattr(model, 'wla_yoloe_provenance', {}),
+                                    tracker='boxmot-25.0.0-botsort'))
+                self.create_subscription(Metadata, '/r680/d455/color/metadata',
+                    self.observation_exporter.on_metadata, qos_profile_sensor_data)
+            except Exception as exc:
+                self.get_logger().error('Optional Agent observation export unavailable: '+str(exc))
         self.previous_ros = self.ros_ns()
         self.worker = threading.Thread(target=self.infer, name='nav-yolo', daemon=True)
         self.worker.start()
@@ -203,6 +218,9 @@ class NavDetector(Node):
                             model_id=getattr(self.runtime.reid,'model_id',''),allowed_ids=allowed,
                             quality={ident:'feature_export_failed' for ident in allowed})
 
+                if getattr(self, 'observation_exporter', None) is not None:
+                    # Retain this exact source frame; never re-read the newest RGB slot.
+                    batch['_observation_source'] = (message, time.monotonic(), self.ros_ns())
                 timing['inference_end_ns'] = self.ros_ns()
                 with self.condition:
                     if epoch == self.epoch and not self.stopping:
@@ -285,6 +303,7 @@ class NavDetector(Node):
             timing['raw_publish_ns'] = now
             mask_packet=batch.pop('_target_mask',None)
             reid_packet=batch.pop('_reid',None)
+            observation_source=batch.pop('_observation_source',None)
             batch['timing'] = timing.copy()
             self.raw_pub.publish(String(data=json.dumps(batch, allow_nan=False)))
             try:
@@ -328,6 +347,13 @@ class NavDetector(Node):
                         timing['reid_sidecar_error']=str(exc)[:160]
             else:
                 timing['outcome'] = 'expired_in_projection'
+        exporter = getattr(self, 'observation_exporter', None)
+        if timing.get('outcome') == 'published' and exporter is not None and observation_source is not None:
+            try:
+                message, mono, ros = observation_source
+                exporter.offer(message, batch, relative, mono, ros)
+            except Exception as exc:
+                timing['observation_export_error'] = str(exc)[:120]
         self.metrics_pub.publish(String(data=json.dumps(timing, allow_nan=False)))
 
     def stop(self):
@@ -336,6 +362,8 @@ class NavDetector(Node):
             self.pending = self.result = None
             self.condition.notify()
         self.worker.join(timeout=5.)
+        if getattr(self, 'observation_exporter', None):
+            self.observation_exporter.close()
 
 
 def main():
@@ -349,7 +377,18 @@ def main():
     p.add_argument('--hz', type=float, default=30.)
     p.add_argument('--base-frame', choices=['r680_mapping_floor', 'base_link'], default='r680_mapping_floor')
     p.add_argument('--check-dependencies', action='store_true')
+    p.add_argument('--observation-socket', default=None, help='Private same-host observation receiver socket')
+    p.add_argument('--observation-sensor-id', default='d455:260922306083')
+    p.add_argument('--observation-max-age', type=float, default=.5)
+    p.add_argument('--observation-metadata-items', type=int, default=64)
+    p.add_argument('--observation-clock-jump', type=float, default=.05)
+    p.add_argument('--observation-queue-items', type=int, default=2)
+    p.add_argument('--observation-queue-bytes', type=int, default=16_000_000)
+    p.add_argument('--observation-ipc-timeout', type=float, default=.15)
     args = p.parse_args()
+    if any(not math.isfinite(v) or v<=0 for v in (args.observation_max_age,args.observation_metadata_items,
+            args.observation_clock_jump,args.observation_queue_items,args.observation_queue_bytes,args.observation_ipc_timeout)):
+        p.error('invalid observation resource configuration')
     if not .1 <= args.hz <= 30 or not 160 <= args.imgsz <= 1280:
         p.error('invalid rate/size')
     if not Path(args.model).is_file() or not Path(args.tracker).is_file():

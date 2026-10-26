@@ -302,3 +302,46 @@ def test_target_box_is_published_when_segmentation_is_missing(fixture):
     assert raw and masks[-1]['target_id']==ident
     assert masks[-1]['bbox_xyxy']==row['bbox_xyxy']
     assert masks[-1]['bits']==''
+
+
+def test_observation_window_full_path_does_not_wait_for_slow_system1(fixture, tmp_path):
+    from realsense2_camera_msgs.msg import Metadata
+    from wla_r680_navigation_py.observation_export import ObservationExporter
+    from wla_sim.perception.observation_ipc import ObservationReceiver
+    from wla_sim.perception.observation_window import WindowConfig
+    from wla_sim.perception.window_runtime import WindowRuntime
+    node,model,raw,relative=fixture
+    calls=[];outputs=[];errors=[];statuses=[]
+    class SlowSystem1:
+        def infer(self,o):
+            calls.append(o)
+            time.sleep(.35)
+            return dict(frame_id=o.frame_id,observed_at_s=o.observed_at_s,objects=[],events=[],
+                        task_requests=[],intent_slots=[],human_state=None,evidence=[])
+    config=WindowConfig(pre_roll_s=.2,post_roll_s=.2,call_deadline_s=1.,stable_s=.05,
+                        cache_s=1.,coverage_gap_s=.2,fusion_s=.1,quiet_s=2.,dispatch_budget_s=2.)
+    runtime=WindowRuntime(config,SlowSystem1(),on_result=outputs.append,on_status=statuses.append)
+    path=str(tmp_path/'observation.sock')
+    receiver=ObservationReceiver(path,runtime.ingest,errors.append)
+    exporter=ObservationExporter(path,sensor_id='fixture',provenance={})
+    node.observation_exporter=exporter
+    node.runtime.process=lambda frame,**kw:(NS(boxes=[],names={}),[
+        dict(track_id=1,label='person',confidence=.9,bbox_xyxy=[1,1,30,40])])
+    try:
+        end=time.monotonic()+1.1;number=0
+        while time.monotonic()<end:
+            image=rgb(node);number+=1
+            ns=image.header.stamp.sec*10**9+image.header.stamp.nanosec
+            meta=Metadata();meta.header=image.header
+            meta.json_data=json.dumps(dict(frame_number=number,clock_domain='global_time',frame_timestamp=ns/1e6))
+            exporter.on_metadata(meta);node.on_image(image)
+            for _ in range(5):node.drain();runtime.tick();time.sleep(.01)
+        deadline=time.monotonic()+2
+        while not outputs and time.monotonic()<deadline:node.drain();runtime.tick();time.sleep(.01)
+        assert len(calls)==1 and len(outputs)==1, json.dumps([statuses,errors,exporter.metrics,runtime.coordinator.metrics],default=str)
+        assert len(raw)>=8 and len(relative)>=8  # Nav kept publishing while model slept.
+        assert all(f['source_frame_id'] for f in calls[0].video_window['frames'])
+        assert calls[0].evidence_status['visual_loaded'] is True
+        assert not errors
+    finally:
+        exporter.close();receiver.close();runtime.close();node.observation_exporter=None

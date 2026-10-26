@@ -25,11 +25,14 @@ case "$operation" in
   run)
     exec /usr/bin/python3 "$task_nav/lib/wla_r680_navigation/nav_perception_bringup" --python "$task_python" "${task_args[@]}" "$@"
     ;;
+  window)
+    exec /usr/bin/python3 "$task_nav/lib/wla_r680_navigation/agent_observation_window" --config "$task_nav/share/wla_r680_navigation/config/agent_observation_window.json" "$@"
+    ;;
   debug)
     exec /usr/bin/python3 "$task_nav/lib/wla_r680_navigation/nav_perception_debug" "$@"
     ;;
   debug-camera)
     exec /usr/bin/python3 "$task_nav/lib/wla_r680_navigation/perception_debug_standalone" --python "$task_python" "${task_args[@]}" "$@"
     ;;
-  *) echo 'Usage: r680_perception.sh check | run [--no-agent] [--debug] | debug [--mode local|odom] | debug-camera [--port 18081]' >&2; exit 2 ;;
+  *) echo 'Usage: r680_perception.sh check | run [--no-agent] [--no-window] [--cache-only] [--debug] | window [--check] | debug [--mode local|odom] | debug-camera [--port 18081]' >&2; exit 2 ;;
 esac
