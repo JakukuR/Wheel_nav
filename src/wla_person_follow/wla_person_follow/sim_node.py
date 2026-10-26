@@ -53,7 +53,7 @@ class SimulationFollow(Node):
             max_sensor_age_s=.30, depth_stride=4, depth_min_m=.15, depth_max_m=5.,
             surface_to_center_offset_m=.28, camera_min_valid_fraction=.25,
             camera_front_min_valid_fraction=.35, result_ttl_s=.15, startup_clear_radius_m=0., startup_motion_threshold_m=.03,
-            target_mask_enabled=True, reid_enabled=False, reid_model_id='', reid_similarity=.80,
+            target_mask_enabled=True, reid_enabled=False, reid_model_id='', reid_similarity=.40,
             reid_margin=.08, reid_confirm_frames=3, local_assumed_free_radius_m=0., tof_enabled=False,
             tof_topics=['/r680/tof/front_left/points','/r680/tof/front_right/points',
                         '/r680/tof/rear_left/points','/r680/tof/rear_right/points'],
@@ -74,7 +74,7 @@ class SimulationFollow(Node):
             not 0 < self.p['result_ttl_s'] <= .20 or
             not 0 <= self.p['startup_clear_radius_m'] <= .5 or
             not 0 <= self.p['local_assumed_free_radius_m'] <= .5 or
-            not .7 <= self.p['reid_similarity'] <= .99 or
+            not .4 <= self.p['reid_similarity'] <= .99 or
             not .03 <= self.p['reid_margin'] <= .3 or
             not 2 <= self.p['reid_confirm_frames'] <= 5 or
             (self.p['reid_enabled'] and not self.p['reid_model_id']) or

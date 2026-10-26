@@ -231,8 +231,10 @@ class FollowTracker:
 
 class RecoveryIdentity:
     """Collect indefinitely; never alter geometry, command permission or task life."""
-    def __init__(self, *, similarity=.8, margin=.08, confirmations=3):
+    def __init__(self, *, similarity=.4, margin=.08, confirmations=3):
         self.threshold, self.margin, self.confirmations = similarity, margin, confirmations
+        # Enrollment consistency is independent of the recovery acceptance threshold.
+        self.enrollment_similarity = .80
         self.gallery = []  # First two seed templates survive later appearance updates.
         self.provisional = None
         self.last_frame_stamp = -math.inf
@@ -291,7 +293,7 @@ class RecoveryIdentity:
             if not self.complete:
                 prior = self.provisional
                 if (prior is not None and prior[0]==tracker.revision and 0 < stamp-prior[1] <= .6
-                        and float(target['feature']@prior[2]) >= self.threshold):
+                        and float(target['feature']@prior[2]) >= self.enrollment_similarity):
                     self.gallery.extend([prior[2].copy(),target['feature'].copy()])
                     self.provisional=None
                 else:

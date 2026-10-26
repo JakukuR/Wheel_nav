@@ -24,7 +24,7 @@ person_follow:
     target_mask_enabled: true
     reid_enabled: true
     reid_model_id: "boxmot25-osnet-x025-msmt17:cf55163d78fc44c6"
-    reid_similarity: 0.80
+    reid_similarity: 0.40
     reid_margin: 0.08
     reid_confirm_frames: 3
     target_prediction_s: 2.0
