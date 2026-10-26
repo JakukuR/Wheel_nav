@@ -18,10 +18,10 @@ def generate_launch_description():
             ('odom','/wheel/odom'),('imu/data_raw','/wheel/imu/data_raw')])
     gamepad=Node(package='gamepad_control',executable='gamepad_teleop',name='gamepad_teleop',
         output='screen',parameters=[str(cfg/'gamepad.yaml')])
-    # mux_impl:=cpp selects the C++ arbiter; both implement the same velocity policy.
+    # C++ arbiter by default; mux_impl:=python is the rollback. Same velocity policy.
     impl=LaunchConfiguration('mux_impl')
     muxes=[Node(package='wla_manual_control',executable=exe,output='screen',
         condition=IfCondition(EqualsSubstitution(impl,name))) for name,exe in (('python','command_mux.py'),('cpp','command_mux'))]
-    return LaunchDescription([DeclareLaunchArgument('mux_impl',default_value='python',choices=['python','cpp']),
+    return LaunchDescription([DeclareLaunchArgument('mux_impl',default_value='cpp',choices=['python','cpp']),
         driver,gamepad,*muxes]+[RegisterEventHandler(OnProcessExit(target_action=n,
         on_exit=[EmitEvent(event=Shutdown(reason='manual base component exited'))])) for n in (driver,gamepad,*muxes)])
