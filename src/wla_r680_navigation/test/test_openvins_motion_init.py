@@ -58,6 +58,7 @@ with tempfile.TemporaryDirectory(prefix='init-readiness-') as folder:
         env=dict(motion_init=True,Path=Path,os=SimpleNamespace(environ={'WLA_INIT_MOTION_RESULT':str(result)}),json=json,
                  ready_count=5,last_ready=time.monotonic(),time=time,startup=SimpleNamespace(read=lambda:True),
                  map_ok=True,tf_ok=True,scan_ok=True,auto_init=False,init_state='succeeded',states={'controller':3},
+                 stack_ready=False,
                  node=SimpleNamespace(destroy_node=lambda:None),rclpy=SimpleNamespace(shutdown=lambda:None))
         code=None
         try:exec(branch,env)

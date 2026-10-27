@@ -38,6 +38,13 @@ r680_vo_watchdog:
     prior_max_wait_s: 20.0
     # Recovery: 1 m spatial matching -> 3 m -> RTAB BoW VPR + RGB-D geometry.
     staged_relocalization_enabled: true
+    # Startup: whole-map BoW+PnP search (spatial proximity off, stale database prior
+    # ignored); admit after two matches from different views imply the same map->odom.
+    # An operator initial pose instead admits on one match within the radius below.
+    startup_global_search: true
+    startup_view_consistency: true
+    manual_prior_radius_m: 1.0
+    manual_prior_yaw_rad: 0.6
     rtabmap_node: /d455_slam/rtabmap
     recovery_near_radius_m: 1.0
     recovery_expanded_radius_m: 3.0

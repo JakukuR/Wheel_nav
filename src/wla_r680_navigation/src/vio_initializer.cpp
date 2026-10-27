@@ -44,10 +44,16 @@ public:
     config_.angular = parameter("angular_speed", 0.20);
     config_.max_measured_linear = parameter("max_measured_linear", 0.12);
     config_.max_measured_angular = parameter("max_measured_angular", 0.35);
+    config_.turn_angle = parameter("turn_angle_rad", 0.25);
+    config_.static_wait = declare_parameter<double>("static_init_wait_s", 0.0);
+    if (!std::isfinite(config_.static_wait) || config_.static_wait < 0 || config_.static_wait > 20)
+      throw std::invalid_argument("invalid static_init_wait_s");
     const bool cuvslam = frontend_ == "cuvslam";
+    // The yaw budget leaves 0.1 rad for smoother overshoot past the turn target.
     if (config_.linear > (cuvslam ? 0.20 : 0.08) || config_.angular > (cuvslam ? 0.50 : 0.20) ||
       config_.target_travel >= config_.max_travel || config_.max_radius > 0.25 ||
-      config_.max_travel > 0.25 || config_.max_yaw > 0.35 ||
+      config_.max_travel > 0.25 || config_.max_yaw > (cuvslam ? 0.75 : 0.35) ||
+      config_.turn_angle + 0.1 > config_.max_yaw ||
       config_.init_timeout > 20 ||
       config_.motion_duration > config_.init_timeout) throw std::invalid_argument("initialization envelope exceeds trial limits");
     policy_ = std::make_unique<wla::InitPolicy>(config_);
@@ -190,8 +196,8 @@ public:
     poll_ = create_wall_timer(250ms, [this]() {pollServices();});
     tick_ = create_wall_timer(50ms, [this]() {tick();});
     RCLCPP_WARN(get_logger(),
-      "Automatic VIO initialization: requests <=%.2fm/s, <=%.2frad/s for <=%.2fs; no reverse; only final guard owns chassis output",
-      config_.linear, config_.angular, config_.motion_duration);
+      "Automatic VIO initialization: forward %.2fm at %.2fm/s, turn %.2frad and back at %.2frad/s, <=%.2fs; no reverse; only final guard owns chassis output",
+      config_.target_travel, config_.linear, config_.turn_angle, config_.angular, config_.motion_duration);
   }
 private:
   using Clock = std::chrono::steady_clock;
@@ -213,7 +219,7 @@ private:
   void reject(const std::string & why) {
     const auto s = policy_->state();
     if (s == wla::InitPolicy::State::Moving || s == wla::InitPolicy::State::Stopping ||
-      s == wla::InitPolicy::State::Localization) policy_->fail(why);
+      s == wla::InitPolicy::State::Settling) policy_->fail(why);
   }
   void onPose(const nav_msgs::msg::Odometry & m, bool vo) {
     const auto & p = m.pose.pose.position; const auto & q = m.pose.pose.orientation;
@@ -343,6 +349,7 @@ private:
         std::hypot(wheel_.x-anchor_wheel_.x, wheel_.y-anchor_wheel_.y));
       input.radius = radius_; input.travel = travel_;
       input.yaw = std::max(vo_anchored_ ? std::abs(angle(vo_.yaw-anchor_vo_.yaw)) : 0., std::abs(angle(wheel_.yaw-anchor_wheel_.yaw)));
+      input.heading = angle(wheel_.yaw-anchor_wheel_.yaw);
     }
     const auto previous = policy_->state();
     const auto command = policy_->tick(std::chrono::duration<double>(Clock::now()-boot_).count(), input);

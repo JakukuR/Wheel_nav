@@ -48,6 +48,17 @@ class StartupLogTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             check.read()
 
+    def test_critical_process_exit_fails_closed(self):
+        check = StartupEvidence(self.path, 'cuvslam')
+        self.append('[lifecycle_manager_navigation]: Managed nodes are active\n')
+        self.assertTrue(check.read())
+        # A respawned frontend exit is not fatal; RTAB-Map has no respawn.
+        self.append('[ERROR] [cuvslam_odometry-4]: process has died [pid 1, exit code -6]\n')
+        self.assertTrue(check.read())
+        self.append('[ERROR] [rtabmap-6]: process has died [pid 2, exit code -6, cmd ...]\n')
+        with self.assertRaisesRegex(SystemExit, 'rtabmap-6'):
+            check.read()
+
     def test_split_failure_line(self):
         check = StartupEvidence(self.path, 'openvins')
         self.append('[openvins_nav_startup]: OpenVINS Nav2 startup fai')
@@ -106,7 +117,8 @@ class LaunchArgumentsTest(unittest.TestCase):
                    USE_D455_IMU='false', OPENVINS_CONFIG='/tmp/openvins config' if frontend == 'openvins' else '',
                    OPENVINS_ALLOW_COMMISSIONING='false', NAV_RUN_DIR='/tmp/nav run',
                    AUTO_VIO_INIT='false', ENABLE_MOTION='false', AGENT_CONTROL='false',
-                   MAP_DIR='/tmp/user map', INITIAL_POSE=initial_pose)
+                   MAP_DIR='/tmp/user map', INITIAL_POSE=initial_pose,
+                   MOUNT_TF='false', DISABLE_DEGRADED_ODOM='false')
         result = subprocess.run(['bash', '--noprofile', '--norc', '-c',
             block + '\nprintf "%s\\0" "${LAUNCH_ARGS[@]}"'], env=env,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, timeout=5)
@@ -122,6 +134,7 @@ class LaunchArgumentsTest(unittest.TestCase):
                 self.assertEqual(args['enable_hardware_output'], 'false')
                 self.assertEqual(args['navigation_map_yaml'], '/tmp/user map/map.yaml')
                 self.assertNotIn('initial_pose', args)
+                self.assertEqual(args['publish_mount_tf'], 'false')
                 if frontend == 'cuvslam':
                     self.assertEqual(args['degraded_odom_params_file'], '/tmp/nav run/degraded_odometry.yaml')
 

@@ -15,7 +15,7 @@ from tf2_ros import TransformBroadcaster
 
 
 def exercise(frontend, bounded=False, initial_match=False, startup_timeout_case=None,
-             continuity_recovery=False, transient_recovery=False):
+             continuity_recovery=False, transient_recovery=False, startup_views=None):
     # This test owns synthetic navigation input names and must never join the
     # production ROS domain. The watchdog cannot terminate any frontend here.
     domain = int(os.environ.get('ROS_DOMAIN_ID', '0'))
@@ -39,6 +39,9 @@ def exercise(frontend, bounded=False, initial_match=False, startup_timeout_case=
     statuses = []
     node.create_subscription(String, "/r680_nav/vo_watchdog_status",
                              lambda msg: statuses.append(msg.data), 10)
+    rel_status = []
+    node.create_subscription(String, '/r680_nav/relocalization_status',
+                             lambda msg: rel_status.append(msg.data), 10)
     node.create_subscription(Bool, '/r680_nav/vo_watchdog_healthy',
                              lambda msg: received.append((time.monotonic(), msg.data)), 10)
     executable = (Path(get_package_prefix('wla_r680_navigation')) /
@@ -51,12 +54,13 @@ def exercise(frontend, bounded=False, initial_match=False, startup_timeout_case=
         '-p', 'restart_enabled:='+str(transient_recovery).lower(),
         '-p', 'staged_relocalization_enabled:=false', '-p', 'startup_grace_s:='+('1.0' if startup_timeout_case or continuity_recovery or transient_recovery else '120.0'),
         '-p', 'localization_stale_s:=0.4', '-p', 'stale_s:=1.5',
+        '-p', 'startup_view_consistency:='+str(startup_views is not None).lower(),
     ], stdout=subprocess.DEVNULL)
 
     def tick(*, matched=False, pose=False, transform=True, vio=True, continuity=True,
              degraded=False, info_offset=0., pose_offset=0., tf_x=2., prior=False,
              rgbd_quality=True, odom_offset=0., publish_vo=True,
-             publish_vio=True, publish_continuity=True, odom_x=0.):
+             publish_vio=True, publish_continuity=True, odom_x=0., pose_x=0.):
         assert process.poll() is None, 'watchdog exited unexpectedly'
         stamp = node.get_clock().now().to_msg()
         odometry = Odometry()
@@ -82,7 +86,7 @@ def exercise(frontend, bounded=False, initial_match=False, startup_timeout_case=
             location = PoseWithCovarianceStamped()
             location.header.stamp = (rclpy.time.Time.from_msg(stamp)-rclpy.duration.Duration(seconds=pose_offset)).to_msg()
             location.header.frame_id = 'map'
-            location.pose.pose.position.x = 2. + odom_x
+            location.pose.pose.position.x = 2. + odom_x + pose_x
             location.pose.pose.orientation.w = 1.
             publishers['pose'].publish(location)
             if prior: publishers['prior'].publish(location)
@@ -125,6 +129,26 @@ def exercise(frontend, bounded=False, initial_match=False, startup_timeout_case=
         raise AssertionError(label + ': matching map did not admit navigation')
 
     try:
+        if startup_views == 'views':
+            assert frontend == 'cuvslam'
+            phase(1.0)
+            expect_closed('repeated stationary matches are one view', matched=True, pose=True)
+            # A look-alike place: verified pose and TF agree, but map->odom differs by 1 m.
+            expect_closed('aliased second view rejected', matched=True, pose=True,
+                          odom_x=.15, pose_x=1., tf_x=3.)
+            expect_open('second consistent viewpoint admits', matched=True, pose=True, odom_x=.30)
+            expect_open('admission is not repeated after the startup check', pose=True, odom_x=.30)
+            assert any('views_agree=false' in s for s in rel_status), rel_status[-3:]
+            print('PASS startup whole-map relocalization needs consistent distinct views', flush=True)
+            return
+        if startup_views == 'manual':
+            assert frontend == 'cuvslam'
+            phase(1.0)
+            phase(.3, pose=True, prior=True)
+            expect_open('operator pose admits one nearby match while stationary', matched=True, pose=True)
+            assert any(s.startswith('startup_operator_pose') for s in rel_status), rel_status[-3:]
+            print('PASS operator initial pose admits a single nearby match', flush=True)
+            return
         if transient_recovery:
             assert frontend == 'cuvslam' and not bounded
             phase(1.)

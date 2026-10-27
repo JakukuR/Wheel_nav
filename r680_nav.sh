@@ -18,7 +18,10 @@ usage() {
   --openvins-config PATH  使用指定的完整 OpenVINS 配置目录
   --cuvslam              使用 cuVSLAM 双目 + 车身 IMU（试验前端，初始化前禁止运动）
   --no-degraded-odom      禁用短时轮速+IMU降级，恢复视觉失效即停车的行为
-  --auto-vio-init        VIO 启动受限运动初始化（仅已确认空旷的起步区；无 --enable-motion 则仅预览）
+  --auto-vio-init        VIO 启动受限运动初始化（--cuvslam 默认开启；--openvins 需显式指定）
+                         cuVSLAM：静止采样关键帧，再前进约 0.15m、原地转约 30° 并转回；
+                         无 --enable-motion 则只预览，不动车，仅靠静止初始化
+  --no-auto-vio-init     关闭 --cuvslam 的自动初始化（改用手柄或手推激励）
   --rgbd                 使用原 RGB-D VO + EKF（默认，回退入口）
   --mpc                  显式使用 MPC（当前默认；全局静态地图，局部点云避障）
   --mppi                 切回 nav2.yaml/MPPI
@@ -48,7 +51,7 @@ OPENVINS_CONFIG=""
 OPENVINS_IMU=d455
 OPENVINS_ALLOW_COMMISSIONING=false
 USE_D455_IMU=false
-AUTO_VIO_INIT=false
+AUTO_VIO_INIT=""
 OPENVINS_MOTION_INIT=false
 DISABLE_DEGRADED_ODOM=false
 SCAN_OBSTACLES=false
@@ -70,6 +73,7 @@ while [[ $# -gt 0 ]]; do
     --agent-control) AGENT_CONTROL=true; shift ;;
     --enable-motion) ENABLE_MOTION=true; shift ;;
     --auto-vio-init) AUTO_VIO_INIT=true; shift ;;
+    --no-auto-vio-init) AUTO_VIO_INIT=false; shift ;;
     --openvins) ODOM_SOURCE=openvins; shift ;;
     --openvins-motion-init) OPENVINS_MOTION_INIT=true; shift ;;
     --openvins-config)
@@ -91,6 +95,10 @@ while [[ $# -gt 0 ]]; do
     *) echo "未知参数: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
+# cuVSLAM starts with bounded initialization unless told otherwise; other frontends opt in.
+if [[ -z "$AUTO_VIO_INIT" ]]; then
+  if [[ "$ODOM_SOURCE" == cuvslam ]]; then AUTO_VIO_INIT=true; else AUTO_VIO_INIT=false; fi
+fi
 if [[ "$TEST_RECOVERY" == true && ( "$TEST_SCAN_ONLY" == true || "$USE_MPC" == false ) ]]; then
   echo '--test-recovery 不能与 --test-scan-only 或 --mppi 同时使用' >&2; exit 2
 fi
@@ -439,8 +447,8 @@ print(f"[R680 NAV] 短时降级：{'启用' if p['enabled'] else '禁用'}；"
 PY
   if [[ "$AUTO_VIO_INIT" == true ]]; then
     cp "$CONFIG_DIR/vio_initializer_cuvslam.yaml" "$NAV_RUN_DIR/vio_initializer.yaml"
-    echo "[R680 NAV] 自动初始化：最大请求 0.20m/s、0.50rad/s，运动最长 2s，路径预算 0.25m；真实输出=$ENABLE_MOTION"
-    echo '[R680 NAV] 此选项用于已确认空旷的起步区；初始化失败将停车锁定，不自动重试。'
+    echo "[R680 NAV] 自动初始化：静止采样关键帧；再前进约 0.15m（0.15m/s）、原地左转约 30° 并转回（0.4rad/s），运动最长 6s，路径预算 0.25m；真实输出=$ENABLE_MOTION"
+    echo '[R680 NAV] 前方 0.65m 内需空旷；初始化失败将停车锁定，不自动重试。重定位在全图搜索，需多视角一致才放行导航。'
   else
     echo '[R680 NAV] cuVSLAM 初始化前运动锁定；需纹理场景和适量真实运动激励，预览时可手推。'
   fi
@@ -568,6 +576,11 @@ def scan_cb(msg):
         last_scan = time.monotonic()
 
 node.create_subscription(Bool, '/r680_nav/localization_ready', ready_cb, 10)
+relocalization = '未收到'
+def relocalization_cb(msg):
+    global relocalization
+    relocalization = msg.data
+node.create_subscription(String, '/r680_nav/relocalization_status', relocalization_cb, 10)
 if os.environ['WLA_ODOM_SOURCE'] == 'openvins':
     from nav_msgs.msg import Odometry
     def estimator_cb(msg):
@@ -592,13 +605,17 @@ tf_listener = TransformListener(tf_buffer, node)
 names = ['controller_server', 'planner_server', 'bt_navigator',
          'velocity_smoother', 'collision_monitor']
 clients = {name: node.create_client(GetState, f'/{name}/get_state') for name in names}
+# The deadline covers the stack itself (lifecycle, map, TF, inputs). Inertial
+# initialization and map relocalization may legitimately wait for an operator
+# (a push, a web initial pose), so they keep motion locked instead of exiting.
 startup_timeout = 450.0 if os.environ['WLA_ODOM_SOURCE'] == 'openvins' else 120.0
 deadline = time.monotonic() + startup_timeout
+stack_ready = False
 last_report = 0.0
 bringup_log = Path(os.environ['WLA_BRINGUP_LOG'])
 startup = StartupEvidence(bringup_log, os.environ['WLA_ODOM_SOURCE'],
                           bringup_pid=int(os.environ['WLA_BRINGUP_PID']))
-while time.monotonic() < deadline:
+while stack_ready or time.monotonic() < deadline:
     manager_active = startup.read()
     rclpy.spin_once(node, timeout_sec=0.2)
     if auto_init and init_state == 'failed':
@@ -628,6 +645,9 @@ while time.monotonic() < deadline:
                 raise SystemExit('一次性初始化已停止: ' + motion_result.get('reason', 'unknown') + '; 查看 logs/init_motion.log')
             motion_ok = motion_result.get('state') in ('succeeded', 'already_initialized')
     interface_ok = ready_count >= 5 and time.monotonic() - last_ready < 0.5
+    if not stack_ready and motion_ok and map_ok and tf_ok and scan_ok and all(v == 3 for v in states.values()):
+        stack_ready = True
+        print('[R680 NAV] 导航节点、地图与 TF 已就绪；运动保持锁定，等待惯性初始化与地图重定位（不再超时退出）。', flush=True)
     if motion_ok and interface_ok and map_ok and tf_ok and scan_ok and (not auto_init or init_state == 'succeeded') and all(v == 3 for v in states.values()):
         # A failure may have arrived while the blocking lifecycle queries ran.
         if not startup.read():
@@ -638,7 +658,7 @@ while time.monotonic() < deadline:
     if time.monotonic() - last_report > 10.0:
         print('[R680 NAV] 等待就绪:', f'接口={interface_ok}', f'地图={map_ok}',
               f'TF={tf_ok}', f'Scan={scan_ok}', f'前端诊断={frontend_status}', f'自动运动初始化={init_state if auto_init or motion_init else "关闭，需手柄激励"}',
-              f'估计器={estimator_state}',
+              f'估计器={estimator_state}', f'重定位={relocalization}',
               '生命周期=' + ','.join(f'{k}:{v}' for k, v in states.items()),
               flush=True)
         last_report = time.monotonic()
@@ -697,7 +717,7 @@ else
     echo '[R680 NAV] 需要实车运动时停止本脚本，再显式加 --enable-motion 启动。'
   fi
 fi
-echo '[R680 NAV] 就绪检查只证明传感器、地图、TF 与 Nav2 正常，不等同于视觉重定位已匹配正确。'
+echo '[R680 NAV] 就绪表示前端已初始化且地图匹配已通过 watchdog 校验；仍请在网页核对车的位置。'
 echo '[R680 NAV] 按 Ctrl+C 将撤销运动授权、发送零速、关闭本次节点并恢复原定位服务。'
 
 while kill -0 "$BRINGUP_PID" 2>/dev/null; do

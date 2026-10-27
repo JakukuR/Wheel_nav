@@ -89,7 +89,7 @@ def run(case, base_authority=False, guard_delay=0.):
     checked = node.create_publisher(Twist, '/r680_nav/cmd_vel_collision_checked', 1)
     def relay(m):
         # Deliberately retain a smoother residual at zero input; final guard must stop it.
-        if state['name'] in ['stopping', 'waiting_localization', 'failed']:
+        if state['name'] in ['stopping', 'waiting_inertial', 'failed']:
             m = Twist(); m.linear.x = 0.04; m.angular.z = 0.10
         checked.publish(m)
     node.create_subscription(Twist, '/cmd_vel_nav', relay, 1)
@@ -172,7 +172,7 @@ def run(case, base_authority=False, guard_delay=0.):
             inertial = successful and state['moving_at'] is not None and moving_time > 0.5
             publishers['/r680_nav/vio_status'].publish(String(data='tracking_inertial_ready' if inertial else 'waiting_for_inertial_initialization'))
             publishers['/r680_nav/vio_tracking_healthy'].publish(Bool(data=inertial))
-            localized = inertial and state['name'] in ['waiting_localization', 'succeeded']
+            localized = inertial and state['name'] in ['waiting_inertial', 'succeeded']
             publishers['/r680_nav/localization_ready'].publish(Bool(data=localized))
             if not base_authority:
                 publishers['/r680_nav/mission_motion_allowed'].publish(Bool(data=state['name'] == 'succeeded'))

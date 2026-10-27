@@ -26,6 +26,7 @@
 #include "wla_r680_navigation/relocalization_prior.hpp"
 #include "wla_r680_navigation/recovery_evidence.hpp"
 #include "wla_r680_navigation/map_localization_evidence.hpp"
+#include "wla_r680_navigation/view_consistency.hpp"
 
 using namespace std::chrono_literals;
 namespace fs = std::filesystem;
@@ -88,8 +89,17 @@ public:
         near_radius_<=0 || expanded_radius_<=near_radius_ ||
         near_time_<2 || expanded_time_<2 || vpr_time_<2)
       throw std::invalid_argument("invalid staged relocalization parameters");
-    if (staged_search_) search_client_=std::make_shared<rclcpp::AsyncParametersClient>(
-      this, declare_parameter<std::string>("rtabmap_node", "/d455_slam/rtabmap"));
+    // Startup: search the whole map instead of around the database's last pose, and
+    // admit only after matches from different viewpoints agree (view_consistency.hpp).
+    startup_global_search_ = declare_parameter<bool>("startup_global_search", false);
+    startup_view_consistency_ = declare_parameter<bool>("startup_view_consistency", false);
+    manual_prior_radius_ = declare_parameter<double>("manual_prior_radius_m", 1.0);
+    manual_prior_yaw_ = declare_parameter<double>("manual_prior_yaw_rad", 0.6);
+    if (!std::isfinite(manual_prior_radius_+manual_prior_yaw_) || manual_prior_radius_<=0 || manual_prior_yaw_<=0)
+      throw std::invalid_argument("invalid manual prior limits");
+    const auto rtabmap_node = declare_parameter<std::string>("rtabmap_node", "/d455_slam/rtabmap");
+    if (staged_search_ || startup_global_search_)
+      search_client_=std::make_shared<rclcpp::AsyncParametersClient>(this, rtabmap_node);
     const auto initial_pose_topic = declare_parameter<std::string>(
       "initial_pose_topic", "/d455_slam/initialpose");
     if (!std::isfinite(prior_max_travel_+prior_max_yaw_+prior_stop_time_+
@@ -122,6 +132,14 @@ public:
         if(msg->header.frame_id=="map" && finitePose(msg->pose.pose)) {
           map_evidence_.reset(get_clock()->now().seconds());
           pending_localization_.reset();
+          // An operator pose before first admission replaces the whole-map search:
+          // RTAB-Map searches near it again and one match there is enough.
+          if(!fault_latched_ && !ever_admitted_ && startup_view_consistency_) {
+            manual_prior_=poseOf(msg->pose.pose);manual_prior_stamp_=get_clock()->now().seconds();
+            views_.reset();restoreStartupSearch();
+            RCLCPP_WARN(get_logger(),"operator initial pose (%.2f, %.2f, %.2f): one match within %.1fm admits",
+              manual_prior_->x,manual_prior_->y,manual_prior_->yaw,manual_prior_radius_);
+          }
         }
         if(staged_search_ && fault_latched_ && search_stage_==4 && !search_pending_ &&
             !search_original_.empty() && search_client_->service_is_ready() &&
@@ -174,6 +192,8 @@ public:
     map_info_sub_ = create_subscription<rtabmap_msgs::msg::Info>(
       map_info_topic, rclcpp::SensorDataQoS(),
       [this](rtabmap_msgs::msg::Info::ConstSharedPtr msg) {
+        if(msg->loop_closure_id>0 || msg->proximity_detection_id>0 || msg->landmark_id>0)
+          last_match_stamp_=rclcpp::Time(msg->header.stamp).seconds();
         if(fault_latched_ && search_stage_==3 && !search_pending_) {
           std::vector<std::pair<float,int>> candidates;
           for(size_t i=0;i<std::min(msg->posterior_keys.size(),msg->posterior_values.size());++i)
@@ -470,6 +490,8 @@ private:
 
   void tick()
   {
+    if (startup_global_search_ && startup_search_ == 0 && !ever_admitted_ && !fault_latched_ &&
+        !manual_prior_ && search_client_->service_is_ready()) startStartupSearch();
     const bool map_ready = updateMapEvidence();
     if (!fault_latched_ && !degradedActive() && frontendTracking() &&
       age(vo_seen_) <= stale_s_ && age(wheel_seen_) < 0.30 && map_ready) {
@@ -601,6 +623,13 @@ private:
         age(vo_seen_) > stale_s_ || age(info_seen_) > stale_s_ ?
         (frontend_=="rgbd" ? "waiting_for_rgbd_odometry" : "waiting_for_vio") : "waiting_for_map_relocalization");
     status_pub_->publish(status);
+    if (!fault_latched_ && !ever_admitted_ && (startup_view_consistency_ || startup_global_search_)) {
+      std_msgs::msg::String search;
+      search.data=std::string(manual_prior_ ? "startup_operator_pose" : "startup_global")+
+        " proximity_by_space="+(startup_search_==2 ? "off" : startup_search_==1 ? "pending" : "on")+
+        " views="+std::to_string(views_.views())+" views_agree="+(views_.verified() ? "true" : "false");
+      search_status_pub_->publish(search);
+    }
     if (staged_search_ && fault_latched_) {
       std_msgs::msg::String search;
       search.data=std::string(searchName())+" map_match_verified="+(search_evidence_.verified() ? "true" : "false")+
@@ -702,6 +731,8 @@ private:
             if(values.size()!=keys.size() || std::any_of(values.begin(),values.end(),[](const auto & p){
                 return p.get_type()!=rclcpp::ParameterType::PARAMETER_STRING;}))
               throw std::runtime_error("RTAB recovery parameters must exist and be strings");
+            for(auto & p:values) if(p.get_name()=="RGBD/ProximityBySpace" && !startup_original_.empty())
+              p=startup_original_.front();
             search_original_=std::move(values);requestSearchStage(1);
           } catch(const std::exception & e) {search_stage_=4;RCLCPP_ERROR(get_logger(),"RTAB recovery unavailable: %s",e.what());}
         });
@@ -775,17 +806,94 @@ private:
             }
           } else {
             map_evidence_.pose(stamp.seconds(),now.seconds(),localization_stale_s_);
+            recordView(stamp, expected);
           }
         } catch (const tf2::TransformException &) {
           // Async TF may arrive later. It cannot refresh the last verified pose.
         }
       }
     }
-    return map_evidence_.update(now.seconds(),localization_stale_s_,
+    const bool admit = !startup_view_consistency_ || ever_admitted_ || views_.verified() ||
+      manualPriorMatched();
+    const bool confirmed = map_evidence_.update(now.seconds(),localization_stale_s_,
       currentMapPose().has_value(),odometryReady(),frontendTracking(),
-      degradedActive() ? degraded_map_grace_ : 0.0);
+      degradedActive() ? degraded_map_grace_ : 0.0, admit);
+    if (confirmed && !ever_admitted_) {
+      ever_admitted_ = true;
+      RCLCPP_WARN(get_logger(), "startup relocalization admitted: views=%zu view_consistent=%d operator_pose=%d",
+        views_.views(), views_.verified(), manual_prior_.has_value());
+      restoreStartupSearch();
+    }
+    return confirmed;
+  }
+
+  // Only frames that RTAB-Map matched (loop/proximity at the same stamp) are views.
+  void recordView(const rclcpp::Time & stamp, const Pose & map) {
+    if (!startup_view_consistency_ || ever_admitted_ || std::abs(stamp.seconds()-last_match_stamp_) > 0.25) return;
+    try {
+      const auto odom = tf_buffer_->lookupTransform(localization_odom_frame_, "r680_mapping_floor", stamp);
+      geometry_msgs::msg::Pose pose;
+      pose.position.x=odom.transform.translation.x; pose.position.y=odom.transform.translation.y;
+      pose.orientation=odom.transform.rotation;
+      if (!finitePose(pose)) return;
+      const auto o = poseOf(pose);
+      const bool before = views_.verified();
+      views_.add(stamp.seconds(), {map.x, map.y, map.yaw}, {o.x, o.y, o.yaw});
+      last_view_map_ = map; last_view_stamp_ = stamp.seconds();
+      RCLCPP_INFO(get_logger(), "relocalization view %zu: map=(%.2f, %.2f, %.2f) odom=(%.2f, %.2f, %.2f)%s",
+        views_.views(), map.x, map.y, map.yaw, o.x, o.y, o.yaw,
+        views_.verified() && !before ? "; views agree" : "");
+    } catch (const tf2::TransformException &) {}
+  }
+  bool manualPriorMatched() const {
+    return manual_prior_ && last_view_stamp_ > manual_prior_stamp_ &&
+      distance(last_view_map_, *manual_prior_) <= manual_prior_radius_ &&
+      std::abs(angleDifference(last_view_map_.yaw, manual_prior_->yaw)) <= manual_prior_yaw_;
+  }
+  // The database's last localization is a stale prior at startup. Spatial proximity
+  // would search around it; BoW retrieval plus PnP covers the whole map without it.
+  void startStartupSearch() {
+    startup_search_ = 1;
+    search_client_->get_parameters({"RGBD/ProximityBySpace"}, [this](auto future) {
+      try {
+        auto values = future.get();
+        if (values.size()!=1 || values[0].get_type()!=rclcpp::ParameterType::PARAMETER_STRING)
+          throw std::runtime_error("RGBD/ProximityBySpace must be a string parameter");
+        startup_original_ = std::move(values);
+      } catch (const std::exception & e) {
+        startup_search_ = 3; RCLCPP_ERROR(get_logger(), "startup whole-map search unavailable: %s", e.what()); return;
+      }
+      search_client_->set_parameters({rclcpp::Parameter("RGBD/ProximityBySpace", "false")}, [this](auto result) {
+        bool ok = false;
+        try {const auto r = result.get(); ok = r.size()==1 && r[0].successful;} catch (const std::exception &) {}
+        startup_search_ = ok ? 2 : 3;
+        if (ok) RCLCPP_WARN(get_logger(), "startup whole-map search: spatial proximity off, stale database prior ignored");
+        else RCLCPP_ERROR(get_logger(), "startup whole-map search could not change RTAB-Map parameters");
+        if (ok && startup_restore_wanted_) restoreStartupSearch();
+      });
+    });
+  }
+  void restoreStartupSearch() {
+    startup_restore_wanted_ = true;
+    if (startup_search_ != 2) {if (startup_search_ == 0) startup_search_ = 3; return;}
+    startup_search_ = 3;
+    search_client_->set_parameters(startup_original_, [this](auto result) {
+      bool ok = false;
+      try {const auto r = result.get(); ok = r.size()==1 && r[0].successful;} catch (const std::exception &) {}
+      if (ok) RCLCPP_INFO(get_logger(), "RTAB-Map spatial proximity restored after startup search");
+      else RCLCPP_ERROR(get_logger(), "RTAB-Map spatial proximity restore failed");
+    });
   }
   wla_r680_navigation::MapLocalizationEvidence map_evidence_;
+  wla_r680_navigation::ViewConsistency views_;
+  bool startup_global_search_{false}, startup_view_consistency_{false}, ever_admitted_{false};
+  bool startup_restore_wanted_{false};
+  int startup_search_{0};  // 0 idle, 1 pending, 2 proximity off, 3 restored/unavailable
+  std::vector<rclcpp::Parameter> startup_original_;
+  double last_match_stamp_{0.}, last_view_stamp_{0.}, manual_prior_stamp_{0.};
+  double manual_prior_radius_{1.0}, manual_prior_yaw_{0.6};
+  Pose last_view_map_{};
+  std::optional<Pose> manual_prior_;
   std::string localization_odom_frame_;
   std::optional<geometry_msgs::msg::PoseWithCovarianceStamped> pending_localization_;
   double last_map_check_{0.};

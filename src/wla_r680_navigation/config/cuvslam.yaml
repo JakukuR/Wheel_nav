@@ -39,8 +39,10 @@ cuvslam_odometry:
     initialization_diagnostics: true
     # Current-frame SDK observations; commissioning heuristic, not an inlier certificate.
     minimum_visual_observations: 20
-    # Use the SDK keyframe selection unchanged; no forced startup keyframes.
-    initialization_keyframe_period_s: 0.0
+    # SDK gravity init needs >=20 keyframes over >=2 s; a stationary robot makes almost none.
+    # Request a genuine keyframe every 0.25 s until gravity exists (R680-CUVSLAM-005:
+    # stationary init in ~7 s). 0 disables it and makes startup depend on motion.
+    initialization_keyframe_period_s: 0.25
     statistics_path: /tmp/cuvslam_navigation_statistics.json
     publish_tf: true
     # Published odometry uncertainty. Nominal and always invertible (RTAB-Map inverts

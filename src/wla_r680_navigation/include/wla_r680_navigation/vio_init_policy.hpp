@@ -8,16 +8,24 @@ struct InitConfig {
   double startup_timeout{45}, init_timeout{20}, stationary_time{0.8}, stop_time{0.5};
   double motion_duration{8}, target_travel{0.16}, max_travel{0.25}, max_radius{0.25};
   double max_yaw{0.35}, linear{0.06}, angular{0.20}, max_measured_linear{0.12}, max_measured_angular{0.35};
+  // In-place turn after the forward leg, then back to the start heading. The turn
+  // gives the inertial solver rotation and the map search several viewpoints.
+  double turn_angle{0.25};
+  // Extra stationary wait for keyframe-sampled static initialization before moving.
+  // The legs then run with tracking healthy, so their viewpoints count for relocalization.
+  double static_wait{0};
 };
 struct InitInput {
   bool sensors{false}, services{false}, clear{false}, stopped{false};
   bool inertial{false}, localized{false};
   double radius{0}, travel{0}, yaw{0}, speed{0}, angular_speed{0};
+  double heading{0};  // Signed wheel yaw since the motion anchor.
 };
 struct InitCommand {double linear{0}, angular{0};};
 class InitPolicy {
 public:
-  enum class State {Waiting, Stationary, Moving, Stopping, Localization, Succeeded, Failed};
+  enum class State {Waiting, Stationary, Moving, Stopping, Settling, Succeeded, Failed};
+  enum class Leg {Forward, TurnOut, TurnBack};
   explicit InitPolicy(InitConfig config = {}) : config_(config) {}
   State state() const {return state_;}
   const std::string & reason() const {return reason_;}
@@ -27,7 +35,7 @@ public:
       case State::Stationary: return "stationary";
       case State::Moving: return "moving";
       case State::Stopping: return "stopping";
-      case State::Localization: return "waiting_localization";
+      case State::Settling: return "waiting_inertial";
       case State::Succeeded: return "succeeded";
       default: return "failed";
     }
@@ -42,9 +50,9 @@ public:
     if (started_ < 0) started_ = now;
     if (state_ == State::Failed || state_ == State::Succeeded) return {};
     if (activation_ < 0 && now - started_ >= config_.startup_timeout) fail("startup_inputs_timeout");
-    if (activation_ >= 0 && now - activation_ >= config_.init_timeout) {
-      fail(in.inertial ? "mapping_or_localization_timeout" : "inertial_initialization_timeout");
-    }
+    // Success needs inertial initialization only. Map relocalization is a separate
+    // admission gate (localization_ready) that keeps navigation output closed.
+    if (activation_ >= 0 && now - activation_ >= config_.init_timeout) fail("inertial_initialization_timeout");
     if (activation_ >= 0) {
       if (!in.sensors || !in.services) fail("input_or_safety_lifecycle_lost");
       if (!std::isfinite(in.radius + in.travel + in.yaw + in.speed + in.angular_speed)) fail("nonfinite_motion");
@@ -56,7 +64,7 @@ public:
     switch (state_) {
       case State::Waiting:
         if (in.sensors && in.services) {
-          if (in.inertial) {activation_ = now; state_ = State::Stopping; stable_ = -1;}
+          if (in.inertial && in.localized) {activation_ = now; state_ = State::Stopping; stable_ = -1;}
           else if (in.clear) {state_ = State::Stationary; stable_ = -1;}
         }
         break;
@@ -64,37 +72,56 @@ public:
         if (!in.sensors || !in.services || !in.clear) {state_ = State::Waiting; stable_ = -1; break;}
         if (!in.stopped) {stable_ = -1; break;}
         if (stable_ < 0) stable_ = now;
-        if (now - stable_ >= config_.stationary_time) {
+        if (now - stable_ >= config_.stationary_time &&
+            (in.inertial || now - stable_ >= config_.stationary_time + config_.static_wait)) {
           activation_ = now; motion_start_ = now; stable_ = -1;
-          state_ = in.inertial ? State::Stopping : State::Moving;
+          state_ = in.inertial && in.localized ? State::Stopping : State::Moving;
+          leg_ = Leg::Forward; leg_start_ = now;
         }
         break;
-      case State::Moving:
-        if (!in.clear) {fail("near_field_blocked"); break;}
-        if (in.inertial || now - motion_start_ >= config_.motion_duration ||
-          in.travel >= config_.target_travel) {state_ = State::Stopping; stable_ = -1; break;}
+      case State::Moving: {
+        // The forward-box check guards the forward leg; turning in place stays
+        // within the footprint and remains under the collision monitor.
+        if (leg_ == Leg::Forward && !in.clear) {fail("near_field_blocked"); break;}
+        if (now - motion_start_ >= config_.motion_duration) {state_ = State::Stopping; stable_ = -1; break;}
+        const double leg_time = now - leg_start_;
+        if (leg_ == Leg::Forward && (in.travel >= config_.target_travel ||
+            leg_time >= 1.5 * config_.target_travel / config_.linear + 0.5)) {
+          leg_ = Leg::TurnOut; leg_start_ = now;
+        } else if (leg_ == Leg::TurnOut && (in.heading >= config_.turn_angle ||
+            leg_time >= 1.5 * config_.turn_angle / config_.angular + 0.5)) {
+          leg_ = Leg::TurnBack; leg_start_ = now;
+        } else if (leg_ == Leg::TurnBack && (in.heading <= 0.05 ||
+            leg_time >= 1.5 * config_.turn_angle / config_.angular + 0.5)) {
+          state_ = State::Stopping; stable_ = -1;
+        }
         break;
+      }
       case State::Stopping:
         if (!in.stopped) {stable_ = -1; break;}
         if (stable_ < 0) stable_ = now;
-        if (now - stable_ >= config_.stop_time) state_ = State::Localization;
+        if (now - stable_ >= config_.stop_time) state_ = State::Settling;
         break;
-      case State::Localization:
+      case State::Settling:
         if (!in.stopped) {fail("unexpected_motion_after_stop"); break;}
-        if (in.inertial && in.localized) state_ = State::Succeeded;
+        if (in.inertial) state_ = State::Succeeded;
         break;
       default: break;
     }
     if (state_ != State::Moving) return {};
-    const double t = now - motion_start_;
-    // Gentle forward excitation with changes in velocity and yaw. No reverse.
-    return {config_.linear * (0.75 + 0.25 * std::sin(M_PI * t)),
-      config_.angular * std::sin(M_PI * t / 2.0)};
+    // Forward leg, turn out, turn back to the start heading. Never reverse.
+    switch (leg_) {
+      case Leg::Forward: return {config_.linear, 0};
+      case Leg::TurnOut: return {0, config_.angular};
+      default: return {0, -config_.angular};
+    }
   }
+  Leg leg() const {return leg_;}
 private:
   InitConfig config_;
   State state_{State::Waiting};
-  double started_{-1}, activation_{-1}, motion_start_{-1}, stable_{-1}, last_time_{-1};
+  Leg leg_{Leg::Forward};
+  double started_{-1}, activation_{-1}, motion_start_{-1}, stable_{-1}, last_time_{-1}, leg_start_{-1};
   std::string reason_;
 };
 

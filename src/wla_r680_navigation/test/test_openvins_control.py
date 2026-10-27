@@ -91,7 +91,8 @@ try:
     with tempfile.TemporaryDirectory() as folder:
         params=dict(frontend='openvins',imu_topic='/test/imu',imu_frame='d455_imu_optical_frame',
             contact_topic='/test/contact',stationary_time_s=.12,result_path=folder+'/init.json')
-        init=start('vio_initializer',params)
+        # Shared NAV/manual is the default (9a2631d); the takeover latch is the opt-out path.
+        init=start('vio_initializer',dict(params,nav_manual_coexist=False))
         spin(.9,lambda:sensors(contact=False))
         assert requests and not any(requests),'Unknown contact permitted bootstrap'
         spin(.9,sensors)

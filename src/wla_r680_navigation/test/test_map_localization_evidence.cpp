@@ -46,4 +46,9 @@ int main() {
   e.match(81.1,81.1,.4); assert(ready(81.1));
   e.reset(90.,true); e.match(90.1,90.1,.4);
   e.reset(91.); e.pose(91.1,91.1,.4); assert(!ready(91.1));
+  // admit=false withholds a new confirmation but never revokes an existing one.
+  e.reset(100.); e.match(100.1,100.1,.4); e.pose(100.1,100.1,.4);
+  assert(!e.update(100.1,.4,true,true,true,0.,false));
+  assert(e.update(100.1,.4,true,true,true,0.,true));
+  assert(e.update(100.2,.4,true,true,true,0.,false));
 }

@@ -1,4 +1,5 @@
-# cuVSLAM: operator-requested 2 s excitation; retain original distance/turn budgets.
+# cuVSLAM: forward ~0.15 m, turn ~30 deg in place and back. Success needs inertial
+# initialization only; map relocalization is gated separately by localization_ready.
 r680_vio_initializer:
   ros__parameters:
     odom_topic: /d455_slam/odom
@@ -8,14 +9,17 @@ r680_vio_initializer:
     startup_timeout_s: 45.0
     initialization_timeout_s: 20.0
     stationary_time_s: 0.8
+    # Static init (keyframe sampling) usually finishes in ~7 s; move only after it or after this wait.
+    static_init_wait_s: 10.0
     stopping_time_s: 0.5
-    motion_duration_s: 2.0
-    linear_speed: 0.2
-    angular_speed: 0.5
-    target_travel_m: 0.16
+    motion_duration_s: 6.0
+    linear_speed: 0.15
+    angular_speed: 0.4
+    target_travel_m: 0.15
     max_travel_m: 0.25
     max_radius_m: 0.25
-    max_yaw_rad: 0.35
+    max_yaw_rad: 0.70
+    turn_angle_rad: 0.52
     max_measured_linear: 0.3
     max_measured_angular: 0.75
     sensor_timeout_s: 0.35

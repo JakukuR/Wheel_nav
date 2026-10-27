@@ -114,6 +114,11 @@ if(BUILD_TESTING)
   set_tests_properties(cuvslam_transient_recovery PROPERTIES
     ENVIRONMENT "ROS_DOMAIN_ID=198;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST;WLA_WATCHDOG_EXECUTABLE=$<TARGET_FILE:vo_watchdog>"
     RUN_SERIAL TRUE TIMEOUT 45)
+  add_test(NAME startup_view_consistency COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_startup_view_consistency.py)
+  set_tests_properties(startup_view_consistency PROPERTIES
+    ENVIRONMENT "ROS_DOMAIN_ID=198;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST;WLA_WATCHDOG_EXECUTABLE=$<TARGET_FILE:vo_watchdog>"
+    RUN_SERIAL TRUE TIMEOUT 60)
   add_test(NAME cuvslam_startup_match COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/test/test_cuvslam_startup_match.py)
   set_tests_properties(cuvslam_startup_match PROPERTIES
@@ -158,6 +163,10 @@ if(BUILD_TESTING)
   target_include_directories(test_relocalization_prior PRIVATE include)
   target_compile_options(test_relocalization_prior PRIVATE -UNDEBUG)
   add_test(NAME relocalization_prior COMMAND test_relocalization_prior)
+  add_executable(test_view_consistency test/test_view_consistency.cpp)
+  target_include_directories(test_view_consistency PRIVATE include)
+  target_compile_options(test_view_consistency PRIVATE -UNDEBUG)
+  add_test(NAME view_consistency COMMAND test_view_consistency)
   add_executable(test_timed_obstacle_layer test/test_timed_obstacle_layer.cpp)
   ament_target_dependencies(test_timed_obstacle_layer nav2_costmap_2d pluginlib rclcpp sensor_msgs std_msgs tf2_ros)
   add_test(NAME timed_obstacle_layer COMMAND test_timed_obstacle_layer)

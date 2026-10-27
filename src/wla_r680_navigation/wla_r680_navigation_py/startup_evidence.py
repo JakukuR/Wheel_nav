@@ -2,6 +2,11 @@
 import os
 from pathlib import Path
 
+# Readiness has no localization deadline, so a dead safety/localization node must
+# end the wait. Launch names a process "<executable>-<n>"; respawned frontends are absent.
+CRITICAL_PROCESSES = ('rtabmap', 'vo_watchdog', 'interface_monitor', 'command_guard',
+                      'vio_initializer', 'lifecycle_manager')
+
 
 class StartupEvidence:
     def __init__(self, path, odom_source, bringup_pid=None):
@@ -29,6 +34,8 @@ class StartupEvidence:
                     'malformed launch argument',
                     '[ERROR] [launch]: Caught exception in launch')):
                 self.failure = '导航启动失败；查看本次 logs/bringup.log: ' + line.strip()
+            if 'process has died' in line and any(f'[{name}-' in line for name in CRITICAL_PROCESSES):
+                self.failure = '关键节点已退出；查看本次 logs/bringup.log: ' + line.strip()[:300]
             if self.odom_source == 'openvins':
                 if '[openvins_nav_startup]' in line and 'OpenVINS Nav2 startup completed;' in line:
                     self.completed = True

@@ -17,8 +17,10 @@ public:
   void pose(double stamp, double now, double stale) {
     if (fresh(stamp, now, stale) && stamp > epoch_ && stamp > pose_) pose_ = stamp;
   }
+  // admit=false withholds a new confirmation (e.g. until startup views agree);
+  // it never revokes one already granted.
   bool update(double now, double stale, bool tf_fresh, bool odometry_ok,
-              bool visual_tracking, double degraded_grace = 0.) {
+              bool visual_tracking, double degraded_grace = 0., bool admit = true) {
     // Invalidate an established localization on loss. Starting a new epoch
     // rejects late/pre-loss packets; subsequent pose-only input cannot reopen.
     if (confirmed_ && (!tf_fresh || !odometry_ok || !fresh(pose_, now, stale + degraded_grace))) {
@@ -29,7 +31,7 @@ public:
     // when received; a fresh verified pose, TF and odometry are still required.
     const bool matched = retain_initial_match_ ? match_ > epoch_ :
       fresh(match_, now, stale) && std::abs(match_ - pose_) <= 0.05;
-    if (!confirmed_ && visual_tracking && odometry_ok && tf_fresh &&
+    if (!confirmed_ && admit && visual_tracking && odometry_ok && tf_fresh &&
         matched && fresh(pose_, now, stale)) {
       confirmed_ = true; retain_initial_match_ = false;
     }
