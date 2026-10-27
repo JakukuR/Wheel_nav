@@ -232,6 +232,9 @@ if ! CAMERA_REPORT="$(bash "$WORKSPACE/r680_camera.sh" check "${CAMERA_NEEDS[@]}
   exit 1
 fi
 echo "[R680] 复用独立 D455：$CAMERA_REPORT"
+# r680_camera.sh normally publishes the mount edge; publish it here only when nobody does.
+MOUNT_TF=true
+if [[ "$CAMERA_REPORT" == *'"mount": true'* ]]; then MOUNT_TF=false; fi
 
 if systemctl --user is-active --quiet r680-readonly-inputs.service; then READONLY_INPUTS_ACTIVE=true; fi
 systemctl --user stop r680-d455-localization-stack.service
@@ -282,7 +285,7 @@ setsid ros2 launch wla_r680_navigation bringup.launch.py \
   openvins_config_dir:="$OPENVINS_CONFIG" openvins_allow_commissioning:="$OPENVINS_ALLOW_COMMISSIONING" \
   odom_source:="$ODOM_SOURCE" auto_vio_init:="$AUTO_VIO_INIT" \
   cuvslam_statistics_path:="$RUN_DIR/cuvslam_statistics.json" vio_init_result_path:="$RUN_DIR/vio_init.json" \
-  publish_mount_tf:=true enable_hardware_output:="$ENABLE_HARDWARE" \
+  publish_mount_tf:="$MOUNT_TF" enable_hardware_output:="$ENABLE_HARDWARE" \
   start_semantics:="$START_SEMANTICS" semantic_output:="$RUN_DIR/semantic.geojson" \
   semantic_map_id:="$(basename "$RUN_DIR")" semantic_mark_home:=true \
   >"$RUN_DIR/logs/bringup.log" 2>&1 </dev/null &

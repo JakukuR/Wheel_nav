@@ -13,7 +13,7 @@ bash r680_camera.sh run                # 相机单独一个终端
 - 页面：`http://<robot-ip>:18081/`。`--port 18082` 可以换端口；默认 ROS 域 73，可以用 `ROS_DOMAIN_ID=...` 覆盖。
 - `debug-camera --check`：只做检查，打印实际启动计划，不启动任何进程。
 - 已经在运行的部分直接复用：检测器、安装 TF、桥接器（8765 端口能完成 `foxglove.sdk.v1` 握手）、画面节点（`/r680/debug/color/compressed` 已有发布者）、网页（端口返回本域的 `kalo-debug/v1` 配置）。端口被其他程序占用时直接报错。
-- 不启动相机。没有 D455 话题时报错，并提示先运行 `r680_camera.sh run`。
+- 不启动相机。没有 D455 话题时报错，并提示先运行 `r680_camera.sh run`。安装 TF 由 `r680_camera.sh run` 发布；只有相机用 `--no-mount` 启动且没有其他发布者时，这里才补发。
 - `depth_to_points` 只在加 `--with-points` 时才启动；如果导航已经在发布 `/r680_nav/d455/points`，也不启动。
 - `nav_perception_bringup --debug` 和 `r680_perception.sh debug` 启动的是同一个页面。
 

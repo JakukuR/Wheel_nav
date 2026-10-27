@@ -379,6 +379,9 @@ if ! CAMERA_REPORT="$(bash "$WORKSPACE/r680_camera.sh" check "${CAMERA_NEEDS[@]}
   exit 1
 fi
 echo "[R680 NAV] 复用独立 D455：$CAMERA_REPORT"
+# r680_camera.sh normally publishes the mount edge; publish it here only when nobody does.
+MOUNT_TF=true
+if [[ "$CAMERA_REPORT" == *'"mount": true'* ]]; then MOUNT_TF=false; fi
 if [[ "$ODOM_SOURCE" == openvins && "$CAMERA_REPORT" == *'"emitter": "on"'* ]]; then
   echo '[R680 NAV] 提示：OpenVINS 原配置关闭红外发射器；需要一致时用 r680_camera.sh run --infra --emitter off 重启相机。'
 fi
@@ -467,7 +470,7 @@ LAUNCH_ARGS=(
   start_state_estimation:=true use_d455_imu:="$USE_D455_IMU" use_chassis_imu:=true
   odom_source:="$ODOM_SOURCE" cuvslam_statistics_path:="$NAV_RUN_DIR/cuvslam_statistics.json"
   auto_vio_init:="$AUTO_VIO_INIT" vio_init_result_path:="$NAV_RUN_DIR/vio_init.json"
-  publish_mount_tf:=true enable_hardware_output:="$(if [[ "$ODOM_SOURCE" == openvins ]]; then echo false; else echo "$ENABLE_MOTION"; fi)" agent_control:="$AGENT_CONTROL"
+  publish_mount_tf:="$MOUNT_TF" enable_hardware_output:="$(if [[ "$ODOM_SOURCE" == openvins ]]; then echo false; else echo "$ENABLE_MOTION"; fi)" agent_control:="$AGENT_CONTROL"
   start_semantics:=false semantic_output:="$MAP_DIR/semantic.geojson"
   semantic_map_id:="$(basename "$MAP_DIR")" semantic_mark_home:=false
 )

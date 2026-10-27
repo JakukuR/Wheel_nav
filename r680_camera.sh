@@ -4,24 +4,28 @@ set -e -o pipefail
 workspace="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 usage() {
   cat <<'EOF'
-用法: r680_camera.sh run   [--infra] [--imu] [--emitter on|off]
+用法: r680_camera.sh run   [--infra] [--imu] [--emitter on|off] [--no-mount]
       r680_camera.sh check [--infra] [--imu]
       r680_camera.sh status
-  run     独立终端启动 D455：彩色 + 对齐深度 640x480@30 常开，红外双目和 IMU 默认关闭。
+  run     独立终端启动 D455：彩色 + 对齐深度 640x480@30 常开，红外双目和 IMU 默认关闭；
+          同时发布安装 TF r680_mapping_floor -> d455_link（已有其他发布者时自动不发）。
   check   检查本 ROS 域里的相机是否提供所需数据流（导航启动前调用）；0=就绪，3=无相机，4=缺数据流。
-  status  打印相机数据流与发射器状态。
+          报告中 mount 表示安装 TF 是否已存在，导航/建图据此决定是否自己发布。
+  status  打印相机数据流、发射器与安装 TF 状态。
   --infra        打开红外双目 infra1/infra2（导航 --cuvslam / --openvins 需要）
   --imu          打开 D455 IMU（OpenVINS D455 IMU 标定需要，使用 IMU 修复版 realsense2_camera）
   --emitter off  关闭红外发射器（双目 VIO 更干净，深度避障变差）；默认 on
+  --no-mount     不发布安装 TF（由导航或标定脚本 publish_r680_d455_floor.py 发布时使用）
 EOF
 }
 operation="${1:-status}"
 if [[ $# -gt 0 ]]; then shift; fi
-INFRA=false IMU=false EMITTER=on
+INFRA=false IMU=false EMITTER=on MOUNT=true
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --infra) INFRA=true; shift ;;
     --imu) IMU=true; shift ;;
+    --no-mount) MOUNT=false; shift ;;
     --emitter)
       [[ $# -ge 2 && ( "$2" == on || "$2" == off ) ]] || { echo '--emitter 需要 on 或 off' >&2; exit 2; }
       EMITTER="$2"; shift 2 ;;
@@ -45,6 +49,7 @@ import json, os, sys, time
 from pathlib import Path
 import rclpy
 from rcl_interfaces.srv import GetParameters
+from tf2_ros import Buffer, TransformListener
 need = set(sys.argv[1:])
 topics = {'color': '/r680/d455/color/image_raw', 'depth': '/r680/d455/aligned_depth_to_color/image_raw',
           'infra1': '/r680/d455/infra1/image_rect_raw', 'infra2': '/r680/d455/infra2/image_rect_raw',
@@ -58,12 +63,18 @@ for entry in Path('/proc').iterdir():
     process = process or target.endswith('/realsense2_camera_node')
 rclpy.init()
 node = rclpy.create_node('r680_camera_check', enable_rosout=False, start_parameter_services=False)
+tf = Buffer(); listener = TransformListener(tf, node)
+mounted = lambda: bool(tf.can_transform('r680_mapping_floor', 'd455_link', rclpy.time.Time()))
 streams = {}
 until = time.monotonic() + 3.0
 while time.monotonic() < until:
     rclpy.spin_once(node, timeout_sec=.1)
     streams = {k: len(node.get_publishers_info_by_topic(t)) for k, t in topics.items()}
     if streams['color'] and all(streams[k] for k in required): break
+# The static mount edge is latched; give it a short window once the streams are known.
+until = time.monotonic() + 1.0
+while not mounted() and time.monotonic() < until:
+    rclpy.spin_once(node, timeout_sec=.1)
 emitter = None
 if streams['color']:
     client = node.create_client(GetParameters, '/r680/d455/get_parameters')
@@ -74,7 +85,7 @@ if streams['color']:
             emitter = 'on' if future.result().values[0].integer_value else 'off'
 missing = sorted(k for k in required if not streams.get(k))
 report = dict(camera=bool(streams['color']), process=process, streams={k: bool(v) for k, v in streams.items()},
-              emitter=emitter, required=sorted(required), missing=missing)
+              emitter=emitter, mount=mounted(), required=sorted(required), missing=missing)
 print(json.dumps(report, ensure_ascii=False))
 node.destroy_node(); rclpy.shutdown()
 if streams['color'] > 1: sys.exit(6)
@@ -107,7 +118,10 @@ case "$operation" in
       [[ "$(ros2 pkg prefix realsense2_camera)" == "$workspace/.runtime/realsense_openvins/install/realsense2_camera" ]] || {
         echo "Unexpected RealSense package: $(ros2 pkg prefix realsense2_camera)" >&2; exit 1; }
     fi
-    echo "[R680 CAMERA] D455：彩色+对齐深度 640x480@30；红外双目=$INFRA；IMU=$IMU；发射器=$EMITTER；ROS 域 $ROS_DOMAIN_ID"
-    exec ros2 launch wla_r680_navigation d455_camera.launch.py infra:="$INFRA" imu:="$IMU" emitter:="$EMITTER"
+    if [[ "$MOUNT" == true && "$report" == *'"mount": true'* ]]; then
+      echo '安装 TF 已由其他进程发布，本次不重复发布。'; MOUNT=false
+    fi
+    echo "[R680 CAMERA] D455：彩色+对齐深度 640x480@30；红外双目=$INFRA；IMU=$IMU；发射器=$EMITTER；安装 TF=$MOUNT；ROS 域 $ROS_DOMAIN_ID"
+    exec ros2 launch wla_r680_navigation d455_camera.launch.py infra:="$INFRA" imu:="$IMU" emitter:="$EMITTER" mount:="$MOUNT"
     ;;
 esac
