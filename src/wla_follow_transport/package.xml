@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>wla_follow_transport</name><version>0.1.0</version>
+  <description>C++ ROS transport and independent output gate for the Python follow engine.</description>
+  <maintainer email="1330367040@qq.com">JakukuR</maintainer><license>MIT</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend><depend>sensor_msgs</depend><depend>nav_msgs</depend>
+  <depend>geometry_msgs</depend><depend>std_msgs</depend><depend>std_srvs</depend>
+  <depend>tf2_ros</depend><depend>wla_behavior_interfaces</depend><depend>nlohmann_json</depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

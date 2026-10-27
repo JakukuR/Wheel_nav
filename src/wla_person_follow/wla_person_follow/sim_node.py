@@ -41,9 +41,10 @@ def stamp_ns(msg):
     return msg.header.stamp.sec*1_000_000_000+msg.header.stamp.nanosec
 
 
-class SimulationFollow(Node):
-    def __init__(self, **kwargs):
-        super().__init__('person_follow', **kwargs)
+class FollowEngine:
+    """Task/tracking/planning logic; transport owns ROS and executor lifetime."""
+    def __init__(self, transport):
+        self.io = transport
         defaults = dict(enable_motion=False, output_mode='mux',
             direct_topic='/r680_base/cmd_vel', prefix='/r680/person_follow',
             relative_topic='/r680/perception/relative_objects',
@@ -64,7 +65,7 @@ class SimulationFollow(Node):
             neighbor_ambiguity_radius_m=1.5,
             target_ghost_clear_enabled=True,target_bbox_filter_enabled=True,
             target_ghost_clear_radius_m=.35,target_ghost_clear_ttl_s=.5)
-        self.p = {k:self.declare_parameter(k,v).value for k,v in defaults.items()}
+        self.p = {k:self.io.declare_parameter(k,v).value for k,v in defaults.items()}
         if (self.p['output_mode'] not in ('direct','mux') or
             not 0 < self.p['max_sensor_age_s'] <= .30 or
             not .3 <= self.p['target_prediction_s'] <= 3. or
@@ -126,53 +127,52 @@ class SimulationFollow(Node):
         self.arrival_detail = None
         self.arrival_goal_generation = None
         self.started_at = time.monotonic()
-        self.tf = Buffer()
-        self.listener = TransformListener(self.tf,self)
+        self.tf = self.io.transform_buffer()
         prefix=self.p['prefix']
-        self.preview_pub=self.create_publisher(Twist,prefix+'/cmd_vel_candidate',1)
-        self.status_pub=self.create_publisher(String,prefix+'/status',5)
-        self.path_pub=self.create_publisher(Path,prefix+'/local_path',1)
-        self.grid_pub=self.create_publisher(OccupancyGrid,prefix+'/local_obstacles',1)
-        self.reid_request_pub=self.create_publisher(String,prefix+'/reid_request',1) if self.p['reid_enabled'] or self.p['target_mask_enabled'] else None
-        self.obstacles_pub=self.create_publisher(PointCloud2,prefix+'/depth_obstacles',qos_profile_sensor_data)
+        self.preview_pub=self.io.create_publisher(Twist,prefix+'/cmd_vel_candidate',1)
+        self.status_pub=self.io.create_publisher(String,prefix+'/status',5)
+        self.path_pub=self.io.create_publisher(Path,prefix+'/local_path',1)
+        self.grid_pub=self.io.create_publisher(OccupancyGrid,prefix+'/local_obstacles',1)
+        self.reid_request_pub=self.io.create_publisher(String,prefix+'/reid_request',1) if self.p['reid_enabled'] or self.p['target_mask_enabled'] else None
+        self.obstacles_pub=self.io.create_publisher(PointCloud2,prefix+'/depth_obstacles',qos_profile_sensor_data)
         self.direct_pub=None
         self.leased_pub=None
         if self.p['output_mode']=='mux':
-            self.leased_pub=self.create_publisher(String,prefix+'/command_candidate',1)
+            self.leased_pub=self.io.create_publisher(String,prefix+'/command_candidate',1)
         elif self.p['enable_motion']:
             # A disabled preview never creates a publisher on the hardware topic.
-            self.direct_pub=self.create_publisher(Twist,self.p['direct_topic'],1)
-        self.create_subscription(String,self.p['relative_topic'],self.on_relative,1)
-        self.create_subscription(String,self.p['detection_status_topic'],self.on_status,1)
+            self.direct_pub=self.io.create_publisher(Twist,self.p['direct_topic'],1)
+        self.io.create_subscription(String,self.p['relative_topic'],self.on_relative,1)
+        self.io.create_subscription(String,self.p['detection_status_topic'],self.on_status,1)
         if self.p['reid_enabled']:
-            self.create_subscription(String,prefix+'/reid_features',self.on_reid,1)
+            self.io.create_subscription(String,prefix+'/reid_features',self.on_reid,1)
         if self.p['target_mask_enabled']:
-            self.create_subscription(String,'/r680/perception/target_mask',self.on_target_mask,1)
+            self.io.create_subscription(String,'/r680/perception/target_mask',self.on_target_mask,1)
         # Depth arrives serialized; only the ~10 Hz frames compute() takes are deserialized.
-        self.create_subscription(Image,self.p['depth_topic'],self.on_depth,qos_profile_sensor_data,raw=True)
-        self.create_subscription(CameraInfo,self.p['camera_info_topic'],self.on_info,qos_profile_sensor_data)
-        self.create_subscription(Odometry,self.p['wheel_topic'],self.on_wheel,qos_profile_sensor_data)
-        self.create_subscription(String,'/r680_base/control_state',self.on_control,5)
+        self.io.create_subscription(Image,self.p['depth_topic'],self.on_depth,qos_profile_sensor_data,raw=True)
+        self.io.create_subscription(CameraInfo,self.p['camera_info_topic'],self.on_info,qos_profile_sensor_data)
+        self.io.create_subscription(Odometry,self.p['wheel_topic'],self.on_wheel,qos_profile_sensor_data)
+        self.io.create_subscription(String,'/r680_base/control_state',self.on_control,5)
         if self.p['tof_enabled']:
             for topic in self.p['tof_topics']:
-                self.create_subscription(PointCloud2,topic,lambda m,k=topic:self.on_tof(k,m),qos_profile_sensor_data)
-        self.create_service(PersonCommand,prefix+'/command',self.on_command)
-        self.create_service(SetBool,prefix+'/set_estop',self.on_estop)
-        self.pool=ProcessPoolExecutor(max_workers=1,mp_context=get_context('spawn'),initializer=worker_initializer)
+                self.io.create_subscription(PointCloud2,topic,lambda m,k=topic:self.on_tof(k,m),qos_profile_sensor_data)
+        self.io.create_service(PersonCommand,prefix+'/command',self.on_command)
+        self.io.create_service(SetBool,prefix+'/set_estop',self.on_estop)
+        self.pool=self.io.compute_pool()
         self.model_tuning = self.pool.submit(warm_worker).result(timeout=20.)
         self.future=None
         # A completed solution wakes the ROS executor immediately. The timer
         # still rechecks expiry/stop/lease when no new solution arrives.
-        self.result_ready=self.create_guard_condition(self.tick)
+        self.result_ready=self.io.create_guard_condition(self.tick)
         self.last_geometry=None
         self.worker=threading.Thread(target=self.compute,name='sim-follow-compute',daemon=True)
         self.worker.start()
-        self.control_timer=self.create_timer(.05,self.tick)
-        self.get_logger().info('unified tracker/MPC backend; output='+self.p['output_mode']+
+        self.control_timer=self.io.create_timer(.05,self.tick)
+        self.io.get_logger().info('unified tracker/MPC backend; output='+self.p['output_mode']+
             '; enable_motion='+str(self.p['enable_motion'])+'; waiting for explicit target request')
 
     def now_ns(self):
-        return self.get_clock().now().nanoseconds
+        return self.io.get_clock().now().nanoseconds
 
     def key(self):
         c=self.core
@@ -398,6 +398,7 @@ class SimulationFollow(Node):
                     require_mask=self.core.active)
                 item,mask_packet=paired if paired is not None else (None,None)
                 infos=tuple(self.infos);motion=deepcopy(self.motion);key=self.key()
+                transport_generation=getattr(self.io,"generation",0)
                 active=self.core.active;tof_messages=tuple(self.tof.values())
             if item is None:continue
             next_at=time.monotonic()+.1
@@ -562,7 +563,7 @@ class SimulationFollow(Node):
                     resolved_target_source=resolved_source,
                     target_mask=mask_status,reid=identity_status,geometry_binding=binding_status,
                     identity_supervision=supervisor_status,resolved_target_id=resolved_id if active else None,
-                    key=key,stamp_ns=stamp_ns(msg),valid_until=min(valid_until,begun+self.p['result_ttl_s']),
+                    transport_generation=transport_generation,key=key,stamp_ns=stamp_ns(msg),valid_until=min(valid_until,begun+self.p['result_ttl_s']),
                     frontend_ms=frontend_ms,obstacle_points=len(packet['obstacle_points']),clearing_points=len(packet['points']),
                     observation_stamp_ns=int(obs_stamp*1e9),ready_at=time.monotonic(),
                     latency=dict(depth_start_age_ms=depth_start_age_ms,frontend_ms=frontend_ms,
@@ -656,7 +657,7 @@ class SimulationFollow(Node):
 
     def check_direct_owner(self):
         if self.direct_pub is None:return False
-        endpoints=self.get_publishers_info_by_topic(self.p['direct_topic'])
+        endpoints=self.io.get_publishers_info_by_topic(self.p['direct_topic'])
         # Count all endpoints, including another node with the same name.
         if len(endpoints)>1:
             self.conflict_latched=True
@@ -837,10 +838,25 @@ class SimulationFollow(Node):
     def close(self):
         with self.guard:
             self.done=True;self.core._terminate('stopped','node_shutdown');self.result=None
-            if self.context.ok() and self.direct_pub is not None and not self.conflict_latched:
-                if len(self.get_publishers_info_by_topic(self.p['direct_topic']))==1:self.direct_pub.publish(Twist())
+            if self.io.context.ok() and self.direct_pub is not None and not self.conflict_latched:
+                if len(self.io.get_publishers_info_by_topic(self.p['direct_topic']))==1:self.direct_pub.publish(Twist())
         self.event.set();self.worker.join(timeout=3.)
         self.pool.shutdown(wait=True,cancel_futures=True)
+
+
+class SimulationFollow(FollowEngine, Node):
+    """Compatibility ROS adapter, selected explicitly with transport:=python."""
+    def __init__(self, **kwargs):
+        Node.__init__(self, 'person_follow', **kwargs)
+        FollowEngine.__init__(self, self)
+
+    def transform_buffer(self):
+        buffer = Buffer()
+        self.listener = TransformListener(buffer, self)
+        return buffer
+
+    def compute_pool(self):
+        return ProcessPoolExecutor(max_workers=1, mp_context=get_context('spawn'), initializer=worker_initializer)
 
 
 def main(args=None):

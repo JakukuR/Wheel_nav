@@ -1,8 +1,12 @@
 # 统一目标跟随与靠近
 
-唯一运行实现位于 `ros2_ws/src/wla_person_follow`，由 `sim_node` 接入真实
-RGB-D、检测和轮速。名称保留，已删除旧比例控制节点、旧 QP 服务、独立物体控制节点
-和旧恢复状态机。启动只等待命令，不自动选择 ID。
+任务和算法实现位于 `ros2_ws/src/wla_person_follow`。默认由 `wla_follow_transport`
+的 C++ ROS 节点接入真实 RGB-D、检测和轮速，`hybrid_worker` 在一个独立 Python
+进程中运行同一套 `FollowEngine`、目标跟踪和地图/MPC。C++ 负责最终时效、撤销、
+租约和控制权限检查，再交给现有 C++ mux。启动只等待命令，不自动选择 ID。
+
+`transport:=python` 保留原 `SimulationFollow` ROS 适配器作为兼容入口；
+这不是另一套控制算法。拆分接口、边界与验证见 [HYBRID_TRANSPORT.md](HYBRID_TRANSPORT.md)。
 
 | mode（ROS 字符串） | 目标 | 终止条件 |
 | --- | --- | --- |
@@ -38,7 +42,7 @@ ReID 只收集人物模板、在丢失时建议重绑定；不参与正常几何
 
 ```bash
 cd /home/orin/ros2_ws
-./r680_person_follow.sh run enable_motion:=false
+./r680_person_follow.sh run transport:=cpp enable_motion:=false
 ./r680_follow_trial.sh follow --mode 0 --continuous
 ./r680_follow_trial.sh follow --mode 1 --continuous
 ./r680_follow_trial.sh follow --mode 2 --continuous
@@ -62,5 +66,6 @@ request_id。mode 只接受数字字符串 `0/1/2`，不再接受旧英文模式
 
 ## 验证边界
 
-本轮只做静态检查、构建及安装导入检查；没有执行单元测试、ROS 联调或机器人运动测试。
-未重启生产进程。构建完成不等于已加载或完成实车停车距离标定。
+2026-10-26 的 C++ ROS 拆分构建、隔离 ROS 联调和性能证据见
+[HYBRID_TRANSPORT.md](HYBRID_TRANSPORT.md)。没有启动实车目标任务或进行运动验收。
+生产进程是否加载新版本须核对 `transport_backend`，不能由源码或构建成功推断。

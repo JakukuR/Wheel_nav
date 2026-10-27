@@ -1,5 +1,13 @@
 # Python/C++ 分层与 pySLAM 参考
 
+2026-10-26 当前架构：C++ `follow_transport` 持有 ROS 收发、TF、缓存、配对、
+轮速积分和独立输出门禁；Python `hybrid_worker` 持有原任务、跟踪及地图/MPC。
+两进程通过有界共享内存及 UNIX 消息通道交换数据，数值 worker 不再另起进程。
+兼容适配器 `transport:=python` 仍使用下述原 ROS + ProcessPool 结构。
+完整当前说明与验证边界见 [HYBRID_TRANSPORT.md](HYBRID_TRANSPORT.md)。
+
+以下 2026-10-20 描述及延迟数字保留为历史架构证据。
+
 2026-10-20 核对 pySLAM revision `96019cfafcfc099ac9866884d7143a9ed1451a0d`。
 
 pySLAM 的可借鉴点是：Python/C++ 核心保持对应接口，由统一入口选择；通过
