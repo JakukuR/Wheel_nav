@@ -28,6 +28,7 @@ node_modules/
 
 # Local perception runtime and temporary maintenance backups.
 /.venv-perception/
+/.venv-boxmot/
 /.maintenance/
 
 # Versioned person-follow builds (source remains under src).
