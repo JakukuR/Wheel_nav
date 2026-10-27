@@ -53,10 +53,10 @@ def run(case, base_authority=False, guard_delay=0.):
     if base_authority:
         from rclpy.executors import SingleThreadedExecutor
         from action_msgs.srv import CancelGoal
-        sys.path.insert(0,str(root.parent/'wla_manual_control/scripts'))
-        from command_mux import Mux
-        mux=Mux();executor=SingleThreadedExecutor()
-        executor.add_node(node);executor.add_node(mux)
+        sys.path.insert(0,str(Path(__file__).resolve().parent))
+        from mux_process import MuxProcess
+        mux=MuxProcess(node,'/tmp/vio-init-base-'+case+'-mux.log');executor=SingleThreadedExecutor()
+        executor.add_node(node);mux.start()
         node.create_subscription(Twist,'/r680_base/cmd_vel',
             lambda m: base_commands.append((time.monotonic(),m)),10)
         node.create_subscription(Bool,'/r680_nav/vio_init_base_authorized',
@@ -71,6 +71,7 @@ def run(case, base_authority=False, guard_delay=0.):
         if executor is None:rclpy.spin_once(node,timeout_sec=0)
         else:
             for _ in range(12):executor.spin_once(timeout_sec=0)
+    if mux is not None:mux.wait_ready(lambda:executor.spin_once(timeout_sec=.01))
 
     state = {'name': '', 'preview': Twist(), 'raw': 0, 'moving_at': None, 'fault_at': None}
     states, bootstrap_values, normal_values = [], [], []
@@ -124,16 +125,19 @@ def run(case, base_authority=False, guard_delay=0.):
                     state['fault_at'] = current
                     if case == 'node_exit': processes[0].terminate()
                     if case == 'authority_exit': processes[2].kill()
-                    if case == 'base_estop': mux.p.latch_stop('fixture_estop')
-                    if case == 'authority_generation': mux.p.source_generation += 1
+                    if case == 'base_estop': mux.latch_estop()
+                    # The C++ mux never bumps source_generation itself; a restarted
+                    # mux has a new control_session, the authority change to notice.
+                    if case == 'authority_generation': mux.restart()
             fault = state['fault_at'] is not None or case == 'startup_obstacle'
             if case in ('manual_shared', 'manual_invalid', 'manual_legacy'):
                 manual = Twist()
-                if state['name'] == 'moving' and .15 < moving_time < .35:
+                # 0.4 s so the 5 Hz control_state reports MANUAL at least once.
+                if state['name'] == 'moving' and .15 < moving_time < .55:
                     manual.linear.x = float('nan') if case == 'manual_invalid' else .04
                 publishers['/gamepad_status'].publish(String(data='[ACTIVE] synthetic'))
                 publishers['/r680_manual/cmd_vel'].publish(manual)
-                if mux is not None: manual_sources.append(mux.p.output_source)
+                if mux is not None: manual_sources.append(mux.state.get('output_source'))
 
             if case == 'cancel' and fault:
                 publishers['/r680_nav/vio_init_cancel'].publish(Bool(data=True))
@@ -215,7 +219,7 @@ def run(case, base_authority=False, guard_delay=0.):
             if case == 'manual_shared':
                 assert 'MANUAL' in manual_sources, 'manual override was never exercised'
                 assert 'NAV' in manual_sources[manual_sources.index('MANUAL') + 1:], 'NAV did not resume'
-                assert not mux.p.estop_latched and mux.p.mode == 'AUTO'
+                assert mux.state.get('estop_latched') is False and mux.state.get('mode') == 'AUTO'
             assert not any(n in ('wheeltec_robot','wheeltec_robot_node') for n in node.get_node_names())
         if case == 'startup_obstacle':
             assert not bootstrap_values, 'blocked startup issued a motion request'
@@ -242,8 +246,7 @@ def run(case, base_authority=False, guard_delay=0.):
             while processes[2].poll() is None and time.monotonic()<deadline:
                 spin();time.sleep(.005)
         if executor is not None:
-            executor.remove_node(node);executor.remove_node(mux);executor.shutdown()
-            mux.destroy_node()
+            executor.remove_node(node);executor.shutdown();mux.stop()
         node.destroy_node()
         for p in processes:
             p.terminate()

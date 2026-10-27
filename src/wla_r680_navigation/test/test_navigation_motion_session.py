@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real guard + mux in isolated domain 198; no chassis driver."""
+"""Real guard + C++ mux in isolated domain 198; no chassis driver."""
 import os,sys,time,signal,subprocess,json
 from pathlib import Path
 assert os.environ.get('ROS_DOMAIN_ID')=='198'
@@ -13,11 +13,10 @@ from std_msgs.msg import Bool,String
 from action_msgs.srv import CancelGoal
 from action_msgs.msg import GoalStatus,GoalStatusArray,GoalInfo
 root=Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(root.parent/'wla_manual_control/scripts'))
-from command_mux import Mux
-from control_policy import Policy
-rclpy.init();node=Node('handoff_fixture');mux=Mux();ex=SingleThreadedExecutor()
-ex.add_node(node);ex.add_node(mux)
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from mux_process import MuxProcess
+rclpy.init();node=Node('handoff_fixture');mux=MuxProcess(node,'/tmp/navigation-motion-session-mux.log');ex=SingleThreadedExecutor()
+ex.add_node(node)
 wheel=node.create_publisher(Odometry,'/wheel/odom',qos_profile_sensor_data)
 health=node.create_publisher(Bool,'/r680_nav/localization_ready',10)
 cmd=node.create_publisher(Twist,'/r680_nav/cmd_vel_collision_checked',10)
@@ -42,7 +41,8 @@ results=[]
 cases=os.environ.get('WLA_HANDOFF_CASES','normal,manual_takeover,estop,process_killed,delayed_health,cancel_health_drop,waiting_health,stale_health').split(',')
 try:
  for case in cases:
-    states.clear();base.clear();cancelled.clear();permissions.clear();mux.p=Policy(1.,.3,1.5)
+    states.clear();base.clear();cancelled.clear();permissions.clear()
+    mux.restart(lambda:ex.spin_once(timeout_sec=.01))  # fresh policy state per case
     guard=subprocess.Popen([str(Path(os.environ['WLA_NAV_BIN'])/'command_guard'),'--ros-args',
         '-p','hardware_output_enabled:=false','-p','require_frontend_motion_permission:=false'],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
     session=subprocess.Popen([sys.executable,str(root/'scripts/navigation_motion_session.py')],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
@@ -82,7 +82,7 @@ try:
         status.status=5 if finished else 2
         statuses.publish(GoalStatusArray(status_list=[status]))
         if case=='estop' and age>.65 and not triggered:
-            mux.p.latch_stop('test_estop');triggered=True
+            mux.latch_estop();triggered=True
         if case=='process_killed' and age>.65 and not triggered:
             session.kill();triggered=True
         if case=='normal' and 1.0<age<1.15:
@@ -132,5 +132,5 @@ try:
  print(json.dumps(results,indent=2))
  print('PASS handoff cases: '+','.join(cases))
 finally:
- for n in (mux,node):ex.remove_node(n);n.destroy_node()
+ mux.stop();ex.remove_node(node);node.destroy_node()
  ex.shutdown();rclpy.shutdown()

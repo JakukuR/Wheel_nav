@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise one-shot motion with the real mux, fake sensors, and no driver."""
+"""Exercise one-shot motion with the real C++ mux, fake sensors, and no driver."""
 import importlib.util
 import json
 import math
@@ -26,9 +26,8 @@ from std_msgs.msg import String
 from sensor_msgs.msg import Imu, Image
 
 root=Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(root.parent/'wla_manual_control/scripts'))
-from command_mux import Mux
-from control_policy import Policy
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from mux_process import MuxProcess
 script=root/'scripts/openvins_motion_init.py'
 spec=importlib.util.spec_from_file_location('motion_init',script)
 module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
@@ -67,11 +66,11 @@ with tempfile.TemporaryDirectory(prefix='init-readiness-') as folder:
         elif state=='failed':assert isinstance(code,str) and 'test' in code,(state,code)
         else:assert code is None,(state,code)
 
-rclpy.init();probe=Node('motion_init_test');guard=Node('r680_command_guard');mux=Mux()
+rclpy.init();probe=Node('motion_init_test');guard=Node('r680_command_guard');mux=MuxProcess(probe,'/tmp/openvins-motion-init-mux.log')
 guard.declare_parameter('hardware_output_enabled',False)
 guard_pub=guard.create_publisher(Twist,'/r680_nav/chassis_cmd_vel',1) # deliberately silent
 executor=SingleThreadedExecutor()
-for n in (probe,guard,mux):executor.add_node(n)
+for n in (probe,guard):executor.add_node(n)
 pub_pose=probe.create_publisher(PoseWithCovarianceStamped,'/openvins/poseimu',10)
 pub_imu=probe.create_publisher(Imu,'/r680/d455/imu',qos_profile_sensor_data)
 pub_image=probe.create_publisher(Image,'/r680/d455/infra1/image_rect_raw',qos_profile_sensor_data)
@@ -86,7 +85,7 @@ results=[]
 
 def case(name,execute=True,guard_enabled=False):
     received.clear();preview.clear();base.clear()
-    mux.p=Policy(1.,.3,1.5);mux.last_report=0
+    mux.restart(lambda:executor.spin_once(timeout_sec=.01))  # fresh policy state per case
     guard.set_parameters([Parameter('hardware_output_enabled',value=guard_enabled)])
     with tempfile.TemporaryDirectory(prefix='openvins-init-test-') as folder:
         result=Path(folder)/'result.json'
@@ -135,7 +134,7 @@ def case(name,execute=True,guard_enabled=False):
             commands=[r for r in received if r[1] or r[2]]
             assert all(0<=r[1]<=.2 and 0<=r[2]<=.5 for r in commands),name
             assert base and all(r[1:]==(0.,0.) for r in base[-5:]),name+' nonzero final chassis output'
-            assert mux.p.zero(mux.p.auto),name+' buffered initialization command remained nonzero'
+            assert mux.state.get('linear')==0. and mux.state.get('angular')==0.,name+' mux output remained nonzero'
             if name in ('positive','no_gamepad','preview'):
                 assert proc.returncode==0 and data['state']=='succeeded',(name,data,proc.stderr.read().decode())
                 if execute:
@@ -163,5 +162,6 @@ try:
         case(name,execute=name!='preview',guard_enabled=name=='guard_enabled')
     print(json.dumps(results,indent=2));print('PASS one bounded arc, real mux takeover, fault stop, SIGTERM cleanup, disabled Nav2 output and preview isolation')
 finally:
-    for n in (mux,guard,probe):executor.remove_node(n);n.destroy_node()
+    mux.stop()
+    for n in (guard,probe):executor.remove_node(n);n.destroy_node()
     executor.shutdown();rclpy.shutdown()

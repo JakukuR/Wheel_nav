@@ -133,7 +133,7 @@ if(BUILD_TESTING)
     ${CMAKE_CURRENT_SOURCE_DIR}/test/test_cuvslam_initialization_authority.py)
   set_tests_properties(cuvslam_initialization_authority PROPERTIES
     ENVIRONMENT "ROS_DOMAIN_ID=198;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST"
-    RUN_SERIAL TRUE TIMEOUT 60)
+    RUN_SERIAL TRUE TIMEOUT 120)  # 10 runs; each starts the C++ mux process
   add_test(NAME frontend_interface COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/test/test_frontend_interface.py)
   set_tests_properties(frontend_interface PROPERTIES
