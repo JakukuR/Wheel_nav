@@ -16,7 +16,9 @@ def assert_zero_after(f,when,budget):
     f.pump(budget+.15)
     tail=[row for row in f.outputs if row[0]>=when+budget]
     moving=[t for t,v,w in f.outputs if t>=when and (v!=0. or w!=0.)]
+    prior=[row for row in f.outputs if row[0]<=when]
     f.checks.append(dict(event_at=when,budget_s=budget,tail_samples=len(tail),
+                        pre_event_command=list(prior[-1][1:]) if prior else None,
                         last_nonzero_after_event_s=max(moving)-when if moving else None,
                         tail_all_zero=bool(tail) and all(v==0. and w==0. for _,v,w in tail)))
     assert tail and all(v==0. and w==0. for _,v,w in tail), tail
@@ -57,6 +59,15 @@ def test_three_modes_sensor_to_mux_and_agent_cancel(hybrid,mode,label):
     ('depth','wheel','lease','python_hang','cpp_crash')],indirect=['hybrid'])
 def test_chain_faults_expire_actual_mux_output(hybrid,fault):
     f=hybrid;f.run_task('chain-fault');assert_real_motion(f)
+    # Inject while the final sink is actually receiving nonzero output. An
+    # earlier nonzero followed by a scheduling-induced zero is insufficient.
+    end=time.monotonic()+3.;next_heartbeat=time.monotonic()+.3
+    while not (abs(f.outputs[-1][1])+abs(f.outputs[-1][2])>0 and time.monotonic()-f.outputs[-1][0]<.1):
+        assert time.monotonic()<end, 'no current nonzero mux output before fault'
+        f.pump(.01)
+        if time.monotonic()>=next_heartbeat:
+            assert f.call('heartbeat','chain-fault').accepted
+            next_heartbeat=time.monotonic()+.3
     when=time.monotonic();budget=.5
     if fault=='depth':f.depths=False
     elif fault=='wheel':f.wheels=False
