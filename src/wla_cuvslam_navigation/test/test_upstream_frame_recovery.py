@@ -1,7 +1,7 @@
 """Compile production handling blocks with fault-injected SDK results, without ROS hardware.
 
 The generated executable runs the actual Track catch, covariance diagnostic and
-Odometry cache statements from cuvslam_odometry.cpp, linked to upstream caches.
+Odometry covariance statements from cuvslam_odometry.cpp, linked to upstream caches.
 This is a focused regression harness, not a live SDK or robot acceptance test.
 """
 from pathlib import Path
@@ -15,7 +15,7 @@ def block(start, end):
 
 track = block('        cuvslam::PoseEstimate estimate;', '        const auto elapsed')
 diagnostic = block('        const bool finite_covariance', '        if (previous_pose_stamp_')
-covariance = block('        // Upstream ROS Odometry uses history covariance',
+covariance = block('        // Upstream PoseCache: pose history for velocity.',
                    '        std_msgs::msg::Bool current_inertial;')
 lost = block('        if (!estimate.world_from_rig)', '        const auto & result')
 
@@ -36,6 +36,7 @@ harness = r'''
 #include <string>
 
 #include "isaac_ros_cuvslam/impl/pose_cache.hpp"
+#include "odometry_covariance.hpp"
 namespace cuvslam {
 struct PoseEstimate {int64_t timestamp_ns{}; std::optional<int> world_from_rig{1};};
 struct Odometry {struct State {};using Gravity=std::array<float,3>;struct ImuState {};};
@@ -69,7 +70,7 @@ struct Message {
 struct Result {std::array<float,36> covariance_xyz_rpy{};};
 struct Harness {
   nvidia::isaac_ros::visual_slam::PoseCache pose_cache_;
-  nvidia::isaac_ros::visual_slam::VelocityCache velocity_cache_;
+  wla_vio::NominalCovariance covariance_;
   int warnings{},diagnostics{},lost_frames_{}; int64_t covariance_stamp{};
   void diagnostic(const std::string&,const std::string&,bool) {++diagnostics;}
   void status(const std::string&) {}
@@ -108,7 +109,7 @@ __TRACK__
     #undef RCLCPP_WARN
     assert(tracker.calls==2 && outputs==1 && warnings==1);
   }
-  Message covariance(const Result& result,double x) {
+  Message covariance(const Result& result,double x,bool inertial_only=false) {
     tf2::Vector3 position(x,0,0);
     tf2::Quaternion rotation(0,0,0,1);
     cuvslam::PoseEstimate estimate;estimate.timestamp_ns=++covariance_stamp*1000000000LL;
@@ -132,31 +133,39 @@ int main() {
   Result bad;
   const float diag[6]={-21052.55f,-12151.67f,-19649.19f,-5495.78f,-598.71f,-573.68f};
   for(int i=0;i<6;++i)bad.covariance_xyz_rpy[i*7]=diag[i];
+  // Invalid SDK matrices stay diagnostic-only; the published covariance is the
+  // nominal one from the first frame on, whatever the pose-history length.
+  const auto pose_nominal=h.covariance_.pose(false),twist_nominal=h.covariance_.twist(false);
   for(int n=0;n<10;++n) {
     const auto m=h.covariance(bad,n);
     for(int i=0;i<36;++i) {
-      const double expected=n<9 ? (i%7==0 ? 1. : 0.) : (i==0 ? 8.25 : 0.);
       assert(std::isfinite(m.pose.covariance[i]));
-      assert(std::abs(m.pose.covariance[i]-expected)<1e-9);
-      const double twist_expected=n<9 ? (i%7==0 ? 1. : 0.) : (i==0 ? .09 : 0.);
-      assert(std::abs(m.twist.covariance[i]-twist_expected)<1e-9);
+      assert(m.pose.covariance[i]==pose_nominal[i]);
+      assert(m.twist.covariance[i]==twist_nominal[i]);
     }
   }
-  assert(h.diagnostics==10);
+  const auto weak=h.covariance(bad,10.,true);
+  for(int i=0;i<6;++i) assert(weak.pose.covariance[i*7]>pose_nominal[i*7]);
+  assert(h.diagnostics==11);
   h.testLost();
   // A recovered first pose has zero velocity, not a delta across the loss.
   auto recovered=h.covariance(bad,100.);
   assert(recovered.twist.twist.linear.x==0.);
   recovered=h.covariance(bad,101.);
   assert(std::abs(recovered.twist.twist.linear.x-1.)<1e-9);
+  // A stationary history is all-zero (singular). RTAB-Map aborted on it in
+  // Link::setInfMatrix; the published matrix must stay positive on the diagonal.
   Harness stationary;
   bad.covariance_xyz_rpy[0]=std::numeric_limits<float>::quiet_NaN();
   for(int i=0;i<10;++i) {
     const auto m=stationary.covariance(bad,0);
-    if(i==9)for(double c:m.pose.covariance)assert(c==0.);
+    if(i==9)for(int k=0;k<6;++k)assert(m.pose.covariance[k*7]>0. && m.twist.covariance[k*7]>0.);
   }
+  std::array<double,36> history{};
+  assert(stationary.pose_cache_.GetCovariance(history));
+  for(double c:history)assert(c==0.);
   assert(stationary.diagnostics==10);
-  std::cout<<"PASS Track exception -> next frame; captured negative/NaN SDK covariance -> history covariance; startup identity; empty-pose cache reset\n";
+  std::cout<<"PASS Track exception -> next frame; negative/NaN SDK covariance -> nominal covariance; stationary history stays diagnostic; empty-pose cache reset\n";
 }
 '''
 for key,value in [('QUERY',query),('IMU',imu_catch),('TRACK',track),('DIAGNOSTIC',diagnostic),('COVARIANCE',covariance),('LOST',lost)]:

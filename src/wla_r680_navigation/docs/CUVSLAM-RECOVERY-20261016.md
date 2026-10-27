@@ -39,9 +39,25 @@
 | 不可恢复的worker错误 | 明确退出失败 | launch可重启；不伪装健康 |
 | RTAB-Map退出/定位证据过期 | VIO继续运行 | 地图准入失效，导航不能因odom有数据就通过 |
 
+## 2026-10-27 更新：RTAB-Map 矩阵崩溃的根因与修复
+
+10-16 四次崩溃均为 `Link.cpp:137::setInfMatrix() ... Linear information X should not be null! Value=0.000000`，
+三次车辆自启动起位移不超过 2 mm（静止），一次在行驶 4.2 m 后刚停下；四次崩溃前 SDK 都输出了逐帧完全相同的位姿
+（例：`nav-20261016-150101-635372` 连续 `t=[-0.0004,0.0002,0.0003]`）。
+
+根因：`/d455_slam/odom` 的位姿协方差取自上游 `PoseCache::GetCovariance()`，它是最近若干帧位姿的样本方差
+（E[xx]−E[x]E[x]），描述的是“最近动了多少”，不是不确定度。静止且姿态逐帧不变时转角方差正好为 0，矩阵奇异；
+OpenCV `Mat::inv()` 对奇异矩阵返回全零，RTAB-Map 得到信息 X=0 而断言退出。同样的公式在静止抖动时给出约 0.07 mm
+的“精度”、直线行驶时方差随速度增大，即使不崩权重也不对。原回归测试曾把静止时全零协方差写成期望值。
+
+修复：前端改为发布固定名义协方差（`odom_linear_variance` 0.001 m²、`odom_angular_variance` 0.001 rad²，
+twist 0.01；SDK 仅惯性递推时乘 `inertial_only_variance_scale`=100），矩阵始终对角正定、可逆；历史样本方差只写入
+健康诊断的 `history_covariance_diag`。实现见 `wla_cuvslam_navigation/src/odometry_covariance.hpp`。
+`degraded_odometry` 的视觉可信判断仍读取该协方差，本次未修改（实车链路使用 `--no-degraded-odom`）。
+
 ## 尚未解决的边界
 
-RTAB-Map 0.22.1的矩阵断言尚无故障当帧完整输入矩阵/调用栈，不能把此次恢复逻辑修复描述成已根治矩阵崩溃。官方协方差缓存不保证矩阵正定、可逆，本轮没有添加虚构协方差或新阈值来掩盖它。底盘IMU外参/噪声/时差仍是待完整标定的配置。
+（10-16 原文）RTAB-Map 0.22.1的矩阵断言当时尚无故障当帧完整输入矩阵/调用栈；根因与修复见上节。底盘IMU外参/噪声/时差仍是待完整标定的配置。
 
 SDK libs相对官方有5处修改、2个新增文件，主要为 `IsLastPoseInertialOnly()` 和测试，并非原封不动；PoseCache/VelocityCache原文件保持官方字节一致。完整对照证据见本次审计归档。
 

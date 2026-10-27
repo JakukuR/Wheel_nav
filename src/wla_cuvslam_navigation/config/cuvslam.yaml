@@ -37,3 +37,8 @@ cuvslam_odometry:
     verbosity: 3
     statistics_path: /tmp/cuvslam_navigation_statistics.json
     publish_tf: true
+    # Published odometry uncertainty. Nominal and always invertible (RTAB-Map inverts
+    # it into link information); the recent-pose spread is logged as a diagnostic only.
+    odom_linear_variance: 0.001
+    odom_angular_variance: 0.001
+    inertial_only_variance_scale: 100.0

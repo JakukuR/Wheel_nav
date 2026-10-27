@@ -30,6 +30,7 @@
 #include "std_msgs/msg/bool.hpp"
 #include "tf2_ros/transform_broadcaster.h"
 #include "health_evidence.hpp"
+#include "odometry_covariance.hpp"
 #include "visual_pose_evidence.hpp"
 #include "feature_visualizer.hpp"
 #include "isaac_ros_cuvslam/impl/pose_cache.hpp"
@@ -127,6 +128,16 @@ public:
     health_reason_pub_ = create_publisher<std_msgs::msg::String>("/r680_nav/vio_health_reason", 10);
     minimum_visual_observations_ = declare_parameter<int>("minimum_visual_observations", 20);
     if(minimum_visual_observations_<1) throw std::invalid_argument("invalid visual evidence threshold");
+    // Published odometry uncertainty; see odometry_covariance.hpp for why it is nominal.
+    covariance_.linear_variance = declare_parameter<double>("odom_linear_variance", covariance_.linear_variance);
+    covariance_.angular_variance = declare_parameter<double>("odom_angular_variance", covariance_.angular_variance);
+    covariance_.linear_velocity_variance =
+      declare_parameter<double>("odom_linear_velocity_variance", covariance_.linear_velocity_variance);
+    covariance_.angular_velocity_variance =
+      declare_parameter<double>("odom_angular_velocity_variance", covariance_.angular_velocity_variance);
+    covariance_.inertial_only_scale =
+      declare_parameter<double>("inertial_only_variance_scale", covariance_.inertial_only_scale);
+    covariance_.validate();
     if (publish_tf_) broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
     for (size_t i = 0; i < 2; ++i) {
       const std::string side = i == 0 ? "left" : "right";
@@ -560,7 +571,7 @@ private:
           status("stale_estimate_no_output"); continue;
         }
         previous_pose_stamp_ = estimate.timestamp_ns;
-        // Upstream ROS Odometry uses history covariance, not the SDK pose matrix.
+        // Upstream PoseCache: pose history for velocity. Published uncertainty is nominal.
         pose_cache_.Add(estimate.timestamp_ns, tf2::Transform(
           tf2::Quaternion(rotation.x(), rotation.y(), rotation.z(), rotation.w()),
           tf2::Vector3(position.x(), position.y(), position.z())));
@@ -568,15 +579,11 @@ private:
         const bool velocity_valid = pose_cache_.GetVelocity(
           velocity.linear.x, velocity.linear.y, velocity.linear.z,
           velocity.angular.x, velocity.angular.y, velocity.angular.z);
-        const auto & twist = message.twist.twist;
-        velocity_cache_.Add(twist.linear.x, twist.linear.y, twist.linear.z,
-          twist.angular.x, twist.angular.y, twist.angular.z);
-        if (!pose_cache_.GetCovariance(message.pose.covariance)) {
-          for (size_t i = 0; i < 6; ++i) { message.pose.covariance[i * 7] = 1.; }
-        }
-        if (!velocity_cache_.GetCovariance(message.twist.covariance)) {
-          for (size_t i = 0; i < 6; ++i) { message.twist.covariance[i * 7] = 1.; }
-        }
+        message.pose.covariance = covariance_.pose(inertial_only);
+        message.twist.covariance = covariance_.twist(inertial_only);
+        // The recent-pose spread is kept for diagnostics only; it is not an uncertainty.
+        std::array<double, 36> history_covariance{};
+        const bool history_valid = pose_cache_.GetCovariance(history_covariance);
         std_msgs::msg::Bool current_inertial;
         current_inertial.data = inertial_valid;
         inertial_pub_->publish(current_inertial);
@@ -619,6 +626,19 @@ private:
           <<",\"accel_bias_valid\":"<<(health_evidence.accel_bias_valid ? "true" : "false")
           <<",\"gyro_bias_norm\":"<<gyro_norm<<",\"accel_bias_norm\":"<<accel_norm
           <<",\"velocity_valid\":"<<(velocity_valid ? "true" : "false")
+          <<",\"history_covariance_diag\":";
+        if (history_valid) {
+          health_details<<'[';
+          for (size_t i = 0; i < 6; ++i) {
+            const double v = history_covariance[i * 7];
+            health_details<<(i ? "," : "");
+            if (std::isfinite(v)) health_details<<v; else health_details<<"null";
+          }
+          health_details<<']';
+        } else {
+          health_details<<"null";
+        }
+        health_details
           <<",\"visual_pose_valid\":"<<(current_visual.data ? "true" : "false")
           <<",\"inertial_only_pose\":"<<(inertial_only ? "true" : "false")
           <<",\"output_pose\":"<<(output_pose ? "true" : "false")
@@ -720,7 +740,7 @@ private:
   bool publish_tf_{}, publish_visual_only_{},visual_anchor_ready_{},last_inertial_only_{};
   size_t inertial_only_frames_{};
   nvidia::isaac_ros::visual_slam::PoseCache pose_cache_;
-  nvidia::isaac_ros::visual_slam::VelocityCache velocity_cache_;
+  wla_vio::NominalCovariance covariance_;
   bool initialization_diagnostics_{false};
   std::unique_ptr<wla_vio::InitializationSampling> initialization_sampling_;
   size_t keyframes_{0}, requested_init_keyframes_{0};
