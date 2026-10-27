@@ -12,5 +12,5 @@ colcon --log-base "$WLA_WS/.runtime/cuvslam_navigation/log" build \
   --install-base "$WLA_WS/.runtime/cuvslam_navigation/install" \
   --cmake-args -DCMAKE_BUILD_TYPE=Release \
   -DCUVSLAM_SOURCE_DIR="$WLA_SDK/cuVSLAM" -DCUVSLAM_BUILD_DIR="$WLA_SDK/sdk_build"
-colcon build --packages-select wla_r680_navigation --cmake-args -DCMAKE_BUILD_TYPE=Release
-install -m 755 "$WLA_WS/src/wla_r680_navigation/scripts/r680_nav.sh" "$WLA_WS/r680_nav.sh"
+# Frontend only. The navigation package is built with the workspace (--symlink-install);
+# the root r680_*.sh entries are authoritative and are not overwritten here.
