@@ -54,7 +54,10 @@ struct Motion {
 
 // Clock values are supplied by the owner, so gates can be tested without ROS or sleeps.
 struct OutputGate {
-  uint64_t generation=0, sequence=0, motion_generation=0;
+  // generation: any input/reference change. cancel_generation: only task-ending
+  // events (stop, estop, revoked authority, expiry); in-flight start/heartbeat
+  // replies are rejected by this one, not by a wheel reference reset.
+  uint64_t generation=0, sequence=0, motion_generation=0, cancel_generation=0;
   bool enabled=false, estop=false, active=false, authority=false, observations=false;
   std::string request, detector_session;
   int64_t detector_epoch=-1, observation_stamp=0;
@@ -63,7 +66,7 @@ struct OutputGate {
   std::deque<int64_t> delivered_frames;
   Json result;
   void invalidate() { ++generation; result=Json(); }
-  void revoke() { active=false; lease_until=0; invalidate(); }
+  void revoke() { active=false; lease_until=0; ++cancel_generation; invalidate(); }
   void delivered(int64_t ns) {
     delivered_frames.push_back(ns); if(delivered_frames.size()>16) delivered_frames.pop_front();
   }

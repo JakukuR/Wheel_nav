@@ -73,17 +73,17 @@ class FollowTransport: public rclcpp::Node {
     subscribe_string("/r680_base/control_state","control",5);
     if(reid) subscribe_string(prefix+"/reid_features","reid");
     if(mask_enabled) subscribe_string("/r680/perception/target_mask","mask");
-    subs.push_back(create_subscription<Image>(depth_topic,rclcpp::SensorDataQoS(),[this](Image::ConstSharedPtr m){
+    subs.push_back(create_subscription<Image>(depth_topic,rclcpp::SensorDataQoS(),[this](Image::ConstSharedPtr m){ guarded([&]{
       const auto ns=stamp(m->header.stamp); const double age=(now().nanoseconds()-ns)*1e-9;
       if(ns>last_depth && age>=-.05 && age<=gate.max_age && m->width && m->height &&
          uint64_t(m->width)*m->height<=2000000 && m->data.size()<=8000000) {
         depths[ns]=m; while(depths.size()>16) depths.erase(depths.begin());
       }
-    }));
-    subs.push_back(create_subscription<Info>(info_topic,rclcpp::SensorDataQoS(),[this](Info::ConstSharedPtr m){
+    }); }));
+    subs.push_back(create_subscription<Info>(info_topic,rclcpp::SensorDataQoS(),[this](Info::ConstSharedPtr m){ guarded([&]{
       infos.push_back(m); if(infos.size()>24) infos.pop_front();
-    }));
-    subs.push_back(create_subscription<nav_msgs::msg::Odometry>(wheel_topic,rclcpp::SensorDataQoS(),[this](nav_msgs::msg::Odometry::ConstSharedPtr m){
+    }); }));
+    subs.push_back(create_subscription<nav_msgs::msg::Odometry>(wheel_topic,rclcpp::SensorDataQoS(),[this](nav_msgs::msg::Odometry::ConstSharedPtr m){ guarded([&]{
       const auto old=motion.generation; const auto &v=m->twist.twist;
       bool accepted=false;
       if(m->child_frame_id!=base) motion.reset();
@@ -95,21 +95,34 @@ class FollowTransport: public rclcpp::Node {
         {"position",{p.x,p.y,p.z}},{"orientation",{q.x,q.y,q.z,q.w}},{"twist",{v.linear.x,v.linear.y,v.angular.z}},
         {"accepted",accepted},{"received",monotonic()}};
       if(old!=motion.generation) { last_motion_sent=0; barrier("wheel_reference_changed",false); }
-    }));
+    }); }));
     if(tof) {
       const auto topics=param<std::vector<std::string>>("tof_topics",{"/r680/tof/front_left/points","/r680/tof/front_right/points","/r680/tof/rear_left/points","/r680/tof/rear_right/points"});
-      for(const auto &topic:topics) subs.push_back(create_subscription<Cloud>(topic,rclcpp::SensorDataQoS(),[this,topic](Cloud::ConstSharedPtr m){
+      for(const auto &topic:topics) subs.push_back(create_subscription<Cloud>(topic,rclcpp::SensorDataQoS(),[this,topic](Cloud::ConstSharedPtr m){ guarded([&]{
         const double age=(now().nanoseconds()-stamp(m->header.stamp))*1e-9;
         if(uint64_t(m->width)*m->height<=256 && m->data.size()<=65536 && age>=0 && age<=.15) tofs[topic]=m;
-      }));
+      }); }));
     }
     command_service=create_service<PersonCommand>(prefix+"/command",
-      [this](std::shared_ptr<rmw_request_id_t> header,std::shared_ptr<PersonCommand::Request> request){ command(header,request); });
+      [this](std::shared_ptr<rmw_request_id_t> header,std::shared_ptr<PersonCommand::Request> request){
+        try { command(header,request); }
+        catch(const std::exception &e) {
+          // Pending requests die with the transport; this caller still gets an answer.
+          for(auto it=pending.begin();it!=pending.end();) it=it->second.header==header?pending.erase(it):std::next(it);
+          try { reply(header,*request,false,"compute_transport_failure"); } catch(const std::exception &) {}
+          fail(e.what());
+        }
+      });
     estop_service=create_service<std_srvs::srv::SetBool>(prefix+"/set_estop",
       [this](std::shared_ptr<std_srvs::srv::SetBool::Request> req,std::shared_ptr<std_srvs::srv::SetBool::Response> res){
-        gate.estop=req->data; barrier(req->data?"local_estop":"estop_reset_requires_new_request",true);
-        if(ready) checked_send({{"kind","estop"},{"data",req->data},{"generation",gate.generation}});
-        res->success=true; res->message=req->data?"latched":"reset; new request required"; publish_output();
+        try {
+          gate.estop=req->data; barrier(req->data?"local_estop":"estop_reset_requires_new_request",true);
+          if(ready) checked_send({{"kind","estop"},{"data",req->data},{"generation",gate.generation}});
+          res->success=true; res->message=req->data?"latched":"reset; new request required"; publish_command();
+        } catch(const std::exception &e) {
+          // fail() latches estop and zeroes output, so a stop request still succeeded.
+          fail(e.what()); res->success=req->data; res->message="compute_transport_failure";
+        }
       });
     const auto python=param<std::string>("worker_python","/usr/bin/python3");
     for(const auto &name:list_parameters({},0).names) {
@@ -127,7 +140,7 @@ class FollowTransport: public rclcpp::Node {
     channel.spawn(python); started=monotonic();
     poll_timer=create_wall_timer(std::chrono::milliseconds(5),[this]{ safe_poll(); });
     input_timer=create_wall_timer(std::chrono::milliseconds(20),[this]{ if(ready) send_input(); });
-    output_timer=create_wall_timer(std::chrono::milliseconds(50),[this]{ publish_output(); });
+    output_timer=create_wall_timer(std::chrono::milliseconds(50),[this]{ guarded([&]{ publish_command(); publish_status(); }); });
     RCLCPP_INFO(get_logger(),"C++ ROS transport + Python compute; output=mux, motion=%s, worker_pid=%d",gate.enabled?"enabled":"preview",channel.child);
   }
 
@@ -161,11 +174,17 @@ class FollowTransport: public rclcpp::Node {
   rclcpp::Service<PersonCommand>::SharedPtr command_service;
   rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr estop_service;
   rclcpp::TimerBase::SharedPtr poll_timer,input_timer,output_timer;
-  struct Pending { std::shared_ptr<rmw_request_id_t> header; std::shared_ptr<PersonCommand::Request> request; double received; uint64_t generation; };
+  struct Pending { std::shared_ptr<rmw_request_id_t> header; std::shared_ptr<PersonCommand::Request> request; double received; uint64_t cancel_generation; };
   std::map<uint64_t,Pending> pending;
 
   template<class T> T param(const std::string &name,const T &value) {
     return has_parameter(name)?get_parameter(name).get_value<T>():declare_parameter<T>(name,value);
+  }
+  // Any fault inside a ROS callback stops the transport through fail(): zero
+  // command, final status, worker shutdown and a non-zero exit code.
+  template<class Body> void guarded(Body &&body) {
+    if(failed) return;
+    try { body(); } catch(const std::exception &e) { fail(e.what()); }
   }
   void checked_send(const Json &j) {
     if(!channel.send(j)) throw std::runtime_error("IPC backpressure/disconnect; output revoked");
@@ -187,7 +206,7 @@ class FollowTransport: public rclcpp::Node {
     if(ready) checked_send({{"kind","barrier"},{"generation",gate.generation},{"cancel",cancel},{"reason",reason}});
   }
   void subscribe_string(const std::string &topic,const std::string &role,int depth=1) {
-    subs.push_back(create_subscription<String>(topic,depth,[this,topic,role](String::ConstSharedPtr m){
+    subs.push_back(create_subscription<String>(topic,depth,[this,topic,role](String::ConstSharedPtr m){ guarded([&]{
       if(m->data.size()>360000) { if(role=="relative") gate.observations=false; return; }
       try {
         Json j=Json::parse(m->data);
@@ -198,7 +217,7 @@ class FollowTransport: public rclcpp::Node {
         }
         updates[topic]=j;
       } catch(const Json::exception &) { if(role=="relative") gate.observations=false; }
-    }));
+    }); }));
   }
   void control_update(const Json &j) {
     const auto ns=j.at("stamp_ns").get<int64_t>(); const double age=(now().nanoseconds()-ns)*1e-9;
@@ -274,7 +293,7 @@ class FollowTransport: public rclcpp::Node {
       if(pending_start || ((req->request_id.empty() || req->request_id==gate.request) && (gate.active || gate.request.empty())))
         barrier("stopped_by_agent",true);
       if(ready) checked_send({{"kind","rpc"},{"id",0},{"generation",gate.generation},{"command","stop"},{"request_id",req->request_id},{"mode",req->mode},{"target_id",req->target_id},{"lease_duration_s",1.}});
-      reply(header,*req,true,(!req->request_id.empty() && req->request_id!=gate.request)?"request_cancelled_before_start":"stopped");publish_output();return;
+      reply(header,*req,true,(!req->request_id.empty() && req->request_id!=gate.request)?"request_cancelled_before_start":"stopped");publish_command();return;
     }
     if(!ready || pending.size()>=16) { reply(header,*req,false,"compute_worker_unavailable");return; }
     if((req->command=="start" || req->command=="heartbeat") &&
@@ -286,14 +305,14 @@ class FollowTransport: public rclcpp::Node {
       reply(header,*req,false,"no_matching_active_request");return;
     }
     if(req->command=="start" && (req->request_id!=gate.request || !gate.active)) barrier("task_start_barrier",false);
-    const auto id=++rpc_sequence; pending[id]={header,req,t,gate.generation};
+    const auto id=++rpc_sequence; pending[id]={header,req,t,gate.cancel_generation};
     checked_send({{"kind","rpc"},{"id",id},{"generation",gate.generation},{"command",req->command},
       {"request_id",req->request_id},{"mode",req->mode},{"target_id",req->target_id},{"lease_duration_s",req->lease_duration_s}});
   }
   void rpc_reply(const Json &j) {
     const auto id=j.at("id").get<uint64_t>(); const auto it=pending.find(id);if(it==pending.end()) return;
     const auto p=it->second;pending.erase(it);const auto &req=*p.request;const auto &body=j.at("response");
-    if(p.generation!=gate.generation || monotonic()-p.received>1. ||
+    if(p.cancel_generation!=gate.cancel_generation || monotonic()-p.received>1. ||
        (req.command!="status" && tombstones.count(req.request_id))) { reply(p.header,req,false,"request_superseded_or_expired");return; }
     PersonCommand::Response res;res.accepted=body.at("accepted");res.reason=body.at("reason");res.request_id=body.at("request_id");
     res.state=body.at("state");res.mode=body.at("mode");res.target_id=body.at("target_id");res.enabled=body.at("enabled");
@@ -370,7 +389,7 @@ class FollowTransport: public rclcpp::Node {
       latest_status=j.at("status");latest_preview=j.at("preview");last_status_at=monotonic();
       if(gate.active && latest_status.value("request_id","")==gate.request && latest_status.value("enabled",false)==false)
         barrier(latest_status.value("reason","python_task_terminated"),true);
-      publish_output();return;
+      publish_command();return;
     }
     if(kind=="interest") {
       if(j.at("generation").get<uint64_t>()!=gate.generation) return;
@@ -411,7 +430,9 @@ class FollowTransport: public rclcpp::Node {
       }
     } catch(const std::exception &e) { fail(e.what()); }
   }
-  void publish_output() {
+  // Command candidate: on the 20 Hz timer and immediately on every result,
+  // stop and estop, so the mux sees the newest gated value without waiting.
+  void publish_command() {
     const auto ns=now().nanoseconds();const double t=monotonic();
     const auto reason=gate.blocker(t,ns,motion.healthy(ns*1e-9));const bool permitted=reason.empty();
     const double v=permitted?gate.result.at("linear").get<double>():0.,w=permitted?gate.result.at("angular").get<double>():0.;
@@ -420,6 +441,14 @@ class FollowTransport: public rclcpp::Node {
     Twist pv;
     if(last_status_at>0 && t-last_status_at<gate.result_ttl) { pv.linear.x=latest_preview.value("linear",0.);pv.angular.z=latest_preview.value("angular",0.); }
     preview->publish(pv);
+  }
+  // Status: 20 Hz timer only (and once from fail()); per-result copies doubled the
+  // rate that every Python status subscriber has to parse.
+  void publish_status() {
+    const auto ns=now().nanoseconds();const double t=monotonic();
+    const auto reason=gate.blocker(t,ns,motion.healthy(ns*1e-9));const bool permitted=reason.empty();
+    const double v=permitted?gate.result.at("linear").get<double>():0.,w=permitted?gate.result.at("angular").get<double>():0.;
+    String m;
     Json s=latest_status.is_object()?latest_status:Json{{"schema","wla-person-status/v1"},{"state","idle"},{"reason","waiting_for_compute_worker"},{"enabled",false}};
     s["stamp_ns"]=ns;s["follow_session"]=session;s["transport_backend"]="cpp_ros_python_compute";
     s["transport_generation"]=gate.generation;s["transport_worker_pid"]=channel.child;s["transport_worker_age_s"]=last_status_at>0?Json(t-last_status_at):Json();
@@ -439,10 +468,14 @@ class FollowTransport: public rclcpp::Node {
     m.data=s.dump();status->publish(m);
   }
   void fail(const std::string &why) {
+    if(failed) return;
     failed=true;gate.revoke();gate.estop=true;ready=false;
     terminal_state="cancelled";terminal_reason="compute_transport_failure";
     RCLCPP_ERROR(get_logger(),"Follow transport stopped: %s",why.c_str());
-    publish_output();rclcpp::shutdown();
+    try { publish_command();publish_status(); } catch(const std::exception &e) {
+      RCLCPP_ERROR(get_logger(),"final follow output failed: %s",e.what());
+    }
+    rclcpp::shutdown();
   }
 };
 

@@ -24,6 +24,9 @@ int main() {
     check(g.blocker(10.151,1141000000,true)=="transport_result_expired","worker hang did not expire output");
     check(g.blocker(10.02,1010000000,false)=="wheel_odom_stale","invalid wheel accepted");
     g.estop=true;check(g.blocker(10.02,1010000000,true)=="local_estop","estop did not block");
+    {auto test=gate();const auto cancel=test.cancel_generation;test.invalidate();
+     check(test.cancel_generation==cancel && test.active,"reference change cancelled the task");
+     test.revoke();check(test.cancel_generation==cancel+1,"revocation did not advance cancel generation");}
     g.estop=false;g.revoke();check(!g.active && !g.accept(r,10.03,1020000000),"revocation resurrected");
     for(const char *field:{"request_id","detector_session"}) {
       auto test=gate();auto bad=result();bad[field]="old";check(!test.accept(bad,10.01,1000000000),"identity mismatch accepted");
