@@ -2,7 +2,7 @@
 
 本仓库是 ROS 2 Jazzy 的 `wla_r680_navigation` 包，运行在 Orin 的 `~/ros2_ws`。
 导航与建图进程独立于 WLA Agent；复用 R680 底盘驱动、D455、RTAB-Map 和 Nav2。
-`addons/` 归档配套 MPC、cuVSLAM 前端源码及 SDK 补丁。
+MPC 插件和 cuVSLAM 前端是工作区 `src/` 下的同级包 `wla_diff_mpc`、`wla_cuvslam_navigation`；`addons/cuvslam-sdk/` 保存前端所需的 SDK 补丁。
 完整仓库现采用工作区结构，入口和克隆说明见 [工作区 README](../../README.md)。
 
 本文按 2026-10-09 的 cuVSLAM 导航链路说明。**导航脚本默认控制器是 MPC，但里程计前端仍默认 RGB-D；使用当前双目＋车身 IMU 链路必须显式加 `--cuvslam`。** 导航默认关闭真实底盘输出，`--enable-motion` 才开放运动。
@@ -57,17 +57,7 @@ TF 主链为 `map -> d455_floor_odom -> r680_mapping_floor -> d455_link`，相�
 
 依赖 ROS 2 Jazzy、候选底盘工作区 `~/r680_chassis_candidate_ws`、RealSense ROS 驱动、RTAB-Map、Nav2、Eigen3、OSQP / OsqpEigen，以及 cuVSLAM v17。Orin 的现有 OSQP 依赖前缀为 `~/.local/wla_mpc_deps`；cuVSLAM 源码 / SDK 构建分别位于 `~/ros2_ws/.runtime/cuvslam_validation/{cuVSLAM,sdk_build}`。
 
-本目录是导航 ROS 包；完整工作区已在 `src/` 中包含同级配套包，无需复制。
-`addons/COLCON_IGNORE` 避免嵌套包被重复发现。仅在单独部署本导航包时，从归档复制配套源码：
-
-```bash
-cd ~/ros2_ws/src/wla_r680_navigation
-mkdir -p ../wla_diff_mpc ../wla_cuvslam_navigation
-cp -a addons/wla_diff_mpc/. ../wla_diff_mpc/
-cp -a addons/wla_cuvslam_navigation/. ../wla_cuvslam_navigation/
-```
-
-已有独立源码仓库时，先核对本地修改，再同步 `addons/`，避免覆盖未提交工作。
+本目录是导航 ROS 包；MPC 插件和 cuVSLAM 前端只在工作区 `src/` 下作为同级包维护，随工作区一起构建。
 
 **先按 [SDK 补丁说明](addons/cuvslam-sdk/README.md) 应用视觉来源 API 补丁并重建 SDK。** 本前端依赖新增的 `IsLastPoseInertialOnly()`；未修补的 SDK 不能与它混用。
 
@@ -86,7 +76,7 @@ install -m 755 src/wla_r680_navigation/scripts/r680_mapping.sh ./r680_mapping.sh
 ```
 
 前端安装在 `.runtime/cuvslam_navigation/install`，MPC 与导航包安装在 `install`。
-启动脚本按此顺序加载前缀；具体依赖见 [配套源码说明](addons/README.md) 和各包 `package.xml`。
+启动脚本按此顺序加载前缀；具体依赖见各包 `package.xml`，SDK 补丁见 [addons/README.md](addons/README.md)。
 默认 ROS 域为 73，RMW 为 CycloneDDS；DDS 配置使用 `~/Wheel_Legged_Agent/deploy/r680/cyclonedds-local.xml`。这些可通过 `ROS_DOMAIN_ID`、`RMW_IMPLEMENTATION`、`CYCLONEDDS_URI` 覆盖。
 
 ## 启动导航
