@@ -254,7 +254,9 @@ class WorkerTransport:
             with self.engine.guard:
                 self.generation = message['generation']
                 self.engine.result = None
-                if message['cancel']:
+                # C++ also acknowledges a terminal state produced by Python.
+                # Do not turn an already completed arrival into cancellation.
+                if message['cancel'] and self.engine.core.active:
                     self.engine.core._terminate('cancelled', message['reason'])
                 self.guard_ready.set()
         elif kind == 'estop':

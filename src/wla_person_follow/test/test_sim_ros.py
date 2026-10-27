@@ -239,7 +239,9 @@ def test_status_distinguishes_expired_result_from_planner_clear(graph):
     assert latest['result_remaining_ms']<0
     assert not latest['motion_permitted'] and latest['linear_mps']==0.
     assert latest['calibration']['status']=='pending_calibration'
-    assert 'binding_missing_grace_s' in latest['calibration']['parameters']
+    for name in ('binding_jump_radius_m','binding_jump_growth_mps','binding_jump_radius_max_m',
+                 'reid_confirm_frames','neighbor_ambiguity_radius_m'):
+        assert latest['calibration']['parameters'][name]==f.p[name]
     fixture.destroy_subscription(sub)
 
 
@@ -255,7 +257,8 @@ def test_result_event_publishes_without_periodic_tick_and_retains_stop_gate(grap
 
 
 @pytest.mark.parametrize('reid_enabled',[False,True])
-def test_mask_wire_pairs_depth_and_filters_published_cloud_preview_only(reid_enabled):
+@pytest.mark.parametrize('bbox_filter',[False,True])
+def test_mask_wire_pairs_depth_and_filters_published_cloud_preview_only(reid_enabled,bbox_filter):
     import rclpy
     from rclpy.node import Node
     from rclpy.parameter import Parameter
@@ -269,7 +272,8 @@ def test_mask_wire_pairs_depth_and_filters_published_cloud_preview_only(reid_ena
     from wla_r680_navigation_py.target_masks import encode_mask
     from wla_person_follow.sim_node import SimulationFollow
     assert os.environ['ROS_DOMAIN_ID']=='198'
-    options=dict(depth_stride=2,output_mode='direct',reid_enabled=reid_enabled,reid_model_id='test')
+    options=dict(depth_stride=2,output_mode='direct',reid_enabled=reid_enabled,reid_model_id='test',
+                 target_bbox_filter_enabled=bbox_filter)
     rclpy.init();f=SimulationFollow(parameter_overrides=[Parameter(k,value=v) for k,v in options.items()])
     fixture=Node('mask_depth_fixture');ex=SingleThreadedExecutor();ex.add_node(f);ex.add_node(fixture)
     broadcaster=StaticTransformBroadcaster(fixture)
@@ -301,7 +305,8 @@ def test_mask_wire_pairs_depth_and_filters_published_cloud_preview_only(reid_ena
                     objects=[dict(detected=True,label='person',id='mask:0:1',yaw=0.,distance=1.2)]))))
                 with f.guard:
                     if 'mask:0:1' in f.core.objects:
-                        if not f.core.active:f.core.command('start','mask-task','follow','mask:0:1',1.,time.monotonic())
+                        if not f.core.active:
+                            assert f.core.command('start','mask-task','0','mask:0:1',1.,time.monotonic())[0]
                         else:f.core.command('heartbeat','mask-task',lease_duration_s=1.,now=time.monotonic())
                 pm.publish(String(data=json.dumps(dict(schema='wla-target-mask/v1',stamp_ns=ns,depth_stamp_ns=ns,
                     session='mask',epoch=0,frame_id='mask_optical',width=64,height=48,
@@ -313,8 +318,8 @@ def test_mask_wire_pairs_depth_and_filters_published_cloud_preview_only(reid_ena
                 if f.map_result and f.map_result.get('target_mask',{}).get('applied'):
                     captured=f.map_result;break
         assert captured is not None
-        assert captured['target_mask']['removed_pixels']==38*31
-        assert captured['target_mask']['source']=='target_bbox'
+        assert captured['target_mask']['removed_pixels']==(38*31 if bbox_filter else int(mask.sum()))
+        assert captured['target_mask']['source']==('target_bbox' if bbox_filter else 'target_segmentation')
         assert captured['target_mask']['target_ghost_points']>0
         assert captured['obstacle_points']>0  # Background remains measured.
         assert f.direct_pub is None and not f.p['enable_motion']

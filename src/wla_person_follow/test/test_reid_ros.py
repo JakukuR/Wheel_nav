@@ -8,7 +8,7 @@ pytestmark=pytest.mark.skipif(os.environ.get('RUN_SIM_ROS')!='1',reason='isolate
 
 
 @pytest.mark.parametrize('initial_gap',[False,True])
-def test_rebind_keeps_request_and_stops_on_ambiguous_candidates(initial_gap):
+def test_rebind_keeps_request_and_rejects_ambiguous_candidates(initial_gap):
     assert os.environ.get('ROS_DOMAIN_ID')=='198'
     import rclpy
     from rclpy.node import Node
@@ -56,20 +56,27 @@ def test_rebind_keeps_request_and_stops_on_ambiguous_candidates(initial_gap):
                     next_feature=now+(.9 if initial_gap and features_sent==0 else .20)
                     features_sent+=1
                     feature_pub.publish(String(data=json.dumps(dict(schema='wla-reid-features/v1',stamp_ns=ns,request_id='test-task',
-                        session='s',epoch=1,model_id='test',base_frame='r680_mapping_floor',objects=[dict(id=i,feature=[1.]+[0.]*511,yaw=0.,distance=1.5) for i in ids]))))
+                        session='s',epoch=1,model_id='test',target_revision=f.tracker.revision if f.tracker else 0,
+                        base_frame='r680_mapping_floor',objects=[dict(id=i,feature=[1.]+[0.]*511,yaw=0.,distance=1.5) for i in ids]))))
             ex.spin_once(timeout_sec=.003)
             with f.guard:
                 if started is None and now-begin>.5 and 's:1:1' in f.core.objects:
-                    ok,_=f.core.command('start','test-task','follow','s:1:1',1.5,now)
-                    if ok:started=now
+                    ok,reason=f.core.command('start','test-task','0','s:1:1',1.5,now)
+                    assert ok, reason
+                    started=now
                 if started is not None:f.core.command('heartbeat','test-task',lease_duration_s=1.5,now=now)
-                if f.map_result and f.map_result.get('reid',{}).get('state'):
-                    r=f.map_result;captured.append((phase,r['reid'].copy(),r.get('resolved_target_id')))
-            if phase>5 and any(r[1].get('resolved_id')=='s:1:2' and r[1].get('state')=='tracking' for r in captured):break
-        assert any(r[1]['state']=='tracking' and r[2]=='s:1:1' for r in captured)
-        if initial_gap:assert any(r[1].get('enrollment_restarts',0)>=1 for r in captured)
-        assert any(r[1]['state']=='ambiguous' and r[2] is None for r in captured)
-        assert any(r[1]['state']=='tracking' and r[2]=='s:1:2' for r in captured)
+                # Recovery runs independently of map/MPC completion. Inspect its
+                # current state and the sole geometry owner, not removed FSM fields.
+                if f.recovery_identity and f.tracker:
+                    captured.append((phase,f.recovery_identity.snapshot(),f.tracker.target_id))
+            if phase>5 and any(r[1]['reacquired']==1 and r[2]=='s:1:2' for r in captured):break
+        assert any(r[1]['completed_enrollment'] and r[2]=='s:1:1' for r in captured)
+        if initial_gap:
+            assert any(.9<r[0]<1.1 and not r[1]['completed_enrollment'] and r[1]['feature_frames']>=2 for r in captured)
+        ambiguous=[r for r in captured if r[1]['reason']=='no_unambiguous_recovery_candidate' and
+                   sum(c['qualified'] for c in r[1]['candidates'])==2]
+        assert ambiguous and all(r[2]=='s:1:1' and r[1]['pending_confirmations']==0 for r in ambiguous)
+        assert any(r[1]['reacquired']==1 and r[2]=='s:1:2' for r in captured)
         assert f.core.target_id=='s:1:1' and f.core.request_id=='test-task'
         assert any(r['allowed_ids']==['s:1:1'] for r in requests)
         assert f.direct_pub is None and f.count_publishers('/r680_base/cmd_vel')==0

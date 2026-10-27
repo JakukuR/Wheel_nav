@@ -34,8 +34,6 @@ def test_query_equivalence_all_shapes_edges_and_custom_field(monkeypatch):
     for shape in ((2,),(0,2),(325,3,2)):
         points=rng.uniform(-12,12,shape)
         expected=grid_query(points,field,m.lower,m.res)
-        snapshot=dict(state='tracking',prediction=[2.,.5],position=[2.,.5],
-                      velocity_mps=[0.,0.],history=[],last_seen=t)
         with monkeypatch.context() as patch:
             patch.setattr(module,'native_grid_query',None)
             actual=m.query(points,field=field)

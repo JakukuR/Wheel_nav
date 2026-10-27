@@ -28,12 +28,15 @@ class VelocityTests(unittest.TestCase):
 
     def test_priority_zero_release_and_expiry(self):
         p=self.make();p.automatic_input((.2,0.),1.)
-        self.feed(p,'OBJECT',1.,.1,0.);self.feed(p,'PERSON',1.,.4,0.)
+        # Object approach now shares PERSON; the removed OBJECT input cannot
+        # become an independent source or take priority over NAV.
+        self.feed(p,'OBJECT',1.,.1,0.)
+        self.assertEqual(p.output(1.005),(.2,0.))
+        self.feed(p,'PERSON',1.,.4,0.)
         self.assertEqual(p.output(1.01),(.4,0.))
         self.feed(p,'PERSON',1.02,0.,0.)
-        self.assertEqual(p.output(1.03),(.1,0.))
-        self.feed(p,'OBJECT',1.04,0.,0.)
-        self.assertEqual(p.output(1.05),(.2,0.))
+        self.assertEqual(p.output(1.03),(.2,0.))
+        self.assertEqual(p.output_source,'NAV')
         self.assertEqual(p.output(1.2),(0.,0.))
 
     def test_manual_release_requires_post_release_sample(self):

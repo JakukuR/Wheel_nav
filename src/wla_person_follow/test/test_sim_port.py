@@ -63,6 +63,7 @@ def test_no_feasible_fallback_is_not_forwarded():
     result=e.step(np.zeros(3),np.array([.4,.3]),[],None,1.)
     assert np.array_equal(result['command'],np.zeros(2))
     assert result['reason']=='no_feasible_candidate'
+    assert not result['planner_feasible']
 
 
 def test_smaller_footprint_keeps_nearby_obstacle_evidence():
@@ -105,7 +106,10 @@ def test_unknown_forward_space_is_reported_without_changing_stop():
     assert result['command'][0]==0.
     assert result['candidates']['forward_total']>0
     assert result['candidates']['forward_known']==0
-    assert result['reason']=='no_feasible_candidate'
+    # Stationary candidates remain feasible; no forward candidate may survive.
+    assert result['candidates']['forward']==0
+    assert result['candidates']['feasible']>0
+    assert result['planner_feasible'] and result['reason']=='tracker_follow'
 
 
 def reference_display_filter(points):

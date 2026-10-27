@@ -250,7 +250,10 @@ class FollowTransport: public rclcpp::Node {
     res.mode=owned && latest_status.is_object()?latest_status.value("mode",req.mode):req.mode;
     res.target_id=owned && latest_status.is_object()?latest_status.value("target_id",req.target_id):req.target_id;
     res.enabled=accepted && gate.active && owned;
-    res.state=accepted?(res.enabled?"waiting":(owned && !terminal_state.empty()?terminal_state:"stopped")):"rejected";
+    // A rejected renewal must still report the owned task's first terminal
+    // state (especially arrived), as the Python/Agent service contract does.
+    res.state=owned && !gate.active && !terminal_state.empty()?terminal_state:
+      (accepted?(res.enabled?"waiting":"stopped"):"rejected");
     command_service->send_response(*header,res);
   }
   void command(std::shared_ptr<rmw_request_id_t> header,std::shared_ptr<PersonCommand::Request> req) {
@@ -432,6 +435,7 @@ class FollowTransport: public rclcpp::Node {
       s["enabled"]=false;
       if(!terminal_state.empty()) {s["state"]=terminal_state;s["reason"]=terminal_reason;}
     }
+    s["terminal_arrival"]=s.value("state","")=="arrived";
     m.data=s.dump();status->publish(m);
   }
   void fail(const std::string &why) {

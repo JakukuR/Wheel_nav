@@ -69,3 +69,7 @@ request_id。mode 只接受数字字符串 `0/1/2`，不再接受旧英文模式
 2026-10-26 的 C++ ROS 拆分构建、隔离 ROS 联调和性能证据见
 [HYBRID_TRANSPORT.md](HYBRID_TRANSPORT.md)。没有启动实车目标任务或进行运动验收。
 生产进程是否加载新版本须核对 `transport_backend`，不能由源码或构建成功推断。
+
+2026-10-27 后续修正旧测试，并完成 113 项跟随回归（含 11 项 Agent API 到实际
+C++ mux 的完整软件进程链）、mux 策略/ROS/一致性测试；见
+[FULL_CHAIN_TESTS.md](FULL_CHAIN_TESTS.md)。新增用例同时修复了到达终态跨进程传递问题。

@@ -25,7 +25,10 @@ def trial(monkeypatch):
             clock.started=clock.now;clock.active=True;clock.request=req.request_id
         if req.command=='stop':clock.active=False
         accepted=not (req.command=='heartbeat' and clock.fail_heartbeat)
-        return NS(done=lambda:True,result=lambda:NS(accepted=accepted,reason='test_reply'))
+        from wla_behavior_interfaces.srv import PersonCommand
+        response=PersonCommand.Response(accepted=accepted,reason='test_reply',
+            request_id=req.request_id,state='following' if clock.active else 'stopped')
+        return NS(done=lambda:True,result=lambda:response)
     client=NS(call_async=command,wait_for_service=lambda **_:True)
     node=NS(create_subscription=lambda typ,topic,cb,qos:clock.callbacks.append((topic,cb)),
             create_client=lambda *_:client,get_clock=lambda:NS(now=lambda:NS(nanoseconds=int(clock.now*1e9))),destroy_node=lambda:None)
@@ -134,7 +137,7 @@ def test_visible_people_rejects_stale_wrong_generation_and_invalid_geometry(tria
 
 def test_picker_keeps_displayed_full_id_despite_reordering(trial,monkeypatch):
     c,_=trial;m=c.module
-    a=dict(id='s:1:190',distance=2.,yaw=0.);b=dict(id='s:1:191',distance=3.,yaw=.5)
+    a=dict(id='s:1:190',label='person',distance=2.,yaw=0.);b=dict(id='s:1:191',label='person',distance=3.,yaw=.5)
     snapshots=iter([[a,b],[b,a]]);stdin=NS(isatty=lambda:True,readline=lambda:'1\n')
     monkeypatch.setattr(m.select,'select',lambda *a:([stdin],[],[]))
     assert m.choose_interactively(lambda:next(snapshots),lambda:None,lambda:False,stdin)=='s:1:190'
@@ -142,7 +145,7 @@ def test_picker_keeps_displayed_full_id_despite_reordering(trial,monkeypatch):
 
 def test_picker_never_reuses_short_id_after_detector_restart(trial,monkeypatch):
     c,_=trial;m=c.module
-    a=dict(id='s:1:190',distance=2.,yaw=0.);new=dict(a,id='s:2:190')
+    a=dict(id='s:1:190',label='person',distance=2.,yaw=0.);new=dict(a,id='s:2:190')
     snapshots=iter([[a],[new]]);lines=iter(['1\n','q\n']);stdin=NS(isatty=lambda:True,readline=lambda:next(lines))
     monkeypatch.setattr(m.select,'select',lambda *a:([stdin],[],[]))
     assert m.choose_interactively(lambda:next(snapshots),lambda:None,lambda:False,stdin) is None
@@ -150,7 +153,7 @@ def test_picker_never_reuses_short_id_after_detector_restart(trial,monkeypatch):
 
 def test_picker_refresh_and_eof(trial,monkeypatch):
     c,_=trial;m=c.module
-    a=dict(id='s:1:190',distance=2.,yaw=0.)
+    a=dict(id='s:1:190',label='person',distance=2.,yaw=0.)
     snapshots=iter([[],[a],[a]]);lines=iter(['r\n','1\n']);stdin=NS(isatty=lambda:True,readline=lambda:next(lines))
     monkeypatch.setattr(m.select,'select',lambda *a:([stdin],[],[]))
     assert m.choose_interactively(lambda:next(snapshots),lambda:None,lambda:False,stdin)=='s:1:190'
