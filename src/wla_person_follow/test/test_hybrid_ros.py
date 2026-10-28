@@ -276,13 +276,15 @@ def test_approach_modes_use_the_same_transport(hybrid,mode,label):
     assert f.call('stop','approach-'+mode).accepted
 
 
-def test_object_approach_holds_without_connected_free_route(hybrid):
+def test_object_approach_plans_through_unseen_space_like_person_approach(hybrid):
+    # The forward camera never observes the robot's flanks, so only the assumed
+    # free disc is known there. Like person approach, unknown cells no longer
+    # block the route; the MPC keeps only its near horizon in known free space.
     f=hybrid;f.task_mode='2';f.target_label='chair';f.pump(.1)
-    f.start_task('object-hold')
-    held=[s for s in f.states if s.get('motion_permitted') and s.get('reason')=='object_goal_unavailable']
-    assert held, f.states[-1]
-    assert all(s['approach_goal'] is None and s['target_mask']['surface_extracted'] and
-               s['target_mask']['reason']=='object_cloud_preserved' and
-               s['diagnostics']['compute_error'] is None for s in held)
-    assert all(c['linear']==0 and c['angular']==0 for _,c in f.candidates)
-    assert f.call('stop','object-hold').accepted
+    f.start_task('object-unseen')
+    planned=[s for s in f.states if s.get('motion_permitted') and s.get('approach_goal')]
+    assert planned, f.states[-1]
+    assert all(s['target_mask']['surface_extracted'] and s['target_mask']['reason']=='object_cloud_preserved' and
+               s['diagnostics']['compute_error'] is None for s in planned)
+    assert not any(s.get('reason')=='object_goal_unavailable' for s in planned)
+    assert f.call('stop','object-unseen').accepted

@@ -17,7 +17,7 @@ person_follow:
     depth_max_m: 5.0
     surface_to_center_offset_m: 0.28
     max_sensor_age_s: 0.30
-    result_ttl_s: 0.15
+    result_ttl_s: 0.20
     tof_enabled: false
     local_assumed_free_radius_m: 0.5
     startup_clear_radius_m: 0.0

@@ -3,6 +3,7 @@ from dataclasses import replace
 import numpy as np
 from .common import Tuning, wrap, rotation, ROBOT_RADIUS_M
 from .target_reference import bezier_reference
+from .detour import DetourPlanner
 
 
 def approach_tangent(pose, command, tracks, target, radius=ROBOT_RADIUS_M):
@@ -27,6 +28,12 @@ class HybridFollower:
         self.last_infeasible=False
         self.last_candidates={}
         self.last_reference_path=np.empty((0,2))
+        self.detour=DetourPlanner()
+        self.stuck_cycles=0  # consecutive plans without a feasible forward candidate
+
+    def reset(self):
+        """Forget detour side/look state between tasks."""
+        self.detour=DetourPlanner();self.stuck_cycles=0
 
     def command(self, pose, previous, target, velocity, history, local_map, obstacles,
                 status, policy=None, policy_time=None, *, reference_path=None, face_point=None):
@@ -42,6 +49,23 @@ class HybridFollower:
         if target is None or status in ('lost','binding','holding'):
             return np.zeros(2)
         path=bezier_reference(history) if reference_path is None else np.asarray(reference_path,dtype=float).reshape(-1,2)
+        detouring=False
+        if reference_path is None and not searching and self.detour is not None:
+            # Blocked straight route: steer the sampled family around an obstacle edge.
+            detour=self.detour.plan(pose,np.asarray(target,dtype=float),local_map,c,reference=path)
+            if detour is not None:path=detour;detouring=True
+            if detour is not None and self.detour.last.get('looking') and self.stuck_cycles>=3:
+                # Turning to observe an unseen flank is an explicit in-place rotation
+                # (bounded rate and yaw acceleration), not a trade-off against the
+                # keep-the-person-centred cost, which otherwise stalls it part way.
+                err=wrap(np.arctan2(detour[1][1]-pose[1],detour[1][0]-pose[0])-pose[2])
+                if not self.detour.look_reached(abs(err)<=.15):
+                    w=float(np.clip(1.5*err,-.6,.6))
+                    w=float(np.clip(w,previous[1]-c.yaw_accel*c.step,previous[1]+c.yaw_accel*c.step))
+                    clear=np.min(local_map.query(np.asarray(pose[:2],dtype=float).reshape(1,2)))-c.radius
+                    self.last_candidates=dict(safe=1,feasible=1,forward=0,looking=True,detour=dict(self.detour.last))
+                    self.last_reference_path=np.asarray(detour)
+                    if clear>=0.:return np.array([0.,w])
         if not len(path):path=np.asarray(target,dtype=float).reshape(1,2)
         if np.linalg.norm(path[-1]-target)>.01:path=np.vstack((path,target))
         if len(path)<2:path=np.vstack((pose[:2],path))
@@ -112,9 +136,12 @@ class HybridFollower:
             clearance=np.min(local_map.query(points),axis=1)-c.radius-.001
             unknown=np.min(local_map.query(points,unknown=True),axis=1)-c.radius-.001
             stationary=np.linalg.norm(states[:,:2]-pose[:2],axis=1)<1e-8
-            if reference_path is not None or tau<=max(.5,abs(previous[0])/c.accel+c.step):
+            # Same as person follow/approach for every mode: only the near horizon
+            # (stopping distance) must lie in known free space.
+            if tau<=max(.5,abs(previous[0])/c.accel+c.step):
                 allowed=(unknown>=0.)|stationary;safe&=allowed;reasons[0]&=allowed
-            static_safe=clearance>=c.margin;safe&=static_safe;reasons[1]&=static_safe
+            static_safe=clearance>=0.;safe&=static_safe;reasons[1]&=static_safe
+            score+=c.margin_weight*np.maximum(c.margin-clearance,0.)**2
             score+=15*np.maximum(.15-unknown,0.)**2
             if len(obstacles):
                 d0=old[:,None,:]-(op+(tau-c.step)*ov)[None,:,:]
@@ -126,18 +153,23 @@ class HybridFollower:
             bearing_goal=goal if face_point is None else face_point
             angle=wrap(np.arctan2(bearing_goal[1]-states[:,1],bearing_goal[0]-states[:,0])-states[:,2])
             if search_heading is not None:angle=wrap(search_heading-states[:,2])
-            if tau<=.6:near_fov&=np.abs(angle)<=c.central_half_angle
+            # Going round an obstacle may briefly face away; the FOV stays a cost then.
+            visible=c.camera_half_angle-c.fov_edge_margin
+            if tau<=.6 and not detouring:near_fov&=np.abs(angle)<=visible
             gap=np.linalg.norm(goal-states[:,:2],axis=1);safe&=gap>=c.target_hard_gap
             score+=6*np.sum((states[:,:2]-refs[k])**2,axis=1)+2*(gap-c.desired_gap)**2
-            score+=4*angle**2+60*np.maximum(np.abs(angle)-c.central_half_angle,0.)**2
+            score+=c.centering_weight*angle**2+60*np.maximum(np.abs(angle)-visible,0.)**2
             score+=2*np.maximum(.35-clearance,0.)**2+.15*controls[:,1]**2
             score+=.25*np.sum((controls-old_controls)**2,axis=1)+4*np.maximum(-controls[:,0],0.)**2
         feasible=safe&near_fov
         if not feasible.any():feasible=safe
+        self.stuck_cycles=self.stuck_cycles+1 if not np.any(feasible&(first[:,0]>.01)) else 0
         self.last_candidates=dict(safe=int(safe.sum()),feasible=int(feasible.sum()),
             forward=int(np.sum(feasible&(first[:,0]>.01))),reasons=np.sum(reasons,axis=1).tolist(),
             forward_total=int(np.sum(first[:,0]>.01)),forward_known=int(np.sum((first[:,0]>.01)&reasons[0])),
             forward_static=int(np.sum((first[:,0]>.01)&reasons[1])),forward_people=int(np.sum((first[:,0]>.01)&reasons[2])))
+        if self.detour is not None and self.detour.last and self.detour.last.get('active'):
+            self.last_candidates['detour']=dict(self.detour.last)
         if not feasible.any():
             self.last_infeasible=True
             return np.zeros(2)

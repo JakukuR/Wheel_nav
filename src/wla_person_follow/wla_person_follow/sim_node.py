@@ -54,7 +54,7 @@ class FollowEngine:
             wheel_topic='/wheel/odom', base_frame='r680_mapping_floor',
             max_sensor_age_s=.30, depth_stride=4, depth_min_m=.15, depth_max_m=5.,
             surface_to_center_offset_m=.28, camera_min_valid_fraction=.25,
-            camera_front_min_valid_fraction=.35, result_ttl_s=.15, startup_clear_radius_m=0., startup_motion_threshold_m=.03,
+            camera_front_min_valid_fraction=.35, result_ttl_s=.20, startup_clear_radius_m=0., startup_motion_threshold_m=.03,
             target_mask_enabled=True, reid_enabled=False, reid_model_id='', reid_similarity=.40,
             reid_margin=.08, reid_confirm_frames=3, local_assumed_free_radius_m=0., tof_enabled=False,
             tof_topics=['/r680/tof/front_left/points','/r680/tof/front_right/points',

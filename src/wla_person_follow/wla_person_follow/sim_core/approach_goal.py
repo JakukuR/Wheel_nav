@@ -10,6 +10,10 @@ from .common import rotation
 HALF_LENGTH = HALF_WIDTH = .24
 SWEEP_RADIUS = float(np.hypot(HALF_LENGTH, HALF_WIDTH))
 DESIRED_GAP = .15
+# Route search margin around the robot-object box.
+PLAN_MARGIN_M = 1.2
+# Route graph lattice spacing.
+ROUTE_CELL_M = .1
 
 
 def surface_gap(pose, surface):
@@ -19,9 +23,14 @@ def surface_gap(pose, surface):
 
 
 def clear_segments(mapping, points, radius=SWEEP_RADIUS, margin=.10):
-    """Conservative samples: add half sample spacing to both clearance bounds."""
-    return ((mapping.query(points) >= radius+margin+.014) &
-            (mapping.query(points, unknown=True) >= radius+.014))
+    """Conservative samples: add half sample spacing to the clearance bound.
+
+    Only observed obstacles block the route. Unknown cells (e.g. the depth
+    camera's near blind zone in front of the robot) are treated like in person
+    approach: the MPC refuses unknown space only over its near horizon, so the
+    robot creeps forward, observes, and the route is re-checked every update.
+    """
+    return mapping.query(points) >= radius+margin+.014
 
 
 class ApproachGoal:
@@ -54,12 +63,22 @@ class ApproachGoal:
         old = self.plan
         self.planned_at, self.center = now, center
         self.plan = None
-        xy = ((mapping.cells+.5)*mapping.res).reshape(-1,2)
-        n = mapping.n
-        distance = tree.query(xy)[0]
-        # Full circular sweep is conservative for the rectangular body at any yaw.
-        # Surface points are also independent obstacles, even if map log odds lag.
-        valid = (clear_segments(mapping,xy) & (distance >= SWEEP_RADIUS+DESIRED_GAP+.014))
+        # Route nodes stay on a ~0.1 m lattice even on a finer map: clearance is
+        # still read from the fine map, but the graph keeps a bounded size.
+        stride = max(1, int(round(ROUTE_CELL_M/mapping.res)))
+        cells = mapping.cells[::stride, ::stride]; res = mapping.res*stride
+        xy = ((cells+.5)*mapping.res).reshape(-1,2)
+        n = cells.shape[0]
+        # Plan only inside the box spanning robot and object plus a margin: the
+        # whole map (25600 cells at 0.05 m) cost ~0.3 s per replan on the Orin.
+        low = np.minimum(pose[:2], center)-PLAN_MARGIN_M; high = np.maximum(pose[:2], center)+PLAN_MARGIN_M
+        window = np.flatnonzero(np.all((xy >= low) & (xy <= high), axis=1))
+        valid = np.zeros(len(xy), dtype=bool)
+        if len(window):
+            distance = tree.query(xy[window])[0]
+            # Full circular sweep is conservative for the rectangular body at any yaw.
+            # Surface points are also independent obstacles, even if map log odds lag.
+            valid[window] = (clear_segments(mapping,xy[window]) & (distance >= SWEEP_RADIUS+DESIRED_GAP+.014))
         valid = valid.reshape(n,n)
         indices = np.arange(n*n).reshape(n,n)
         srcs=[]; dsts=[]; costs=[]
@@ -79,9 +98,9 @@ class ApproachGoal:
             good &= (tree.query(samples.reshape(-1,2))[0].reshape(-1,7) >= SWEEP_RADIUS+DESIRED_GAP+.014).all(axis=1)
             a,b=a[good],b[good]
             srcs.extend((a,b));dsts.extend((b,a))
-            costs.extend((np.full(len(a),np.hypot(dx,dy)*mapping.res),)*2)
+            costs.extend((np.full(len(a),np.hypot(dx,dy)*res),)*2)
         # A virtual node links the exact wheel pose to nearby grid centers.
-        nearby=np.flatnonzero(valid.reshape(-1)&(np.linalg.norm(xy-pose[:2],axis=1)<=mapping.res*1.6))
+        nearby=np.flatnonzero(valid.reshape(-1)&(np.linalg.norm(xy-pose[:2],axis=1)<=res*1.6))
         for dest in nearby:
             segment=self._samples(np.vstack((pose[:2],xy[dest])))
             if (np.all(clear_segments(mapping,segment)) and

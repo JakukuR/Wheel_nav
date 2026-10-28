@@ -8,7 +8,7 @@ from wla_person_follow.sim_core.common import rotation
 
 def test_deployed_chassis_and_follow_clearances():
     c=Tuning()
-    assert (c.step,c.horizon,c.max_v,c.max_w)==(.1,24,.65,.9)
+    assert (c.step,c.horizon,c.max_v,c.max_w)==(.1,24,1.2,.9)
     assert c.desired_gap==pytest.approx(.87)
     assert c.target_hard_gap==pytest.approx(.57)
     assert c.radius == .19
@@ -327,3 +327,112 @@ def test_continuous_prior_obstacles_win_including_inside_footprint(startup_worke
     step(15.,local_radius=.5)
     assert not m.occupied[ij[:,0],ij[:,1]].any()
     assert m.known[ij[:,0],ij[:,1]].all()
+
+
+def _straight_corridor(width):
+    from wla_person_follow.sim_core.rolling_depth_map import RollingDepthMap
+    m=RollingDepthMap();m.slide(np.zeros(2))
+    xs=np.arange(-1,5,.02);h=width/2
+    walls=np.r_[np.c_[xs,np.full_like(xs,h),np.full_like(xs,.5)],np.c_[xs,np.full_like(xs,-h),np.full_like(xs,.5)]]
+    floor=np.array([[x,y,0.] for x in np.arange(-1,5,.05) for y in np.arange(-h+.03,h-.02,.05)])
+    points=np.r_[walls,floor]
+    m.update(dict(points=points,points_odom=points,dynamic=np.zeros(len(points),bool),
+                  origin=np.array([0,0,.3]),origin_odom=np.array([0,0,.3])),np.zeros(3),0.)
+    return m
+
+
+@pytest.mark.parametrize('width,forward',[(1.0,True),(.8,True),(.6,False)])
+def test_static_margin_is_a_cost_and_only_penetration_rejects(width,forward):
+    from wla_person_follow.sim_core.hybrid_controller import HybridFollower
+    f=HybridFollower(Tuning());hist=[np.array([2.+i*.1,0.]) for i in range(10)]
+    cmd=f.command(np.zeros(3),np.zeros(2),np.array([3.,0.]),np.zeros(2),hist,_straight_corridor(width),[],'visible')
+    # 0.8 m: inside the 0.10 m band (formerly all forward rollouts were rejected).
+    assert (f.last_candidates['forward_static']>0 and cmd[0]>0)==forward
+
+
+def _blind_zone_chair_map():
+    """J05 geometry: camera 0.18 m ahead of centre at 0.5 m height, chair 2.1 m ahead.
+
+    The forward camera never sees the robot's flanks or rear, so only the 0.5 m
+    assumed-free disc is known there."""
+    from wla_person_follow.sim_core.rolling_depth_map import RollingDepthMap
+    m=RollingDepthMap();m.slide(np.zeros(2))
+    m.local_assumed_free_radius=.5;m.local_assumed_free_center=np.zeros(2)
+    floor=np.array([[x,y,0.] for x in np.arange(.85,4.,.05) for y in np.arange(-1.5,1.5,.05)
+                    if abs(np.arctan2(y,x))<.75 and not (2.05<x<2.5 and abs(y)<.25)])
+    chair=np.array([[x,y,z] for x in np.arange(2.1,2.5,.05) for y in np.arange(-.2,.21,.05) for z in (.2,.45)])
+    points=np.r_[floor,chair]
+    m.update(dict(points=points,points_odom=points,dynamic=np.zeros(len(points),bool),
+                  origin=np.array([.18,0.,.5]),origin_odom=np.array([.18,0.,.5])),np.zeros(3),0.)
+    return m,chair[:,:2]
+
+
+def test_object_approach_passes_the_camera_near_blind_zone_like_person_approach():
+    from wla_person_follow.sim_core.approach_goal import ApproachGoal
+    from wla_person_follow.sim_core.hybrid_controller import HybridFollower
+    m,surface=_blind_zone_chair_map()
+    from wla_person_follow.sim_core.approach_goal import SWEEP_RADIUS
+    # The robot's own cell is closer to unknown space than the old route rule
+    # (sweep radius + 0.014 m) allowed, so object approach could never start.
+    assert m.query(np.zeros((1,2)),unknown=True)[0] < SWEEP_RADIUS+.014
+    goal=ApproachGoal().select(np.zeros(3),surface,m,0.)
+    assert goal is not None
+    route=goal['path'];face=np.median(surface,axis=0)
+    c=Tuning(desired_gap=0.,target_stop_gap=.025,target_hard_gap=0.,target_clearance_max=0.,max_v=.20)
+    cmd=HybridFollower(c).command(np.zeros(3),np.zeros(2),goal['point'],np.zeros(2),[],m,[],'visible',
+                                  reference_path=route,face_point=face)
+    assert cmd[0]>0  # creeps forward into the blind strip; the near horizon stays in the assumed-free disc
+
+
+def test_deployed_rolling_map_is_5cm_over_8m():
+    e=SimulationEngine(np.zeros(3),1.)
+    assert e.mapping.res==.05 and e.mapping.n==160
+    assert e.mapping.n*e.mapping.res==pytest.approx(8.)
+
+
+def _box_ahead_map():
+    """Known floor all round, a 0.8 m wide box 1.0-1.4 m straight ahead (J02 18:27 stall)."""
+    from wla_person_follow.sim_core.rolling_depth_map import RollingDepthMap
+    m=RollingDepthMap();m.slide(np.zeros(2))
+    floor=np.array([[x,y,0.] for x in np.arange(-1.,4.,.05) for y in np.arange(-2.,2.01,.05)
+                    if not (.95<x<1.45 and abs(y)<.45)])
+    box=np.array([[x,y,z] for x in np.arange(1.,1.41,.05) for y in np.arange(-.4,.41,.05) for z in (.2,.45)])
+    points=np.r_[floor,box]
+    m.update(dict(points=points,points_odom=points,dynamic=np.zeros(len(points),bool),
+                  origin=np.array([0,0,.3]),origin_odom=np.array([0,0,.3])),np.zeros(3),0.)
+    return m
+
+
+def test_blocked_straight_route_plans_round_the_obstacle_edge():
+    from wla_person_follow.sim_core.hybrid_controller import HybridFollower
+    f=HybridFollower(Tuning());target=np.array([3.,0.]);hist=[np.array([2.+i*.1,0.]) for i in range(10)]
+    cmd=f.command(np.zeros(3),np.zeros(2),target,np.zeros(2),hist,_box_ahead_map(),[],'visible')
+    d=f.last_candidates.get('detour') or {}
+    assert d.get('active') and d.get('side') in ('left','right')
+    # The reference bends past a box corner rather than through the box.
+    assert abs(f.last_reference_path[1][1])>.45 and cmd[0]>0
+    f.reset()
+    assert f.detour.side is None and f.stuck_cycles==0
+
+
+def test_clear_straight_route_does_not_detour():
+    from wla_person_follow.sim_core.hybrid_controller import HybridFollower
+    f=HybridFollower(Tuning());hist=[np.array([2.+i*.1,0.]) for i in range(10)]
+    f.command(np.zeros(3),np.zeros(2),np.array([3.,0.]),np.zeros(2),hist,_straight_corridor(1.2),[],'visible')
+    assert 'detour' not in f.last_candidates
+
+
+def test_person_only_has_to_stay_in_the_image_not_near_its_centre():
+    c=Tuning()
+    # Hard limit ~35.8 deg (camera 38.7 deg less 0.05 rad) instead of the old 32.6 deg centre box.
+    assert c.camera_half_angle-c.fov_edge_margin>float(np.arctan(.64))+.05 and c.centering_weight<4
+
+
+def test_planner_result_ttl_is_020():
+    import pathlib,yaml
+    from wla_person_follow import sim_node
+    cfg=yaml.safe_load((pathlib.Path(sim_node.__file__).resolve().parents[1]/'config'/'sim_follow.yaml').read_text()) if (pathlib.Path(sim_node.__file__).resolve().parents[1]/'config'/'sim_follow.yaml').exists() else None
+    src=pathlib.Path(sim_node.__file__).read_text()
+    assert 'result_ttl_s=.20,' in src
+    if cfg is not None:
+        assert next(iter(cfg.values()))['ros__parameters']['result_ttl_s']==.2
