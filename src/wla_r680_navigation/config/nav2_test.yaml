@@ -188,7 +188,8 @@ global_costmap:
       plugins: [static_layer, inflation_layer]
       static_layer:
         plugin: nav2_costmap_2d::StaticLayer
-        map_topic: /r680/d455/map
+        # navigation_map_mode: the real map once localized, else a blank grid.
+        map_topic: /r680_nav/navigation_map
         map_subscribe_transient_local: true
         subscribe_to_updates: true
       # Disabled in this test: global D455 dynamic PointCloud2 marking/clearing.

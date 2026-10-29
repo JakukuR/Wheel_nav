@@ -124,6 +124,8 @@ public:
     }
 
     health_pub_ = create_publisher<std_msgs::msg::Bool>("/r680_nav/vo_watchdog_healthy", 10);
+    // Odometry alone, without the map requirement: enough for mapless motion.
+    odometry_pub_ = create_publisher<std_msgs::msg::Bool>("/r680_nav/vo_odometry_healthy", 10);
     status_pub_ = create_publisher<std_msgs::msg::String>("/r680_nav/vo_watchdog_status", 10);
     search_status_pub_=create_publisher<std_msgs::msg::String>("/r680_nav/relocalization_status",10);
     prior_pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(initial_pose_topic, 1);
@@ -459,6 +461,7 @@ private:
     std_msgs::msg::Bool unhealthy;
     unhealthy.data = false;
     health_pub_->publish(unhealthy);
+    odometry_pub_->publish(unhealthy);
     RCLCPP_ERROR(get_logger(), "VO fault: %s; motion locked until VO and map relocalize",
       why.c_str());
     if (frontend_ == "cuvslam") {
@@ -612,6 +615,9 @@ private:
     std_msgs::msg::Bool health;
     health.data = healthy;
     health_pub_->publish(health);
+    std_msgs::msg::Bool odometry;
+    odometry.data = !fault_latched_ && !timed_out && odometryReady();
+    odometry_pub_->publish(odometry);
     std_msgs::msg::String status;
     status.data = fault_latched_ ?
       (!anchor_valid_at_fault_ ? "manual_relocalization_required: " :
@@ -948,7 +954,7 @@ private:
     localization_sub_;
   rclcpp::Subscription<rtabmap_msgs::msg::Info>::SharedPtr map_info_sub_;
   rclcpp::Subscription<rtabmap_msgs::msg::OdomInfo>::SharedPtr info_sub_;
-  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr health_pub_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr health_pub_, odometry_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr prior_pub_;
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;

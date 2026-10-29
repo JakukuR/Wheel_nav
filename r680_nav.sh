@@ -575,7 +575,13 @@ def scan_cb(msg):
     if msg.header.frame_id == 'r680_mapping_floor' and msg.ranges:
         last_scan = time.monotonic()
 
-node.create_subscription(Bool, '/r680_nav/localization_ready', ready_cb, 10)
+# Motion readiness: odometry healthy. A verified map match is reported
+# separately; until then navigation runs mapless (navigation_map_mode).
+node.create_subscription(Bool, '/r680_nav/motion_ready', ready_cb, 10)
+map_mode = '未收到'
+def map_mode_cb(msg):
+    global map_mode
+    map_mode = msg.data
 relocalization = '未收到'
 def relocalization_cb(msg):
     global relocalization
@@ -597,6 +603,7 @@ if auto_init:
 map_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                      reliability=ReliabilityPolicy.RELIABLE)
 node.create_subscription(OccupancyGrid, '/r680/d455/map', map_cb, map_qos)
+node.create_subscription(String, '/r680_nav/navigation_map_mode', map_mode_cb, map_qos)
 if require_scan:
     node.create_subscription(LaserScan, '/r680_nav/d455/scan',
                              scan_cb, qos_profile_sensor_data)
@@ -647,18 +654,20 @@ while stack_ready or time.monotonic() < deadline:
     interface_ok = ready_count >= 5 and time.monotonic() - last_ready < 0.5
     if not stack_ready and motion_ok and map_ok and tf_ok and scan_ok and all(v == 3 for v in states.values()):
         stack_ready = True
-        print('[R680 NAV] 导航节点、地图与 TF 已就绪；运动保持锁定，等待惯性初始化与地图重定位（不再超时退出）。', flush=True)
+        print('[R680 NAV] 导航节点、地图与 TF 已就绪；运动保持锁定，等待惯性初始化与里程计健康（不再超时退出）。', flush=True)
     if motion_ok and interface_ok and map_ok and tf_ok and scan_ok and (not auto_init or init_state == 'succeeded') and all(v == 3 for v in states.values()):
         # A failure may have arrived while the blocking lifecycle queries ran.
         if not startup.read():
             continue
+        print('[R680 NAV] 里程计已就绪，导航模式=' + ('无图（局部避障，后台持续全局重定位；地图点选需等定位成功）'
+              if map_mode == 'mapless' else '地图' if map_mode == 'map' else map_mode), flush=True)
         node.destroy_node()
         rclpy.shutdown()
         raise SystemExit(0)
     if time.monotonic() - last_report > 10.0:
         print('[R680 NAV] 等待就绪:', f'接口={interface_ok}', f'地图={map_ok}',
               f'TF={tf_ok}', f'Scan={scan_ok}', f'前端诊断={frontend_status}', f'自动运动初始化={init_state if auto_init or motion_init else "关闭，需手柄激励"}',
-              f'估计器={estimator_state}', f'重定位={relocalization}',
+              f'估计器={estimator_state}', f'重定位={relocalization}', f'导航模式={map_mode}',
               '生命周期=' + ','.join(f'{k}:{v}' for k, v in states.items()),
               flush=True)
         last_report = time.monotonic()
@@ -708,7 +717,7 @@ elif [[ "$ENABLE_MOTION" == true ]]; then
     std_msgs/msg/Bool '{data: true}' >"$NAV_RUN_DIR/logs/motion_permission.log" 2>&1 </dev/null &
   PERMISSION_PID=$!
   echo '[R680 NAV] 导航侧速度输出已允许；底盘无需切换模式，手柄有输入时优先。'
-  echo '[R680 NAV] 确认地图中的机器人位置正确后即可发送导航点；松开摇杆后恢复新鲜导航速度。'
+  echo '[R680 NAV] 无图模式下只接受 odom 系目标；定位成功后网页地图点选才生效；松开摇杆后恢复新鲜导航速度。'
 else
   echo '[R680 NAV] 当前为安全预览：定位、规划和碰撞链已启动，真实底盘输出保持关闭。'
   if [[ "$ODOM_SOURCE" == openvins ]]; then
@@ -717,7 +726,7 @@ else
     echo '[R680 NAV] 需要实车运动时停止本脚本，再显式加 --enable-motion 启动。'
   fi
 fi
-echo '[R680 NAV] 就绪表示前端已初始化且地图匹配已通过 watchdog 校验；仍请在网页核对车的位置。'
+echo '[R680 NAV] 就绪表示前端已初始化且里程计健康；地图匹配通过 watchdog 校验前为无图模式（网页显示"无图模式·定位中"）。'
 echo '[R680 NAV] 按 Ctrl+C 将撤销运动授权、发送零速、关闭本次节点并恢复原定位服务。'
 
 while kill -0 "$BRINGUP_PID" 2>/dev/null; do

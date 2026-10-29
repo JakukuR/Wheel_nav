@@ -30,7 +30,7 @@ def run(case, base_authority=False, guard_delay=0.):
          '-p', 'initialization_timeout_s:=3.0', '-p', 'motion_duration_s:=1.0',
          '-p', 'result_path:=' + str(result)],
         [str(prefix / 'command_guard'), '--ros-args', '-p', 'hardware_output_enabled:=false',
-         '-p', 'initialization_mode_enabled:=true'],
+         '-p', 'initialization_mode_enabled:=true', '-p', 'health_topic:=/r680_nav/motion_ready'],
     ]
     root=Path(__file__).resolve().parents[1]
     if base_authority:
@@ -97,7 +97,8 @@ def run(case, base_authority=False, guard_delay=0.):
         ('/d455_slam/odom', Odometry), ('/wheel/odom', Odometry), ('/wheel/imu/data_raw', Imu),
         ('/r680/d455/aligned_depth_to_color/image_raw', Image), ('/r680_nav/d455/points_safety', PointCloud2),
         ('/r680_nav/vio_status', String), ('/r680_nav/vio_tracking_healthy', Bool),
-        ('/r680_nav/localization_ready', Bool), ('/r680_nav/mission_motion_allowed', Bool),
+        ('/r680_nav/localization_ready', Bool), ('/r680_nav/motion_ready', Bool),
+        ('/r680_nav/mission_motion_allowed', Bool),
         ('/r680_manual/cmd_vel', Twist), ('/gamepad_status', String),
         ('/r680_nav/nav_command_input', Twist), ('/r680_nav/vio_init_cancel', Bool)]
         if not (base_authority and name == '/r680_nav/mission_motion_allowed')}
@@ -174,6 +175,7 @@ def run(case, base_authority=False, guard_delay=0.):
             publishers['/r680_nav/vio_tracking_healthy'].publish(Bool(data=inertial))
             localized = inertial and state['name'] in ['waiting_inertial', 'succeeded']
             publishers['/r680_nav/localization_ready'].publish(Bool(data=localized))
+            publishers['/r680_nav/motion_ready'].publish(Bool(data=localized))
             if not base_authority:
                 publishers['/r680_nav/mission_motion_allowed'].publish(Bool(data=state['name'] == 'succeeded'))
             nav = Twist(); nav.linear.x = 0.10 if state['name'] == 'succeeded' else 0.60

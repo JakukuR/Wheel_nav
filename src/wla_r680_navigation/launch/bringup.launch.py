@@ -413,6 +413,10 @@ def generate_launch_description():
                      'autostart': True,
                      'node_names': ['velocity_smoother', 'collision_monitor']}]),
         ]),
+        Node(package='wla_r680_navigation', executable='navigation_map_mode',
+             name='r680_navigation_map_mode', output='screen', condition=IfCondition(start_nav2),
+             parameters=[{'always_map': ParameterValue(
+                 PythonExpression(["'", mode, "' == 'mapping'"]), value_type=bool)}]),
         Node(package='wla_r680_navigation', executable='navigation_goal_bridge',
              name='r680_navigation_goal_bridge', output='screen',
              condition=IfCondition(AllSubstitution(container=[full_navigation,
@@ -437,6 +441,9 @@ def generate_launch_description():
         package='wla_r680_navigation', executable='command_guard', output='screen',
         parameters=[{
             'hardware_output_enabled': ParameterValue(enable_motion, value_type=bool),
+            # Odometry health suffices; without a verified map match Nav2 plans
+            # mapless (navigation_map_mode) on live obstacle layers.
+            'health_topic': '/r680_nav/motion_ready',
             # OpenVINS uses upstream odometry through the existing interface monitor;
             # it does not publish a private frontend motion-permission message.
             'require_frontend_motion_permission': False,

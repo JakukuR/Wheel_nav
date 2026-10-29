@@ -41,6 +41,42 @@ def main():
         phase(False,True,False,False)
         print('PASS interface raw VIO / permission / bounded degradation separation',flush=True)
     finally:
-        proc.terminate();proc.wait(timeout=5);n.destroy_node();rclpy.shutdown()
+        proc.terminate();proc.wait(timeout=5)
+    try:
+        watchdog_split(n)
+    finally:
+        n.destroy_node();rclpy.shutdown()
+
+
+def watchdog_split(n):
+    """motion_ready needs odometry health only; localization_ready also the map match."""
+    topics=[(Image,'/r680/d455/color/image_raw'),(Image,'/r680/d455/aligned_depth_to_color/image_raw'),
+            (CameraInfo,'/r680/d455/color/camera_info'),(Odometry,'/d455_slam/odom'),
+            (Bool,'/r680_nav/vo_watchdog_healthy'),(Bool,'/r680_nav/vo_odometry_healthy')]
+    pubs=[n.create_publisher(t,name,10) for t,name in topics]
+    ready=[];motion=[]
+    n.create_subscription(Bool,'/r680_nav/localization_ready',lambda m:ready.append(m.data),10)
+    n.create_subscription(Bool,'/r680_nav/motion_ready',lambda m:motion.append(m.data),10)
+    proc=subprocess.Popen([os.environ['WLA_MONITOR_EXECUTABLE'],'--ros-args',
+        '-p','require_obstacle_points:=false','-p','require_vo_watchdog:=true'])
+    def phase(watchdog,odometry,expected_ready,expected_motion,send=True):
+        end=time.monotonic()+1.0;seen=[]
+        while time.monotonic()<end:
+            assert proc.poll() is None
+            c=CameraInfo();c.k[0]=c.k[4]=100.
+            o=Odometry();o.header.frame_id='odom';o.child_frame_id='base'
+            msgs=[Image(),Image(),c,o,Bool(data=watchdog),Bool(data=odometry)]
+            for p,m in zip(pubs,msgs if send else msgs[:4]):p.publish(m)
+            rclpy.spin_once(n,timeout_sec=.02);time.sleep(.02)
+            if ready and motion and time.monotonic()>end-.3:seen.append((ready[-1],motion[-1]))
+        assert seen and all(x==(expected_ready,expected_motion) for x in seen),(watchdog,odometry,seen)
+    try:
+        phase(False,True,False,True)    # odometry healthy, map not matched: mapless motion
+        phase(True,True,True,True)
+        phase(False,False,False,False)
+        phase(True,True,False,False,send=False)  # stale watchdog topics stop both
+        print('PASS motion_ready separates odometry health from the map match',flush=True)
+    finally:
+        proc.terminate();proc.wait(timeout=5)
 
 if __name__=='__main__':main()

@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+"""Select the global costmap's static map: the real map once localized, else mapless.
+
+Before a verified map match (and after one is lost) odometry is still usable but
+the map->odom correction is not. The global costmap then gets a blank grid
+around the robot, so planning relies only on the live obstacle layers. Goals
+belong in the odometry frame meanwhile: the planner re-transforms them on every
+replan, so they stay fixed in the world when relocalization later moves
+map->odom. navigation_goal_bridge refuses map-frame goals while mapless.
+"""
+from array import array
+import math
+import time
+
+import rclpy
+from nav_msgs.msg import OccupancyGrid
+from rclpy.duration import Duration
+from rclpy.executors import ExternalShutdownException
+from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.time import Time
+from std_msgs.msg import Bool, String, UInt32
+from tf2_ros import Buffer, TransformException, TransformListener
+
+MAP, MAPLESS = 'map', 'mapless'
+
+
+def yaw_of(q):
+    return math.atan2(2.0*(q.w*q.z + q.x*q.y), 1.0 - 2.0*(q.y*q.y + q.z*q.z))
+
+
+class NavigationMapMode(Node):
+    def __init__(self):
+        super().__init__('r680_navigation_map_mode')
+        p = self.declare_parameter
+        self.always_map = p('always_map', False).value
+        self.map_frame = p('map_frame', 'map').value
+        self.odom_frame = p('odom_frame', 'd455_floor_odom').value
+        self.base_frame = p('base_frame', 'r680_mapping_floor').value
+        self.size_m = float(p('mapless_size_m', 40.0).value)
+        self.resolution = float(p('mapless_resolution', 0.05).value)
+        self.margin_m = float(p('recenter_margin_m', 8.0).value)
+        self.localized_hold_s = float(p('localized_hold_s', 0.5).value)
+        self.lost_hold_s = float(p('lost_hold_s', 3.0).value)
+        self.jump_m = float(p('frame_jump_m', 0.10).value)
+        self.jump_rad = float(p('frame_jump_rad', 0.05).value)
+        self.freshness_s = float(p('freshness_s', 0.5).value)
+        values = (self.size_m, self.resolution, self.margin_m, self.localized_hold_s,
+                  self.lost_hold_s, self.jump_m, self.jump_rad, self.freshness_s)
+        if (not all(math.isfinite(v) and v > 0 for v in values)
+                or self.margin_m >= self.size_m/2 or self.resolution > 1.0):
+            raise ValueError('invalid navigation map mode parameters')
+
+        latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                             durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self.map_pub = self.create_publisher(
+            OccupancyGrid, p('output_map_topic', '/r680_nav/navigation_map').value, latched)
+        self.mode_pub = self.create_publisher(
+            String, p('mode_topic', '/r680_nav/navigation_map_mode').value, latched)
+        self.create_subscription(OccupancyGrid, p('source_map_topic', '/r680/d455/map').value,
+                                 self.on_map, latched)
+        self.localized = self.motion = (False, 0.0)
+        self.create_subscription(Bool, p('localization_topic', '/r680_nav/localization_ready').value,
+                                 lambda m: setattr(self, 'localized', (m.data, time.monotonic())), 10)
+        self.create_subscription(Bool, p('motion_topic', '/r680_nav/motion_ready').value,
+                                 lambda m: setattr(self, 'motion', (m.data, time.monotonic())), 10)
+        # A new odometry epoch (fusion backend lost continuity) invalidates
+        # everything marked in the current frames.
+        self.epoch = None
+        self.create_subscription(UInt32, p('epoch_topic', '/r680_nav/odom_epoch').value,
+                                 self.on_epoch, latched)
+        self.tf = Buffer(cache_time=Duration(seconds=5.0))
+        self.listener = TransformListener(self.tf, self)
+
+        self.source = None
+        self.mode = None
+        self.since = None
+        self.blank = None   # (origin x, origin y, map->odom x, y, yaw) of the published grid
+        self.next_report = 0.0
+        self.set_mode(MAP if self.always_map else MAPLESS, 'startup')
+        self.create_timer(0.2, self.tick)
+
+    def fresh(self, sample):
+        return sample[0] and time.monotonic() - sample[1] <= self.freshness_s
+
+    def on_map(self, msg):
+        self.source = msg
+        if self.mode == MAP:
+            self.map_pub.publish(msg)
+
+    def on_epoch(self, msg):
+        if self.epoch is not None and msg.data != self.epoch and not self.always_map:
+            self.set_mode(MAPLESS, f'odometry epoch {self.epoch} -> {msg.data}')
+        self.epoch = msg.data
+
+    def set_mode(self, mode, reason):
+        self.mode, self.since, self.blank = mode, None, None
+        self.mode_pub.publish(String(data=mode))
+        self.get_logger().warning(f'navigation map mode -> {mode} ({reason})')
+        if mode == MAP and self.source is not None:
+            self.map_pub.publish(self.source)
+
+    def lookup(self, target, child):
+        try:
+            t = self.tf.lookup_transform(target, child, Time()).transform
+        except TransformException:
+            return None
+        return t.translation.x, t.translation.y, yaw_of(t.rotation)
+
+    def tick(self):
+        if self.always_map:
+            return
+        now = time.monotonic()
+        localized, motion = self.fresh(self.localized), self.fresh(self.motion)
+        # Only an odometry-healthy loss of the map match switches to mapless;
+        # stale inputs drop both and the guard already stops motion.
+        wanted = MAP if localized else MAPLESS if motion else self.mode
+        if wanted == self.mode:
+            self.since = None
+        else:
+            self.since = self.since or now
+            if now - self.since >= (self.localized_hold_s if wanted == MAP else self.lost_hold_s):
+                self.set_mode(wanted, 'verified map match' if wanted == MAP else 'map match lost')
+        if self.mode == MAPLESS:
+            self.update_blank(now)
+
+    def update_blank(self, now):
+        base = self.lookup(self.map_frame, self.base_frame)
+        frame = self.lookup(self.map_frame, self.odom_frame)
+        if base is None or frame is None:
+            if now >= self.next_report:
+                self.get_logger().warning('mapless grid waiting for map->base TF')
+                self.next_report = now + 5.0
+            return
+        reason = None
+        if self.blank is None:
+            reason = 'initial'
+        else:
+            ox, oy, fx, fy, fyaw = self.blank
+            if (math.hypot(frame[0]-fx, frame[1]-fy) > self.jump_m or
+                    abs(math.remainder(frame[2]-fyaw, math.tau)) > self.jump_rad):
+                # map->odom moved without a verified match: obstacles marked in
+                # the map frame are misplaced now, so rebuild the grid.
+                reason = 'map_odom_moved'
+            elif min(base[0]-ox, base[1]-oy, ox+self.size_m-base[0], oy+self.size_m-base[1]) < self.margin_m:
+                reason = 'recenter'
+        if reason is None:
+            return
+        r = self.resolution
+        ox = math.floor((base[0]-self.size_m/2)/r)*r
+        oy = math.floor((base[1]-self.size_m/2)/r)*r
+        if self.blank is not None and abs(ox-self.blank[0]) < r/2 and abs(oy-self.blank[1]) < r/2:
+            ox += r  # only a resize clears the other costmap layers; force one
+        cells = int(round(self.size_m/r))
+        grid = OccupancyGrid()
+        grid.header.frame_id = self.map_frame
+        grid.header.stamp = self.get_clock().now().to_msg()
+        grid.info.map_load_time = grid.header.stamp
+        grid.info.resolution = r
+        grid.info.width = grid.info.height = cells
+        grid.info.origin.position.x, grid.info.origin.position.y = ox, oy
+        grid.info.origin.orientation.w = 1.0
+        grid.data = array('b', bytes(cells*cells))
+        self.map_pub.publish(grid)
+        self.blank = (ox, oy) + frame
+        self.get_logger().info(f'mapless grid {reason}: origin=({ox:.2f},{oy:.2f}) size={self.size_m:g}m')
+
+
+def main():
+    rclpy.init()
+    node = NavigationMapMode()
+    try:
+        rclpy.spin(node)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

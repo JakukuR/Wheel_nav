@@ -31,7 +31,7 @@ from rclpy.qos import (
     qos_profile_sensor_data,
 )
 from sensor_msgs.msg import PointCloud2, Image as RosImage
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 from sensor_msgs_py import point_cloud2
 from tf2_ros import Buffer, TransformException, TransformListener
 
@@ -118,6 +118,7 @@ class GatewayNode(Node):
             'goal_status': 'idle',
             'ages': {},
             'navigation_ready': False,
+            'navigation_map_mode': None,
         }
         self._received = {}
 
@@ -133,6 +134,7 @@ class GatewayNode(Node):
             self.create_subscription(OccupancyGrid, self.map_topic, self._map_cb, map_qos)
         self.create_subscription(Odometry, '/d455_slam/odom', self._odom_cb, 10)
         self.create_subscription(Bool, '/r680_nav/localization_ready', self._ready_cb, 10)
+        self.create_subscription(String, '/r680_nav/navigation_map_mode', self._mode_cb, map_qos)
         self.create_subscription(
             Twist, self.cmd_vel_topic, lambda msg: self._velocity_cb(msg, 'cmd'), 10)
         self.create_subscription(
@@ -512,6 +514,14 @@ class GatewayNode(Node):
                     continue
                 z, w = _quaternion(yaw)
                 if command == 'goal':
+                    with self._lock:
+                        mapless = self._state['navigation_map_mode'] == 'mapless'
+                    if mapless:
+                        # Map clicks are meaningless before a verified map match.
+                        with self._lock:
+                            self._state['goal_status'] = 'rejected_mapless'
+                        self.get_logger().warning('rejected web map goal: not localized (mapless)')
+                        continue
                     msg = PoseStamped()
                     msg.header.frame_id = 'map'
                     msg.header.stamp = self.get_clock().now().to_msg()
@@ -546,6 +556,10 @@ class GatewayNode(Node):
                     self._clear_local.call_async(request)
                 if self._clear_global.service_is_ready():
                     self._clear_global.call_async(ClearEntireCostmap.Request())
+
+    def _mode_cb(self, msg):
+        with self._lock:
+            self._state['navigation_map_mode'] = msg.data
 
     def _ready_cb(self, msg):
         with self._lock:

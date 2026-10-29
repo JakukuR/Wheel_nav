@@ -71,7 +71,7 @@ ament_target_dependencies(kalo_jpeg rclcpp sensor_msgs)
 
 install(TARGETS degraded_odometry command_guard vio_initializer mapping_odom_gate imu_conditioner path_speed_profile goal_approach_limiter dynamic_obstacle_memory vo_watchdog interface_monitor depth_to_points point_to_scan kalo_jpeg DESTINATION lib/${PROJECT_NAME})
 ament_python_install_package(wla_r680_navigation_py)
-install(PROGRAMS scripts/navigation_goal_bridge scripts/web_gateway scripts/furniture_semantic.py scripts/nav_yolo_detector scripts/nav_perception_bringup scripts/agent_observation_window scripts/kalo_debug_web scripts/perception_debug_standalone
+install(PROGRAMS scripts/navigation_goal_bridge scripts/navigation_map_mode scripts/web_gateway scripts/furniture_semantic.py scripts/nav_yolo_detector scripts/nav_perception_bringup scripts/agent_observation_window scripts/kalo_debug_web scripts/perception_debug_standalone
   DESTINATION lib/${PROJECT_NAME})
 install(PROGRAMS scripts/mapping_mission scripts/prepare_mapping_run scripts/save_manual_map
   scripts/r680_nav.sh scripts/wait_mapping_ready scripts/openvins_nav_startup.py scripts/openvins_motion_init.py scripts/navigation_motion_session.py
@@ -139,6 +139,11 @@ if(BUILD_TESTING)
   set_tests_properties(cuvslam_initialization_authority PROPERTIES
     ENVIRONMENT "ROS_DOMAIN_ID=198;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST"
     RUN_SERIAL TRUE TIMEOUT 120)  # 10 runs; each starts the C++ mux process
+  add_test(NAME mapless_navigation COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_mapless_navigation.py)
+  set_tests_properties(mapless_navigation PROPERTIES
+    ENVIRONMENT "ROS_DOMAIN_ID=198;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST"
+    RUN_SERIAL TRUE TIMEOUT 90)
   add_test(NAME frontend_interface COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/test/test_frontend_interface.py)
   set_tests_properties(frontend_interface PROPERTIES

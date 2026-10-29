@@ -74,6 +74,11 @@ public:
         vo_watchdog_healthy_ = msg->data;
         vo_watchdog_seen_ = now_steady();
       });
+    vo_odometry_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/r680_nav/vo_odometry_healthy", 10, [this](std_msgs::msg::Bool::ConstSharedPtr msg) {
+        vo_odometry_healthy_ = msg->data;
+        vo_odometry_seen_ = now_steady();
+      });
     vio_health_sub_ = create_subscription<std_msgs::msg::Bool>(
       declare_parameter<std::string>("vio_health_topic", "/r680_nav/vio_tracking_healthy"),
       1, [this](std_msgs::msg::Bool::ConstSharedPtr msg) {
@@ -84,6 +89,9 @@ public:
         mapping_healthy_ = msg->data; mapping_seen_ = now_steady();
       });
     ready_pub_ = create_publisher<std_msgs::msg::Bool>("/r680_nav/localization_ready", 1);
+    // Same inputs without the verified map match: odometry is enough to move
+    // mapless (navigation_map_mode) while relocalization continues.
+    motion_pub_ = create_publisher<std_msgs::msg::Bool>("/r680_nav/motion_ready", 1);
     timer_ = create_wall_timer(100ms, std::bind(&InterfaceMonitor::tick, this));
   }
 
@@ -98,18 +106,22 @@ private:
   void tick()
   {
     const auto stamp = now_steady();
-    std_msgs::msg::Bool ready;
-    ready.data = fresh(rgb_seen_, stamp) && fresh(depth_seen_, stamp) &&
+    const bool common = fresh(rgb_seen_, stamp) && fresh(depth_seen_, stamp) &&
       fresh(info_seen_, stamp) && fresh(odom_seen_, stamp) &&
       (!require_points_ || fresh(points_seen_, stamp)) &&
       (!require_chassis_odom_ || fresh(chassis_odom_seen_, stamp)) &&
-      (!require_vo_watchdog_ || (vo_watchdog_healthy_ && fresh(vo_watchdog_seen_, stamp))) &&
       (!require_vio_health_ || (vio_healthy_ && fresh(vio_seen_, stamp)) ||
         (allow_bounded_degraded_ && require_motion_permission_ && degraded_ &&
          fresh(degraded_seen_, stamp) && motion_permission_ && fresh(motion_permission_seen_, stamp))) &&
       (!require_motion_permission_ || (motion_permission_ && fresh(motion_permission_seen_, stamp))) &&
       (!require_mapping_odom_ || (mapping_healthy_ && fresh(mapping_seen_, stamp)));
+    std_msgs::msg::Bool ready, motion;
+    ready.data = common &&
+      (!require_vo_watchdog_ || (vo_watchdog_healthy_ && fresh(vo_watchdog_seen_, stamp)));
+    motion.data = common &&
+      (!require_vo_watchdog_ || (vo_odometry_healthy_ && fresh(vo_odometry_seen_, stamp)));
     ready_pub_->publish(ready);
+    motion_pub_->publish(motion);
   }
 
   bool require_motion_permission_{false}, motion_permission_{false};
@@ -120,7 +132,8 @@ private:
   bool require_points_{true};
   bool require_chassis_odom_{false};
   bool require_vo_watchdog_{false};
-  bool vo_watchdog_healthy_{false};
+  bool vo_watchdog_healthy_{false}, vo_odometry_healthy_{false};
+  Clock::time_point vo_odometry_seen_{};
   bool require_vio_health_{false}, vio_healthy_{false};
   Clock::time_point vio_seen_{};
   bool require_mapping_odom_{false}, mapping_healthy_{false};
@@ -129,13 +142,13 @@ private:
   Clock::time_point chassis_odom_seen_{}, vo_watchdog_seen_{};
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr rgb_sub_, depth_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr chassis_odom_sub_;
-  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr vo_watchdog_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr vo_watchdog_sub_, vo_odometry_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr vio_health_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr mapping_health_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr points_sub_;
-  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr ready_pub_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr ready_pub_, motion_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 

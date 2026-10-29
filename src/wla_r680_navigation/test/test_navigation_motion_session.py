@@ -18,7 +18,7 @@ from mux_process import MuxProcess
 rclpy.init();node=Node('handoff_fixture');mux=MuxProcess(node,'/tmp/navigation-motion-session-mux.log');ex=SingleThreadedExecutor()
 ex.add_node(node)
 wheel=node.create_publisher(Odometry,'/wheel/odom',qos_profile_sensor_data)
-health=node.create_publisher(Bool,'/r680_nav/localization_ready',10)
+health=node.create_publisher(Bool,'/r680_nav/motion_ready',10)
 cmd=node.create_publisher(Twist,'/r680_nav/cmd_vel_collision_checked',10)
 gamepad=node.create_publisher(String,'/gamepad_status',10)
 manual=node.create_publisher(Twist,'/r680_manual/cmd_vel',1)
@@ -44,7 +44,8 @@ try:
     states.clear();base.clear();cancelled.clear();permissions.clear()
     mux.restart(lambda:ex.spin_once(timeout_sec=.01))  # fresh policy state per case
     guard=subprocess.Popen([str(Path(os.environ['WLA_NAV_BIN'])/'command_guard'),'--ros-args',
-        '-p','hardware_output_enabled:=false','-p','require_frontend_motion_permission:=false'],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+        '-p','hardware_output_enabled:=false','-p','require_frontend_motion_permission:=false',
+        '-p','health_topic:=/r680_nav/motion_ready'],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
     session=subprocess.Popen([sys.executable,str(root/'scripts/navigation_motion_session.py')],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
     start=time.monotonic();enabled=None;triggered=False;health_stopped=False;stale_sent=False
     try:

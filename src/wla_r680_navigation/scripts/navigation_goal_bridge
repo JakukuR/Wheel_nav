@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Turn RViz PoseStamped goals into Nav2 actions and goal markers."""
+"""Turn RViz PoseStamped goals into Nav2 actions and goal markers.
+
+While navigation_map_mode reports mapless, map-frame goals are refused: the
+map->odom correction is unverified. Odometry-frame goals are accepted, and goals
+in the robot frame are converted to the odometry frame on arrival, because the
+planner re-transforms goals on every replan. A new odometry epoch cancels the
+odometry-frame goal this bridge sent.
+"""
 
 import copy
 
@@ -11,6 +18,10 @@ from rclpy.duration import Duration
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.time import Time
+from std_msgs.msg import String, UInt32
+from tf2_ros import Buffer, TransformException, TransformListener
+import tf2_geometry_msgs  # noqa: F401  (registers PoseStamped transforms)
 from visualization_msgs.msg import Marker, MarkerArray
 
 
@@ -28,6 +39,19 @@ class NavigationGoalBridge(Node):
         self._markers = self.create_publisher(
             MarkerArray, '/r680_nav/goal_marker', marker_qos)
         self._goal_generation = 0
+        self._map_frame = self.declare_parameter('map_frame', 'map').value
+        self._odom_frame = self.declare_parameter('odom_frame', 'd455_floor_odom').value
+        self._mode = None
+        self._epoch = None
+        self._handle = None
+        self._handle_frame = None
+        self._tf = Buffer(cache_time=Duration(seconds=5.0))
+        self._tf_listener = TransformListener(self._tf, self)
+        self.create_subscription(String, self.declare_parameter(
+            'mode_topic', '/r680_nav/navigation_map_mode').value,
+            lambda msg: setattr(self, '_mode', msg.data), marker_qos)
+        self.create_subscription(UInt32, self.declare_parameter(
+            'epoch_topic', '/r680_nav/odom_epoch').value, self._on_epoch, marker_qos)
         self.create_subscription(PoseStamped, self._goal_topic, self._on_goal, 10)
         self.get_logger().info(
             f'Navigation goals: {self._goal_topic} -> {self._action_name}')
@@ -59,10 +83,31 @@ class NavigationGoalBridge(Node):
         marker.action = Marker.DELETEALL
         self._markers.publish(MarkerArray(markers=[marker]))
 
+    def _on_epoch(self, msg):
+        if (self._epoch is not None and msg.data != self._epoch and self._handle is not None
+                and self._handle_frame != self._map_frame):
+            self.get_logger().warning(
+                f'odometry epoch {self._epoch} -> {msg.data}: cancelling the {self._handle_frame} goal')
+            self._handle.cancel_goal_async()
+        self._epoch = msg.data
+
     def _on_goal(self, pose):
         if not pose.header.frame_id:
             self.get_logger().error('rejecting RViz goal without frame_id')
             return
+        if self._mode == 'mapless':
+            if pose.header.frame_id == self._map_frame:
+                self.get_logger().error(
+                    'rejecting map-frame goal: not localized yet (mapless); send it in '
+                    f'{self._odom_frame} or wait for relocalization')
+                return
+            if pose.header.frame_id != self._odom_frame:
+                try:
+                    pose.header.stamp = Time().to_msg()  # latest transform
+                    pose = self._tf.transform(pose, self._odom_frame, Duration(seconds=0.2))
+                except TransformException as exc:
+                    self.get_logger().error(f'rejecting mapless goal: {exc}')
+                    return
         self._goal_generation += 1
         generation = self._goal_generation
         self._publish_marker(pose)
@@ -73,14 +118,15 @@ class NavigationGoalBridge(Node):
             return
         goal = NavigateToPose.Goal()
         goal.pose = pose
+        frame = pose.header.frame_id
         future = self._client.send_goal_async(goal)
         future.add_done_callback(
-            lambda completed: self._goal_response(completed, generation))
+            lambda completed: self._goal_response(completed, generation, frame))
         self.get_logger().info(
             f'sending goal in {pose.header.frame_id}: '
             f'x={pose.pose.position.x:.3f}, y={pose.pose.position.y:.3f}')
 
-    def _goal_response(self, future, generation):
+    def _goal_response(self, future, generation, frame):
         try:
             handle = future.result()
         except Exception as exc:
@@ -91,6 +137,8 @@ class NavigationGoalBridge(Node):
             self.get_logger().error('Nav2 rejected the RViz goal')
             self._clear_marker(generation)
             return
+        if generation == self._goal_generation:
+            self._handle, self._handle_frame = handle, frame
         self.get_logger().info('Nav2 accepted the RViz goal')
         result = handle.get_result_async()
         result.add_done_callback(
@@ -103,6 +151,8 @@ class NavigationGoalBridge(Node):
         except Exception as exc:
             self.get_logger().error(f'failed to receive Nav2 result: {exc}')
         finally:
+            if generation == self._goal_generation:
+                self._handle = None
             self._clear_marker(generation)
 
 

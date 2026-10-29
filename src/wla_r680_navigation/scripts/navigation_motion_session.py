@@ -2,7 +2,8 @@
 """One explicit navigation authorization after startup; never reclaim takeover.
 
 The root entry runs this only with --enable-motion. --cuvslam-init authorizes
-bounded initialization before localization; ordinary navigation waits for readiness.
+bounded initialization before localization; ordinary navigation waits for motion
+readiness (odometry healthy; a map match is not required, see navigation_map_mode).
 This node publishes permission, not chassis velocity.
 """
 import argparse
@@ -24,7 +25,7 @@ from std_srvs.srv import SetBool
 
 
 class Session(Node):
-    def __init__(self, cuvslam_init=False):
+    def __init__(self, cuvslam_init=False, health_topic='/r680_nav/motion_ready'):
         super().__init__('navigation_motion_session')
         self.cuvslam_init=cuvslam_init;self.init_authorized=False;self.init_state='';self.init_at=0.
         self.init_permission=None
@@ -41,7 +42,7 @@ class Session(Node):
         self.guard=self.create_client(SetParameters,'/r680_command_guard/set_parameters')
         self.create_subscription(String,'/r680_base/control_state',self.on_control,10)
         self.create_subscription(Odometry,'/wheel/odom',self.on_wheel,qos_profile_sensor_data)
-        self.create_subscription(Bool,'/r680_nav/localization_ready',self.on_health,10)
+        self.create_subscription(Bool,health_topic,self.on_health,10)
         self.create_subscription(Odometry,'/openvins/odomimu',self.on_frontend,qos_profile_sensor_data)
         self.cancels={}
         for name in ('navigate_to_pose','navigate_through_poses'):
@@ -234,9 +235,10 @@ class Session(Node):
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--cuvslam-init',action='store_true')
+    parser.add_argument('--health-topic',default='/r680_nav/motion_ready')
     args,ros_args=parser.parse_known_args()
     rclpy.init(args=ros_args,signal_handler_options=SignalHandlerOptions.NO)
-    node=Session(cuvslam_init=args.cuvslam_init)
+    node=Session(cuvslam_init=args.cuvslam_init,health_topic=args.health_topic)
     for sig in (signal.SIGINT,signal.SIGTERM):signal.signal(sig,lambda *_:setattr(node,'cancelled',True))
     code=0
     try:node.run()
