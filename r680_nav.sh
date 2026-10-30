@@ -28,7 +28,6 @@ usage() {
   --mpc                  显式使用 MPC（当前默认；全局静态地图，局部点云避障）
   --mppi                 切回 nav2.yaml/MPPI
   --scan-obstacles       局部代价地图试用 D455 点云生成的 LaserScan（默认仍用点云）
-  --terrain              用坡面/台阶分析（wla_terrain_analysis）代替 depth_to_points
   --test-scan-only       使用独立 nav2_test.yaml：MPC + 局部 Scan，关闭全局 D455 动态层
   --test-recovery        使用 nav2_recovery_test.yaml：MPC + 局部 Scan + 有时限的全局动态障碍
   --no-rviz              不启动 RViz
@@ -60,7 +59,6 @@ DISABLE_DEGRADED_ODOM=false
 ODOM_BACKEND=fusion
 DARK_INFRA=false
 SCAN_OBSTACLES=false
-TERRAIN_ANALYSIS=false
 TEST_SCAN_ONLY=false
 TEST_RECOVERY=false
 START_RVIZ=true
@@ -96,7 +94,6 @@ while [[ $# -gt 0 ]]; do
     --mpc) USE_MPC=true; shift ;;
     --mppi) USE_MPC=false; shift ;;
     --scan-obstacles) SCAN_OBSTACLES=true; shift ;;
-    --terrain) TERRAIN_ANALYSIS=true; shift ;;
     --test-scan-only) TEST_SCAN_ONLY=true; SCAN_OBSTACLES=true; shift ;;
     --test-recovery) TEST_RECOVERY=true; SCAN_OBSTACLES=true; shift ;;
     --no-rviz) START_RVIZ=false; shift ;;
@@ -495,7 +492,6 @@ LAUNCH_ARGS=(
   mode:=localization database_path:="$DB_PATH" navigation_map_yaml:="$MAP_YAML" web_map_yaml:="$MAP_YAML"
   nav_params_file:="$NAV2_PARAMS_FILE"
   obstacle_scan:="$SCAN_OBSTACLES"
-  terrain_analysis:="${TERRAIN_ANALYSIS:-false}"
   start_dynamic_obstacles:="$START_DYNAMIC_OBSTACLES"
   start_d455:=false start_chassis:="$START_CHASSIS" start_nav2:=true start_navigation_servers:=true
   start_state_estimation:=true use_d455_imu:="$USE_D455_IMU" use_chassis_imu:=true

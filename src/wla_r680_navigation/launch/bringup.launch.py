@@ -64,7 +64,6 @@ def generate_launch_description():
     start_chassis = LaunchConfiguration('start_chassis')
     start_nav2 = LaunchConfiguration('start_nav2')
     obstacle_scan = LaunchConfiguration('obstacle_scan')
-    terrain_analysis = LaunchConfiguration('terrain_analysis')
     start_dynamic_obstacles = LaunchConfiguration('start_dynamic_obstacles')
     start_navigation_servers = LaunchConfiguration('start_navigation_servers')
     start_state_estimation = LaunchConfiguration('start_state_estimation')
@@ -341,21 +340,10 @@ def generate_launch_description():
             ('odom', '/wheel/odom'),
             ('imu/data_raw', '/wheel/imu/data_raw')])
 
-    # terrain_analysis:=true replaces depth_to_points (same output topics; z is the
-    # height above the local ground plane, so ramps <= 20 deg are not obstacles).
-    use_terrain = PythonExpression(["'", start_nav2, "' == 'true' and '", terrain_analysis, "' == 'true'"])
     depth_points = Node(
         package='wla_r680_navigation', executable='depth_to_points',
-        name='r680_d455_depth_to_points', output='screen',
-        condition=IfCondition(PythonExpression(["'", start_nav2, "' == 'true' and '", terrain_analysis, "' != 'true'"])),
+        name='r680_d455_depth_to_points', output='screen', condition=IfCondition(start_nav2),
         parameters=[str(config / 'd455_points.yaml')])
-    terrain_config = PathJoinSubstitution([FindPackageShare('wla_terrain_analysis'), 'config', 'terrain_analysis.yaml'])
-    terrain_odometry = Node(
-        package='wla_terrain_analysis', executable='terrain_odometry', name='terrain_odometry',
-        output='screen', condition=IfCondition(use_terrain), parameters=[terrain_config])
-    terrain_points = Node(
-        package='wla_terrain_analysis', executable='terrain_analysis', name='terrain_analysis',
-        output='screen', condition=IfCondition(use_terrain), parameters=[terrain_config])
 
     scan_converter = Node(
         package='wla_r680_navigation', executable='point_to_scan',
@@ -554,7 +542,6 @@ def generate_launch_description():
         DeclareLaunchArgument('start_chassis', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('start_nav2', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('obstacle_scan', default_value='false', choices=['true', 'false']),
-        DeclareLaunchArgument('terrain_analysis', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('start_dynamic_obstacles', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('start_navigation_servers', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('agent_control', default_value='false', choices=['true', 'false']),
@@ -608,6 +595,6 @@ def generate_launch_description():
         static_map_server, static_map_lifecycle,
         realsense, mount_tf, chassis_imu_tf, imu_filter, chassis_imu_conditioner,
         chassis_imu_filter, vo, cuvslam, openvins, continuous_odom, odom_fusion, mapping_gate, vo_watchdog, ekf, rtabmap,
-        chassis, depth_points, terrain_odometry, terrain_points, scan_converter, dynamic_obstacles, semantic_collector,
+        chassis, depth_points, scan_converter, dynamic_obstacles, semantic_collector,
         *nav2_nodes, monitor, guard, initializer, web_gateway,
     ])
