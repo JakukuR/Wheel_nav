@@ -1,0 +1,65 @@
+r680_odom_fusion:
+  ros__parameters:
+    # Replaces degraded_odometry in the cuVSLAM continuity slot (odom_backend:=fusion).
+    raw_odom_topic: /r680_nav/vio_raw_odom
+    quality_topic: /r680_nav/vio_visual_quality
+    output_topic: /d455_slam/odom
+    wheel_topic: /wheel/odom
+    imu_topic: /wheel/imu/data_raw
+    odom_frame: d455_floor_odom
+    base_frame: r680_mapping_floor
+    expected_imu_frame: gyro_link
+    # Same provisional chassis-centre IMU mounting assumption as cuvslam.yaml.
+    base_from_imu_rotation: [0.0, 0.0, 0.0, 1.0]
+    wheel_timeout_s: 0.15
+    imu_timeout_s: 0.10
+    visual_timeout_s: 0.15
+    input_timeout_s: 0.20     # reported LOST while chassis samples are missing
+    max_sample_gap_s: 0.25    # longer gaps break continuity: new epoch after vision
+    keyframe_lag_s: 0.15      # keyframes wait for the visual pose latency
+
+    # Window: 10 Hz keyframes over 3 s (BatchFixedLagSmoother).
+    keyframe_s: 0.1
+    window_s: 3.0
+    # Noise. Provisional until fitted from recorded runs (R680-NAV-008).
+    wheel_sigma_min: 0.002    # m per keyframe
+    wheel_sigma_per_m: 0.05   # m per m travelled
+    gyro_noise: 0.005         # rad/s/sqrt(Hz)
+    bias_walk: 0.0005         # rad/s/sqrt(s)
+    bias_prior: 0.02          # rad/s
+    vo_sigma_xy: 0.01
+    vo_sigma_yaw: 0.005
+    zupt_sigma: 0.001
+    stationary_v: 0.005
+    stationary_w: 0.01
+
+    # Visual quality score from cuVSLAM observations and their 8x8 grid
+    # coverage; factors stop above visual_off and resume below visual_on.
+    min_observations: 20
+    ref_observations: 120
+    ref_coverage: 0.35
+    visual_off: 0.7
+    visual_on: 0.4
+    visual_on_frames: 3
+    visual_max_gap_s: 0.12
+    vo_jump_m: 0.15           # larger cuVSLAM moves start a new visual segment
+    vo_jump_rad: 0.15
+
+    # Slip score: wheel turn rate vs gyro, wheel accel vs IMU accel, wheel vs
+    # vision. Above slip_on for slip_on_frames the wheel translation is dropped.
+    slip_w: 0.2
+    slip_a: 1.5
+    slip_vo_m: 0.02
+    slip_on: 0.8
+    slip_off: 0.4
+    slip_on_frames: 2
+    slip_off_frames: 5
+    slip_inflation: 10.0
+
+    # Without vision: BRIDGING (guard limits speed) until these, then LOST.
+    # Wheel scale and gyro bias errors are correlated, growing linearly with
+    # blind distance and moving time (~10-20 s at the 0.15 m/s bridging cap).
+    wheel_scale_sigma: 0.03
+    bias_sigma: 0.003         # rad/s
+    max_sigma_xy: 0.25
+    max_sigma_yaw: 0.25

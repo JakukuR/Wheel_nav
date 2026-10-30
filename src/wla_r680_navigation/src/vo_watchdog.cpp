@@ -20,6 +20,7 @@
 #include "rtabmap_msgs/msg/odom_info.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "std_msgs/msg/u_int32.hpp"
 #include "tf2/time.h"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
@@ -64,6 +65,9 @@ public:
     wheel_translation_error_m_ = declare_parameter<double>("wheel_translation_error_m", 0.45);
     wheel_yaw_error_rad_ = declare_parameter<double>("wheel_yaw_error_rad", 0.65);
     wheel_mismatch_limit_ = declare_parameter<int>("wheel_mismatch_limit", 3);
+    // The odom_fusion backend weighs wheel slip against vision itself; a
+    // disagreement is then slip, not a VO fault.
+    wheel_consistency_check_ = declare_parameter<bool>("wheel_consistency_check", true);
     compare_wheel_yaw_ = declare_parameter<bool>("compare_wheel_yaw", false);
     restart_enabled_ = declare_parameter<bool>("restart_enabled", true);
     recovery_stable_s_ = declare_parameter<double>("recovery_stable_s", 2.0);
@@ -151,6 +155,25 @@ public:
           RCLCPP_WARN(get_logger(),"manual initial pose received; retrying geometric verification while motion remains locked");
           requestSearchStage(3);
         }
+      });
+    // A new odometry epoch (the fusion backend lost continuity and re-anchored)
+    // voids every map match made in the old frame: search the whole map again.
+    epoch_sub_ = create_subscription<std_msgs::msg::UInt32>("/r680_nav/odom_epoch",
+      rclcpp::QoS(1).reliable().transient_local(), [this](std_msgs::msg::UInt32::ConstSharedPtr msg) {
+        if (epoch_ && *epoch_ != msg->data && !fault_latched_) {
+          map_evidence_.reset(get_clock()->now().seconds());
+          pending_localization_.reset();
+          views_.reset();
+          manual_prior_.reset();
+          ever_admitted_ = false;
+          if (startup_search_ == 3) {startup_search_ = 0;}
+          last_vo_.reset();
+          window_vo_.reset();
+          mismatch_count_ = 0;
+          RCLCPP_WARN(get_logger(), "odometry epoch %u -> %u: map match invalidated, whole-map search again",
+            *epoch_, msg->data);
+        }
+        epoch_ = msg->data;
       });
     vo_sub_ = create_subscription<nav_msgs::msg::Odometry>(
       vo_topic, rclcpp::SensorDataQoS(),
@@ -378,7 +401,7 @@ private:
 
     // Compare movement over windows, not single frames; wheel odometry is an
     // independent diagnostic, not a replacement for camera localization.
-    if (age(wheel_seen_) > 0.30) {window_vo_.reset(); mismatch_count_ = 0; return;}
+    if (!wheel_consistency_check_ || age(wheel_seen_) > 0.30) {window_vo_.reset(); mismatch_count_ = 0; return;}
     if (!window_vo_) {
       window_vo_ = pose;
       window_wheel_ = wheel_;
@@ -910,6 +933,9 @@ private:
   // the watchdog input it itself needs. This is not a new degradation budget.
   Clock::time_point frontend_last_ready_{};
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr continuity_sub_;
+  rclcpp::Subscription<std_msgs::msg::UInt32>::SharedPtr epoch_sub_;
+  std::optional<uint32_t> epoch_;
+  bool wheel_consistency_check_{true};
   double startup_grace_s_{}, stale_s_{}, jump_linear_mps_{}, jump_angular_rps_{};
   bool degradedActive() const {return bounded_degraded_ && degraded_active_ && age(degraded_seen_)<0.20;}
   bool bounded_degraded_{false},degraded_active_{false};double degraded_map_grace_{};

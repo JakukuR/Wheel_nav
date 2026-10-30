@@ -21,6 +21,7 @@
 #include "cuvslam2.h"
 #include "cuvslam2_internal.h"
 #include "initialization_sampling.hpp"
+#include "visual_quality.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/image.hpp"
 #include "sensor_msgs/msg/camera_info.hpp"
@@ -28,6 +29,7 @@
 #include "nav_msgs/msg/odometry.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "std_msgs/msg/bool.hpp"
+#include "std_msgs/msg/float32_multi_array.hpp"
 #include "tf2_ros/transform_broadcaster.h"
 #include "health_evidence.hpp"
 #include "odometry_covariance.hpp"
@@ -124,6 +126,9 @@ public:
     // The navigation continuity node may use this only after a trusted startup.
     inertial_pub_ = create_publisher<std_msgs::msg::Bool>("/r680_nav/vio_inertial_valid", 10);
     visual_pub_ = create_publisher<std_msgs::msg::Bool>("/r680_nav/vio_visual_observed", 10);
+    // [observations, left-image 8x8 grid coverage] per tracked frame, for the
+    // odometry fusion backend's visual quality score.
+    quality_pub_ = create_publisher<std_msgs::msg::Float32MultiArray>("/r680_nav/vio_visual_quality", 10);
     publish_visual_only_ = declare_parameter<bool>("publish_visual_only", false);
     health_reason_pub_ = create_publisher<std_msgs::msg::String>("/r680_nav/vio_health_reason", 10);
     minimum_visual_observations_ = declare_parameter<int>("minimum_visual_observations", 20);
@@ -473,6 +478,13 @@ private:
           feature_visualizer_->submit(pair, sdk_state.observations, sdk_state.timestamp_ns);
         }
         last_observations_=static_cast<int64_t>(sdk_state.observations.size());
+        {
+          std_msgs::msg::Float32MultiArray quality;
+          quality.data = {static_cast<float>(sdk_state.observations.size()),
+            static_cast<float>(wla_vio::gridCoverage(sdk_state.observations,
+              static_cast<int>(pair[0]->width), static_cast<int>(pair[0]->height)))};
+          quality_pub_->publish(quality);
+        }
         last_warming_up_=sdk_state.warming_up;
         if (initialization_diagnostics_) {
           if (sdk_state.keyframe && estimate.world_from_rig) {
@@ -749,6 +761,7 @@ private:
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr health_pub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr inertial_pub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr visual_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr quality_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr health_reason_pub_;
   int minimum_visual_observations_{};
   int64_t previous_pose_stamp_{};

@@ -25,6 +25,17 @@ ament_target_dependencies(wla_timed_obstacle_layer nav2_costmap_2d pluginlib rcl
 pluginlib_export_plugin_description_file(nav2_costmap_2d costmap_plugins.xml)
 install(TARGETS wla_timed_obstacle_layer LIBRARY DESTINATION lib)
 
+find_package(GTSAM REQUIRED)
+find_package(GTSAM_UNSTABLE REQUIRED)
+# Sliding-window odometry (wheel + gyro + cuVSLAM) in a GTSAM fixed-lag smoother.
+add_library(odom_fusion_core STATIC src/odom_fusion_core.cpp)
+target_include_directories(odom_fusion_core PUBLIC include)
+target_compile_features(odom_fusion_core PUBLIC cxx_std_17)
+set_target_properties(odom_fusion_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(odom_fusion_core gtsam gtsam_unstable)
+add_executable(odom_fusion src/odom_fusion.cpp)
+target_link_libraries(odom_fusion odom_fusion_core)
+ament_target_dependencies(odom_fusion geometry_msgs nav_msgs rclcpp sensor_msgs std_msgs tf2 tf2_ros)
 add_executable(command_guard src/command_guard.cpp)
 add_executable(degraded_odometry src/degraded_odometry.cpp)
 target_include_directories(degraded_odometry PRIVATE include)
@@ -69,7 +80,7 @@ target_compile_features(kalo_jpeg PRIVATE cxx_std_17)
 target_link_libraries(kalo_jpeg ${OpenCV_LIBS} PkgConfig::GST)
 ament_target_dependencies(kalo_jpeg rclcpp sensor_msgs)
 
-install(TARGETS degraded_odometry command_guard vio_initializer mapping_odom_gate imu_conditioner path_speed_profile goal_approach_limiter dynamic_obstacle_memory vo_watchdog interface_monitor depth_to_points point_to_scan kalo_jpeg DESTINATION lib/${PROJECT_NAME})
+install(TARGETS odom_fusion degraded_odometry command_guard vio_initializer mapping_odom_gate imu_conditioner path_speed_profile goal_approach_limiter dynamic_obstacle_memory vo_watchdog interface_monitor depth_to_points point_to_scan kalo_jpeg DESTINATION lib/${PROJECT_NAME})
 ament_python_install_package(wla_r680_navigation_py)
 install(PROGRAMS scripts/navigation_goal_bridge scripts/navigation_map_mode scripts/web_gateway scripts/furniture_semantic.py scripts/nav_yolo_detector scripts/nav_perception_bringup scripts/agent_observation_window scripts/kalo_debug_web scripts/perception_debug_standalone
   DESTINATION lib/${PROJECT_NAME})
@@ -139,6 +150,11 @@ if(BUILD_TESTING)
   set_tests_properties(cuvslam_initialization_authority PROPERTIES
     ENVIRONMENT "ROS_DOMAIN_ID=198;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST"
     RUN_SERIAL TRUE TIMEOUT 120)  # 10 runs; each starts the C++ mux process
+  add_test(NAME odom_fusion_ros COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_odom_fusion_ros.py)
+  set_tests_properties(odom_fusion_ros PROPERTIES
+    ENVIRONMENT "ROS_DOMAIN_ID=198;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST;WLA_FUSION_EXECUTABLE=$<TARGET_FILE:odom_fusion>"
+    RUN_SERIAL TRUE TIMEOUT 60)
   add_test(NAME mapless_navigation COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/test/test_mapless_navigation.py)
   set_tests_properties(mapless_navigation PROPERTIES
@@ -154,6 +170,11 @@ if(BUILD_TESTING)
   set_tests_properties(openvins_startup PROPERTIES
     ENVIRONMENT "ROS_DOMAIN_ID=198;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST"
     RUN_SERIAL TRUE TIMEOUT 20)
+  add_executable(test_odom_fusion test/test_odom_fusion.cpp)
+  target_link_libraries(test_odom_fusion odom_fusion_core)
+  target_compile_options(test_odom_fusion PRIVATE -UNDEBUG)
+  add_test(NAME odom_fusion COMMAND test_odom_fusion)
+  set_tests_properties(odom_fusion PROPERTIES TIMEOUT 120)
   add_executable(test_degraded_odometry test/test_degraded_odometry.cpp)
   target_include_directories(test_degraded_odometry PRIVATE include)
   # assertions must stay active in Release builds

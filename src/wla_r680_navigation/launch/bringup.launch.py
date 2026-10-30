@@ -64,6 +64,7 @@ def generate_launch_description():
     start_chassis = LaunchConfiguration('start_chassis')
     start_nav2 = LaunchConfiguration('start_nav2')
     obstacle_scan = LaunchConfiguration('obstacle_scan')
+    terrain_analysis = LaunchConfiguration('terrain_analysis')
     start_dynamic_obstacles = LaunchConfiguration('start_dynamic_obstacles')
     start_navigation_servers = LaunchConfiguration('start_navigation_servers')
     start_state_estimation = LaunchConfiguration('start_state_estimation')
@@ -79,6 +80,9 @@ def generate_launch_description():
     continuity_enabled = PythonExpression(["'", start_state_estimation,
         "' == 'true' and '", mode, "' == 'localization' and '", odom_source,
         "' == 'cuvslam' and '", LaunchConfiguration('enable_degraded_odom'), "' == 'true'"])
+    # Continuity slot: odom_fusion (sliding window) by default, degraded_odometry as fallback.
+    fusion_backend = PythonExpression([continuity_enabled, " and '", LaunchConfiguration('odom_backend'), "' == 'fusion'"])
+    degraded_backend = PythonExpression([continuity_enabled, " and '", LaunchConfiguration('odom_backend'), "' == 'degraded'"])
     continuity_health_topic = PythonExpression(["'/r680_nav/continuous_odom_healthy' if ",
         continuity_enabled, " else '/r680_nav/vio_tracking_healthy'"])
     mapping_odom_topic = PythonExpression(["'/r680_nav/mapping_odom' if ", cuvslam_mapping,
@@ -189,6 +193,7 @@ def generate_launch_description():
             'frontend_health_topic': '/r680_nav/vio_tracking_healthy',
             'continuity_health_topic': '/r680_nav/continuous_odom_healthy',
             'allow_bounded_degraded': ParameterValue(continuity_enabled, value_type=bool),
+            'wheel_consistency_check': ParameterValue(PythonExpression(["not (", fusion_backend, ")"]), value_type=bool),
         }])
 
     cuvslam = Node(
@@ -209,8 +214,14 @@ def generate_launch_description():
             }])
     continuous_odom = Node(
         package='wla_r680_navigation', executable='degraded_odometry',
-        name='r680_degraded_odometry', output='screen', condition=IfCondition(continuity_enabled),
+        name='r680_degraded_odometry', output='screen', condition=IfCondition(degraded_backend),
         parameters=[LaunchConfiguration('degraded_odom_params_file'), {
+            'wheel_topic': chassis_odom_topic, 'imu_topic': chassis_imu_topic,
+        }])
+    odom_fusion = Node(
+        package='wla_r680_navigation', executable='odom_fusion',
+        name='r680_odom_fusion', output='screen', condition=IfCondition(fusion_backend),
+        parameters=[LaunchConfiguration('odom_fusion_params_file'), {
             'wheel_topic': chassis_odom_topic, 'imu_topic': chassis_imu_topic,
         }])
     openvins = IncludeLaunchDescription(
@@ -325,10 +336,21 @@ def generate_launch_description():
             ('odom', '/wheel/odom'),
             ('imu/data_raw', '/wheel/imu/data_raw')])
 
+    # terrain_analysis:=true replaces depth_to_points (same output topics; z is the
+    # height above the local ground plane, so ramps <= 20 deg are not obstacles).
+    use_terrain = PythonExpression(["'", start_nav2, "' == 'true' and '", terrain_analysis, "' == 'true'"])
     depth_points = Node(
         package='wla_r680_navigation', executable='depth_to_points',
-        name='r680_d455_depth_to_points', output='screen', condition=IfCondition(start_nav2),
+        name='r680_d455_depth_to_points', output='screen',
+        condition=IfCondition(PythonExpression(["'", start_nav2, "' == 'true' and '", terrain_analysis, "' != 'true'"])),
         parameters=[str(config / 'd455_points.yaml')])
+    terrain_config = PathJoinSubstitution([FindPackageShare('wla_terrain_analysis'), 'config', 'terrain_analysis.yaml'])
+    terrain_odometry = Node(
+        package='wla_terrain_analysis', executable='terrain_odometry', name='terrain_odometry',
+        output='screen', condition=IfCondition(use_terrain), parameters=[terrain_config])
+    terrain_points = Node(
+        package='wla_terrain_analysis', executable='terrain_analysis', name='terrain_analysis',
+        output='screen', condition=IfCondition(use_terrain), parameters=[terrain_config])
 
     scan_converter = Node(
         package='wla_r680_navigation', executable='point_to_scan',
@@ -525,6 +547,7 @@ def generate_launch_description():
         DeclareLaunchArgument('start_chassis', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('start_nav2', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('obstacle_scan', default_value='false', choices=['true', 'false']),
+        DeclareLaunchArgument('terrain_analysis', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('start_dynamic_obstacles', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('start_navigation_servers', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('agent_control', default_value='false', choices=['true', 'false']),
@@ -542,6 +565,8 @@ def generate_launch_description():
         DeclareLaunchArgument('cuvslam_params_file', default_value=str(config / 'cuvslam.yaml')),
         DeclareLaunchArgument('enable_degraded_odom', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('degraded_odom_params_file', default_value=str(config / 'degraded_odometry.yaml')),
+        DeclareLaunchArgument('odom_backend', default_value='fusion', choices=['fusion', 'degraded']),
+        DeclareLaunchArgument('odom_fusion_params_file', default_value=str(config / 'odom_fusion.yaml')),
         DeclareLaunchArgument('cuvslam_statistics_path', default_value='/tmp/cuvslam_navigation_statistics.json'),
         DeclareLaunchArgument('start_web', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('start_semantics', default_value='false', choices=['true', 'false']),
@@ -573,7 +598,7 @@ def generate_launch_description():
         OpaqueFunction(function=validate_navigation_map),
         static_map_server, static_map_lifecycle,
         realsense, mount_tf, chassis_imu_tf, imu_filter, chassis_imu_conditioner,
-        chassis_imu_filter, vo, cuvslam, openvins, continuous_odom, mapping_gate, vo_watchdog, ekf, rtabmap,
-        chassis, depth_points, scan_converter, dynamic_obstacles, semantic_collector,
+        chassis_imu_filter, vo, cuvslam, openvins, continuous_odom, odom_fusion, mapping_gate, vo_watchdog, ekf, rtabmap,
+        chassis, depth_points, terrain_odometry, terrain_points, scan_converter, dynamic_obstacles, semantic_collector,
         *nav2_nodes, monitor, guard, initializer, web_gateway,
     ])

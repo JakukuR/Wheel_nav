@@ -17,7 +17,8 @@ usage() {
   --openvins-imu d455|wheel  选择成套 IMU 标定（默认 d455）
   --openvins-config PATH  使用指定的完整 OpenVINS 配置目录
   --cuvslam              使用 cuVSLAM 双目 + 车身 IMU（试验前端，初始化前禁止运动）
-  --no-degraded-odom      禁用短时轮速+IMU降级，恢复视觉失效即停车的行为
+  --no-degraded-odom      禁用轮速+IMU 连续里程计（融合后端与旧降级都不启动），恢复视觉失效即停车的行为
+  --no-fusion-backend     连续里程计改用旧 degraded_odometry（2 s 预算），不用滑窗融合后端
   --auto-vio-init        VIO 启动受限运动初始化（--cuvslam 默认开启；--openvins 需显式指定）
                          cuVSLAM：静止采样关键帧，再前进约 0.15m、原地转约 30° 并转回；
                          无 --enable-motion 则只预览，不动车，仅靠静止初始化
@@ -26,6 +27,7 @@ usage() {
   --mpc                  显式使用 MPC（当前默认；全局静态地图，局部点云避障）
   --mppi                 切回 nav2.yaml/MPPI
   --scan-obstacles       局部代价地图试用 D455 点云生成的 LaserScan（默认仍用点云）
+  --terrain              用坡面/台阶分析（wla_terrain_analysis）代替 depth_to_points
   --test-scan-only       使用独立 nav2_test.yaml：MPC + 局部 Scan，关闭全局 D455 动态层
   --test-recovery        使用 nav2_recovery_test.yaml：MPC + 局部 Scan + 有时限的全局动态障碍
   --no-rviz              不启动 RViz
@@ -54,7 +56,9 @@ USE_D455_IMU=false
 AUTO_VIO_INIT=""
 OPENVINS_MOTION_INIT=false
 DISABLE_DEGRADED_ODOM=false
+ODOM_BACKEND=fusion
 SCAN_OBSTACLES=false
+TERRAIN_ANALYSIS=false
 TEST_SCAN_ONLY=false
 TEST_RECOVERY=false
 START_RVIZ=true
@@ -84,10 +88,12 @@ while [[ $# -gt 0 ]]; do
       OPENVINS_IMU="$2"; shift 2 ;;
     --cuvslam) ODOM_SOURCE=cuvslam; shift ;;
     --no-degraded-odom) DISABLE_DEGRADED_ODOM=true; shift ;;
+    --no-fusion-backend) ODOM_BACKEND=degraded; shift ;;
     --rgbd) ODOM_SOURCE=rgbd; shift ;;
     --mpc) USE_MPC=true; shift ;;
     --mppi) USE_MPC=false; shift ;;
     --scan-obstacles) SCAN_OBSTACLES=true; shift ;;
+    --terrain) TERRAIN_ANALYSIS=true; shift ;;
     --test-scan-only) TEST_SCAN_ONLY=true; SCAN_OBSTACLES=true; shift ;;
     --test-recovery) TEST_RECOVERY=true; SCAN_OBSTACLES=true; shift ;;
     --no-rviz) START_RVIZ=false; shift ;;
@@ -437,7 +443,19 @@ with open(path, 'w') as stream:
     yaml.safe_dump(config, stream, sort_keys=False)
 PY
   fi
-  python3 - "$NAV_RUN_DIR/degraded_odometry.yaml" <<'PY'
+  cp "$CONFIG_DIR/odom_fusion.yaml" "$NAV_RUN_DIR/odom_fusion.yaml"
+  if [[ "$DISABLE_DEGRADED_ODOM" == true ]]; then
+    echo "[R680 NAV] 连续里程计：关闭（视觉失效即停车）"
+  elif [[ "$ODOM_BACKEND" == fusion ]]; then
+    python3 - "$NAV_RUN_DIR/odom_fusion.yaml" <<'PY'
+import sys, yaml
+with open(sys.argv[1]) as stream:
+    p = yaml.safe_load(stream)['r680_odom_fusion']['ros__parameters']
+print(f"[R680 NAV] 连续里程计：滑窗融合（轮速+陀螺+cuVSLAM，{p['window_s']}s 窗口）；"
+      f"无视觉时桥接至 σ {p['max_sigma_xy']}m / {p['max_sigma_yaw']}rad，期间限速；配置：{sys.argv[1]}")
+PY
+  else
+    python3 - "$NAV_RUN_DIR/degraded_odometry.yaml" <<'PY'
 import sys, yaml
 with open(sys.argv[1]) as stream:
     p = yaml.safe_load(stream)['r680_degraded_odometry']['ros__parameters']
@@ -445,6 +463,7 @@ print(f"[R680 NAV] 短时降级：{'启用' if p['enabled'] else '禁用'}；"
       f"预算 {p['max_degraded_s']}s / {p['max_degraded_travel_m']}m / "
       f"{p['max_degraded_turn_rad']}rad；配置：{sys.argv[1]}")
 PY
+  fi
   if [[ "$AUTO_VIO_INIT" == true ]]; then
     cp "$CONFIG_DIR/vio_initializer_cuvslam.yaml" "$NAV_RUN_DIR/vio_initializer.yaml"
     echo "[R680 NAV] 自动初始化：静止采样关键帧；再前进约 0.15m（0.15m/s）、原地左转约 30° 并转回（0.4rad/s），运动最长 6s，路径预算 0.25m；真实输出=$ENABLE_MOTION"
@@ -473,6 +492,7 @@ LAUNCH_ARGS=(
   mode:=localization database_path:="$DB_PATH" navigation_map_yaml:="$MAP_YAML" web_map_yaml:="$MAP_YAML"
   nav_params_file:="$NAV2_PARAMS_FILE"
   obstacle_scan:="$SCAN_OBSTACLES"
+  terrain_analysis:="${TERRAIN_ANALYSIS:-false}"
   start_dynamic_obstacles:="$START_DYNAMIC_OBSTACLES"
   start_d455:=false start_chassis:="$START_CHASSIS" start_nav2:=true start_navigation_servers:=true
   start_state_estimation:=true use_d455_imu:="$USE_D455_IMU" use_chassis_imu:=true
@@ -488,6 +508,7 @@ if [[ "$ODOM_SOURCE" == openvins ]]; then
 fi
 if [[ "$ODOM_SOURCE" == cuvslam ]]; then
   LAUNCH_ARGS+=(degraded_odom_params_file:="$NAV_RUN_DIR/degraded_odometry.yaml"
+    odom_fusion_params_file:="$NAV_RUN_DIR/odom_fusion.yaml" odom_backend:="$ODOM_BACKEND"
     enable_degraded_odom:="$(if [[ "$DISABLE_DEGRADED_ODOM" == true ]]; then echo false; else echo true; fi)")
 fi
 if [[ -n "$INITIAL_POSE" ]]; then

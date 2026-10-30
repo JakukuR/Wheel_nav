@@ -118,7 +118,8 @@ class LaunchArgumentsTest(unittest.TestCase):
                    OPENVINS_ALLOW_COMMISSIONING='false', NAV_RUN_DIR='/tmp/nav run',
                    AUTO_VIO_INIT='false', ENABLE_MOTION='false', AGENT_CONTROL='false',
                    MAP_DIR='/tmp/user map', INITIAL_POSE=initial_pose,
-                   MOUNT_TF='false', DISABLE_DEGRADED_ODOM='false')
+                   MOUNT_TF='false', DISABLE_DEGRADED_ODOM='false',
+                   ODOM_BACKEND='fusion', DARK_INFRA='false')
         result = subprocess.run(['bash', '--noprofile', '--norc', '-c',
             block + '\nprintf "%s\\0" "${LAUNCH_ARGS[@]}"'], env=env,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, timeout=5)
@@ -137,6 +138,8 @@ class LaunchArgumentsTest(unittest.TestCase):
                 self.assertEqual(args['publish_mount_tf'], 'false')
                 if frontend == 'cuvslam':
                     self.assertEqual(args['degraded_odom_params_file'], '/tmp/nav run/degraded_odometry.yaml')
+                    self.assertEqual(args['odom_fusion_params_file'], '/tmp/nav run/odom_fusion.yaml')
+                    self.assertEqual(args['odom_backend'], 'fusion')
 
     def test_openvins_keeps_config_and_initial_pose(self):
         args = self.launch_arguments('openvins', '0 0 0 0 0 0')
