@@ -116,6 +116,9 @@ def blank(grid):
 
 def main():
     assert 100 <= int(os.environ.get('ROS_DOMAIN_ID', '0')) <= 232
+    # ros2 launch runs them directly from the install symlinks.
+    for script in ('navigation_map_mode', 'navigation_goal_bridge'):
+        assert os.access(ROOT/'scripts'/script, os.X_OK), script + ' is not executable'
     rclpy.init()
     h = Harness()
     mode = start('navigation_map_mode', '-p', 'lost_hold_s:=1.0')

@@ -470,7 +470,7 @@ PY
   if [[ "$AUTO_VIO_INIT" == true ]]; then
     cp "$CONFIG_DIR/vio_initializer_cuvslam.yaml" "$NAV_RUN_DIR/vio_initializer.yaml"
     echo "[R680 NAV] 自动初始化：静止采样关键帧；再前进约 0.15m（0.15m/s）、原地左转约 30° 并转回（0.4rad/s），运动最长 6s，路径预算 0.25m；真实输出=$ENABLE_MOTION"
-    echo '[R680 NAV] 前方 0.65m 内需空旷；初始化失败将停车锁定，不自动重试。重定位在全图搜索，需多视角一致才放行导航。'
+    echo '[R680 NAV] 前方 0.65m 内需空旷；初始化失败将停车锁定，不自动重试。重定位在全图搜索，一次验证匹配即放行；此前为无图模式（局部避障可运动）。'
   else
     echo '[R680 NAV] cuVSLAM 初始化前运动锁定；需纹理场景和适量真实运动激励，预览时可手推。'
   fi
