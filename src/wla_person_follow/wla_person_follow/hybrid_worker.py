@@ -29,6 +29,10 @@ from .sim_node import FollowEngine
 
 SLOT_BYTES = 16 * 1024 * 1024
 MAX_METADATA = 1024 * 1024
+# Diagnostics only: when this file exists as a worker starts, the worker runs
+# under cProfile (all threads on Python 3.12) and writes <flag>-<pid>.prof
+# every 10 s and on exit. cProfile slows Python-heavy code; never leave it on.
+PROFILE_FLAG = os.path.expanduser('~/ros2_ws/.runtime/follow-profile')
 
 
 def encode_packet(metadata, blobs):
@@ -286,18 +290,31 @@ class WorkerTransport:
         self.engine = FollowEngine(self)
         self.engine.follow_session = self.session
         self.send(dict(kind='ready'))
-        while self.running:
-            if select.select([self.sock], [], [], .005)[0]:
-                self.receive(receive_json(self.sock))
-            now = time.monotonic()
-            for timer in self.timers:
-                if now >= timer[0]:
-                    timer[0] = now + timer[1]
-                    timer[2]()
-            if self.guard_ready.is_set():
-                self.guard_ready.clear()
-                self.guard_callback()
-            self.flush_geometry()
+        profile, dumped, path = None, time.monotonic(), f'{PROFILE_FLAG}-{os.getpid()}.prof'
+        if os.path.exists(PROFILE_FLAG):
+            import cProfile
+            profile = cProfile.Profile()
+            profile.enable()
+        try:
+            while self.running:
+                if select.select([self.sock], [], [], .005)[0]:
+                    self.receive(receive_json(self.sock))
+                now = time.monotonic()
+                for timer in self.timers:
+                    if now >= timer[0]:
+                        timer[0] = now + timer[1]
+                        timer[2]()
+                if self.guard_ready.is_set():
+                    self.guard_ready.clear()
+                    self.guard_callback()
+                self.flush_geometry()
+                if profile and now - dumped >= 10.:
+                    profile.dump_stats(path)  # disables the profiler
+                    profile.enable()
+                    dumped = now
+        finally:
+            if profile:
+                profile.dump_stats(path)
 
 
 def receive_json(sock):
