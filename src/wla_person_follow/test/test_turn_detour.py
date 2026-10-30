@@ -8,7 +8,7 @@ clear frame, and the robot drove on at 0.65-0.79 m/s with the detour point
 import numpy as np
 from wla_person_follow.sim_core.common import Tuning
 from wla_person_follow.sim_core.detour import DetourPlanner
-from wla_person_follow.sim_core.hybrid_controller import HybridFollower, deadband_compensate
+from wla_person_follow.sim_core.hybrid_controller import HybridFollower, chassis_yaw
 
 
 def _box_ahead_map():
@@ -34,12 +34,32 @@ def _open_map(obstacle=None):
     return m
 
 
-def test_small_turns_are_raised_out_of_the_chassis_deadband():
-    c = Tuning()
-    assert deadband_compensate([.3, .1], c)[1] == c.yaw_floor
-    assert deadband_compensate([.0, -.15], c)[1] == -c.yaw_floor
-    assert deadband_compensate([.4, .02], c)[1] == .02  # straight-ahead jitter is left alone
-    np.testing.assert_allclose(deadband_compensate([.4, .5], c), [.4, .5])
+def test_turn_does_not_lock_while_following_straight_ahead():
+    """Closed loop (J02 2026-10-30 16:45): starting with the chassis already
+    turning left at 0.25 rad/s, the robot must come back onto the person walking
+    straight ahead instead of holding the turn."""
+    import math
+    from wla_person_follow import sim_runtime as rt
+    e = rt.SimulationEngine(np.zeros(3), 0.)
+    floor = np.array([[x, y, 0.] for x in np.arange(-2., 8., .1) for y in np.arange(-3., 3.01, .1)])
+    pose = np.zeros(3); act = np.array([0., .25]); dt = .05
+    for k in range(80):
+        t = k * dt; person = np.array([2. + .8 * t, 0.])
+        packets = []
+        if k % 2 == 0:
+            near = floor[np.linalg.norm(floor[:, :2] - pose[:2], axis=1) < 4.5]
+            c, s = math.cos(pose[2]), math.sin(pose[2]); d = near[:, :2] - pose[:2]
+            base = np.c_[d @ np.array([[c, -s], [s, c]]), near[:, 2]]
+            packets = [(t, rt.packet_from_filtered_points(np.empty((0, 3)), base, np.array([.18, 0, .5]), pose))]
+        snap = dict(state='tracking', prediction=person.tolist(), position=person.tolist(), velocity_mps=[.8, 0.],
+                    history=[(person - [.4 * i, 0.]).tolist() for i in range(8)][::-1], last_seen=t)
+        cmd = np.asarray(e.step(pose.copy(), act.copy(), packets, (t, person, {}, 'target'), t,
+                                tracker_snapshot=snap)['command'], float)
+        goal = np.array([cmd[0], float(chassis_yaw(cmd[1], e.tuning))])
+        act = act + (goal - act) * (1 - np.exp(-dt / np.array([.18, .40])))
+        pose = pose + np.array([act[0] * dt * math.cos(pose[2]), act[0] * dt * math.sin(pose[2]), act[1] * dt])
+    bearing = math.atan2(-pose[1], person[0] - pose[0]) - pose[2]
+    assert abs(bearing) < .15 and abs(pose[2]) < .3 and pose[0] > 1.
 
 
 def test_turns_in_place_when_the_person_is_far_off_the_heading():

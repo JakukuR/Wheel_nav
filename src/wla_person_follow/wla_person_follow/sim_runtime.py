@@ -6,7 +6,7 @@ import numpy as np
 from .sim_core.common import rotation
 from .sim_core.common import Tuning
 from .sim_core.approach_goal import ApproachGoal, SWEEP_RADIUS
-from .sim_core.hybrid_controller import HybridFollower, seed_command, limit_step, deadband_compensate
+from .sim_core.hybrid_controller import HybridFollower, seed_command, limit_step
 from .sim_core.rolling_depth_map import RollingDepthMap
 from .sim_core.tracking import PeopleTracks
 
@@ -183,8 +183,6 @@ class SimulationEngine:
         if self.controller.last_infeasible:
             command=np.zeros(2);reason='no_feasible_candidate'
         if policy is not None:command=policy.limit_command(command,now)
-        # Person modes: lift small turns out of the chassis yaw deadband.
-        if task_mode!='2':command=deadband_compensate(command,tuning)
         if not np.isfinite(command).all():raise ValueError('nonfinite_core_command')
         self.last_command=np.asarray(command,dtype=float).copy();self.last_command_at=now
         diagnostic=None if approach is None else {k:(v.tolist() if isinstance(v,np.ndarray) else v)

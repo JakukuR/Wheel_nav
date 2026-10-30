@@ -52,13 +52,6 @@ def chassis_yaw(w, c):
     return np.sign(w)*eff
 
 
-def deadband_compensate(command, c):
-    """Raise small turn commands to the chassis' smallest effective yaw rate."""
-    out=np.array(command,dtype=float,copy=True)
-    if c.yaw_floor>0 and c.yaw_deadband_min<=abs(out[1])<c.yaw_floor:out[1]=np.copysign(c.yaw_floor,out[1])
-    return out
-
-
 class HybridFollower:
     def __init__(self, config=Tuning()):
         self.c=config

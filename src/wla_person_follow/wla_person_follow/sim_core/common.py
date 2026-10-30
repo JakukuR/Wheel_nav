@@ -53,11 +53,12 @@ class Tuning:
     # on the desk it had to go round.
     turn_slow_angle: float = .3
     turn_first_angle: float = 1.
-    # Chassis yaw deadband (measured: 0.5 s mean |w| 0.1-0.2 -> ~20 % achieved,
-    # >= 0.3 -> 80-100 %): commanded turns in [yaw_deadband_min, yaw_floor) are
-    # raised to yaw_floor at the follow output (manual control is untouched).
-    yaw_deadband_min: float = .04
-    yaw_floor: float = .28
+    # No output yaw floor: the rollout models the chassis deadband (chassis_yaw),
+    # so the MPC itself picks turns the chassis executes. A floor that lifted
+    # |w| in [0.04, 0.28) to 0.28 locked turns: the first step is bounded from
+    # the measured yaw rate, which the floor had raised, so the raw command stayed
+    # above 0.04 and was lifted again (J02 2026-10-30 16:45: planner |w| median
+    # 0.28 at every bearing, only ~50 % of turns toward the person).
     # Stuck with only flank-looking left: back up along the robot's own swept
     # path (known free: the body was just there) instead of turning in place.
     backup_speed: float = .2
