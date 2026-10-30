@@ -80,7 +80,7 @@ class FollowEngine:
             target_ghost_clear_radius_m=.35,target_ghost_clear_ttl_s=.5,terrain_topic='')
         self.p = {k:self.io.declare_parameter(k,v).value for k,v in defaults.items()}
         if (self.p['output_mode'] not in ('direct','mux') or
-            not 0 < self.p['max_sensor_age_s'] <= .30 or
+            not 0 < self.p['max_sensor_age_s'] <= .45 or  # 0.40 since 2026-10-30
             not self.p['max_sensor_age_s'] <= self.p['map_max_age_s'] <= .50 or
             not .3 <= self.p['target_prediction_s'] <= 3. or
             not 2. <= self.p['target_history_window_s'] <= 20. or

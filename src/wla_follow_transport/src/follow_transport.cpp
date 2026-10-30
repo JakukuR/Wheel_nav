@@ -60,7 +60,7 @@ class FollowTransport: public rclcpp::Node {
     terrain_topic=param<std::string>("terrain_topic","");
     const bool reid=param<bool>("reid_enabled",false), tof=param<bool>("tof_enabled",false);
     if(param<std::string>("output_mode","mux")!="mux" || param<bool>("use_sim_time",false) ||
-       !std::isfinite(gate.max_age) || !(gate.max_age>0 && gate.max_age<=.30) ||
+       !std::isfinite(gate.max_age) || !(gate.max_age>0 && gate.max_age<=.45) ||  // 0.40 since 2026-10-30
        !std::isfinite(gate.result_ttl) || !(gate.result_ttl>0 && gate.result_ttl<=.20) ||
        !std::isfinite(gate.map_max_age) || !(gate.map_max_age>=gate.max_age && gate.map_max_age<=.50) ||
        !std::isfinite(gate.result_hold) || !(gate.result_hold>=gate.result_ttl && gate.result_hold<=gate.map_max_age))

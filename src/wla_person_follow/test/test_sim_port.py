@@ -508,3 +508,11 @@ def test_control_rate_and_map_age_parameters():
     if cfg.exists():
         params=next(iter(yaml.safe_load(cfg.read_text()).values()))['ros__parameters']
         assert params['map_max_age_s']==.45 and params['max_sensor_age_s']==.40
+        # Every component that validates the age must accept the deployed value
+        # (2026-10-30: C++, sim_node and TaskSession still capped it at 0.30).
+        from wla_person_follow.task_session import TaskSession
+        TaskSession(max_age=params['max_sensor_age_s'])
+        assert "not 0 < self.p['max_sensor_age_s'] <= .45" in src
+        cpp=pathlib.Path(sim_node.__file__).resolve().parents[2]/'wla_follow_transport'/'src'/'follow_transport.cpp'
+        if cpp.exists():
+            assert 'gate.max_age<=.45' in cpp.read_text()

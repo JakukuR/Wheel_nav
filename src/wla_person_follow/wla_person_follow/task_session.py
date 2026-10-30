@@ -30,7 +30,7 @@ def source_stamp(data):
 class TaskSession:
     """Identity, detector epoch, idempotence and lease ledger; no controller."""
     def __init__(self, base_frame='r680_mapping_floor', max_age=.30):
-        if not base_frame or not 0 < max_age <= .30:
+        if not base_frame or not 0 < max_age <= .45:  # 0.40 since 2026-10-30
             raise ValueError('invalid_task_configuration')
         self.base_frame, self.max_age = base_frame, max_age
         self.session, self.epoch, self.last_stamp = None, -1, 0
