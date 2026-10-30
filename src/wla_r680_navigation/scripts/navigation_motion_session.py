@@ -211,6 +211,9 @@ class Session(Node):
         self.maintain_navigation()
 
     def maintain_navigation(self):
+        # With --cuvslam-init the same explicit authorization also covers the
+        # initializer's bounded, collision-checked LOST recovery sweep.
+        if self.init_permission is not None:self.init_authorized=True
         self.emit('navigation_enabled; send a new goal; manual takeover will not be reclaimed')
         next_heartbeat=0.
         while not self.cancelled and rclpy.ok():

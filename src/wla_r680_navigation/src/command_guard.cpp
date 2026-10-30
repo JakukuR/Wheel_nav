@@ -139,7 +139,8 @@ private:
       output.linear.x = std::clamp(command_.linear.x, -reverse_max_, forward_max_);
       output.angular.z = std::clamp(command_.angular.z, -angular_max_, angular_max_);
     }
-    if (init_mode_enabled_ && init_state_ == "moving") {
+    // "recovering": the initializer's bounded LOST sweep (vo_recovery_policy.hpp).
+    if (init_mode_enabled_ && (init_state_ == "moving" || init_state_ == "recovering")) {
       const double stamp_age = (get_clock()->now() - rclcpp::Time(init_request_.header.stamp)).seconds();
       const bool bootstrap_permitted = init_permitted_ &&
         std::chrono::duration<double>(now - init_state_received_).count() <= 0.20 &&

@@ -492,6 +492,8 @@ def generate_launch_description():
         bootstrap = []
         overrides = {
             'frontend': frontend,
+            # Bounded LOST sweep + frontend restart; needs the fusion backend's odom_state.
+            'recovery_enabled': frontend == 'cuvslam' and fusion_backend.perform(context) == 'True',
             'require_base_authorization': frontend == 'cuvslam' and enable_motion.perform(context).lower() == 'true',
             'imu_topic': chassis_imu_topic.perform(context),
             'wheel_odom_topic': chassis_odom_topic.perform(context),

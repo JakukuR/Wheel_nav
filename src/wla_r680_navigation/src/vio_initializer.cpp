@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <csignal>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -22,6 +23,7 @@
 #include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "wla_r680_navigation/vio_init_policy.hpp"
+#include "wla_r680_navigation/vo_recovery_policy.hpp"
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 
 using namespace std::chrono_literals;
@@ -183,6 +185,25 @@ public:
       "/r680_nav/vio_init_cancel", 1, [this](std_msgs::msg::Bool::ConstSharedPtr msg) {
         if (msg->data) {policy_->fail("operator_cancelled"); nav_seen_ = {};}
       });
+    // LOST recovery after initialization: the same bounded, collision-checked
+    // bootstrap path (guard state "recovering"); see vo_recovery_policy.hpp.
+    if (declare_parameter<bool>("recovery_enabled", false)) {
+      wla::RecoveryConfig r;
+      r.wait_s = declare_parameter<double>("recovery_wait_s", r.wait_s);
+      r.turn_angle = declare_parameter<double>("recovery_turn_rad", r.turn_angle);
+      r.angular = declare_parameter<double>("recovery_angular_speed", r.angular);
+      r.leg_timeout_s = declare_parameter<double>("recovery_leg_timeout_s", r.leg_timeout_s);
+      r.restart_wait_s = declare_parameter<double>("recovery_restart_wait_s", r.restart_wait_s);
+      r.cooldown_s = declare_parameter<double>("recovery_cooldown_s", r.cooldown_s);
+      r.max_attempts = static_cast<int>(declare_parameter<int64_t>("recovery_max_attempts", r.max_attempts));
+      if (r.angular > config_.angular) throw std::invalid_argument("recovery faster than initialization");
+      recovery_ = std::make_unique<wla::RecoveryPolicy>(r);
+      odom_state_sub_ = create_subscription<std_msgs::msg::String>(
+        "/r680_nav/odom_state", 10, [this](std_msgs::msg::String::ConstSharedPtr m) {
+          odom_lost_ = m->data == "LOST"; odom_state_seen_ = Clock::now();
+        });
+      recovery_pub_ = create_publisher<std_msgs::msg::String>("/r680_nav/vo_recovery_state", 10);
+    }
     mux_pub_ = create_publisher<geometry_msgs::msg::Twist>("/cmd_vel_nav", 1);
     request_pub_ = create_publisher<geometry_msgs::msg::TwistStamped>("/r680_nav/vio_init_request", 1);
     permit_pub_ = create_publisher<std_msgs::msg::Bool>("/r680_nav/vio_init_permit", 1);
@@ -352,7 +373,8 @@ private:
       input.heading = angle(wheel_.yaw-anchor_wheel_.yaw);
     }
     const auto previous = policy_->state();
-    const auto command = policy_->tick(std::chrono::duration<double>(Clock::now()-boot_).count(), input);
+    auto command = policy_->tick(std::chrono::duration<double>(Clock::now()-boot_).count(), input);
+    const bool recovering = recover(input, command);
     if (policy_->state() == wla::InitPolicy::State::Moving && !anchored_) {
       anchor_vo_ = vo_; vo_anchored_ = fresh(vo_seen_); anchor_wheel_ = wheel_; travel_ = 0; anchored_ = true;
     }
@@ -367,15 +389,80 @@ private:
     request.header.stamp = now(); request.header.frame_id = base_; request.twist = output;
     request_pub_->publish(request);
     std_msgs::msg::Bool permit;
-    permit.data = policy_->state() == wla::InitPolicy::State::Moving && input.sensors && input.services && input.clear;
+    permit.data = input.services && ((policy_->state() == wla::InitPolicy::State::Moving &&
+      input.sensors && input.clear) || (recovering && recovery_clear_));
     permit_pub_->publish(permit);
     std_msgs::msg::String state;
-    state.data = policy_->name(); state_pub_->publish(state);
+    state.data = recovering ? "recovering" : policy_->name(); state_pub_->publish(state);
     ever_moved_ |= command.linear != 0 || command.angular != 0;
-    if (policy_->state() == wla::InitPolicy::State::Succeeded && fresh(nav_seen_, 0.20)) output = nav_;
+    if (policy_->state() == wla::InitPolicy::State::Succeeded && !recovering && fresh(nav_seen_, 0.20)) output = nav_;
     mux_pub_->publish(output);
     if (policy_->state() != previous || ++ticks_ % 20 == 0) writeResult();
   }
+  // Returns true while the recovery sweep owns the bootstrap path.
+  bool recover(const wla::InitInput & input, wla::InitCommand & command) {
+    if (!recovery_ || policy_->state() != wla::InitPolicy::State::Succeeded) return false;
+    if (recovery_seen_.time_since_epoch().count() != 0) {heading_ += angle(wheel_.yaw - recovery_yaw_);}
+    recovery_yaw_ = wheel_.yaw; recovery_seen_ = Clock::now();
+    wla::RecoveryInput in;
+    in.now = std::chrono::duration<double>(Clock::now() - boot_).count();
+    in.lost = odom_lost_ && fresh(odom_state_seen_, 0.5);
+    in.stopped = input.stopped;
+    // Vision is what is missing, so no VO freshness here: chassis, depth and
+    // the safety cloud must be live.
+    recovery_clear_ = input.clear && fresh(wheel_seen_) && fresh(imu_seen_) &&
+      fresh(depth_seen_) && fresh(points_seen_);
+    in.clear = recovery_clear_;
+    in.authorized = input.services;
+    in.heading = heading_;
+    const auto before = recovery_->state();
+    const auto out = recovery_->tick(in);
+    if (out.restart) restartFrontend();
+    if (recovery_->state() != before) {
+      nav_seen_ = {};
+      RCLCPP_WARN(get_logger(), "VO recovery: %s (%s), attempts %d", recovery_->name(), recovery_->reason(),
+        recovery_->attempts());
+    }
+    if (++recovery_ticks_ % 10 == 0) {
+      std_msgs::msg::String s;
+      s.data = std::string(recovery_->name()) + " attempts=" + std::to_string(recovery_->attempts()) +
+        " reason=" + recovery_->reason();
+      recovery_pub_->publish(s);
+    }
+    if (!recovery_->moving()) return false;
+    command.linear = 0; command.angular = out.angular;
+    return true;
+  }
+  // The launch respawns the frontend; only a cuVSLAM process of this ROS
+  // domain is signalled (isolated tests run in other domains).
+  void restartFrontend() {
+    if (frontend_ != "cuvslam") return;
+    const char * own = std::getenv("ROS_DOMAIN_ID");
+    const std::string domain = own ? own : "0";
+    for (const auto & entry : std::filesystem::directory_iterator("/proc")) {
+      const auto name = entry.path().filename().string();
+      if (name.empty() || !std::all_of(name.begin(), name.end(), ::isdigit)) continue;
+      std::error_code ec;
+      const auto exe = std::filesystem::read_symlink(entry.path() / "exe", ec).string();
+      const std::string expected = "/wla_cuvslam_navigation/cuvslam_odometry";
+      if (ec || exe.size() < expected.size() || exe.compare(exe.size() - expected.size(), expected.size(), expected)) continue;
+      std::ifstream environment(entry.path() / "environ", std::ios::binary);
+      const std::string env((std::istreambuf_iterator<char>(environment)), std::istreambuf_iterator<char>());
+      const auto pos = env.find("ROS_DOMAIN_ID=");
+      const std::string theirs = pos == std::string::npos ? "0" :
+        env.substr(pos + 14, env.find('\0', pos + 14) - pos - 14);
+      if (theirs != domain) continue;
+      RCLCPP_WARN(get_logger(), "VO recovery: restarting cuVSLAM pid %s", name.c_str());
+      ::kill(static_cast<pid_t>(std::stoi(name)), SIGTERM);
+    }
+  }
+  std::unique_ptr<wla::RecoveryPolicy> recovery_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr odom_state_sub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr recovery_pub_;
+  bool odom_lost_{false}, recovery_clear_{false};
+  Clock::time_point odom_state_seen_{}, recovery_seen_{};
+  double heading_{0}, recovery_yaw_{0};
+  size_t recovery_ticks_{0};
   bool nav_manual_coexist_{true};
   bool require_base_authorization_{false}, base_authorized_{false};
   Clock::time_point base_authorization_seen_{};

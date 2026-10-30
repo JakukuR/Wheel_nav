@@ -20,7 +20,7 @@ import struct
 
 
 def run(case, base_authority=False, guard_delay=0.):
-    successful = case in ('success', 'manual_shared')
+    successful = case in ('success', 'manual_shared', 'recovery')
     manual_sources = []
     prefix = Path(get_package_prefix('wla_r680_navigation')) / 'lib/wla_r680_navigation'
     result = Path('/tmp') / ('vio-init-regression-' + ('base-' if base_authority else '') + case + '.json')
@@ -41,6 +41,9 @@ def run(case, base_authority=False, guard_delay=0.):
             commands.append([sys.executable,str(root/'scripts/navigation_motion_session.py'),'--cuvslam-init'])
     if case == 'manual_legacy':
         commands[0].extend(['-p', 'nav_manual_coexist:=false'])
+    if case == 'recovery':
+        commands[0].extend(['-p', 'recovery_enabled:=true', '-p', 'recovery_wait_s:=0.3',
+                            '-p', 'recovery_turn_rad:=0.3', '-p', 'recovery_angular_speed:=0.15'])
     if guard_delay:
         assert base_authority
         commands[1] = [sys.executable, '-c',
@@ -74,7 +77,7 @@ def run(case, base_authority=False, guard_delay=0.):
     if mux is not None:mux.wait_ready(lambda:executor.spin_once(timeout_sec=.01))
 
     state = {'name': '', 'preview': Twist(), 'raw': 0, 'moving_at': None, 'fault_at': None}
-    states, bootstrap_values, normal_values = [], [], []
+    states, bootstrap_values, normal_values, recovery_values = [], [], [], []
     def state_cb(m):
         state['name'] = m.data
         if not states or states[-1] != m.data: states.append(m.data)
@@ -83,6 +86,7 @@ def run(case, base_authority=False, guard_delay=0.):
         state['preview'] = m
         if state['name'] == 'moving': bootstrap_values.append((m.linear.x, m.angular.z))
         if state['name'] == 'succeeded': normal_values.append(m.linear.x)
+        if state['name'] == 'recovering': recovery_values.append((m.linear.x, m.angular.z))
     node.create_subscription(String, '/r680_nav/vio_init_state', state_cb, 10)
     node.create_subscription(Twist, '/r680_nav/cmd_vel_safe_preview', preview_cb, 10)
     node.create_subscription(Twist, '/r680_nav/chassis_cmd_vel', lambda m: state.update(raw=state['raw']+1), 10)
@@ -99,7 +103,7 @@ def run(case, base_authority=False, guard_delay=0.):
         ('/r680_nav/vio_status', String), ('/r680_nav/vio_tracking_healthy', Bool),
         ('/r680_nav/localization_ready', Bool), ('/r680_nav/motion_ready', Bool),
         ('/r680_nav/mission_motion_allowed', Bool),
-        ('/r680_manual/cmd_vel', Twist), ('/gamepad_status', String),
+        ('/r680_manual/cmd_vel', Twist), ('/gamepad_status', String), ('/r680_nav/odom_state', String),
         ('/r680_nav/nav_command_input', Twist), ('/r680_nav/vio_init_cancel', Bool)]
         if not (base_authority and name == '/r680_nav/mission_motion_allowed')}
     def service_cb(req, res):
@@ -112,9 +116,10 @@ def run(case, base_authority=False, guard_delay=0.):
     begin = previous = time.monotonic()
     last_image = last_vo = 0.0
     held_failure = 0.0
+    succeeded_at = None
     try:
         imu_stamp_ns = node.get_clock().now().nanoseconds
-        while time.monotonic() - begin < 7 + guard_delay:
+        while time.monotonic() - begin < 7 + guard_delay + (8 if case == 'recovery' else 0):
             current = time.monotonic(); dt = min(current-previous, 0.05); previous = current
             if any(p.poll() is not None for i,p in enumerate(processes)
                    if not ((case == 'node_exit' and i == 0 and state['fault_at'] is not None) or
@@ -174,6 +179,8 @@ def run(case, base_authority=False, guard_delay=0.):
             publishers['/r680_nav/vio_status'].publish(String(data='tracking_inertial_ready' if inertial else 'waiting_for_inertial_initialization'))
             publishers['/r680_nav/vio_tracking_healthy'].publish(Bool(data=inertial))
             localized = inertial and state['name'] in ['waiting_inertial', 'succeeded']
+            # LOST odometry drops motion readiness, so the guard stops navigation.
+            localized = localized and not state.get('lost', False)
             publishers['/r680_nav/localization_ready'].publish(Bool(data=localized))
             publishers['/r680_nav/motion_ready'].publish(Bool(data=localized))
             if not base_authority:
@@ -194,8 +201,14 @@ def run(case, base_authority=False, guard_delay=0.):
                     cloud.width = 1; cloud.row_step = 12; cloud.data = b'\0' # Incomplete point buffer.
                 publishers['/r680_nav/d455/points_safety'].publish(cloud)
                 last_image = current
+            if case == 'recovery':
+                # Fusion odometry LOST for 3 s after initialization, then usable again.
+                if succeeded_at is None and state['name'] == 'succeeded': succeeded_at = current
+                state['lost'] = succeeded_at is not None and current - succeeded_at < 3.0
+                publishers['/r680_nav/odom_state'].publish(String(data='LOST' if state['lost'] else 'GOOD'))
             spin()
             if case == 'node_exit' and fault and current-state['fault_at'] > 0.6: break
+            if case == 'recovery' and (succeeded_at is None or current - succeeded_at < 4.5): continue
             if state['name'] in ['failed', 'succeeded']:
                 if held_failure == 0: held_failure = current
                 if current-held_failure > (1.5 if base_authority else .6): break
@@ -234,6 +247,11 @@ def run(case, base_authority=False, guard_delay=0.):
         else:
             assert bootstrap_values and any(v > 0 for v,w in bootstrap_values), 'bootstrap never moved in synthetic test'
         assert all(0 <= v <= 0.060001 and abs(w) <= 0.200001 for v,w in bootstrap_values)
+        if case == 'recovery':
+            assert 'recovering' in states and states[-1] == 'succeeded', states
+            moving = [(v, w) for v, w in recovery_values if abs(w) > 1e-6]
+            assert moving and all(abs(v) < 1e-9 and abs(w) <= 0.200001 for v, w in recovery_values), recovery_values
+            print(case, 'PASS LOST sweep is in-place and bounded; navigation resumes after recovery', flush=True)
         if successful:
             assert state['name'] == 'succeeded', states
             assert normal_values and max(normal_values) > 0.09, 'normal control did not resume'
@@ -294,6 +312,6 @@ if __name__ == '__main__':
     assert os.environ.get('ROS_DOMAIN_ID') == '74', 'Synthetic tests require isolated ROS_DOMAIN_ID=74'
     rclpy.init()
     try:
-        for case in ['success', 'obstacle', 'startup_obstacle', 'imu_gap', 'pose_jump', 'depth_unknown', 'cloud_malformed', 'lifecycle', 'timeout', 'node_exit', 'cancel']: run(case)
+        for case in ['success', 'recovery', 'obstacle', 'startup_obstacle', 'imu_gap', 'pose_jump', 'depth_unknown', 'cloud_malformed', 'lifecycle', 'timeout', 'node_exit', 'cancel']: run(case)
         legacy_guard()
     finally: rclpy.shutdown()

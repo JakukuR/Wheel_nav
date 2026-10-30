@@ -170,6 +170,10 @@ if(BUILD_TESTING)
   set_tests_properties(openvins_startup PROPERTIES
     ENVIRONMENT "ROS_DOMAIN_ID=198;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST"
     RUN_SERIAL TRUE TIMEOUT 20)
+  add_executable(test_vo_recovery_policy test/test_vo_recovery_policy.cpp)
+  target_include_directories(test_vo_recovery_policy PRIVATE include)
+  target_compile_options(test_vo_recovery_policy PRIVATE -UNDEBUG)
+  add_test(NAME vo_recovery_policy COMMAND test_vo_recovery_policy)
   add_executable(test_odom_fusion test/test_odom_fusion.cpp)
   target_link_libraries(test_odom_fusion odom_fusion_core)
   target_compile_options(test_odom_fusion PRIVATE -UNDEBUG)
