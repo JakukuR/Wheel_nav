@@ -507,4 +507,4 @@ def test_control_rate_and_map_age_parameters():
     cfg=pathlib.Path(sim_node.__file__).resolve().parents[1]/'config'/'sim_follow.yaml'
     if cfg.exists():
         params=next(iter(yaml.safe_load(cfg.read_text()).values()))['ros__parameters']
-        assert params['map_max_age_s']==.45 and params['max_sensor_age_s']==.30
+        assert params['map_max_age_s']==.45 and params['max_sensor_age_s']==.40

@@ -16,8 +16,11 @@ person_follow:
     depth_min_m: 0.15
     depth_max_m: 5.0
     surface_to_center_offset_m: 0.28
-    max_sensor_age_s: 0.30
-    # Depth frame age a control-rate replan may still plan on (observations stay 0.30).
+    # Target observation age a result may use. 0.30 zeroed 43-65 % of commands at
+    # J02 2026-10-30 14:50/15:02: observation -> result was 236-259 ms (p90 293-315)
+    # under load, so results arrived nearly expired (replay: 0.40 -> about 19 %).
+    max_sensor_age_s: 0.40
+    # Depth frame age a control-rate replan may still plan on.
     map_max_age_s: 0.45
     # wla_terrain_analysis obstacle cloud (follow.launch.py terrain:=true sets it); empty = off.
     terrain_topic: ""
