@@ -22,6 +22,7 @@ struct Sim {
   std::function<double(double)> wheel_v;  // measured wheel speed (slip), default truth
   double next_visual{0}, next_key{0};
   double max_output_step{0};
+  bool ever_bridging{false};
   std::optional<Pose2> last_output;
 
   void run(double seconds)
@@ -44,6 +45,7 @@ struct Sim {
       } else if (lagged > 0) {
         est.step(lagged);
       }
+      ever_bridging |= est.state() == State::Bridging;
       if (const auto out = est.predict()) {
         if (last_output) {
           const double d = std::hypot(out->pose.x() - last_output->x(), out->pose.y() - last_output->y());
@@ -84,6 +86,16 @@ int main()
     check(std::abs(s.est.bias() - 0.01) < 0.003, "gyro bias estimated from vision and ZUPT");
     check(s.error() < 0.03, "tracks the truth with vision");
     check(!s.est.slipping(), "no slip on consistent motion");
+  }
+  {
+    // A pose arriving too late for a keyframe or two (robot: up to ~150 ms)
+    // is not loss of vision; the next factor spans the gap.
+    Sim s;
+    s.motion = [](double t) {return t < 2 ? Truth{} : Truth{0.2, 0.1};};
+    s.visual = [](double t) {return !(t > 5.0 && t < 5.2) && !(t > 7.0 && t < 7.15);};
+    s.run(10);
+    check(!s.ever_bridging && s.est.state() == State::Good, "short visual gaps do not drop to bridging");
+    check(s.error() < 0.03, "spanning factors keep tracking the truth");
   }
   {
     // Vision drops for 3 s while driving slowly: bridging, continuous, recovers.

@@ -40,10 +40,13 @@ def main():
     def feed(seconds):
         end = time.monotonic() + seconds
         next_visual = 0.0
+        last = time.monotonic()
         while time.monotonic() < end:
             assert proc.poll() is None, 'odom_fusion exited'
             stamp = n.get_clock().now().to_msg()
-            dt = 0.005
+            # Truth advances with real elapsed time, as the wheel stamps do.
+            now = time.monotonic()
+            dt, last = now - last, now
             pose[0] += flags['speed'] * dt * math.cos(pose[2])
             pose[1] += flags['speed'] * dt * math.sin(pose[2])
             m = Imu()
@@ -66,8 +69,9 @@ def main():
                 r.pose.pose.position.x, r.pose.pose.position.y = pose[0] + 5.0, pose[1]  # cuVSLAM frame
                 r.pose.pose.orientation.w = 1.0
                 raw.publish(r)
-            rclpy.spin_once(n, timeout_sec=0)
-            time.sleep(dt)
+            for _ in range(50):  # the node publishes ~400 msg/s; keep up with it
+                rclpy.spin_once(n, timeout_sec=0)
+            time.sleep(0.005)
 
     try:
         feed(3.0)

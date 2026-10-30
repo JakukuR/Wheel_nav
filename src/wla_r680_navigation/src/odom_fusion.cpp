@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -40,9 +41,9 @@ public:
     imu_frame_ = declare_parameter<std::string>("expected_imu_frame", "gyro_link");
     wheel_timeout_ = positive("wheel_timeout_s", 0.15);
     imu_timeout_ = positive("imu_timeout_s", 0.10);
-    visual_timeout_ = positive("visual_timeout_s", 0.15);
+    visual_timeout_ = positive("visual_timeout_s", 0.5);
     input_timeout_ = positive("input_timeout_s", 0.20);
-    lag_ = positive("keyframe_lag_s", 0.15);
+    lag_ = positive("keyframe_lag_s", 0.4);
     max_v_ = positive("max_measured_linear_mps", 1.5);
     max_w_ = positive("max_measured_angular_radps", 2.5);
     auto q = declare_parameter<std::vector<double>>("base_from_imu_rotation", {0, 0, 0, 1});
@@ -64,21 +65,28 @@ public:
       rclcpp::QoS(1).reliable().transient_local());
     tf_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
-    const auto qos = rclcpp::SensorDataQoS().keep_last(5);
+    // Sensor callbacks run in their own group and only buffer: an optimization
+    // step in the timer must not delay (and age out) chassis samples.
+    sensor_group_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+    rclcpp::SubscriptionOptions sensors;
+    sensors.callback_group = sensor_group_;
+    const auto qos = rclcpp::SensorDataQoS().keep_last(50);
     raw_sub_ = create_subscription<Odom>(
       declare_parameter<std::string>("raw_odom_topic", "/r680_nav/vio_raw_odom"), qos,
-      [this](Odom::ConstSharedPtr m) {onRaw(*m);});
+      [this](Odom::ConstSharedPtr m) {onRaw(*m);}, sensors);
     quality_sub_ = create_subscription<std_msgs::msg::Float32MultiArray>(
       declare_parameter<std::string>("quality_topic", "/r680_nav/vio_visual_quality"), 10,
       [this](std_msgs::msg::Float32MultiArray::ConstSharedPtr m) {
         if (m->data.size() >= 2) {
           observations_ = static_cast<int>(m->data[0]); coverage_ = m->data[1]; quality_seen_ = Clock::now();
         }
-      });
+      }, sensors);
     visual_sub_ = create_subscription<std_msgs::msg::Bool>("/r680_nav/vio_visual_observed", 10,
-      [this](std_msgs::msg::Bool::ConstSharedPtr m) {visual_observed_ = m->data; visual_seen_ = Clock::now();});
+      [this](std_msgs::msg::Bool::ConstSharedPtr m) {visual_observed_ = m->data; visual_seen_ = Clock::now();},
+      sensors);
     health_sub_ = create_subscription<std_msgs::msg::Bool>("/r680_nav/vio_tracking_healthy", 10,
-      [this](std_msgs::msg::Bool::ConstSharedPtr m) {tracking_ = m->data; tracking_seen_ = Clock::now();});
+      [this](std_msgs::msg::Bool::ConstSharedPtr m) {tracking_ = m->data; tracking_seen_ = Clock::now();},
+      sensors);
     wheel_sub_ = create_subscription<Odom>(
       declare_parameter<std::string>("wheel_topic", "/wheel/odom"), qos,
       [this](Odom::ConstSharedPtr m) {
@@ -88,11 +96,12 @@ public:
         {
           v_ = t.linear.x; wheel_w_ = t.angular.z; wheel_seen_ = Clock::now();
         }
-      });
+      }, sensors);
     imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
       declare_parameter<std::string>("imu_topic", "/wheel/imu/data_raw"), qos,
-      [this](sensor_msgs::msg::Imu::ConstSharedPtr m) {onImu(*m);});
-    timer_ = create_wall_timer(10ms, [this] {tick();});
+      [this](sensor_msgs::msg::Imu::ConstSharedPtr m) {onImu(*m);}, sensors);
+    // 50 Hz output (cuVSLAM published 30 Hz); 100 Hz cost ~15% of a core.
+    timer_ = create_wall_timer(20ms, [this] {tick();});
   }
 
 private:
@@ -108,7 +117,7 @@ private:
     d("stationary_v", c.stationary_v); d("stationary_w", c.stationary_w);
     i("min_observations", c.min_observations); i("ref_observations", c.ref_observations);
     d("ref_coverage", c.ref_coverage); d("visual_off", c.visual_off); d("visual_on", c.visual_on);
-    i("visual_on_frames", c.visual_on_frames); d("visual_max_gap_s", c.visual_max_gap_s);
+    i("visual_on_frames", c.visual_on_frames); i("visual_off_frames", c.visual_off_frames); d("visual_max_gap_s", c.visual_max_gap_s);
     d("max_sample_gap_s", c.max_sample_gap_s);
     d("vo_jump_m", c.vo_jump_m); d("vo_jump_rad", c.vo_jump_rad);
     d("slip_w", c.slip_w); d("slip_a", c.slip_a); d("slip_vo_m", c.slip_vo_m);
@@ -153,7 +162,8 @@ private:
     if (age(wheel_seen_) > wheel_timeout_) {return;}
     const auto gyro = imu_rotation_ * tf2::Vector3(g.x, g.y, g.z);
     const auto accel = imu_rotation_ * tf2::Vector3(a.x, a.y, a.z);
-    est_.addSample({t, v_, wheel_w_, gyro.z(), accel.x()});
+    std::lock_guard<std::mutex> lock(mutex_);
+    samples_in_.push_back({t, v_, wheel_w_, gyro.z(), accel.x()});
     last_sample_ = t;
     sample_seen_ = Clock::now();
   }
@@ -166,23 +176,39 @@ private:
     if (m.header.frame_id != odom_frame_ || m.child_frame_id != base_frame_ ||
       !std::isfinite(p.position.x + p.position.y + p.position.z + norm) || std::abs(norm - 1) > 0.02 ||
       !fresh(m.header.stamp, visual_timeout_)) {return;}
+    std::lock_guard<std::mutex> lock(mutex_);
     raw_ = m;
     raw_seen_ = Clock::now();
     const bool visual = visual_observed_ && age(visual_seen_) <= visual_timeout_ &&
       tracking_ && age(tracking_seen_) <= visual_timeout_;
     if (!visual) {return;}
     const bool quality = age(quality_seen_) <= 0.2;
-    est_.addVisual({seconds(m.header.stamp), gtsam::Pose2(p.position.x, p.position.y, yaw(q)),
+    visuals_in_.push_back({seconds(m.header.stamp), gtsam::Pose2(p.position.x, p.position.y, yaw(q)),
       quality ? observations_ : -1, quality ? coverage_ : -1.0});
   }
 
   void tick()
   {
-    if (last_sample_ > 0 && age(sample_seen_) > input_timeout_) {est_.markStale("wheel/IMU input stale");}
-    if (last_sample_ > 0) {
-      const double ready = last_sample_ - lag_;
+    const auto tick_begin = Clock::now();
+    double last_sample;
+    Clock::time_point sample_seen, raw_seen;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      for (const auto & s : samples_in_) {est_.addSample(s);}
+      for (const auto & v : visuals_in_) {est_.addVisual(v);}
+      samples_in_.clear(); visuals_in_.clear();
+      last_sample = last_sample_; sample_seen = sample_seen_;
+      raw_seen = raw_seen_; raw_tick_ = raw_;
+    }
+    if (last_sample > 0 && age(sample_seen) > input_timeout_) {est_.markStale("wheel/IMU input stale");}
+    if (last_sample > 0) {
+      const double ready = last_sample - lag_;
       if (auto k = est_.nextKeyframe()) {
-        while (*k <= ready) {est_.step(*k); k = est_.nextKeyframe();}
+        while (*k <= ready) {
+          const auto begin = Clock::now();
+          est_.step(*k); k = est_.nextKeyframe();
+          step_s_ += std::chrono::duration<double>(Clock::now() - begin).count(); ++steps_;
+        }
       } else {
         est_.step(ready);
       }
@@ -191,8 +217,8 @@ private:
     if (state == fusion::State::Waiting) {
       // Before the first anchor keep the raw TF, so costmaps and the
       // restricted initialization chain do not wait on each other.
-      if (age(raw_seen_) <= visual_timeout_ && rclcpp::Time(raw_.header.stamp).nanoseconds() > published_) {
-        publish(raw_);
+      if (age(raw_seen) <= visual_timeout_ && rclcpp::Time(raw_tick_.header.stamp).nanoseconds() > published_) {
+        publish(raw_tick_);
       }
     } else if (const auto out = est_.predict()) {
       publish(compose(*out));
@@ -212,7 +238,8 @@ private:
         fusion::name(state), est_.reason().c_str());
       last_state_ = state;
     }
-    if (++ticks_ % 10 == 0) {
+    tick_s_ += std::chrono::duration<double>(Clock::now() - tick_begin).count(); ++tick_count_;
+    if (++ticks_ % 5 == 0) {
       std_msgs::msg::String s;
       s.data = fusion::name(state);
       state_pub_->publish(s);
@@ -222,7 +249,10 @@ private:
         << " visual_score=" << est_.visualQuality() << " visual_active=" << est_.visualActive()
         << " sigma_xy=" << est_.sigmaXy() << " sigma_yaw=" << est_.sigmaYaw()
         << " visual_factors=" << est_.visualFactors() << " visual_jumps=" << est_.visualJumps()
+        << " step_ms=" << (steps_ ? 1000.0 * step_s_ / steps_ : 0.0)
+        << " tick_ms=" << (tick_count_ ? 1000.0 * tick_s_ / tick_count_ : 0.0)
         << " reason=" << est_.reason();
+      step_s_ = tick_s_ = 0; steps_ = tick_count_ = 0;
       s.data = o.str();
       status_pub_->publish(s);
     }
@@ -238,11 +268,11 @@ private:
     m.pose.pose.position.y = out.pose.y();
     // Height, roll and pitch stay cuVSLAM's (last value while blind); only the
     // planar part is fused.
-    m.pose.pose.position.z = raw_.pose.pose.position.z;
-    const auto & r = raw_.pose.pose.orientation;
+    m.pose.pose.position.z = raw_tick_.pose.pose.position.z;
+    const auto & r = raw_tick_.pose.pose.orientation;
     tf2::Quaternion raw(r.x, r.y, r.z, r.w), heading, own;
     if (raw.length2() < 0.5) {raw = tf2::Quaternion(0, 0, 0, 1);}
-    heading.setRPY(0, 0, yaw(raw_.pose.pose.orientation));
+    heading.setRPY(0, 0, yaw(raw_tick_.pose.pose.orientation));
     own.setRPY(0, 0, out.pose.theta());
     const auto q = (own * heading.inverse() * raw).normalized();
     m.pose.pose.orientation.x = q.x(); m.pose.pose.orientation.y = q.y();
@@ -282,11 +312,16 @@ private:
   int observations_{-1};
   bool visual_observed_{false}, tracking_{false}, epoch_sent_{false};
   uint32_t epoch_{0};
-  uint64_t ticks_{0};
+  uint64_t ticks_{0}, steps_{0}, tick_count_{0};
+  double step_s_{0}, tick_s_{0};
   int64_t published_{0};
   fusion::State last_state_{fusion::State::Waiting};
   Clock::time_point wheel_seen_{}, sample_seen_{}, raw_seen_{}, visual_seen_{}, tracking_seen_{}, quality_seen_{};
-  Odom raw_;
+  Odom raw_, raw_tick_;   // raw_ under mutex_ (sensor group); raw_tick_ timer-only copy
+  std::mutex mutex_;
+  std::vector<fusion::Sample> samples_in_;
+  std::vector<fusion::Visual> visuals_in_;
+  rclcpp::CallbackGroup::SharedPtr sensor_group_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_;
   rclcpp::Publisher<Odom>::SharedPtr pub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr health_pub_, degraded_pub_;
@@ -302,7 +337,10 @@ private:
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<OdomFusion>());
+  rclcpp::executors::MultiThreadedExecutor executor(rclcpp::ExecutorOptions(), 2);
+  auto node = std::make_shared<OdomFusion>();
+  executor.add_node(node);
+  executor.spin();
   rclcpp::shutdown();
   return 0;
 }

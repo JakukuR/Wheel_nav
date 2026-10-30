@@ -10,7 +10,7 @@
 #include <gtsam/nonlinear/NonlinearFactor.h>
 #include <gtsam/nonlinear/PriorFactor.h>
 #include <gtsam/slam/BetweenFactor.h>
-#include <gtsam_unstable/nonlinear/BatchFixedLagSmoother.h>
+#include <gtsam_unstable/nonlinear/IncrementalFixedLagSmoother.h>
 
 #include "wla_r680_navigation/degraded_odometry.hpp"
 
@@ -35,14 +35,20 @@ public:
     boost::optional<gtsam::Matrix &> H1 = boost::none, boost::optional<gtsam::Matrix &> H2 = boost::none,
     boost::optional<gtsam::Matrix &> H3 = boost::none) const override
   {
-    const std::function<Vector3(const Pose2 &, const Pose2 &, const double &)> error =
-      [this](const Pose2 & p, const Pose2 & q, const double & b) -> Vector3 {
-        return Pose2::Logmap(integrate(samples_, t0_, t1_, b).between(p.between(q)));
-      };
-    if (H1) {*H1 = gtsam::numericalDerivative31<Vector3, Pose2, Pose2, double>(error, a, c, bias);}
-    if (H2) {*H2 = gtsam::numericalDerivative32<Vector3, Pose2, Pose2, double>(error, a, c, bias);}
-    if (H3) {*H3 = gtsam::numericalDerivative33<Vector3, Pose2, Pose2, double>(error, a, c, bias);}
-    return error(a, c, bias);
+    // Analytic pose Jacobians; only the bias derivative of the integrated
+    // increment is numerical (one extra integration per linearization).
+    const Pose2 predicted = integrate(samples_, t0_, t1_, bias);
+    gtsam::Matrix3 Ha, Hc, Hp, Hr, Hl;
+    const Pose2 relative = a.between(c, Ha, Hc);
+    const Vector3 error = Pose2::Logmap(predicted.between(relative, Hp, Hr), Hl);
+    if (H1) {*H1 = Hl * Hr * Ha;}
+    if (H2) {*H2 = Hl * Hr * Hc;}
+    if (H3) {
+      constexpr double eps = 1e-5;
+      const Vector3 dpred = Pose2::Logmap(predicted.between(integrate(samples_, t0_, t1_, bias + eps))) / eps;
+      *H3 = Hl * Hp * dpred;
+    }
+    return error;
   }
 
   gtsam::NonlinearFactor::shared_ptr clone() const override
@@ -110,6 +116,9 @@ Estimator::Estimator(Config config)
     c_.gyro_noise, c_.bias_walk, c_.bias_prior, c_.vo_sigma_xy, c_.vo_sigma_yaw, c_.zupt_sigma,
     c_.slip_w, c_.slip_a, c_.slip_vo_m, c_.max_sigma_xy, c_.max_sigma_yaw, c_.visual_max_gap_s,
     c_.wheel_scale_sigma, c_.bias_sigma, c_.max_sample_gap_s};
+  if (c_.visual_off_frames < 1 || c_.visual_off_frames * c_.keyframe_s >= c_.window_s / 2) {
+    throw std::invalid_argument("visual_off_frames must keep spanning factors inside the window");
+  }
   for (const double v : values) {
     if (!std::isfinite(v) || v <= 0) {throw std::invalid_argument("invalid odom fusion parameter");}
   }
@@ -177,8 +186,12 @@ std::vector<Sample> Estimator::samplesBetween(double t0, double t1) const
 
 void Estimator::anchor(double t, const Visual & v)
 {
-  gtsam::LevenbergMarquardtParams params;
-  smoother_ = std::make_unique<gtsam::BatchFixedLagSmoother>(c_.window_s, params);
+  // iSAM2 updates only the affected part of the window each keyframe; the
+  // batch smoother re-solved and re-marginalized all of it (~40% of a core).
+  gtsam::ISAM2Params params;
+  params.relinearizeThreshold = 0.01;
+  params.relinearizeSkip = 1;
+  smoother_ = std::make_unique<gtsam::IncrementalFixedLagSmoother>(c_.window_s, params);
   key_ = 0;
   t_ = t;
   pose_ = v.pose;
@@ -190,7 +203,10 @@ void Estimator::anchor(double t, const Visual & v)
   values.insert(B(0), bias_);
   smoother_->update(graph, values, {{X(0), t}, {B(0), t}});
   last_visual_ = v;
+  last_visual_key_ = 0;
+  span_ = Pose2();
   visual_on_ = true;
+  visual_miss_ = 0;
   sigma_xy_ = sigma_yaw_ = 0;
   blind_distance_ = blind_moving_s_ = blind_random_xy2_ = blind_random_yaw2_ = 0;
   state_ = State::Good;
@@ -234,6 +250,7 @@ void Estimator::step(double t)
     anchor(t, here);
     visual_on_ = false;
     last_visual_.reset();
+    visual_good_ = 0;
     state_ = State::Lost;
     reason_ = before == State::Lost ? reason_ : "chassis wheel/IMU gap";
     return;
@@ -258,20 +275,30 @@ void Estimator::step(double t)
   accel_ready_ = true;
 
   // Visual quality with hysteresis; a re-enabled segment starts without a factor.
+  // A late or missing pose for a keyframe or two (cuVSLAM output lags up to
+  // ~150 ms) is not loss of vision: the next factor spans the gap instead.
   const auto v = visualAt(t);
   visual_score_ = v ? visualScore(c_, v->observations, v->coverage) : 1.0;
+  const bool usable = v && visual_score_ <= c_.visual_off;
+  span_ = span_.compose(delta);
   bool new_segment = false;
   if (visual_on_) {
-    if (!v || visual_score_ > c_.visual_off) {visual_on_ = false; last_visual_.reset(); visual_good_ = 0;}
+    if (usable) {visual_miss_ = 0;}
+    else if (++visual_miss_ >= c_.visual_off_frames) {
+      visual_on_ = false; last_visual_.reset(); visual_good_ = 0; visual_miss_ = 0;
+    }
   } else if (v && visual_score_ < c_.visual_on) {
     if (++visual_good_ >= c_.visual_on_frames) {visual_on_ = true; new_segment = true;}
   } else {
     visual_good_ = 0;
   }
   std::optional<Pose2> vo;
-  if (visual_on_ && !new_segment && last_visual_ && v) {vo = last_visual_->pose.between(v->pose);}
-  if (vo && (std::hypot(vo->x() - delta.x(), vo->y() - delta.y()) > c_.vo_jump_m + travelled ||
-    std::abs(Pose2::Logmap(delta.between(*vo))(2)) > c_.vo_jump_rad))
+  if (visual_on_ && !new_segment && last_visual_ && usable) {vo = last_visual_->pose.between(v->pose);}
+  const uint64_t vo_from = last_visual_key_;
+  const double span_travelled = std::hypot(span_.x(), span_.y());
+  const int span_frames = static_cast<int>(key_ + 1 - vo_from);
+  if (vo && (std::hypot(vo->x() - span_.x(), vo->y() - span_.y()) > c_.vo_jump_m + span_travelled ||
+    std::abs(Pose2::Logmap(span_.between(*vo))(2)) > c_.vo_jump_rad))
   {
     // cuVSLAM relocalized internally or jumped: start a new segment instead
     // of passing the discontinuity into odometry.
@@ -281,7 +308,7 @@ void Estimator::step(double t)
 
   const double s_w = std::abs(wheel_w - (gyro - bias_)) / c_.slip_w;
   const double s_a = std::abs(wheel_accel - imu_accel) / c_.slip_a;
-  const double s_vo = vo ? std::hypot(vo->x() - delta.x(), vo->y() - delta.y()) / c_.slip_vo_m : 0.0;
+  const double s_vo = vo ? std::hypot(vo->x() - span_.x(), vo->y() - span_.y()) / (c_.slip_vo_m * span_frames) : 0.0;
   slip_score_ = std::min(1.0, std::max({s_w, s_a, s_vo}));
   if (slip_score_ > c_.slip_on) {++slip_high_; slip_low_ = 0;}
   else if (slip_score_ < c_.slip_off) {++slip_low_; slip_high_ = 0;}
@@ -303,8 +330,8 @@ void Estimator::step(double t)
     graph.add(gtsam::BetweenFactor<Pose2>(xi, xj, Pose2(), sigmas(c_.zupt_sigma, c_.zupt_sigma)));
   }
   if (vo) {
-    const double scale = 1.0 + 2.0 * visual_score_;
-    graph.add(gtsam::BetweenFactor<Pose2>(xi, xj, *vo, noise::Robust::Create(
+    const double scale = (1.0 + 2.0 * visual_score_) * std::sqrt(static_cast<double>(span_frames));
+    graph.add(gtsam::BetweenFactor<Pose2>(X(vo_from), xj, *vo, noise::Robust::Create(
       noise::mEstimator::Huber::Create(1.345), sigmas(c_.vo_sigma_xy * scale, c_.vo_sigma_yaw * scale))));
   }
   values.insert(xj, pose_.compose(delta));
@@ -316,7 +343,7 @@ void Estimator::step(double t)
   bias_ = estimate.at<double>(bj);
   ++key_;
   t_ = t;
-  if (visual_on_ && v) {last_visual_ = v;}
+  if (visual_on_ && usable) {last_visual_ = v; last_visual_key_ = key_; span_ = Pose2();}
 
   if (vo) {
     ++visual_factors_;
@@ -348,16 +375,24 @@ std::optional<Output> Estimator::predict() const
 {
   if (state_ == State::Waiting || samples_.empty()) {return std::nullopt;}
   const double t = std::max(t_, samples_.back().t);
-  auto window = samplesBetween(t_, t);
   // Slipping wheels must not move the prediction either: use the speed the
   // smoother estimated over the last keyframe instead.
-  if (slipping_ || slip_score_ > c_.slip_on) {
+  const bool slip = slipping_ || slip_score_ > c_.slip_on;
+  // Extend the cached increment since the last keyframe with new samples
+  // only (piecewise zero-order hold integrates identically in pieces).
+  if (cache_base_ != t_ || cache_slip_ != slip || cache_end_ > t) {
+    cache_base_ = cache_end_ = t_; cache_delta_ = Pose2(); cache_slip_ = slip;
+  }
+  auto window = samplesBetween(cache_end_, t);
+  if (slip) {
     for (auto & s : window) {s.v = fused_v_;}
   }
+  cache_delta_ = cache_delta_.compose(integrate(window, cache_end_, t, bias_));
+  cache_end_ = t;
   Output out;
   out.t = t;
-  out.pose = pose_.compose(integrate(window, t_, t, bias_));
-  out.v = window.empty() ? 0.0 : window.back().v;
+  out.pose = pose_.compose(cache_delta_);
+  out.v = slip ? fused_v_ : samples_.back().v;
   out.w = samples_.back().gyro - bias_;
   out.sigma_xy = sigma_xy_;
   out.sigma_yaw = sigma_yaw_;

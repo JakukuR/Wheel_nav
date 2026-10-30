@@ -12,7 +12,7 @@
 
 #include <gtsam/geometry/Pose2.h>
 
-namespace gtsam {class BatchFixedLagSmoother;}
+namespace gtsam {class IncrementalFixedLagSmoother;}
 
 namespace wla_r680_navigation::fusion {
 
@@ -34,7 +34,7 @@ struct Config {
   // Visual quality: score 0 (good) .. 1 (unusable), hysteresis on/off.
   int min_observations{20}, ref_observations{120};
   double ref_coverage{0.35}, visual_off{0.7}, visual_on{0.4};
-  int visual_on_frames{3};
+  int visual_on_frames{3}, visual_off_frames{5};
   double visual_max_gap_s{0.12};
   double max_sample_gap_s{0.25};
   double vo_jump_m{0.15}, vo_jump_rad{0.15};
@@ -99,7 +99,7 @@ private:
   void bridge(double travelled, double trans_sigma, double dt, bool stationary);
 
   Config c_;
-  std::unique_ptr<gtsam::BatchFixedLagSmoother> smoother_;
+  std::unique_ptr<gtsam::IncrementalFixedLagSmoother> smoother_;
   std::deque<Sample> samples_;
   std::deque<Visual> visuals_;
   State state_{State::Waiting};
@@ -108,13 +108,19 @@ private:
   double t_{0}, bias_{0}, accel_mean_{0}, fused_v_{0};
   bool accel_ready_{false};
   gtsam::Pose2 pose_;
-  std::optional<Visual> last_visual_;   // visual pose at the latest keyframe, same segment
+  std::optional<Visual> last_visual_;   // latest usable visual pose in this segment
+  uint64_t last_visual_key_{0};         // its keyframe
+  gtsam::Pose2 span_;                   // wheel/gyro motion since that keyframe
   double visual_score_{1}, slip_score_{0}, sigma_xy_{0}, sigma_yaw_{0};
   double blind_distance_{0}, blind_moving_s_{0}, blind_random_xy2_{0}, blind_random_yaw2_{0};
   bool visual_on_{false}, slipping_{false}, stalled_{false};
   std::string stall_reason_;
-  int visual_good_{0}, slip_high_{0}, slip_low_{0};
+  int visual_good_{0}, visual_miss_{0}, slip_high_{0}, slip_low_{0};
   std::string reason_{"waiting for a good visual pose"};
+  // predict() cache: increment from keyframe time cache_base_ to cache_end_.
+  mutable double cache_base_{-1}, cache_end_{0};
+  mutable gtsam::Pose2 cache_delta_;
+  mutable bool cache_slip_{false};
 };
 
 }  // namespace wla_r680_navigation::fusion

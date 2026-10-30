@@ -13,12 +13,12 @@ r680_odom_fusion:
     base_from_imu_rotation: [0.0, 0.0, 0.0, 1.0]
     wheel_timeout_s: 0.15
     imu_timeout_s: 0.10
-    visual_timeout_s: 0.15
+    visual_timeout_s: 0.5     # cuVSLAM output under load: median ~80 ms, p95 ~330 ms, max ~440 ms
     input_timeout_s: 0.20     # reported LOST while chassis samples are missing
     max_sample_gap_s: 0.25    # longer gaps break continuity: new epoch after vision
-    keyframe_lag_s: 0.15      # keyframes wait for the visual pose latency
+    keyframe_lag_s: 0.4       # keyframes wait for late visual poses; output is extrapolated, not delayed
 
-    # Window: 10 Hz keyframes over 3 s (BatchFixedLagSmoother).
+    # Window: 10 Hz keyframes over 3 s (iSAM2 IncrementalFixedLagSmoother).
     keyframe_s: 0.1
     window_s: 3.0
     # Noise. Provisional until fitted from recorded runs (R680-NAV-008).
@@ -41,6 +41,7 @@ r680_odom_fusion:
     visual_off: 0.7
     visual_on: 0.4
     visual_on_frames: 3
+    visual_off_frames: 5      # 0.5 s without a usable pose before vision counts as off
     visual_max_gap_s: 0.12
     vo_jump_m: 0.15           # larger cuVSLAM moves start a new visual segment
     vo_jump_rad: 0.15
