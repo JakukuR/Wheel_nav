@@ -117,7 +117,7 @@ class SimulationEngine:
         self.mapping.rebuild(now,reuse=True)
 
     def step(self, pose, previous, packets, observation, now, policy=None,
-             tracker_snapshot=None, task_mode='0', object_surface=None, *, active=True):
+             tracker_snapshot=None, task_mode='0', object_surface=None, *, active=True, recovery=False):
         self.update_map(pose,packets,now)
         if not active:
             self.controller.reset()
@@ -132,10 +132,10 @@ class SimulationEngine:
                     state='idle',task_mode=task_mode,reference_method='none',
                     history_point_count=0,reference_point_count=0,history_sampling=None,
                     last_measurement_stamp_s=None),obstacle_track_ids=[])
-        return self._plan(pose,previous,observation,now,policy,tracker_snapshot,task_mode,object_surface)
+        return self._plan(pose,previous,observation,now,policy,tracker_snapshot,task_mode,object_surface,recovery)
 
     def _plan(self, pose, previous, observation, now, policy, tracker_snapshot,
-              task_mode, object_surface):
+              task_mode, object_surface, recovery=False):
         if observation is not None:
             stamp,target,people,resolved_id=observation
             if target is not None:self.people.tracks.pop(resolved_id,None)
@@ -171,7 +171,7 @@ class SimulationEngine:
         seed=seed_command(previous,self.last_command,self.last_command_at,now)
         command=self.controller.command(np.asarray(pose),seed,estimate,velocity,
             history,self.mapping,tracks,state,policy=policy,policy_time=now,reference_path=route,face_point=face,
-            measured=np.asarray(previous,dtype=float))
+            measured=np.asarray(previous,dtype=float),recovery=recovery)
         if self.controller.last_candidates and not self.controller.last_infeasible:
             # Plans now run at control rate; the first change is bounded by the
             # time since the last issued command (zero/stop outputs stay exact).
@@ -182,6 +182,8 @@ class SimulationEngine:
             'tracker_prediction' if state=='coast' else 'tracker_follow')
         if self.controller.last_infeasible:
             command=np.zeros(2);reason='no_feasible_candidate'
+        elif recovery:reason='depth_coverage_recovery'
+        elif self.controller.last_candidates.get('backing'):reason='backing_out'
         if policy is not None:command=policy.limit_command(command,now)
         if not np.isfinite(command).all():raise ValueError('nonfinite_core_command')
         self.last_command=np.asarray(command,dtype=float).copy();self.last_command_at=now
@@ -265,7 +267,7 @@ def process_step(job):
         if moved:
             prior['motion_started_s']=now
             prior['expires_s']=now+engine.mapping.ttl
-    result = engine.step(pose, previous, packets, observation, now, policy=startup.get('policy_snapshot'),tracker_snapshot=startup.get('tracker_snapshot'),task_mode=startup.get('task_mode','0'),object_surface=startup.get('object_surface'),active=startup['active'])
+    result = engine.step(pose, previous, packets, observation, now, policy=startup.get('policy_snapshot'),tracker_snapshot=startup.get('tracker_snapshot'),task_mode=startup.get('task_mode','0'),object_surface=startup.get('object_surface'),active=startup['active'],recovery=bool(startup.get('recovery',False)))
     prior=dict(_PROCESS_STARTUP_PRIOR) if _PROCESS_STARTUP_PRIOR else None
     if prior is not None:
         if prior['reference_generation']!=key[-1]:

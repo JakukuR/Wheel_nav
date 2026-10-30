@@ -90,7 +90,10 @@ class HybridFollower:
         goal=back[0]
         # Known obstacles only: the swept path was free; unknown is just unseen.
         points=p+np.linspace(0.,1.,8)[:,None]*(goal-p)
-        if np.min(local_map.query(points))<c.radius+.02:return None
+        # Leaving a spot that is already tight is allowed as long as the path
+        # never gets closer to known obstacles than the robot is now.
+        clear=local_map.query(points)
+        if np.min(clear[1:])<min(c.radius+.02,clear[0]):return None
         rear=pose[2]+np.pi
         err=float(wrap(np.arctan2(goal[1]-p[1],goal[0]-p[0])-rear))
         w=float(np.clip(1.5*err,-.5,.5))
@@ -102,8 +105,21 @@ class HybridFollower:
         self.last_reference_path=np.vstack((p,goal))
         return np.array([v,w])
 
+    def recover(self, pose, previous, target, local_map, c):
+        """Never forward: back out along the swept path, else turn to the target in
+        place when the footprint is clear, else stop."""
+        back=self._backup(pose,previous,local_map,c)
+        if back is not None:return back
+        self.last_candidates=dict(safe=1,feasible=1,forward=0,recovery=True,backed_m=round(self.backed,2))
+        err=float(wrap(np.arctan2(target[1]-pose[1],target[0]-pose[0])-pose[2]))
+        clear=float(np.min(local_map.query(np.asarray(pose[:2],dtype=float).reshape(1,2))))-c.radius
+        if abs(err)<=.15 or clear<0.:return np.zeros(2)
+        w=float(np.clip(1.5*err,-.6,.6))
+        return np.array([0.,float(np.clip(w,previous[1]-c.yaw_accel*c.step,previous[1]+c.yaw_accel*c.step))])
+
     def command(self, pose, previous, target, velocity, history, local_map, obstacles,
-                status, policy=None, policy_time=None, *, reference_path=None, face_point=None, measured=None):
+                status, policy=None, policy_time=None, *, reference_path=None, face_point=None, measured=None,
+                recovery=False):
         c=self.c
         self._remember(pose)
         searching=status in ('search_last_seen','search_heading')
@@ -116,6 +132,10 @@ class HybridFollower:
         self.last_reference_path=np.empty((0,2))
         if target is None or status in ('lost','binding','holding'):
             return np.zeros(2)
+        if recovery:
+            # The newest depth frame shows too little (e.g. the nose at a desk
+            # inside the camera's minimum range): do not drive forward on it.
+            return self.recover(pose,previous,target,local_map,c)
         path=bezier_reference(history) if reference_path is None else np.asarray(reference_path,dtype=float).reshape(-1,2)
         detouring=False
         if reference_path is None and not searching and self.detour is not None:
@@ -137,7 +157,8 @@ class HybridFollower:
                     self.last_candidates=dict(safe=1,feasible=1,forward=0,looking=True,detour=dict(self.detour.last))
                     self.last_reference_path=np.asarray(detour)
                     if clear>=0.:return np.array([0.,w])
-        if not detouring or not self.detour.last.get('looking'):self.backed=0.
+        # The backing budget lasts for a whole stuck episode (no forward option).
+        if (not detouring or not self.detour.last.get('looking')) and self.stuck_cycles==0:self.backed=0.
         if not len(path):path=np.asarray(target,dtype=float).reshape(1,2)
         if np.linalg.norm(path[-1]-target)>.01:path=np.vstack((path,target))
         if len(path)<2:path=np.vstack((pose[:2],path))
@@ -268,5 +289,12 @@ class HybridFollower:
             self.last_candidates['detour']=dict(self.detour.last)
         if not feasible.any():
             self.last_infeasible=True
+            if self.stuck_cycles>=3 and reference_path is None and not searching:
+                # Nothing safe for three plans (e.g. inflated obstacles round the
+                # body): back out along the swept path instead of waiting.
+                back=self._backup(pose,previous,local_map,c)
+                if back is not None:
+                    self.last_infeasible=False
+                    return back
             return np.zeros(2)
         return first[int(np.argmin(np.where(feasible,score,np.inf)))]

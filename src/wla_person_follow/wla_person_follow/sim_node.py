@@ -475,6 +475,9 @@ class FollowEngine:
                 valid=np.isfinite(depth)&(depth>=self.p['depth_min_m'])&(depth<=self.p['depth_max_m'])
                 h,w=valid.shape;front=valid[int(h*.35):max(int(h*.8),int(h*.35)+1),int(w*.3):max(int(w*.7),int(w*.3)+1)]
                 if np.mean(valid)<self.p['camera_min_valid_fraction'] or not front.size or np.mean(front)<self.p['camera_front_min_valid_fraction']:
+                    if person and active:
+                        self._coverage_recovery(key,stamp_ns(msg),valid_until)
+                        continue
                     raise ValueError('insufficient_depth_coverage')
                 # Transform measurements at acquisition time, but control from
                 # the latest wheel pose after depth processing, not image pose.
@@ -705,6 +708,20 @@ class FollowEngine:
                     or now-self.last_plan_at<(OBSERVATION_REPLAN_S if self.core.last_stamp/1e9>self.last_plan_obs
                                               else CONTROL_PERIOD_S)):return
             if self.future is not None and not self.future.done():return
+        self._replan(key,base,now,'control_tick')
+
+    def _coverage_recovery(self,key,frame_ns,valid_until):
+        """Person modes, depth frame rejected for coverage (e.g. the nose at a desk
+        inside the camera's minimum range): plan a recovery that never drives
+        forward on the existing map, stamped with this fresh frame."""
+        base=dict(key=key,stamp_ns=frame_ns,
+            map_deadline=valid_until+self.p['map_max_age_s']-self.p['max_sensor_age_s'],
+            target_mask=None,frontend_ms=0.,obstacle_points=0,clearing_points=0)
+        self._replan(key,base,time.monotonic(),'depth_coverage_recovery',recovery=True)
+
+    def _replan(self,key,base,now,planned_from,recovery=False):
+        with self.guard:
+            if key!=self.key() or self.future is not None and not self.future.done():return
             motion=self.motion.snapshot();objects=dict(self.core.objects);obs_stamp=self.core.last_stamp/1e9
             self.last_plan_obs=obs_stamp
             transport_generation=getattr(self.io,"generation",0)
@@ -733,7 +750,7 @@ class FollowEngine:
                      motion_threshold=self.p['startup_motion_threshold_m'],
                      local_radius=self.p['local_assumed_free_radius_m'],
                      target_clear_ttl_s=self.p['target_ghost_clear_ttl_s'],
-                     tracker_snapshot=binding_status,task_mode=key[1],object_surface=None,
+                     tracker_snapshot=binding_status,task_mode=key[1],object_surface=None,recovery=recovery,
                      policy_snapshot=self._tracking_policy(binding_status))))
             try:
                 result=self.future.result(timeout=self.p['result_ttl_s'])
@@ -748,7 +765,7 @@ class FollowEngine:
                 transport_generation=transport_generation,key=key,stamp_ns=base['stamp_ns'],
                 valid_until=min(base['map_deadline'],begun+self.p['result_hold_s']),
                 frontend_ms=base['frontend_ms'],obstacle_points=base['obstacle_points'],clearing_points=base['clearing_points'],
-                observation_stamp_ns=int(obs_stamp*1e9),ready_at=time.monotonic(),planned_from='control_tick',
+                observation_stamp_ns=int(obs_stamp*1e9),ready_at=time.monotonic(),planned_from=planned_from,
                 latency=dict(map_age_ms=(self.now_ns()-base['stamp_ns'])/1e6,
                     observation_to_result_ms=(self.now_ns()/1e9-obs_stamp)*1000.,
                     processing_ms=(time.monotonic()-begun)*1000.),

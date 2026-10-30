@@ -124,3 +124,36 @@ def test_backed_distance_counts_only_reverse_motion():
     assert abs(f.backed - .1) < 1e-9
     f._remember(np.array([.2, 0., 0.]))  # forward again: not counted
     assert abs(f.backed - .1) < 1e-9
+
+
+def _trail_follower(c):
+    """Follower that has driven 0.6 m straight to the origin (its swept trail)."""
+    f = HybridFollower(c)
+    for x in np.arange(-.6, .001, .05):
+        f._remember(np.array([x, 0., 0.]))
+    return f
+
+
+def test_backs_out_when_no_candidate_is_safe():
+    """Wall inside the body radius ahead: stopping is unsafe too. After three plans
+    without a safe option the robot reverses along its trail (J02 2026-10-30)."""
+    c = Tuning(); f = _trail_follower(c)
+    wall = np.array([[.16, y, z] for y in np.arange(-.6, .61, .05) for z in (.2, .4)])
+    m = _open_map(wall); target = np.array([2., 0.]); hist = [np.array([1.5 + .1 * i, 0.]) for i in range(5)]
+    cmds = [f.command(np.zeros(3), np.zeros(2), target, np.zeros(2), hist, m, [], "visible") for _ in range(4)]
+    assert np.allclose(cmds[0], 0.) and f.last_infeasible is False
+    assert cmds[-1][0] < -.05
+
+
+def test_depth_recovery_never_drives_forward():
+    c = Tuning(); m = _open_map(); hist = [np.array([1.5, 0.])]
+    # With a swept trail: back out first.
+    f = _trail_follower(c)
+    cmd = f.command(np.zeros(3), np.zeros(2), np.array([1.5, -.8]), np.zeros(2), hist, m, [], "visible", recovery=True)
+    assert cmd[0] < 0.
+    # No trail: turn in place towards the person, never forward.
+    f = HybridFollower(c)
+    cmd = f.command(np.zeros(3), np.array([0., -.3]), np.array([1.5, -.8]), np.zeros(2), hist, m, [], "visible", recovery=True)
+    assert cmd[0] == 0. and cmd[1] < 0.
+    cmd = f.command(np.zeros(3), np.zeros(2), np.array([1.5, .05]), np.zeros(2), hist, m, [], "visible", recovery=True)
+    np.testing.assert_allclose(cmd, [0., 0.])
