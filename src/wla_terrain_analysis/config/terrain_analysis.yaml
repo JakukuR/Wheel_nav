@@ -1,0 +1,47 @@
+terrain_odometry:
+  ros__parameters:
+    wheel_topic: /wheel/odom_50hz
+    imu_topic: /wheel/imu/data_raw
+    output_topic: /r680_nav/terrain_odom
+    odom_frame: terrain_odom
+    base_frame: r680_mapping_floor
+    accel_gain: 0.02
+    accel_window: 0.5
+    bias_calibration_s: 2.0
+
+terrain_analysis:
+  ros__parameters:
+    depth_topic: /r680/d455/aligned_depth_to_color/image_raw
+    camera_info_topic: /r680/d455/color/camera_info
+    odom_topic: /r680_nav/terrain_odom
+    base_frame: r680_mapping_floor
+    odom_frame: terrain_odom
+    # Same roles/topics as depth_to_points (Nav2 config unchanged); z of these
+    # clouds is the height above the local ground plane.
+    output_topic: /r680_nav/d455/points
+    safety_output_topic: /r680_nav/d455/points_safety
+    clearing_output_topic: /r680_nav/d455/clearing_points
+    terrain_map_topic: /r680_nav/terrain_map
+    stride: 4
+    min_depth: 0.15
+    max_depth: 5.0
+    max_rate: 10.0
+    # Robot limits (user spec 2026-10-29): 20 deg slope, 5 cm step.
+    max_slope_deg: 20.0
+    slope_margin_deg: 3.0
+    max_step: 0.05
+    obstacle_height: 0.05
+    vehicle_height: 0.50
+    planar_cell: 0.10
+    ground_quantile: 0.25
+    min_cell_points: 4
+    fit_radius: 0.30
+    fit_outlier: 0.02
+    step_span: 0.30
+    drop_shadow: 0.60
+    replace_age: 0.35
+    decay_time: 2.0
+    keep_radius: 2.5
+    map_radius: 5.0
+    terrain_range: 3.5
+    min_confirm: 2
