@@ -1,0 +1,5 @@
+# Flat RealSense parameters (r680_camera.sh --emitter alternate): the projector
+# alternates per frame. Lit frames feed depth; emitter_frame_splitter forwards
+# the dark infrared pairs to /r680/d455/infra{1,2}_dark for cuVSLAM (--dark-infra).
+depth_module.emitter_enabled: 1
+depth_module.emitter_on_off: true

@@ -4,7 +4,7 @@ set -e -o pipefail
 workspace="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 usage() {
   cat <<'EOF'
-用法: r680_camera.sh run   [--infra] [--imu] [--emitter on|off] [--no-mount]
+用法: r680_camera.sh run   [--infra] [--imu] [--emitter on|off|alternate] [--no-mount]
       r680_camera.sh check [--infra] [--imu]
       r680_camera.sh status
   run     独立终端启动 D455：彩色 + 对齐深度 640x480@30 常开，红外双目和 IMU 默认关闭；
@@ -15,6 +15,7 @@ usage() {
   --infra        打开红外双目 infra1/infra2（导航 --cuvslam / --openvins 需要）
   --imu          打开 D455 IMU（OpenVINS D455 IMU 标定需要，使用 IMU 修复版 realsense2_camera）
   --emitter off  关闭红外发射器（双目 VIO 更干净，深度避障变差）；默认 on
+  --emitter alternate  发射器逐帧交替：亮帧给深度，暗帧红外双目发到 infra*_dark（导航加 --dark-infra）
   --no-mount     不发布安装 TF（由导航或标定脚本 publish_r680_d455_floor.py 发布时使用）
 EOF
 }
@@ -27,7 +28,7 @@ while [[ $# -gt 0 ]]; do
     --imu) IMU=true; shift ;;
     --no-mount) MOUNT=false; shift ;;
     --emitter)
-      [[ $# -ge 2 && ( "$2" == on || "$2" == off ) ]] || { echo '--emitter 需要 on 或 off' >&2; exit 2; }
+      [[ $# -ge 2 && ( "$2" == on || "$2" == off || "$2" == alternate ) ]] || { echo '--emitter 需要 on、off 或 alternate' >&2; exit 2; }
       EMITTER="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "未知参数: $1" >&2; usage >&2; exit 2 ;;

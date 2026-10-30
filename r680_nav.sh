@@ -19,6 +19,7 @@ usage() {
   --cuvslam              使用 cuVSLAM 双目 + 车身 IMU（试验前端，初始化前禁止运动）
   --no-degraded-odom      禁用轮速+IMU 连续里程计（融合后端与旧降级都不启动），恢复视觉失效即停车的行为
   --no-fusion-backend     连续里程计改用旧 degraded_odometry（2 s 预算），不用滑窗融合后端
+  --dark-infra            cuVSLAM 只读发射器关闭帧（相机需 r680_camera.sh run --infra --emitter alternate）
   --auto-vio-init        VIO 启动受限运动初始化（--cuvslam 默认开启；--openvins 需显式指定）
                          cuVSLAM：静止采样关键帧，再前进约 0.15m、原地转约 30° 并转回；
                          无 --enable-motion 则只预览，不动车，仅靠静止初始化
@@ -57,6 +58,7 @@ AUTO_VIO_INIT=""
 OPENVINS_MOTION_INIT=false
 DISABLE_DEGRADED_ODOM=false
 ODOM_BACKEND=fusion
+DARK_INFRA=false
 SCAN_OBSTACLES=false
 TERRAIN_ANALYSIS=false
 TEST_SCAN_ONLY=false
@@ -89,6 +91,7 @@ while [[ $# -gt 0 ]]; do
     --cuvslam) ODOM_SOURCE=cuvslam; shift ;;
     --no-degraded-odom) DISABLE_DEGRADED_ODOM=true; shift ;;
     --no-fusion-backend) ODOM_BACKEND=degraded; shift ;;
+    --dark-infra) DARK_INFRA=true; shift ;;
     --rgbd) ODOM_SOURCE=rgbd; shift ;;
     --mpc) USE_MPC=true; shift ;;
     --mppi) USE_MPC=false; shift ;;
@@ -508,7 +511,7 @@ if [[ "$ODOM_SOURCE" == openvins ]]; then
 fi
 if [[ "$ODOM_SOURCE" == cuvslam ]]; then
   LAUNCH_ARGS+=(degraded_odom_params_file:="$NAV_RUN_DIR/degraded_odometry.yaml"
-    odom_fusion_params_file:="$NAV_RUN_DIR/odom_fusion.yaml" odom_backend:="$ODOM_BACKEND"
+    odom_fusion_params_file:="$NAV_RUN_DIR/odom_fusion.yaml" odom_backend:="$ODOM_BACKEND" dark_infra:="$DARK_INFRA"
     enable_degraded_odom:="$(if [[ "$DISABLE_DEGRADED_ODOM" == true ]]; then echo false; else echo true; fi)")
 fi
 if [[ -n "$INITIAL_POSE" ]]; then

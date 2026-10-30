@@ -205,6 +205,11 @@ def generate_launch_description():
             root_key='d455_vio',
             param_rewrites={
                 'imu_topic': chassis_imu_topic, 'wheel_odom_topic': chassis_odom_topic,
+                # Camera --emitter alternate: only projector-off pairs (emitter_frame_splitter).
+                'left_topic': PythonExpression(["'/r680/d455/infra1_dark/image_rect_raw' if '",
+                    LaunchConfiguration('dark_infra'), "' == 'true' else '/r680/d455/infra1/image_rect_raw'"]),
+                'right_topic': PythonExpression(["'/r680/d455/infra2_dark/image_rect_raw' if '",
+                    LaunchConfiguration('dark_infra'), "' == 'true' else '/r680/d455/infra2/image_rect_raw'"]),
                 'statistics_path': LaunchConfiguration('cuvslam_statistics_path'),
             }, convert_types=True), {
                 'output_topic': PythonExpression(["'/r680_nav/vio_raw_odom' if ", continuity_enabled,
@@ -568,6 +573,8 @@ def generate_launch_description():
         DeclareLaunchArgument('enable_degraded_odom', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('degraded_odom_params_file', default_value=str(config / 'degraded_odometry.yaml')),
         DeclareLaunchArgument('odom_backend', default_value='fusion', choices=['fusion', 'degraded']),
+        DeclareLaunchArgument('dark_infra', default_value='false', choices=['true', 'false'],
+                              description='cuVSLAM reads infra*_dark (camera --emitter alternate)'),
         DeclareLaunchArgument('odom_fusion_params_file', default_value=str(config / 'odom_fusion.yaml')),
         DeclareLaunchArgument('cuvslam_statistics_path', default_value='/tmp/cuvslam_navigation_statistics.json'),
         DeclareLaunchArgument('start_web', default_value='true', choices=['true', 'false']),

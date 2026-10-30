@@ -1,0 +1,118 @@
+#!/usr/bin/env python3
+"""Forward only projector-off infrared pairs (emitter on/off alternation).
+
+With depth_module.emitter_on_off the D455 alternates the dot projector frame by
+frame: lit frames give dense depth, dark frames give clean stereo texture.
+Projected dots move with the camera, so tracking them corrupts visual odometry.
+This node passes infra1/infra2 frames whose metadata reports the projector off
+to the *_dark topics cuVSLAM reads (r680_nav.sh --dark-infra); depth consumers
+keep the camera topics.
+"""
+from collections import OrderedDict
+import json
+
+import rclpy
+from rclpy.executors import ExternalShutdownException
+from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
+from realsense2_camera_msgs.msg import Metadata
+from sensor_msgs.msg import Image
+
+
+def emitter_on(json_data, key='frame_emitter_mode'):
+    """True/False from RealSense frame metadata, None if not reported."""
+    try:
+        data = json.loads(json_data)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    for name in (key, 'frame_laser_power_mode'):
+        value = data.get(name)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return value != 0
+    return None
+
+
+def stamp_key(stamp):
+    return stamp.sec * 1_000_000_000 + stamp.nanosec
+
+
+class Router:
+    """Pairs frames with their metadata by stamp; either may arrive first."""
+
+    def __init__(self, publish, window=8):
+        self.publish = publish
+        self.window = window
+        self.state = OrderedDict()   # stamp -> emitter on (from infra1 metadata)
+        self.pending = {1: OrderedDict(), 2: OrderedDict()}
+        self.forwarded = self.dropped = 0
+
+    def metadata(self, stamp, on):
+        self.state[stamp] = on
+        while len(self.state) > 4 * self.window:
+            self.state.popitem(last=False)
+        for i in (1, 2):
+            image = self.pending[i].pop(stamp, None)
+            if image is not None:
+                self.route(i, image, on)
+
+    def image(self, i, stamp, msg):
+        on = self.state.get(stamp)
+        if on is None:
+            self.pending[i][stamp] = msg
+            while len(self.pending[i]) > self.window:
+                self.pending[i].popitem(last=False)
+                self.dropped += 1
+            return
+        self.route(i, msg, on)
+
+    def route(self, i, msg, on):
+        if on:
+            self.dropped += 1
+            return
+        self.publish(i, msg)
+        self.forwarded += 1
+
+
+class Splitter(Node):
+    def __init__(self):
+        super().__init__('r680_emitter_frame_splitter')
+        p = self.declare_parameter
+        self.key = p('emitter_key', 'frame_emitter_mode').value
+        prefix = p('camera_prefix', '/r680/d455').value
+        pubs = {i: self.create_publisher(Image, f'{prefix}/infra{i}_dark/image_rect_raw',
+                                         qos_profile_sensor_data) for i in (1, 2)}
+        self.router = Router(lambda i, m: pubs[i].publish(m), int(p('pending_frames', 8).value))
+        self.create_subscription(Metadata, f'{prefix}/infra1/metadata', self.on_metadata, 30)
+        for i in (1, 2):
+            self.create_subscription(
+                Image, f'{prefix}/infra{i}/image_rect_raw',
+                lambda m, i=i: self.router.image(i, stamp_key(m.header.stamp), m), qos_profile_sensor_data)
+        self.create_timer(10.0, self.report)
+
+    def on_metadata(self, msg):
+        on = emitter_on(msg.json_data, self.key)
+        if on is not None:
+            self.router.metadata(stamp_key(msg.header.stamp), on)
+
+    def report(self):
+        self.get_logger().info(
+            f'dark infrared frames forwarded={self.router.forwarded} dropped={self.router.dropped}')
+
+
+def main():
+    rclpy.init()
+    node = Splitter()
+    try:
+        rclpy.spin(node)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

@@ -55,10 +55,14 @@ def camera(context):
         if (runtime / 'librealsense2.so.2.58').is_file():
             libraries.insert(0, str(runtime))
     # forwarding=False: rs_launch.py warns about every launch configuration it can see.
-    return [GroupAction(scoped=True, forwarding=False, actions=[
+    actions = [GroupAction(scoped=True, forwarding=False, actions=[
         SetEnvironmentVariable(name='LD_LIBRARY_PATH', value=':'.join(libraries)),
         realsense,
     ])]
+    if emitter == 'alternate' and infra == 'true':
+        actions.append(Node(package='wla_r680_navigation', executable='emitter_frame_splitter',
+                            name='r680_emitter_frame_splitter', output='screen'))
+    return actions
 
 
 def generate_launch_description():
@@ -75,8 +79,9 @@ def generate_launch_description():
                               description='Infrared stereo pair for cuVSLAM / OpenVINS'),
         DeclareLaunchArgument('imu', default_value='false', choices=['true', 'false'],
                               description='D455 gyro + accel, united on /r680/d455/imu'),
-        DeclareLaunchArgument('emitter', default_value='on', choices=['on', 'off'],
-                              description='Dot projector: on for depth obstacles, off for cleaner stereo VIO'),
+        DeclareLaunchArgument('emitter', default_value='on', choices=['on', 'off', 'alternate'],
+                              description='Dot projector: on for depth obstacles, off for cleaner stereo VIO, '
+                                          'alternate per frame (dark infrared pairs on infra*_dark)'),
         DeclareLaunchArgument('mount', default_value='true', choices=['true', 'false'],
                               description='Publish r680_mapping_floor -> d455_link; false when another process owns it'),
         OpaqueFunction(function=camera),
