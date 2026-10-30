@@ -44,6 +44,9 @@ def stamp_ns(msg):
 # Person modes replan at this period on the newest map (depth frames arrive at
 # ~7-10 Hz); a missed frame no longer zeroes the command until map_max_age_s.
 CONTROL_PERIOD_S=.05
+# A newer target observation than the last plan used may replan this soon after
+# it (the MPC bounds its first step by the actual interval).
+OBSERVATION_REPLAN_S=.02
 # Plan from the pose expected when the command takes effect (compute + output).
 CONTROL_LOOKAHEAD_S=.03
 # Person removal without that frame's own mask: drop points within this radius
@@ -133,6 +136,7 @@ class FollowEngine:
         self.map_frame = None  # newest map frame a control-rate replan may use
         self.terrain_clouds = deque(maxlen=6)  # (stamp_ns, frame_id, base-frame obstacle points)
         self.last_plan_at = -math.inf
+        self.last_plan_obs = -math.inf  # observation stamp (s) the last plan used
         self.reid_frames=deque(maxlen=16)
         self.reason = 'waiting_for_sensor_data'
         self.follow_session = uuid.uuid4().hex
@@ -211,6 +215,7 @@ class FollowEngine:
             accepted=self.core.receive(msg.data,time.monotonic(),self.now_ns())
             if not accepted or not self.core.active:self.result=None
             self._tracking_update_locked()
+            if accepted:self.event.set()  # replan on it now, not at the next tick
 
     def on_reid(self,msg):
         try:
@@ -443,7 +448,7 @@ class FollowEngine:
                     self.depth_pairer.take(self.now_ns(),masked,require_mask=False,unpaired_wait_ns=0,prefer_paired=False) if person else
                     self.depth_pairer.take(self.now_ns(),masked,require_mask=self.core.active))
                 item,mask_packet=paired if paired is not None else (None,None)
-                infos=tuple(self.infos);motion=deepcopy(self.motion);key=self.key()
+                infos=tuple(self.infos);motion=self.motion.snapshot();key=self.key()
                 transport_generation=getattr(self.io,"generation",0)
                 active=self.core.active;tof_messages=tuple(self.tof.values())
             if item is None:
@@ -475,8 +480,10 @@ class FollowEngine:
                 # the latest wheel pose after depth processing, not image pose.
                 with self.guard:
                     if key!=self.key():raise ValueError('reference_changed_during_depth')
-                    motion=deepcopy(self.motion)
-                    objects=deepcopy(self.core.objects);obs_stamp=self.core.last_stamp/1e9
+                    motion=self.motion.snapshot()
+                    # TaskSession replaces objects per frame and never mutates rows.
+                    objects=dict(self.core.objects);obs_stamp=self.core.last_stamp/1e9
+                    self.last_plan_obs=obs_stamp
                 control_stamp=self.now_ns()/1e9
                 control_pose=self._control_pose(motion,control_stamp)
                 if control_pose is None:raise ValueError('control_time_wheel_pose_unavailable')
@@ -695,9 +702,11 @@ class FollowEngine:
             key=self.key();base=self.map_frame;now=time.monotonic()
             if (not self.core.active or self.core.mode not in (MODE_PERSON_FOLLOW,MODE_PERSON_APPROACH)
                     or base is None or base['key']!=key or now>=base['map_deadline']
-                    or now-self.last_plan_at<CONTROL_PERIOD_S):return
+                    or now-self.last_plan_at<(OBSERVATION_REPLAN_S if self.core.last_stamp/1e9>self.last_plan_obs
+                                              else CONTROL_PERIOD_S)):return
             if self.future is not None and not self.future.done():return
-            motion=deepcopy(self.motion);objects=deepcopy(self.core.objects);obs_stamp=self.core.last_stamp/1e9
+            motion=self.motion.snapshot();objects=dict(self.core.objects);obs_stamp=self.core.last_stamp/1e9
+            self.last_plan_obs=obs_stamp
             transport_generation=getattr(self.io,"generation",0)
         self.last_plan_at=now
         binding_status=supervisor_status=None

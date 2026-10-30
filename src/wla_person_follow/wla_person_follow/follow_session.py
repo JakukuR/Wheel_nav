@@ -1,6 +1,6 @@
 """One geometry owner and a recovery-only appearance sidecar. No ROS I/O."""
 from collections import deque
-from copy import deepcopy
+from copy import copy
 from dataclasses import dataclass
 import math
 import numpy as np
@@ -97,7 +97,9 @@ class FollowTracker:
     def prediction(self, now):
         if self.track is None:
             return None
-        return deepcopy(self.track).update(None, now)[0]
+        # Without a measurement update() only rebinds x/P/time (the trail is
+        # untouched), so a shallow copy leaves the live track unchanged.
+        return copy(self.track).update(None, now)[0]
 
     def radius(self, now):
         age = 0. if self.last_seen is None else max(0., now-self.last_seen)

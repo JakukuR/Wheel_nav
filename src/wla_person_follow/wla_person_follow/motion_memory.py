@@ -29,6 +29,14 @@ class LocalMotion:
                 pose = advance(prior, tuple((a+b)*.5 for a,b in zip(velocity,twist)), dt)
         self.samples.append((stamp, pose, tuple(twist))); return True
 
+    def snapshot(self):
+        """Independent copy for a compute job: samples are immutable tuples, so
+        copying the deque is enough (deepcopy cost ~0.9 ms per call on the car)."""
+        copy = LocalMotion.__new__(LocalMotion)
+        copy.samples = deque(self.samples, maxlen=self.samples.maxlen)
+        copy.generation = self.generation
+        return copy
+
     def healthy(self, now):
         return bool(self.samples and 0 <= now-self.samples[-1][0] <= .20)
 

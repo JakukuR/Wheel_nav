@@ -23,9 +23,14 @@ class RollingDepthMap:
         self.target_clear_stamp=np.full((size,size),-np.inf)
         self.tags=np.full((size,size,2),-10**9,dtype=np.int64)
         self.lower=np.zeros(2,dtype=int);self.replacements=0
+        # Bumped by every evidence change; rebuild(reuse_s>0) skips an unchanged map.
+        self.version=0;self._built=None
 
     def slide(self,position):
-        self.lower=np.floor(np.asarray(position)/self.res).astype(int)-self.n//2
+        lower=np.floor(np.asarray(position)/self.res).astype(int)-self.n//2
+        # Same window: every tag already equals its cell, so nothing would change.
+        if hasattr(self,'cells') and np.array_equal(lower,self.lower):return
+        self.lower=lower;self.version+=1
         x,y=np.meshgrid(np.arange(self.n)+self.lower[0],np.arange(self.n)+self.lower[1],indexing='ij')
         self.cells=np.stack((x,y),axis=-1);self.ix=x%self.n;self.iy=y%self.n
         changed=np.any(self.tags[self.ix,self.iy]!=self.cells,axis=-1)
@@ -53,6 +58,7 @@ class RollingDepthMap:
         Required by a forward depth camera's near/rear blind zone. Not inferred
         from no returns; not populated with scene obstacle positions.
         """
+        self.version+=1
         centers=(self.cells+.5)*self.res
         mask=np.linalg.norm(centers-position,axis=-1)<radius
         if only_unknown:
@@ -71,6 +77,7 @@ class RollingDepthMap:
         Actual observations change log/stamp and remove a cell from this hold.
         Ring tags prevent old cell addresses from refreshing a different place.
         """
+        self.version+=1
         cells=getattr(self,'_startup_held_cells',np.empty((0,2),dtype=int))
         if len(cells):
             a,b=cells[:,0]%self.n,cells[:,1]%self.n
@@ -88,6 +95,7 @@ class RollingDepthMap:
         if held is not None:held[a,b]=False
 
     def update(self,cloud,pose,t,rebuild=True):
+        self.version+=1
         self.slide(pose[:2])
         # Keep per-head ray origins; process every miss before this frame's hits.
         clouds=cloud if isinstance(cloud,(list,tuple)) else [cloud]
@@ -150,27 +158,48 @@ class RollingDepthMap:
         self.target_clear_stamp[a,b]=-np.inf;self._retire_startup_cells(a,b)
         if rebuild:self.rebuild(t)
 
-    def rebuild(self,t):
-        log=self.log[self.ix,self.iy];age=t-self.stamp[self.ix,self.iy]
-        self.known=age<=self.ttl
-        # A person mask is evidence about ownership, not a long-lived free ray.
-        # If no ordinary ray updates the cell, it soon becomes unknown.
-        target_age=t-self.target_clear_stamp[self.ix,self.iy]
-        self.known &= ~(np.isfinite(target_age)&(target_age>self.target_clear_ttl))
-        self.occupied=self.known&(log>=0)
+    def _expiry_between(self,t0,t1):
+        """True if any cell's TTL or target-clear expiry falls in [t0, t1)."""
+        return bool(np.any((self.stamp>=t0-self.ttl)&(self.stamp<t1-self.ttl)) or
+                    np.any((self.target_clear_stamp>=t0-self.target_clear_ttl)&
+                           (self.target_clear_stamp<t1-self.target_clear_ttl)))
+
+    def rebuild(self,t,reuse=False):
+        """With reuse, skip only work whose inputs are unchanged (result is exact):
+        the obstacle EDT needs new evidence, a new window, a TTL or radius change
+        or a cell expiring since the last build; the assumed-free EDT also follows
+        the robot centre. Control-rate replans bring no evidence."""
+        center=np.array(getattr(self,'local_assumed_free_center',(0.,0.)),dtype=float)
+        radius=getattr(self,'local_assumed_free_radius',0.)
+        state=(self.version,radius,self.target_clear_ttl)
+        built=self._built
+        same=(reuse and built is not None and built[0]==state and t>=built[1]
+              and not self._expiry_between(built[1],t))
+        if same and (radius<=0 or np.array_equal(center,built[2])):
+            self._built=(state,t,built[2]);return
+        if not same:
+            log=self.log[self.ix,self.iy];age=t-self.stamp[self.ix,self.iy]
+            known=age<=self.ttl
+            # A person mask is evidence about ownership, not a long-lived free ray.
+            # If no ordinary ray updates the cell, it soon becomes unknown.
+            target_age=t-self.target_clear_stamp[self.ix,self.iy]
+            known &= ~(np.isfinite(target_age)&(target_age>self.target_clear_ttl))
+            self.sensor_known=known
+            self.occupied=known&(log>=0)
+            # Pad map boundaries as blocked. EDT lower bounds compensate for cell
+            # area and query-point position; interpolation must not overstate safety.
+            self.dist=distance_transform_edt(np.pad(~self.occupied,1,constant_values=False))[1:-1,1:-1]*self.res
         # Explicit operator assumption, recomputed around the current robot.
         # Never writes sensor log/stamps, so it cannot erase hits or leave a trail.
+        self.known=self.sensor_known.copy()
         self.assumed_free=np.zeros_like(self.known)
-        radius=getattr(self,'local_assumed_free_radius',0.)
         if radius>0:
             centers=(self.cells+.5)*self.res
             inside=np.linalg.norm(centers-self.local_assumed_free_center,axis=-1)<radius
             self.assumed_free=inside&~self.known
             self.known |= self.assumed_free
-        # Pad map boundaries as blocked. EDT lower bounds compensate for cell
-        # area and query-point position; interpolation must not overstate safety.
-        self.dist=distance_transform_edt(np.pad(~self.occupied,1,constant_values=False))[1:-1,1:-1]*self.res
         self.free_dist=distance_transform_edt(np.pad(self.known&~self.occupied,1,constant_values=False))[1:-1,1:-1]*self.res
+        self._built=(state,t,center)
 
     def query(self,xy,unknown=False,field=None):
         if native_grid_query is not None:

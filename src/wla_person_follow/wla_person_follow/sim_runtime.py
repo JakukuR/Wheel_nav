@@ -91,6 +91,7 @@ MAP_RESOLUTION_M=.05
 MAP_SIZE_CELLS=160
 
 
+
 class SimulationEngine:
     """Single tracker input, shared rolling map and shared MPC; no second FSM."""
     def __init__(self, pose, start_time):
@@ -111,7 +112,9 @@ class SimulationEngine:
                 self.mapping.update(packet,pose,stamp,rebuild=False);self.map_stamp=stamp
         self.mapping.slide(np.asarray(pose[:2]))
         self.mapping.local_assumed_free_center=np.asarray(pose[:2]).copy()
-        self.mapping.rebuild(now)
+        # Control-rate replans bring no packets: skip the EDTs whose inputs did
+        # not change (exact; see RollingDepthMap.rebuild).
+        self.mapping.rebuild(now,reuse=True)
 
     def step(self, pose, previous, packets, observation, now, policy=None,
              tracker_snapshot=None, task_mode='0', object_surface=None, *, active=True):

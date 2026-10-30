@@ -167,6 +167,7 @@ class FollowTransport: public rclcpp::Node {
   Cloud::ConstSharedPtr terrain;int64_t terrain_sent=0;
   std::string terminal_state="idle",terminal_reason="waiting_for_command",active_mode;
   bool ready=false,mask_enabled=true,control_known=false;
+  bool input_pending=false;  // a target observation waits for the slot
   double started=0,last_frame_send=0,last_motion_sent=0,last_status_at=0;
   uint64_t rpc_sequence=0,output_sequence=0;
   int64_t last_depth=0,detector_status_stamp=0,disabled_stamp=0;
@@ -231,6 +232,8 @@ class FollowTransport: public rclcpp::Node {
           masks[j["depth_stamp_ns"].get<int64_t>()]=j; while(masks.size()>16) masks.erase(masks.begin());
         }
         updates[topic]=j;
+        // Hand a new target observation over now, not at the next 20 ms tick.
+        if(role=="relative") { if(ready && !channel.input_busy) send_input(); else input_pending=true; }
       } catch(const Json::exception &) { if(role=="relative") gate.observations=false; }
     }); }));
   }
@@ -391,7 +394,7 @@ class FollowTransport: public rclcpp::Node {
         } catch(const tf2::TransformException &) { }
       }
       const auto bytes=p.write(channel.memory);const auto seq=++channel.input_sequence;
-      checked_send({{"kind","input"},{"sequence",seq},{"size",bytes}});channel.input_busy=true;
+      checked_send({{"kind","input"},{"sequence",seq},{"size",bytes}});channel.input_busy=true;input_pending=false;
       updates.clear();if(!motion.samples.empty()) last_motion_sent=motion.samples.back().stamp;
       for(const auto &entry:p.metadata["tof_topics"]) tof_sent[entry[0].get<std::string>()]=stamp(tofs.at(entry[0].get<std::string>())->header.stamp);
       if(chosen) {
@@ -403,7 +406,13 @@ class FollowTransport: public rclcpp::Node {
   void receive(const Json &j) {
     const auto kind=j.at("kind").get<std::string>();
     if(kind=="ready") { ready=true;return; }
-    if(kind=="input_ack") { if(j.at("sequence").get<uint64_t>()==channel.input_sequence) channel.input_busy=false;return; }
+    if(kind=="input_ack") {
+      if(j.at("sequence").get<uint64_t>()==channel.input_sequence) {
+        channel.input_busy=false;
+        if(input_pending && ready) send_input();
+      }
+      return;
+    }
     if(kind=="rpc_reply") { rpc_reply(j);return; }
     if(kind=="result") {
       const auto seq=j.at("proof").at("sequence").get<uint64_t>();if(seq<=gate.sequence) return;

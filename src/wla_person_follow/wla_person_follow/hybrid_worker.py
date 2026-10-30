@@ -14,6 +14,7 @@ import os
 import select
 import signal
 import socket
+import sys
 import struct
 import threading
 import time
@@ -330,6 +331,9 @@ def main():
     parser.add_argument('--memory', required=True)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
+    # The receive loop shares the GIL with two CPU-bound compute threads; hand
+    # it over every 1 ms (default 5 ms) so observations are taken in promptly.
+    sys.setswitchinterval(.001)
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
     sock.settimeout(.2)
     sock.connect(args.socket)
