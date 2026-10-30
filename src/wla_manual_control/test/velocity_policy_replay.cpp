@@ -45,7 +45,7 @@ json snapshot(VelocityPolicy & p, double t)
   }
   return {
     {"mode", p.mode}, {"armed", p.armed}, {"estop_latched", p.estop_latched},
-    {"estop_reason", p.estop_reason}, {"gamepad_stop_asserted", p.gamepad_stop_asserted},
+    {"estop_reason", p.estop_reason}, {"gamepad_stop_asserted", p.gamepad_stop_asserted}, {"gamepad_only_latch", p.gamepad_only_latch},
     {"manual_ready_after", out(p.manual_ready_after)}, {"manual", pair(p.manual)},
     {"manual_at", out(p.manual_at)}, {"status", p.status}, {"status_at", out(p.status_at)},
     {"wheel", pair(p.wheel)}, {"wheel_at", out(p.wheel_at)},

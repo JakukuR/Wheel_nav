@@ -62,7 +62,14 @@ struct OutputGate {
   std::string request, detector_session;
   int64_t detector_epoch=-1, observation_stamp=0;
   double lease_until=0, authority_until=0, wheel_received=0, last_worker=0;
-  double max_age=.30, result_ttl=.15;
+  // max_age bounds detector observations; map_max_age bounds the depth frame
+  // behind a result. Results replanned at control rate on the newest map may
+  // use an older frame than observations may be (never older than map_max_age).
+  double max_age=.30, map_max_age=.30, result_ttl=.15;
+  // How long an accepted result may drive the base without a newer one (>= result_ttl,
+  // <= map_max_age). 2026-10-29 17:47 J02: 70-100 ms plans against a 0.2 s hold
+  // zeroed 10-20 % of commands while following and 53 % while detouring.
+  double result_hold=.15;
   std::deque<int64_t> delivered_frames;
   Json result;
   void invalidate() { ++generation; result=Json(); }
@@ -87,8 +94,8 @@ struct OutputGate {
       const double v=r.at("linear").get<double>(), w=r.at("angular").get<double>();
       bool known=false; for(auto ns:delivered_frames) known|=ns==frame;
       if(!known || !std::isfinite(generated) || !std::isfinite(until) ||
-         generated>mono || mono-generated>result_ttl || until<=mono || until>generated+result_ttl+1e-6 ||
-         frame<=0 || ros_ns<frame || (ros_ns-frame)*1e-9>max_age ||
+         generated>mono || mono-generated>result_ttl || until<=mono || until>generated+result_hold+1e-6 ||
+         frame<=0 || ros_ns<frame || (ros_ns-frame)*1e-9>map_max_age ||
          obs<=0 || obs>observation_stamp || ros_ns<obs || (ros_ns-obs)*1e-9>max_age ||
          !std::isfinite(v) || !std::isfinite(w) || std::abs(v)>1.5 || std::abs(w)>2. ||
          !r.at("permitted").is_boolean() || !r.at("permitted").get<bool>()) return false;
@@ -105,9 +112,9 @@ struct OutputGate {
     if(result.is_null()) return "no_valid_transport_result";
     if(result.at("generation").get<uint64_t>()!=generation ||
        result.at("motion_generation").get<uint64_t>()!=motion_generation) return "transport_reference_changed";
-    if(mono>=result.at("valid_until").get<double>() || mono-last_worker>result_ttl ||
+    if(mono>=result.at("valid_until").get<double>() || mono-last_worker>result_hold ||
        ros_ns<result.at("frame_ns").get<int64_t>() ||
-       (ros_ns-result.at("frame_ns").get<int64_t>())*1e-9>max_age ||
+       (ros_ns-result.at("frame_ns").get<int64_t>())*1e-9>map_max_age ||
        ros_ns<result.at("observation_ns").get<int64_t>() ||
        (ros_ns-result.at("observation_ns").get<int64_t>())*1e-9>max_age) return "transport_result_expired";
     return "";

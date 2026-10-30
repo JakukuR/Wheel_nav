@@ -17,7 +17,15 @@ person_follow:
     depth_max_m: 5.0
     surface_to_center_offset_m: 0.28
     max_sensor_age_s: 0.30
+    # Depth frame age a control-rate replan may still plan on (observations stay 0.30).
+    map_max_age_s: 0.45
+    # wla_terrain_analysis obstacle cloud (follow.launch.py terrain:=true sets it); empty = off.
+    terrain_topic: ""
     result_ttl_s: 0.20
+    # A result keeps driving the base until a newer one arrives, at most this long
+    # (map age is still capped by map_max_age_s). 0.20 zeroed 10-20 % of commands
+    # while following and 53 % while detouring (J02 2026-10-29 17:47).
+    result_hold_s: 0.35
     tof_enabled: false
     local_assumed_free_radius_m: 0.5
     startup_clear_radius_m: 0.0
@@ -28,6 +36,13 @@ person_follow:
     reid_similarity: 0.40
     reid_margin: 0.08
     reid_confirm_frames: 3
+    # Lost past target_prediction_s: the sole visible person within this distance
+    # of the last position / prediction (the binding gate keeps growing at
+    # binding_jump_growth_mps past binding_jump_radius_max_m) is re-acquired on
+    # appearance alone, with the stricter similarity and more confirmations.
+    reid_search_radius_m: 4.0
+    reid_search_similarity: 0.55
+    reid_search_confirm_frames: 5
     target_prediction_s: 2.0
     # Sparse accepted observations; freeze on loss for last-seen search.
     target_history_window_s: 5.0

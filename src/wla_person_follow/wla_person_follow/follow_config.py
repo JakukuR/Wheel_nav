@@ -2,6 +2,7 @@
 PENDING_CALIBRATION_PARAMETERS = (
     'binding_jump_radius_m','binding_jump_growth_mps','binding_jump_radius_max_m',
     'neighbor_ambiguity_radius_m','reid_similarity','reid_margin','reid_confirm_frames',
+    'reid_search_radius_m','reid_search_similarity','reid_search_confirm_frames',
     'target_ghost_clear_radius_m','target_ghost_clear_ttl_s','search_arrival_m',
 )
 

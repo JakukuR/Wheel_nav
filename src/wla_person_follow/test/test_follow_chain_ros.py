@@ -47,6 +47,8 @@ def test_three_modes_sensor_to_mux_and_agent_cancel(hybrid,mode,label):
     f.run_task('chain-mode-'+mode);assert_real_motion(f)
     assert f.states[-1]['request_id']=='chain-mode-'+mode
     if mode=='2':assert any(s.get('approach_goal') for s in f.states)
+    # Person modes also replan between depth frames on the newest map.
+    else:assert any(s.get('planner_source')=='control_tick' for s in f.states)
     stopped=time.monotonic()
     response=f.call('stop','chain-mode-'+mode)
     assert response.accepted and response.request_id=='chain-mode-'+mode

@@ -41,6 +41,22 @@ int main() {
       auto test=gate();auto bad=result();bad["linear"]=value;check(!test.accept(bad,10.01,1000000000),"invalid command accepted");
     }
     {auto test=gate();auto bad=result();bad["frame_ns"]=989999999;check(!test.accept(bad,10.01,1000000000),"undelivered frame accepted");}
+    {auto test=gate();test.map_max_age=.45;auto r2=result();r2["generated_at"]=10.30;r2["valid_until"]=10.45;
+     // Control-rate replan on a 0.40 s old map frame with a fresh observation.
+     test.observation_stamp=1300000000;r2["observation_ns"]=1300000000;test.wheel_received=10.3;
+     check(test.accept(r2,10.31,1390000000),"control-rate result on 0.40 s map rejected");
+     check(test.blocker(10.32,1400000000,true).empty(),"map within map_max_age blocked");
+     check(test.blocker(10.33,1450000001,true)=="transport_result_expired","map older than map_max_age not blocked");
+     auto old=gate();old.map_max_age=.45;old.observation_stamp=1300000000;auto r3=result();r3["generated_at"]=10.4;r3["valid_until"]=10.5;r3["observation_ns"]=1300000000;
+     check(!old.accept(r3,10.41,1450000001),"result on frame older than map_max_age accepted");}
+    {auto test=gate();auto r2=result();r2["generated_at"]=10.30;r2["valid_until"]=10.45;test.observation_stamp=1300000000;r2["observation_ns"]=1300000000;
+     check(!test.accept(r2,10.31,1390000000),"default map_max_age no longer equals max_age");}
+    {auto test=gate();test.result_hold=.35;auto held=result();held["valid_until"]=10.35;
+     check(test.accept(held,10.01,1000000000),"result valid for result_hold rejected");
+     test.wheel_received=10.25;check(test.blocker(10.30,1270000000,true).empty(),"held result blocked before result_hold");
+     check(test.blocker(10.36,1270000000,true)=="transport_result_expired","held result outlived result_hold");
+     auto plain=gate();auto longer=result();longer["valid_until"]=10.35;
+     check(!plain.accept(longer,10.01,1000000000),"default hold accepted a result beyond result_ttl");}
     {auto test=gate();auto bad=result();bad["observation_ns"]=990000000;check(!test.accept(bad,10.01,1000000000),"invented observation accepted");}
     {auto test=gate();auto bad=result();bad["permitted"]=false;check(!test.accept(bad,10.01,1000000000),"worker veto ignored");}
     {auto test=gate();test.enabled=false;check(test.blocker(10.,1000000000,true)=="motion_disabled","preview enabled motion");}

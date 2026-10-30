@@ -41,6 +41,18 @@ def stamp_ns(msg):
     return msg.header.stamp.sec*1_000_000_000+msg.header.stamp.nanosec
 
 
+# Person modes replan at this period on the newest map (depth frames arrive at
+# ~7-10 Hz); a missed frame no longer zeroes the command until map_max_age_s.
+CONTROL_PERIOD_S=.05
+# Plan from the pose expected when the command takes effect (compute + output).
+CONTROL_LOOKAHEAD_S=.03
+# Person removal without that frame's own mask: drop points within this radius
+# of the tracked person centre (body radius 0.28 m plus limb/tracking margin).
+TARGET_FALLBACK_RADIUS_M=.50
+# wla_terrain_analysis cloud matched to a depth frame (same camera frames, ~10 Hz).
+TERRAIN_MATCH_NS=150_000_000
+
+
 class FollowEngine:
     """Task/tracking/planning logic; transport owns ROS and executor lifetime."""
     def __init__(self, transport):
@@ -52,11 +64,12 @@ class FollowEngine:
             depth_topic='/r680/d455/aligned_depth_to_color/image_raw',
             camera_info_topic='/r680/d455/color/camera_info',
             wheel_topic='/wheel/odom', base_frame='r680_mapping_floor',
-            max_sensor_age_s=.30, depth_stride=4, depth_min_m=.15, depth_max_m=5.,
+            max_sensor_age_s=.30, map_max_age_s=.45, depth_stride=4, depth_min_m=.15, depth_max_m=5.,
             surface_to_center_offset_m=.28, camera_min_valid_fraction=.25,
-            camera_front_min_valid_fraction=.35, result_ttl_s=.20, startup_clear_radius_m=0., startup_motion_threshold_m=.03,
+            camera_front_min_valid_fraction=.35, result_ttl_s=.20, result_hold_s=.20, startup_clear_radius_m=0., startup_motion_threshold_m=.03,
             target_mask_enabled=True, reid_enabled=False, reid_model_id='', reid_similarity=.40,
-            reid_margin=.08, reid_confirm_frames=3, local_assumed_free_radius_m=0., tof_enabled=False,
+            reid_margin=.08, reid_confirm_frames=3, reid_search_radius_m=4., reid_search_similarity=.55,
+            reid_search_confirm_frames=5, local_assumed_free_radius_m=0., tof_enabled=False,
             tof_topics=['/r680/tof/front_left/points','/r680/tof/front_right/points',
                         '/r680/tof/rear_left/points','/r680/tof/rear_right/points'],
             follow_preset='tracker_follow', target_prediction_s=2., search_arrival_m=.35,
@@ -64,21 +77,26 @@ class FollowEngine:
             binding_jump_radius_m=.45, binding_jump_growth_mps=.25, binding_jump_radius_max_m=1.5,
             neighbor_ambiguity_radius_m=1.5,
             target_ghost_clear_enabled=True,target_bbox_filter_enabled=True,
-            target_ghost_clear_radius_m=.35,target_ghost_clear_ttl_s=.5)
+            target_ghost_clear_radius_m=.35,target_ghost_clear_ttl_s=.5,terrain_topic='')
         self.p = {k:self.io.declare_parameter(k,v).value for k,v in defaults.items()}
         if (self.p['output_mode'] not in ('direct','mux') or
             not 0 < self.p['max_sensor_age_s'] <= .30 or
+            not self.p['max_sensor_age_s'] <= self.p['map_max_age_s'] <= .50 or
             not .3 <= self.p['target_prediction_s'] <= 3. or
             not 2. <= self.p['target_history_window_s'] <= 20. or
             not .2 <= self.p['target_history_sample_period_s'] <= 1. or
             self.p['target_history_window_s']/self.p['target_history_sample_period_s'] > 64 or
             not .25 <= self.p['search_arrival_m'] <= .6 or
             not 0 < self.p['result_ttl_s'] <= .20 or
+            not self.p['result_ttl_s'] <= self.p['result_hold_s'] <= self.p['map_max_age_s'] or
             not 0 <= self.p['startup_clear_radius_m'] <= .5 or
             not 0 <= self.p['local_assumed_free_radius_m'] <= .5 or
             not .4 <= self.p['reid_similarity'] <= .99 or
             not .03 <= self.p['reid_margin'] <= .3 or
             not 2 <= self.p['reid_confirm_frames'] <= 5 or
+            not self.p['binding_jump_radius_max_m'] <= self.p['reid_search_radius_m'] <= 6. or
+            not self.p['reid_similarity'] <= self.p['reid_search_similarity'] <= .99 or
+            not self.p['reid_confirm_frames'] <= self.p['reid_search_confirm_frames'] <= 15 or
             (self.p['reid_enabled'] and not self.p['reid_model_id']) or
             not .001 <= self.p['startup_motion_threshold_m'] <= .1 or
             not 1 <= self.p['depth_stride'] <= 16 or
@@ -112,6 +130,9 @@ class FollowEngine:
         self.done = False
         self.result = None
         self.map_result = None
+        self.map_frame = None  # newest map frame a control-rate replan may use
+        self.terrain_clouds = deque(maxlen=6)  # (stamp_ns, frame_id, base-frame obstacle points)
+        self.last_plan_at = -math.inf
         self.reid_frames=deque(maxlen=16)
         self.reason = 'waiting_for_sensor_data'
         self.follow_session = uuid.uuid4().hex
@@ -148,6 +169,8 @@ class FollowEngine:
             self.io.create_subscription(String,prefix+'/reid_features',self.on_reid,1)
         if self.p['target_mask_enabled']:
             self.io.create_subscription(String,'/r680/perception/target_mask',self.on_target_mask,1)
+        if self.p['terrain_topic']:
+            self.io.create_subscription(PointCloud2,self.p['terrain_topic'],self.on_terrain,qos_profile_sensor_data)
         # Depth arrives serialized; only the ~10 Hz frames compute() takes are deserialized.
         self.io.create_subscription(Image,self.p['depth_topic'],self.on_depth,qos_profile_sensor_data,raw=True)
         self.io.create_subscription(CameraInfo,self.p['camera_info_topic'],self.on_info,qos_profile_sensor_data)
@@ -247,6 +270,14 @@ class FollowEngine:
                 self.depth_pairer.put_mask(data);self.event.set()
         except (ValueError,KeyError,TypeError):return
 
+    def on_terrain(self,msg):
+        """Slope/step obstacles (base frame, z = height above local ground)."""
+        from sensor_msgs_py.point_cloud2 import read_points_numpy
+        if msg.width*msg.height>200_000:return
+        pts=read_points_numpy(msg,field_names=('x','y','z')).reshape(-1,3).astype(float)
+        pts=pts[np.isfinite(pts).all(axis=1)]
+        with self.guard:self.terrain_clouds.append((stamp_ns(msg),msg.header.frame_id,pts))
+
     def on_tof(self,key,msg):
         if msg.width*msg.height>256 or not 0 <= (self.now_ns()-stamp_ns(msg))/1e9 <= .15:return
         with self.guard:
@@ -338,9 +369,10 @@ class FollowEngine:
                 search_arrival=self.p['search_arrival_m'],
                 history_window_s=self.p['target_history_window_s'],
                 history_sample_period_s=self.p['target_history_sample_period_s'],
-                expected_label=c.target_label, mode=c.mode)
+                expected_label=c.target_label, mode=c.mode, search_radius=self.p['reid_search_radius_m'])
             self.recovery_identity=RecoveryIdentity(similarity=self.p['reid_similarity'],margin=self.p['reid_margin'],
-                confirmations=self.p['reid_confirm_frames']) if self.p['reid_enabled'] and cfg['reid'] else None
+                confirmations=self.p['reid_confirm_frames'],wide_similarity=self.p['reid_search_similarity'],
+                wide_confirmations=self.p['reid_search_confirm_frames']) if self.p['reid_enabled'] and cfg['reid'] else None
             self.tracker_key=task_key;self.interest_at=-math.inf;self.result=None
             self.arrival_count=0;self.arrival_stamp=0;self.arrival_started=None
             self.arrival_detail=None;self.arrival_goal_generation=None
@@ -354,6 +386,7 @@ class FollowEngine:
             points={ident:position(row,pose,self.tracker.offset,c.target_label) for ident,row in c.objects.items()}
             target=points.get(self.tracker.target_id)
             neighbor=target is not None and any(p is not None and ident!=self.tracker.target_id and np.linalg.norm(p-target)<self.p['neighbor_ambiguity_radius_m'] for ident,p in points.items())
+            people=sum(p is not None for p in points.values())
             if self.recovery_identity is not None:
                 sidecar=self.recovery_identity
                 for batch in self.reid_frames:
@@ -363,7 +396,7 @@ class FollowEngine:
                     if batch.get('target_revision')!=self.tracker.revision:continue
                     bp=self.motion.pose_at(ts)
                     if bp is None:continue
-                    sidecar.observe(self._feature_rows(batch,bp),ts,batch.get('diagnostics'),self.tracker,snap,neighbor=neighbor)
+                    sidecar.observe(self._feature_rows(batch,bp),ts,batch.get('diagnostics'),self.tracker,snap,neighbor=neighbor,people=people)
                 if snap['recovery_needed'] and self.tracker.rebind(sidecar.proposal,c.objects,pose,stamp,now):
                     sidecar.reacquired+=1;sidecar.reset_confirmation();sidecar.state='ready';sidecar.reason='reid_reacquired'
                     snap=self.tracker.snapshot(now,self.motion.pose_at(now))
@@ -373,6 +406,11 @@ class FollowEngine:
                     pred=np.asarray(snap['prediction'])
                     allowed=[ident for ident,p in points.items() if p is not None and np.linalg.norm(p-pred)<=self.tracker.radius(now)]
                     if len(allowed)>4:allowed=[]
+                    # Searching: the sole visible person within the widened gate also gets
+                    # an appearance check (RecoveryIdentity then demands a stricter match).
+                    if not allowed and people==1 and self.tracker.wide_search(now):
+                        allowed=[ident for ident,p in points.items() if p is not None
+                                 and self.tracker.recovery_error(p,stamp)<=self.tracker.recovery_radius(now)]
             if self.tracker.revision!=before:
                 self.result=None;self.interest_at=-math.inf
         if self.reid_request_pub is not None and time.monotonic()-self.interest_at>=.1:
@@ -385,23 +423,34 @@ class FollowEngine:
                 urgent=c.active))))
             self.interest_at=time.monotonic()
 
+    def _control_pose(self,motion,stamp):
+        pose=motion.pose_at(stamp+CONTROL_LOOKAHEAD_S)
+        return pose if pose is not None else motion.pose_at(stamp)
+
     def compute(self):
         next_at=0.;last_tof={}
         while not self.done:
             self.event.wait(.02)
             if self.done:return
-            remaining=next_at-time.monotonic()
-            if remaining>0:
-                time.sleep(min(remaining,.1));continue
+            frame_due=time.monotonic()>=next_at
             with self.guard:
-                self.event.clear();paired=self.depth_pairer.take(self.now_ns(),self.core.active and self.p['target_mask_enabled'],
-                    require_mask=self.core.active)
+                self.event.clear()
+                person=self.core.active and self.core.mode in (MODE_PERSON_FOLLOW,MODE_PERSON_APPROACH)
+                masked=self.core.active and self.p['target_mask_enabled']
+                # Person modes take the newest depth at once (its own mask only if
+                # already here); object approach still waits for its segmentation.
+                paired=(None if not frame_due else
+                    self.depth_pairer.take(self.now_ns(),masked,require_mask=False,unpaired_wait_ns=0,prefer_paired=False) if person else
+                    self.depth_pairer.take(self.now_ns(),masked,require_mask=self.core.active))
                 item,mask_packet=paired if paired is not None else (None,None)
                 infos=tuple(self.infos);motion=deepcopy(self.motion);key=self.key()
                 transport_generation=getattr(self.io,"generation",0)
                 active=self.core.active;tof_messages=tuple(self.tof.values())
-            if item is None:continue
+            if item is None:
+                self._control_tick()
+                continue
             next_at=time.monotonic()+.1
+            self.last_plan_at=time.monotonic()
             frame,valid_until=item;msg=frame_message(frame);stamp=stamp_ns(msg)/1e9
             processing_started=time.monotonic()
             depth_start_age_ms=(self.now_ns()-stamp_ns(msg))/1e6
@@ -429,7 +478,7 @@ class FollowEngine:
                     motion=deepcopy(self.motion)
                     objects=deepcopy(self.core.objects);obs_stamp=self.core.last_stamp/1e9
                 control_stamp=self.now_ns()/1e9
-                control_pose=motion.pose_at(control_stamp)
+                control_pose=self._control_pose(motion,control_stamp)
                 if control_pose is None:raise ValueError('control_time_wheel_pose_unavailable')
                 observation=None;op=motion.pose_at(obs_stamp)
                 resolved_id=key[2];identity_status=dict(state='disabled')
@@ -439,6 +488,7 @@ class FollowEngine:
                     if key!=self.key():raise ValueError('target_revision_changed_during_depth')
                     binding_status=self.tracker.snapshot(control_stamp,control_pose) if active and self.tracker is not None else None
                     mask_geometry=self.tracker.observed_position(stamp) if active and self.tracker is not None else None
+                    fallback_center=self.tracker.extrapolated_position(stamp) if active and self.tracker is not None else None
                     supervisor_status=self.recovery_identity.snapshot() if active and self.recovery_identity is not None else dict(state='disabled')
                 identity_status=supervisor_status
                 resolved_id=binding_status['resolved_id'] if binding_status else None
@@ -470,7 +520,7 @@ class FollowEngine:
                         frame_id=msg.header.frame_id,shape=depth.shape,now_ns=self.now_ns(),mask_applied=mask_status['applied'])
                     mask_status['frame_ready']=ready
                     mask_status['target_present']=None if mask_packet is None else mask_packet.get('target_present')
-                    if not ready:
+                    if not ready and mode == MODE_OBJECT_APPROACH:
                         with self.guard:
                             if key==self.key():
                                 self.result=None;self.reason='waiting_target_pointcloud'
@@ -517,6 +567,32 @@ class FollowEngine:
                         # filtering would discard a small item in this frame.
                         packet['marking_points_odom']=np.vstack((packet['marking_points_odom'],surface))
                         packet['obstacle_points']=np.vstack((packet['obstacle_points'],body_surface))
+                terrain_applied=False
+                if self.p['terrain_topic']:
+                    # Obstacles judged against the local ground plane (ramps <= the
+                    # climbable slope are not obstacles; steps/drops are) replace this
+                    # frame's flat-floor height filter. Clearing rays stay from depth.
+                    with self.guard:clouds=list(self.terrain_clouds)
+                    best=min(clouds,key=lambda c:abs(c[0]-stamp_ns(msg)),default=None)
+                    tpose=None if best is None else motion.pose_at(best[0]/1e9)
+                    if (best is not None and abs(best[0]-stamp_ns(msg))<=TERRAIN_MATCH_NS
+                            and best[1]==self.p['base_frame'] and tpose is not None):
+                        packet['obstacle_points']=best[2]
+                        packet['marking_points_odom']=local_points(best[2],tpose) if len(best[2]) else np.empty((0,3))
+                        terrain_applied=True
+                    mask_status['terrain']='applied' if terrain_applied else 'no_matching_cloud_depth_filter_used'
+                if (active and mode != MODE_OBJECT_APPROACH and (not mask_status['applied'] or terrain_applied)
+                        and fallback_center is not None):
+                    # No same-frame silhouette: keep the tracked person out of this
+                    # frame's marking and clearing. Old hits are not retired here.
+                    center=np.asarray(fallback_center,dtype=float)
+                    keep_c=np.linalg.norm(packet['points_odom'][:,:2]-center,axis=1)>TARGET_FALLBACK_RADIUS_M
+                    keep_o=np.linalg.norm(packet['marking_points_odom'][:,:2]-center,axis=1)>TARGET_FALLBACK_RADIUS_M
+                    removed=int(np.count_nonzero(~keep_o))
+                    for name in ('points','points_odom','dynamic'):packet[name]=packet[name][keep_c]
+                    for name in ('obstacle_points','marking_points_odom'):packet[name]=packet[name][keep_o]
+                    mask_status.update(fallback='tracked_position_cylinder',fallback_radius_m=TARGET_FALLBACK_RADIUS_M,
+                        fallback_removed_obstacle_points=removed)
                 packet['target_points_odom']=target_points
                 mask_status['target_ghost_points']=len(target_points)
                 mask_status['target_ghost_reason']=ghost_reason
@@ -563,7 +639,8 @@ class FollowEngine:
                     resolved_target_source=resolved_source,
                     target_mask=mask_status,reid=identity_status,geometry_binding=binding_status,
                     identity_supervision=supervisor_status,resolved_target_id=resolved_id if active else None,
-                    transport_generation=transport_generation,key=key,stamp_ns=stamp_ns(msg),valid_until=min(valid_until,begun+self.p['result_ttl_s']),
+                    transport_generation=transport_generation,key=key,stamp_ns=stamp_ns(msg),
+                    valid_until=min(valid_until+self.p['map_max_age_s']-self.p['max_sensor_age_s'],begun+self.p['result_hold_s']),
                     frontend_ms=frontend_ms,obstacle_points=len(packet['obstacle_points']),clearing_points=len(packet['points']),
                     observation_stamp_ns=int(obs_stamp*1e9),ready_at=time.monotonic(),
                     latency=dict(depth_start_age_ms=depth_start_age_ms,frontend_ms=frontend_ms,
@@ -583,6 +660,10 @@ class FollowEngine:
                         obstacle_track_ids=result.get('obstacle_track_ids'),compute_error=None)
                     if key==self.key() and time.monotonic()<result['valid_until']:
                         self.result=result;self.map_result=result;self.reason=result['reason'] or 'simulation_core'
+                        self.map_frame=dict(key=key,stamp_ns=result['stamp_ns'],
+                            map_deadline=valid_until+self.p['map_max_age_s']-self.p['max_sensor_age_s'],
+                            target_mask=mask_status,frontend_ms=frontend_ms,obstacle_points=result['obstacle_points'],
+                            clearing_points=result['clearing_points'])
                         self.result_ready.trigger()
                     else:
                         self.result=None
@@ -602,6 +683,75 @@ class FollowEngine:
                         geometry_binding=deepcopy(binding_status) if 'binding_status' in locals() else None,
                         identity_supervision=deepcopy(supervisor_status) if 'supervisor_status' in locals() else None,
                         details_unavailable=True)
+
+    def _control_tick(self):
+        """Person modes: replan on the newest map at CONTROL_PERIOD_S between frames.
+
+        No new depth is consumed. The result keeps the map frame's stamp, so the
+        C++ and Python gates still bound it by map_max_age_s, and a frame newer
+        than this map supersedes it on the next frame job.
+        """
+        with self.guard:
+            key=self.key();base=self.map_frame;now=time.monotonic()
+            if (not self.core.active or self.core.mode not in (MODE_PERSON_FOLLOW,MODE_PERSON_APPROACH)
+                    or base is None or base['key']!=key or now>=base['map_deadline']
+                    or now-self.last_plan_at<CONTROL_PERIOD_S):return
+            if self.future is not None and not self.future.done():return
+            motion=deepcopy(self.motion);objects=deepcopy(self.core.objects);obs_stamp=self.core.last_stamp/1e9
+            transport_generation=getattr(self.io,"generation",0)
+        self.last_plan_at=now
+        binding_status=supervisor_status=None
+        try:
+            control_stamp=self.now_ns()/1e9
+            control_pose=self._control_pose(motion,control_stamp)
+            if control_pose is None or not motion.healthy(control_stamp):raise ValueError('control_time_wheel_pose_unavailable')
+            with self.guard:
+                self._tracking_update_locked()
+                if key!=self.key():return
+                binding_status=self.tracker.snapshot(control_stamp,control_pose) if self.tracker is not None else None
+                supervisor_status=self.recovery_identity.snapshot() if self.recovery_identity is not None else dict(state='disabled')
+            if binding_status is None:return
+            resolved_id=binding_status['resolved_id']
+            observation=None;op=motion.pose_at(obs_stamp)
+            if op is not None and 0<=control_stamp-obs_stamp<=self.p['max_sensor_age_s']:
+                target,people=measurements_from_relative(objects,op,resolved_id or '',binding_status['surface_offset_m'])
+                if binding_status['state'] not in ('tracking','coasting'):target=None
+                observation=(obs_stamp,target,people,resolved_id)
+            v=motion.samples[-1][2]
+            begun=time.monotonic()
+            self.future=self.pool.submit(process_step,(key,np.asarray(control_pose),np.array([v[0],v[2]]),[],observation,control_stamp,
+                dict(active=True,radius=self.p['startup_clear_radius_m'],
+                     motion_threshold=self.p['startup_motion_threshold_m'],
+                     local_radius=self.p['local_assumed_free_radius_m'],
+                     target_clear_ttl_s=self.p['target_ghost_clear_ttl_s'],
+                     tracker_snapshot=binding_status,task_mode=key[1],object_surface=None,
+                     policy_snapshot=self._tracking_policy(binding_status))))
+            try:
+                result=self.future.result(timeout=self.p['result_ttl_s'])
+            except ComputeTimeout:
+                raise ValueError('compute_deadline_exceeded')
+            result.update(target_observation=observed_target(objects,key[2],obs_stamp,control_stamp),
+                resolved_target_observation=observed_target(objects,resolved_id,obs_stamp,control_stamp),
+                resolved_target_source=dict(source='FollowTracker',active=True,accepted_id=resolved_id,
+                    observation_pose_available=op is not None,selection=deepcopy(binding_status)),
+                target_mask=base['target_mask'],reid=supervisor_status,geometry_binding=binding_status,
+                identity_supervision=supervisor_status,resolved_target_id=resolved_id,
+                transport_generation=transport_generation,key=key,stamp_ns=base['stamp_ns'],
+                valid_until=min(base['map_deadline'],begun+self.p['result_hold_s']),
+                frontend_ms=base['frontend_ms'],obstacle_points=base['obstacle_points'],clearing_points=base['clearing_points'],
+                observation_stamp_ns=int(obs_stamp*1e9),ready_at=time.monotonic(),planned_from='control_tick',
+                latency=dict(map_age_ms=(self.now_ns()-base['stamp_ns'])/1e6,
+                    observation_to_result_ms=(self.now_ns()/1e9-obs_stamp)*1000.,
+                    processing_ms=(time.monotonic()-begun)*1000.),
+                compute_ms=(time.monotonic()-begun)*1000.,pose=np.asarray(control_pose),control_stamp_ns=int(control_stamp*1e9))
+            with self.guard:
+                if key==self.key() and time.monotonic()<result['valid_until']:
+                    self.result=result;self.reason=result['reason'] or 'simulation_core'
+                    self.result_ready.trigger()
+        except Exception as exc:
+            with self.guard:
+                # A failed replan leaves the last frame result to expire on its own deadline.
+                self.reason=str(exc)[:180]
 
     def _target_freshness_for_output(self,result,state,ns):
         # Empty fresh frames permit recovery; a stalled detector does not.
@@ -673,7 +823,7 @@ class FollowEngine:
             result=self.result
             target_fresh,target_freshness_reason,target_observation_age=self._target_freshness_for_output(result,state,ns)
             healthy=(result is not None and result['key']==self.key() and now<result['valid_until'] and
-                0<=(ns-result['stamp_ns'])/1e9<=self.p['max_sensor_age_s'] and
+                0<=(ns-result['stamp_ns'])/1e9<=self.p['map_max_age_s'] and
                 self.motion.healthy(ns/1e9) and now-self.wheel_received<=.20 and
                 target_fresh and self.core.gate_enabled and state['enabled'] and not self.estop)
             # Report the exact existing output predicates; do not change their
@@ -686,7 +836,7 @@ class FollowEngine:
             else:
                 if result['key']!=self.key():blockers.append('planner_reference_changed')
                 if now>=result['valid_until']:blockers.append('planner_result_expired')
-                if not 0<=(ns-result['stamp_ns'])/1e9<=self.p['max_sensor_age_s']:blockers.append('depth_stale')
+                if not 0<=(ns-result['stamp_ns'])/1e9<=self.p['map_max_age_s']:blockers.append('depth_stale')
             if not self.motion.healthy(ns/1e9):blockers.append('wheel_motion_invalid')
             if now-self.wheel_received>.20:blockers.append('wheel_odom_stale')
             if not target_fresh:blockers.append(target_freshness_reason)
@@ -778,7 +928,8 @@ class FollowEngine:
                     'target_prediction_s','search_arrival_m','binding_jump_radius_m',
                     'target_history_window_s','target_history_sample_period_s',
                     'binding_jump_growth_mps','binding_jump_radius_max_m','reid_enabled',
-                    'reid_similarity','reid_margin','reid_confirm_frames','neighbor_ambiguity_radius_m',
+                    'reid_similarity','reid_margin','reid_confirm_frames','reid_search_radius_m',
+                    'reid_search_similarity','reid_search_confirm_frames','neighbor_ambiguity_radius_m',
                     'target_mask_enabled','target_bbox_filter_enabled','target_ghost_clear_enabled')},
                 approach_goal=result.get('approach_goal') if result else None,
                 arrival=self.arrival_detail,
@@ -790,7 +941,8 @@ class FollowEngine:
                 filtered_obstacle_points=self.map_result.get('obstacle_points') if self.map_result else None,
                 clearing_points=self.map_result.get('clearing_points') if self.map_result else None,
                 latency=self.map_result.get('latency',{}) if self.map_result else {},
-                compute_ms=result['compute_ms'] if result else None)
+                compute_ms=result['compute_ms'] if result else None,
+                planner_source=(result.get('planned_from','depth_frame') if result else None))
             # Diagnostics are attached AFTER the unchanged command decision/publication.
             self.status_sequence+=1
             current_pose=self.motion.pose_at(ns/1e9)
@@ -803,7 +955,11 @@ class FollowEngine:
                 detail['planner_result_fresh']=bool(result is not None and result['key']==self.key() and now<result['valid_until'])
             state.update(diagnostic_sequence=self.status_sequence,
                 diagnostic_schema='wla-follow-diagnostics/v1',
-                target_observation=observed_target(self.core.objects,self.core.target_id,self.core.last_stamp/1e9,ns/1e9),
+                # The person being followed: after ReID rebinding that is the resolved id,
+                # not the id the task started with (which then always reads 'not detected').
+                target_observation=observed_target(self.core.objects,
+                    self.tracker.target_id if self.tracker is not None else self.core.target_id,
+                    self.core.last_stamp/1e9,ns/1e9),
                 measured_motion=dict(wheel=wheel_message(*self.wheel_diagnostic,source=self.p['wheel_topic']) if self.wheel_diagnostic else None,
                     integrated_pose_reference_m_rad=None if current_pose is None else list(current_pose),
                     pose_stamp_ns=ns,reference_generation=self.motion.generation,
@@ -813,7 +969,7 @@ class FollowEngine:
             self.status_pub.publish(String(data=json.dumps(state,allow_nan=False)))
             mapped=self.map_result
             if (mapped is not None and mapped['key']==self.key() and now<mapped['valid_until'] and
-                    0<=(ns-mapped['stamp_ns'])/1e9<=self.p['max_sensor_age_s']):
+                    0<=(ns-mapped['stamp_ns'])/1e9<=self.p['map_max_age_s']):
                 geometry_key=(mapped['stamp_ns'],healthy)
                 if geometry_key!=self.last_geometry:
                     self.publish_geometry(mapped,ns,show_path=healthy)

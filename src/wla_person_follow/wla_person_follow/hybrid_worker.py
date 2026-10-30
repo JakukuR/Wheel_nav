@@ -242,6 +242,9 @@ class WorkerTransport:
             for topic, key in metadata['tof_topics']:
                 if topic in self.callbacks:
                     self.callbacks[topic][1](deserialize_message(blobs[key], PointCloud2))
+            topic = metadata.get('terrain_topic')
+            if 'terrain' in blobs and topic in self.callbacks:
+                self.callbacks[topic][1](deserialize_message(blobs['terrain'], PointCloud2))
             if 'depth' in blobs:
                 # Still serialized until the engine consumes this selected frame.
                 e.on_depth(blobs['depth'])

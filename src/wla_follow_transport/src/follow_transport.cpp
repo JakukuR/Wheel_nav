@@ -54,11 +54,16 @@ class FollowTransport: public rclcpp::Node {
     detector_topic=param<std::string>("detection_status_topic","/r680_nav/perception/status");
     gate.enabled=param<bool>("enable_motion",false);
     gate.max_age=param<double>("max_sensor_age_s",.30); gate.result_ttl=param<double>("result_ttl_s",.15);
+    gate.map_max_age=param<double>("map_max_age_s",gate.max_age);
+    gate.result_hold=param<double>("result_hold_s",gate.result_ttl);
     mask_enabled=param<bool>("target_mask_enabled",true);
+    terrain_topic=param<std::string>("terrain_topic","");
     const bool reid=param<bool>("reid_enabled",false), tof=param<bool>("tof_enabled",false);
     if(param<std::string>("output_mode","mux")!="mux" || param<bool>("use_sim_time",false) ||
        !std::isfinite(gate.max_age) || !(gate.max_age>0 && gate.max_age<=.30) ||
-       !std::isfinite(gate.result_ttl) || !(gate.result_ttl>0 && gate.result_ttl<=.20))
+       !std::isfinite(gate.result_ttl) || !(gate.result_ttl>0 && gate.result_ttl<=.20) ||
+       !std::isfinite(gate.map_max_age) || !(gate.map_max_age>=gate.max_age && gate.map_max_age<=.50) ||
+       !std::isfinite(gate.result_hold) || !(gate.result_hold>=gate.result_ttl && gate.result_hold<=gate.map_max_age))
       throw std::runtime_error("hybrid transport requires mux, system clock and bounded freshness parameters");
     tf=std::make_unique<tf2_ros::Buffer>(get_clock());
     listener=std::make_shared<tf2_ros::TransformListener>(*tf,this,false);
@@ -96,6 +101,15 @@ class FollowTransport: public rclcpp::Node {
         {"accepted",accepted},{"received",monotonic()}};
       if(old!=motion.generation) { last_motion_sent=0; barrier("wheel_reference_changed",false); }
     }); }));
+    if(!terrain_topic.empty()) {
+      // Slope/step obstacle cloud from wla_terrain_analysis (base frame, z = height
+      // above local ground). Forwarded as-is; Python uses it instead of its own
+      // single-frame height filter.
+      subs.push_back(create_subscription<Cloud>(terrain_topic,rclcpp::SensorDataQoS(),[this](Cloud::ConstSharedPtr m){ guarded([&]{
+        const double age=(now().nanoseconds()-stamp(m->header.stamp))*1e-9;
+        if(age>=-.05 && age<=gate.max_age && m->data.size()<=4000000) terrain=m;
+      }); }));
+    }
     if(tof) {
       const auto topics=param<std::vector<std::string>>("tof_topics",{"/r680/tof/front_left/points","/r680/tof/front_right/points","/r680/tof/rear_left/points","/r680/tof/rear_right/points"});
       for(const auto &topic:topics) subs.push_back(create_subscription<Cloud>(topic,rclcpp::SensorDataQoS(),[this,topic](Cloud::ConstSharedPtr m){ guarded([&]{
@@ -149,8 +163,9 @@ class FollowTransport: public rclcpp::Node {
  private:
   bool failed=false;
   Channel channel; OutputGate gate; Motion motion;
-  std::string prefix,base,depth_topic,info_topic,wheel_topic,relative_topic,detector_topic,session;
-  std::string terminal_state="idle",terminal_reason="waiting_for_command";
+  std::string prefix,base,depth_topic,info_topic,wheel_topic,relative_topic,detector_topic,session,terrain_topic;
+  Cloud::ConstSharedPtr terrain;int64_t terrain_sent=0;
+  std::string terminal_state="idle",terminal_reason="waiting_for_command",active_mode;
   bool ready=false,mask_enabled=true,control_known=false;
   double started=0,last_frame_send=0,last_motion_sent=0,last_status_at=0;
   uint64_t rpc_sequence=0,output_sequence=0;
@@ -324,7 +339,7 @@ class FollowTransport: public rclcpp::Node {
         }
         gate.lease_until=p.received+req.lease_duration_s;
       }
-      gate.request=res.request_id;gate.active=true;terminal_state.clear();terminal_reason.clear();
+      gate.request=res.request_id;gate.active=true;active_mode=res.mode;terminal_state.clear();terminal_reason.clear();
     }
     command_service->send_response(*p.header,res);
   }
@@ -341,7 +356,11 @@ class FollowTransport: public rclcpp::Node {
           const auto ns=it->first;const auto &image=it->second;
           if(ns<=last_depth || ros_ns<ns || (ros_ns-ns)*1e-9>gate.max_age) continue;
           auto mask=masks.find(ns);
-          if(gate.active && mask_enabled && (mask==masks.end() || mask->second.value("request_id","")!=gate.request)) continue;
+          // Only object approach (mode 2) needs its own frame's segmentation (object
+          // surface). Person modes take the newest depth; Python removes the person
+          // by tracked position when that frame's mask has not arrived yet.
+          if(gate.active && mask_enabled && active_mode=="2" &&
+             (mask==masks.end() || mask->second.value("request_id","")!=gate.request)) continue;
           Info::ConstSharedPtr info;int64_t skew=250000001;
           for(const auto &i:infos) {
             const auto distance=std::abs(stamp(i->header.stamp)-ns);
@@ -352,10 +371,14 @@ class FollowTransport: public rclcpp::Node {
             auto tr=tf->lookupTransform(base,image->header.frame_id,rclcpp::Time(ns));
             add_message(p,"depth",*image);add_message(p,"info",*info);add_message(p,"depth_transform",tr);
             p.metadata["transforms"][image->header.frame_id+":"+std::to_string(ns)]="depth_transform";
-            if(mask!=masks.end()) p.metadata["events"]["/r680/perception/target_mask"]=mask->second;
+            if(mask!=masks.end() && mask->second.value("request_id","")==gate.request)
+              p.metadata["events"]["/r680/perception/target_mask"]=mask->second;
             chosen=ns;break;
           } catch(const tf2::TransformException &) { continue; }
         }
+      }
+      if(terrain && stamp(terrain->header.stamp)>terrain_sent && (ros_ns-stamp(terrain->header.stamp))*1e-9<=gate.max_age) {
+        add_message(p,"terrain",*terrain);p.metadata["terrain_topic"]=terrain_topic;terrain_sent=stamp(terrain->header.stamp);
       }
       for(const auto &[topic,m]:tofs) {
         const auto ns=stamp(m->header.stamp);

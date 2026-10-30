@@ -102,3 +102,15 @@ def test_idle_does_not_wait_and_expired_depth_is_not_processed():
     assert q.take(1_010_000_000,False)==('frame',None)
     q.put_depth(2_000_000_000,'stale')
     assert q.take(2_400_000_000,True) is None
+
+
+def test_person_mode_takes_newest_depth_without_waiting_for_its_mask():
+    q=MaskDepthPairer();s=1_000_000_000
+    q.put_depth(s,'older');q.put_mask({'depth_stamp_ns':s});q.put_depth(s+33_000_000,'newest')
+    # Default (object approach): newest paired frame wins.
+    assert q.take(s+40_000_000,True)[0]=='older'
+    q=MaskDepthPairer();q.put_depth(s,'older');q.put_mask({'depth_stamp_ns':s});q.put_depth(s+33_000_000,'newest')
+    assert q.take(s+40_000_000,True,unpaired_wait_ns=0,prefer_paired=False)==('newest',None)
+    # Its own mask is still attached when it is already here.
+    q.put_depth(s+66_000_000,'next');q.put_mask({'depth_stamp_ns':s+66_000_000})
+    assert q.take(s+70_000_000,True,unpaired_wait_ns=0,prefer_paired=False)==('next',{'depth_stamp_ns':s+66_000_000})

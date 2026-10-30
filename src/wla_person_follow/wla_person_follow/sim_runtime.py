@@ -6,7 +6,7 @@ import numpy as np
 from .sim_core.common import rotation
 from .sim_core.common import Tuning
 from .sim_core.approach_goal import ApproachGoal, SWEEP_RADIUS
-from .sim_core.hybrid_controller import HybridFollower
+from .sim_core.hybrid_controller import HybridFollower, seed_command, limit_step, deadband_compensate
 from .sim_core.rolling_depth_map import RollingDepthMap
 from .sim_core.tracking import PeopleTracks
 
@@ -101,6 +101,8 @@ class SimulationEngine:
         self.people=PeopleTracks()
         self.last_measurement=self.map_stamp=-math.inf
         self.approach=ApproachGoal()
+        # Last issued planner command: rollout seed and per-interval step bound.
+        self.last_command=None;self.last_command_at=None
 
     def update_map(self, pose, packets, now):
         """Maintain obstacle evidence and its expiry independently of task activity."""
@@ -163,15 +165,25 @@ class SimulationEngine:
                     route=approach['path'];estimate=approach['point'];face=np.median(surface,axis=0)
             if approach is None:state='holding'
         self.controller.c=tuning
-        command=self.controller.command(np.asarray(pose),np.asarray(previous),estimate,velocity,
-            history,self.mapping,tracks,state,policy=policy,policy_time=now,reference_path=route,face_point=face)
+        seed=seed_command(previous,self.last_command,self.last_command_at,now)
+        command=self.controller.command(np.asarray(pose),seed,estimate,velocity,
+            history,self.mapping,tracks,state,policy=policy,policy_time=now,reference_path=route,face_point=face,
+            measured=np.asarray(previous,dtype=float))
+        if self.controller.last_candidates and not self.controller.last_infeasible:
+            # Plans now run at control rate; the first change is bounded by the
+            # time since the last issued command (zero/stop outputs stay exact).
+            dt=tuning.step if self.last_command_at is None else now-self.last_command_at
+            command=limit_step(command,seed,dt,tuning)
         reason=('object_goal_unavailable' if task_mode=='2' and approach is None else
             approach['reason'] if approach is not None else state if state.startswith('search_') else
             'tracker_prediction' if state=='coast' else 'tracker_follow')
         if self.controller.last_infeasible:
             command=np.zeros(2);reason='no_feasible_candidate'
         if policy is not None:command=policy.limit_command(command,now)
+        # Person modes: lift small turns out of the chassis yaw deadband.
+        if task_mode!='2':command=deadband_compensate(command,tuning)
         if not np.isfinite(command).all():raise ValueError('nonfinite_core_command')
+        self.last_command=np.asarray(command,dtype=float).copy();self.last_command_at=now
         diagnostic=None if approach is None else {k:(v.tolist() if isinstance(v,np.ndarray) else v)
             for k,v in approach.items() if k!='path'}
         return dict(policy_snapshot=policy,command=np.asarray(command),target_state=state,

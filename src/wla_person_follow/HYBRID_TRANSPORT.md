@@ -128,3 +128,28 @@ Python 计算、C++ mux 和模拟底盘接收端。另通过 mux 策略 6 项、
   调用方收到拒绝；estop 失败时 `fail()` 已锁存急停，所以急停请求仍回复成功。
 - start/heartbeat 的在途回复只被取消类代次（stop、estop、撤权、租约/心跳超时、检测换代）
   拒绝。轮速参考重置等非取消的代次变化不再让心跳被拒；输出仍要求结果与当前代次一致。
+
+## 2026-10-29 控制与感知解耦
+
+- 人物模式（0/1）每 0.05 s 在最新地图上重新规划一次（`sim_node.CONTROL_PERIOD_S`），不再只在
+  深度帧到达时规划。补帧结果沿用地图帧的时间戳，C++ 与 Python 都按新参数 `map_max_age_s`
+  （0.45 s，配置上限 0.5）检查地图帧年龄；检测观测仍按 `max_sensor_age_s`（0.30 s）。
+  深度中断时最坏停车时间由约 0.30 s 变为约 0.45 s。
+- C++ 只在物体接近（模式 2）时等待同一帧掩码；人物模式取最新深度，掩码已到才附带。
+  没有同帧掩码时，Python 按跟踪位置（必要时按速度外推不超过 0.3 s）去掉 0.5 m 半径内的
+  标记和清除点（`TARGET_FALLBACK_RADIUS_M`），不清除旧障碍；有同帧掩码时仍走原检测框过滤与残影清除。
+- MPC 以上一条指令为起点（与实测相差 >0.15 m/s 或 >0.3 rad/s、或超过 0.3 s 时改用实测），首步变化按
+  实际间隔限幅（`seed_command`/`limit_step`）；零指令和不可行停车不受限幅影响。
+  规划位姿取 0.03 s 后的轮速外推位姿（取不到时用当前）。
+- 状态新增 `planner_source`（`depth_frame` / `control_tick`）。
+
+## 2026-10-29 坡面/台阶障碍（wla_terrain_analysis）
+
+- `follow.launch.py terrain:=true`（或 `./r680_person_follow.sh terrain:=true`）另起一对跟随专用的
+  `terrain_odometry_follow` / `terrain_analysis_follow`，话题在 `/r680/person_follow/terrain/*`，不与导航冲突；
+  并给后端设 `terrain_topic:=/r680/person_follow/terrain/points`。默认关闭，行为与原来一致。
+- C++ 订阅该点云（基座系，z = 高出局部地面的高度），随输入包转发给 Python；Python 对每帧深度取时间最近
+  （0.15 s 内）的地形点云，用它替换本帧单帧高度过滤得到的障碍点（按点云时刻的轮速位姿放入地图）。
+  清除射线、目标掩码、物体表面提取仍来自深度。地形点云不认识目标，所以启用时始终按跟踪位置去掉 0.5 m
+  圆柱内的点。状态 `target_mask.terrain` 为 `applied` 或 `no_matching_cloud_depth_filter_used`。
+- 跟随地图仍用二维轮速位姿；坡上的姿态只在地形节点里用到（轮速 + IMU）。

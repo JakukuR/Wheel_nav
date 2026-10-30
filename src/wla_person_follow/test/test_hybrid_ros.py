@@ -39,6 +39,8 @@ def hybrid(tmp_path,request):
                    detection_status_topic='/r680_nav/perception/status', local_assumed_free_radius_m=.5,
                    depth_stride=2)
     if full_chain:options.update(reid_enabled=True,reid_model_id='test')
+    terrain=settings.get('terrain',False)
+    if terrain:options.update(terrain_topic='/hybrid_test/terrain')
     cmd = [str(executable), '--ros-args']
     for key, value in options.items():
         cmd += ['-p', f'{key}:={str(value).lower() if isinstance(value, bool) else value}']
@@ -59,6 +61,7 @@ def hybrid(tmp_path,request):
     ps=node.create_publisher(String,options['detection_status_topic'],1)
     pc=None if full_chain else node.create_publisher(String,'/r680_base/control_state',5)
     pm=node.create_publisher(String,'/r680/perception/target_mask',1)
+    pt=node.create_publisher(PointCloud2,'/hybrid_test/terrain',qos_profile_sensor_data) if terrain else None
     pf=node.create_publisher(String,'/hybrid_test/reid_features',1)
     pad=node.create_publisher(String,'/gamepad_status',1)
     manual=node.create_publisher(Twist,'/r680_manual/cmd_vel',1)
@@ -94,6 +97,13 @@ def hybrid(tmp_path,request):
                     wheel=Odometry();wheel.header.stamp=stamp;wheel.child_frame_id='r680_mapping_floor'
                     if self.wheels:pw.publish(wheel)
                     if self.depths:pi.publish(info);pd.publish(depth)
+                    if pt is not None and self.depths:
+                        # Terrain cloud of the same frame: a low kerb line 1.0 m ahead
+                        # (z = height above local ground), nothing from the flat depth wall.
+                        from sensor_msgs_py.point_cloud2 import create_cloud_xyz32
+                        kerb=np.c_[np.full(25,1.),np.linspace(-.6,.6,25),np.full(25,.08)].astype(np.float32)
+                        h=info.header.__class__();h.stamp=stamp;h.frame_id='r680_mapping_floor'
+                        pt.publish(create_cloud_xyz32(h,kerb))
                     envelope=dict(stamp_ns=ns,session='hybrid',epoch=0,enabled=self.detector_enabled)
                     pr.publish(String(data=json.dumps(dict(envelope,schema='wla-relative-detections/v1',base_frame='r680_mapping_floor',
                         objects=[dict(detected=True,label=self.target_label,id=ident,yaw=0.,distance=self.target_distance) for ident in self.detected_ids]))))
@@ -288,3 +298,13 @@ def test_object_approach_plans_through_unseen_space_like_person_approach(hybrid)
                s['diagnostics']['compute_error'] is None for s in planned)
     assert not any(s.get('reason')=='object_goal_unavailable' for s in planned)
     assert f.call('stop','object-unseen').accepted
+
+
+@pytest.mark.parametrize('hybrid',[dict(terrain=True)],indirect=True)
+def test_terrain_cloud_replaces_the_flat_floor_height_filter(hybrid):
+    from sensor_msgs_py.point_cloud2 import read_points_numpy
+    f=hybrid;f.start_task('terrain-task');f.pump(.4)
+    assert any((s.get('target_mask') or {}).get('terrain')=='applied' for s in f.states), f.states[-1].get('target_mask')
+    pts=read_points_numpy(f.clouds[-1],field_names=('x','y','z'))
+    # The follow map is marked from the terrain kerb, not the synthetic 2 m depth wall.
+    assert len(pts) and np.all(np.abs(pts[:,0]-1.)<.05) and np.all(np.abs(pts[:,2]-.08)<.01)

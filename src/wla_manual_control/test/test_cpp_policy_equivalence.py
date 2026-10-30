@@ -128,7 +128,7 @@ def py_snapshot(p, t):
     pair = lambda v: [enc(float(v[0])), enc(float(v[1]))]
     return dict(
         mode=p.mode, armed=p.armed, estop_latched=p.estop_latched, estop_reason=p.estop_reason,
-        gamepad_stop_asserted=p.gamepad_stop_asserted, manual_ready_after=enc(p.manual_ready_after),
+        gamepad_stop_asserted=p.gamepad_stop_asserted, gamepad_only_latch=p.gamepad_only_latch, manual_ready_after=enc(p.manual_ready_after),
         manual=pair(p.manual), manual_at=enc(p.manual_at), status=p.status, status_at=enc(p.status_at),
         wheel=pair(p.wheel), wheel_at=enc(p.wheel_at), automatic_source=p.automatic_source,
         source_generation=p.source_generation, person_revoke_generation=p.person_revoke_generation,

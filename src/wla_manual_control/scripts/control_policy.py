@@ -20,6 +20,7 @@ class Policy:
         self.manual_ready_after = -1e9
         self.estop_latched = False; self.estop_reason = ''
         self.gamepad_stop_asserted = False
+        self.gamepad_only_latch = False
         self.manual = (0., 0.); self.auto = (0., 0.)
         self.manual_at = self.auto_at = self.status_at = self.wheel_at = -1e9
         self.status = 'DISCONNECTED'; self.wheel = (0., 0.); self.auto_after = -1e9
@@ -79,6 +80,9 @@ class Policy:
 
     def gamepad_status_input(self, status, t):
         was_ready = self.status in ('ACTIVE', 'SPIN', 'STANDBY') and t - self.status_at < .5
+        # ESTOP directly followed by a ready status = the button released while
+        # connected; a reconnect or restarted gamepad node never counts.
+        released = self.status == 'ESTOP' and t - self.status_at < .5
         self.status = status; self.status_at = t
         ready = status in ('ACTIVE', 'SPIN', 'STANDBY')
         if not ready or not was_ready:
@@ -86,10 +90,18 @@ class Policy:
             self.manual_ready_after = t
         if status == 'ESTOP':
             self.gamepad_stop_asserted = True
-            self.latch_stop('gamepad_estop')
+            # Another latched stop keeps its reason and explicit reset.
+            gamepad_only = not self.estop_latched or self.gamepad_only_latch
+            self.latch_stop('gamepad_estop' if gamepad_only else self.estop_reason)
+            self.gamepad_only_latch = gamepad_only
         elif ready or status == 'ARMING':
-            # A fresh released-button status clears the input, never the mux latch.
             self.gamepad_stop_asserted = False
+            # Releasing the gamepad e-stop resets the stop it latched (stopped, neutral).
+            if (released and self.estop_latched and self.gamepad_only_latch and self.stopped(t)
+                    and not (self.connected(t) and not self.zero(self.manual))):
+                self.estop_latched = False; self.estop_reason = ''
+                self.gamepad_only_latch = False
+                self.disarm()
         elif status != 'DISCONNECTED':
             self.latch_stop('invalid_gamepad_status')
 
@@ -104,6 +116,7 @@ class Policy:
         return self.manual_ready(t) and not self.zero(self.manual)
 
     def latch_stop(self, reason):
+        self.gamepad_only_latch = False
         self.estop_latched = True; self.estop_reason = reason
         self.disarm()
         self.auto = (0., 0.); self.auto_at = -1e9
@@ -122,6 +135,7 @@ class Policy:
             return False, 'manual_input_not_neutral'
         if self.estop_latched:
             self.estop_latched = False; self.estop_reason = ''
+            self.gamepad_only_latch = False
             self.disarm()
         return True, ('stop_cleared; waiting for fresh commands' if self.automatic_source == 'NAV'
                       else 'stop_cleared; MANUAL; explicit AUTO required')

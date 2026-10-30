@@ -179,6 +179,10 @@ bool VelocityPolicy::manual_input(const Velocity & v, double t)
 void VelocityPolicy::gamepad_status_input(const std::string & s, double t)
 {
   const bool was_ready = ready_status(status) && t - status_at < .5;
+  // A press of the e-stop button while connected: ESTOP directly followed by a
+  // ready status. A reconnect or restarted gamepad node passes through a stale
+  // or DISCONNECTED status and never counts as a release.
+  const bool released = status == "ESTOP" && t - status_at < .5;
   status = s;
   status_at = t;
   const bool ready = ready_status(s);
@@ -188,10 +192,21 @@ void VelocityPolicy::gamepad_status_input(const std::string & s, double t)
   }
   if (s == "ESTOP") {
     gamepad_stop_asserted = true;
-    latch_stop("gamepad_estop");
+    // Pressing the gamepad e-stop while another stop is latched keeps that stop
+    // (and its explicit reset); only a latch the gamepad set alone is releasable.
+    const bool gamepad_only = !estop_latched || gamepad_only_latch;
+    latch_stop(gamepad_only ? "gamepad_estop" : estop_reason);
+    gamepad_only_latch = gamepad_only;
   } else if (ready || s == "ARMING") {
-    // A fresh released-button status clears the input, never the mux latch.
     gamepad_stop_asserted = false;
+    // Releasing the gamepad e-stop is the reset for the stop it latched, under the
+    // same conditions as set_estop(false): stopped chassis, neutral manual input.
+    if (released && estop_latched && gamepad_only_latch && stopped(t) && !(connected(t) && !zero(manual))) {
+      estop_latched = false;
+      estop_reason.clear();
+      gamepad_only_latch = false;
+      disarm();
+    }
   } else if (s != "DISCONNECTED") {
     latch_stop("invalid_gamepad_status");
   }
@@ -226,6 +241,7 @@ bool VelocityPolicy::stopped(double t) const
 
 void VelocityPolicy::latch_stop(const std::string & reason)
 {
+  gamepad_only_latch = false;
   estop_latched = true;
   estop_reason = reason;
   disarm();
@@ -282,6 +298,7 @@ Result VelocityPolicy::set_estop(bool enabled, double t)
   if (connected(t) && !zero(manual)) {return {false, "manual_input_not_neutral"};}
   estop_latched = false;
   estop_reason.clear();
+  gamepad_only_latch = false;
   disarm();
   return {true, automatic_source == "NAV" ? "stop_cleared; waiting for fresh commands" :
     "stop_cleared; MANUAL; explicit AUTO required"};

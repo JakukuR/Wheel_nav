@@ -63,6 +63,9 @@ public:
   bool estop_latched{false};
   std::string estop_reason;
   bool gamepad_stop_asserted{false};
+  // The latch was set by the gamepad e-stop alone; releasing that e-stop (A again)
+  // clears it once the chassis is stopped. Any other stop needs set_estop(false).
+  bool gamepad_only_latch{false};
   double manual_ready_after{NEVER};
   Velocity manual{0., 0.};
   double manual_at{NEVER};

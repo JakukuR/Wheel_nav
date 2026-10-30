@@ -80,4 +80,42 @@ class VelocityTests(unittest.TestCase):
         self.assertEqual(p.output(1.05),(-.3,0.))
 
 
+    def still(self, p, t, v=0.):
+        p.wheel=(v,0.);p.wheel_at=t
+
+    def test_gamepad_release_clears_the_stop_it_latched(self):
+        p=self.make();self.still(p,1.)
+        p.gamepad_status_input('ESTOP',1.)
+        self.assertTrue(p.estop_latched);self.assertEqual(p.estop_reason,'gamepad_estop')
+        self.still(p,1.1);p.gamepad_status_input('ACTIVE',1.1)
+        self.assertFalse(p.estop_latched);self.assertEqual(p.estop_reason,'')
+        self.feed(p,'PERSON',1.2,.3,0.)
+        self.assertEqual(p.output(1.21),(.3,0.))
+
+    def test_gamepad_release_needs_a_stopped_chassis(self):
+        p=self.make();self.still(p,1.)
+        p.gamepad_status_input('ESTOP',1.)
+        self.still(p,1.1,v=.2);p.gamepad_status_input('ACTIVE',1.1)
+        self.assertTrue(p.estop_latched)
+        self.still(p,1.2);p.gamepad_status_input('ACTIVE',1.2)
+        self.assertTrue(p.estop_latched)  # a later ready status is not a release
+        p.gamepad_status_input('ESTOP',1.3);p.gamepad_status_input('ACTIVE',1.4)
+        self.assertFalse(p.estop_latched)
+
+    def test_gamepad_reconnect_is_not_a_release(self):
+        p=self.make();self.still(p,1.)
+        p.gamepad_status_input('ESTOP',1.)
+        p.gamepad_status_input('DISCONNECTED',1.1);self.still(p,1.2);p.gamepad_status_input('ACTIVE',1.2)
+        self.assertTrue(p.estop_latched)
+        p.gamepad_status_input('ESTOP',2.);self.still(p,3.);p.gamepad_status_input('ACTIVE',3.)  # stale ESTOP
+        self.assertTrue(p.estop_latched)
+
+    def test_gamepad_release_never_clears_another_stop(self):
+        p=self.make();self.still(p,1.)
+        p.set_estop(True,1.)
+        p.gamepad_status_input('ESTOP',1.1);self.still(p,1.2);p.gamepad_status_input('ACTIVE',1.2)
+        self.assertTrue(p.estop_latched);self.assertEqual(p.estop_reason,'explicit_estop')
+        self.assertTrue(p.set_estop(False,1.2)[0]);self.assertFalse(p.estop_latched)
+
+
 if __name__=='__main__':unittest.main()

@@ -426,6 +426,9 @@ def test_person_only_has_to_stay_in_the_image_not_near_its_centre():
     c=Tuning()
     # Hard limit ~35.8 deg (camera 38.7 deg less 0.05 rad) instead of the old 32.6 deg centre box.
     assert c.camera_half_angle-c.fov_edge_margin>float(np.arctan(.64))+.05 and c.centering_weight<4
+    # ...but a weak pull to the centre and an edge cost from ~26 deg keep it away from
+    # the edge at walking speed (J02 2026-10-29 15:37 lost the person near 35 deg).
+    assert c.centering_weight==2. and abs(c.fov_soft_angle-.45)<1e-9 and c.fov_soft_angle<c.camera_half_angle-c.fov_edge_margin
 
 
 def test_planner_result_ttl_is_020():
@@ -436,3 +439,72 @@ def test_planner_result_ttl_is_020():
     assert 'result_ttl_s=.20,' in src
     if cfg is not None:
         assert next(iter(cfg.values()))['ros__parameters']['result_ttl_s']==.2
+
+
+def test_grid_route_searches_a_0p1m_lattice_on_the_0p05m_map():
+    from wla_person_follow.sim_core.detour import DetourPlanner, GRID_ROUTE_CELL_M
+    from wla_person_follow.sim_core.rolling_depth_map import RollingDepthMap
+    m=RollingDepthMap(resolution=.05,size=160);m.slide(np.zeros(2))
+    floor=np.array([[x,y,0.] for x in np.arange(-1.,4.,.05) for y in np.arange(-2.,2.01,.05)
+                    if not (.95<x<1.45 and abs(y)<.45)])
+    box=np.array([[x,y,z] for x in np.arange(1.,1.41,.05) for y in np.arange(-.4,.41,.05) for z in (.2,.45)])
+    pts=np.r_[floor,box]
+    m.update(dict(points=pts,points_odom=pts,dynamic=np.zeros(len(pts),bool),origin=np.array([0,0,.3]),origin_odom=np.array([0,0,.3])),np.zeros(3),0.)
+    m.rebuild(0.)
+    route=DetourPlanner()._grid_route(np.zeros(2),np.array([3.,0.]),m,Tuning())
+    assert GRID_ROUTE_CELL_M==.1 and route is not None
+    # Goes round the box (|y| beyond its half width) and never through it.
+    assert np.max(np.abs(route[:,1]))>.45
+    inside=(route[:,0]>.95)&(route[:,0]<1.45)&(np.abs(route[:,1])<.45)
+    assert not inside.any()
+
+
+def test_seed_follows_last_command_and_first_step_uses_real_interval():
+    from wla_person_follow.sim_core.hybrid_controller import seed_command, limit_step
+    c=Tuning()
+    # Chassis lagging a little: keep ramping from the command, not the lagging wheel.
+    np.testing.assert_allclose(seed_command([.50,.0],np.array([.60,.1]),10.,10.05),[.60,.1])
+    # Large mismatch (blocked/slipping) or stale command: measured wins.
+    np.testing.assert_allclose(seed_command([.20,.0],np.array([.60,.0]),10.,10.05),[.20,.0])
+    np.testing.assert_allclose(seed_command([.55,.0],np.array([.60,.0]),10.,10.5),[.55,.0])
+    np.testing.assert_allclose(seed_command([.55,.0],None,None,10.),[.55,.0])
+    out=limit_step(np.array([1.,1.]),np.array([.6,0.]),.05,c)
+    np.testing.assert_allclose(out,[.6+c.accel*.05,c.yaw_accel*.05])
+    out=limit_step(np.array([1.,0.]),np.array([.6,0.]),.5,c)  # interval capped at the model step
+    np.testing.assert_allclose(out[0],.6+c.accel*c.step)
+
+
+def test_engine_keeps_zero_and_bounds_planned_changes_between_replans():
+    from wla_person_follow.sim_runtime import SimulationEngine
+    m=_straight_corridor(1.4)
+    e=SimulationEngine(np.zeros(3),0.);e.mapping=m;e.map_stamp=0.
+    snap=dict(state='tracking',prediction=[3.,0.],position=[3.,0.],velocity_mps=[0.,0.],
+              history=[[2.+i*.1,0.] for i in range(10)],surface_offset_m=.28,last_seen=0.,history_sampling=None)
+    first=e._plan(np.zeros(3),np.array([.6,0.]),None,1.,None,snap,'0',None)['command']
+    second=e._plan(np.zeros(3),np.array([.6,0.]),None,1.05,None,snap,'0',None)['command']
+    c=Tuning()
+    assert abs(second[0]-first[0])<=c.accel*.05+1e-9
+    e.controller.last_infeasible=False
+    lost=dict(snap,state='lost',prediction=None,position=None)
+    assert not np.any(e._plan(np.zeros(3),np.array([.6,0.]),None,1.1,None,lost,'0',None)['command'])
+
+
+def test_extrapolated_position_places_cylinder_for_newer_depth():
+    from wla_person_follow.follow_session import FollowTracker
+    t=FollowTracker('s:1:1',0.)
+    t.observations.append((1.0,np.array([2.,0.])))
+    np.testing.assert_allclose(t.extrapolated_position(1.02),[2.,0.])   # exact match window
+    np.testing.assert_allclose(t.extrapolated_position(1.2),[2.,0.])    # no track velocity yet
+    assert t.extrapolated_position(1.5) is None and t.extrapolated_position(.9) is None
+
+
+def test_control_rate_and_map_age_parameters():
+    import pathlib,yaml
+    from wla_person_follow import sim_node
+    assert sim_node.CONTROL_PERIOD_S==.05 and .45<=sim_node.TARGET_FALLBACK_RADIUS_M<=.6
+    src=pathlib.Path(sim_node.__file__).read_text()
+    assert 'map_max_age_s=.45,' in src
+    cfg=pathlib.Path(sim_node.__file__).resolve().parents[1]/'config'/'sim_follow.yaml'
+    if cfg.exists():
+        params=next(iter(yaml.safe_load(cfg.read_text()).values()))['ros__parameters']
+        assert params['map_max_age_s']==.45 and params['max_sensor_age_s']==.30

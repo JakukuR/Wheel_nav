@@ -12,6 +12,9 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import dijkstra
 from .common import wrap
 
+# Lattice spacing of the grid-route fallback (map cells are merged up to this).
+GRID_ROUTE_CELL_M = .1
+
 
 class DetourPlanner:
     def __init__(self, *, probe_m=3., near_m=.4, far_m=3., max_bearing=1.9, sample_m=.05,
@@ -26,6 +29,13 @@ class DetourPlanner:
         # 'line': detour when robot->target is blocked; 'path': only when the
         # followed reference (the person's trail) is blocked for the body.
         self.trigger = 'line'
+        # Exit hysteresis: the straight route must stay clear for this many plans
+        # (about 0.5 s) before a detour ends; meanwhile the waypoint is kept.
+        # 17:47 J02: a one-frame clear check reset the side 6 times in 3 s while the
+        # robot drove at the obstacle.
+        self.exit_cycles = 12
+        self.clear_count = 0
+        self.held = None
 
     def _clear(self, a, b, local_map, need, body):
         length = float(np.linalg.norm(b - a))
@@ -58,7 +68,15 @@ class DetourPlanner:
         # Blocked means the body itself would hit something on the straight route;
         # merely entering the soft margin band (narrow corridor) is not a reason to detour.
         if self._clear(p, probe, local_map, c.radius, 0.):
-            self.side = None; return None
+            self.clear_count += 1
+            held = self.held
+            if (held is not None and self.clear_count < self.exit_cycles
+                    and np.linalg.norm(held - p) > .25 and self._clear(p, held, local_map, c.radius, 0.)):
+                self.last = dict(active=True, side='left' if self.side and self.side > 0 else 'right',
+                                 waypoint=held.tolist(), holding=True)
+                return np.vstack((p, held, target))
+            self.side = None; self.held = None; return None
+        self.clear_count = 0
         best = {}
         # Prefer waypoints with an extra standoff; narrow gaps fall back to the plain margin.
         for standoff in (self.standoff_m, 0.):
@@ -70,6 +88,7 @@ class DetourPlanner:
             route = self._grid_route(p, target, local_map, c)
             if route is not None:
                 self.look_hold = 0
+                self.held = np.asarray(route[1], dtype=float).copy()
                 self.last = dict(active=True, side='grid', waypoint=route[1].tolist(), route=route.tolist())
                 return route
             # Nothing reachable yet: prefer looking towards a side where an opening
@@ -82,6 +101,7 @@ class DetourPlanner:
             choice = self.side
         self.side = choice
         waypoint = best[choice][1]
+        self.held = np.asarray(waypoint, dtype=float).copy()
         self.last = dict(active=True, side='left' if choice > 0 else 'right', waypoint=waypoint.tolist(),
                          score=best[choice][0])
         return np.vstack((p, waypoint, target))
@@ -179,6 +199,17 @@ class DetourPlanner:
         inside = np.all(np.abs(centers - p) <= window_m, axis=-1)
         clear = local_map.dist - offset - c.radius
         ok = inside & (clear >= 0.) & (local_map.free_dist - offset >= c.radius)
+        # Search on a ~0.1 m lattice: a block is usable only if all its fine cells
+        # are (conservative), clearance is the block minimum. A 0.05 m map would
+        # otherwise make this Dijkstra 4x larger than its 0.1 m design.
+        s = max(1, int(round(GRID_ROUTE_CELL_M / res)))
+        if s > 1:
+            m = ok.shape[0] // s * s
+            block = lambda a: a[:m, :m].reshape(m // s, s, m // s, s, *a.shape[2:])
+            ok = block(ok).all(axis=(1, 3))
+            clear = block(clear).min(axis=(1, 3))
+            centers = block(centers).mean(axis=(1, 3))
+            res = res * s
         idx = np.flatnonzero(ok.reshape(-1))
         if len(idx) < 4:
             return None
@@ -227,7 +258,8 @@ class DetourPlanner:
         while chain[-1] != start:
             chain.append(int(pred[chain[-1]]))
         route = cells_xy[chain[::-1]]
-        keep = [0] + list(range(4, len(route) - 1, 4)) + [len(route) - 1]
+        thin = max(2, 4 // s)  # waypoints about every 0.2 m, as on the fine grid
+        keep = [0] + list(range(thin, len(route) - 1, thin)) + [len(route) - 1]
         route = np.vstack((p, route[keep[1:]], target))
         return route
 

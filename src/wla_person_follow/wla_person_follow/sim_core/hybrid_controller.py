@@ -22,6 +22,43 @@ def approach_tangent(pose, command, tracks, target, radius=ROBOT_RADIUS_M):
     return float(np.clip(result,-.18,.18))
 
 
+def seed_command(measured, last, last_at, now, *, max_age=.3, max_dv=.15, max_dw=.3):
+    """Rollout start: the last issued command while the chassis is tracking it.
+
+    Seeding from the measured wheel twist under chassis lag re-starts every plan
+    below the commanded speed (each step only +accel*dt above a lagging value).
+    A large mismatch (blocked, slipping, external stop) falls back to measured.
+    """
+    measured=np.asarray(measured,dtype=float)
+    if last is None or last_at is None or not 0<=now-last_at<=max_age:return measured
+    last=np.asarray(last,dtype=float)
+    if abs(last[0]-measured[0])>max_dv or abs(last[1]-measured[1])>max_dw:return measured
+    return last
+
+
+def limit_step(command, seed, dt, c):
+    """First command change bounded by the real control interval, not the 0.1 s model step."""
+    dt=float(np.clip(dt,.02,c.step))
+    seed=np.asarray(seed,dtype=float)
+    return np.array([np.clip(command[0],seed[0]-c.accel*dt,seed[0]+c.accel*dt),
+                     np.clip(command[1],seed[1]-c.yaw_accel*dt,seed[1]+c.yaw_accel*dt)])
+
+
+def chassis_yaw(w, c):
+    """Yaw rate the chassis settles to for a commanded w (deadband model)."""
+    w=np.asarray(w,dtype=float);a=np.abs(w);lo,hi=c.chassis_deadband_lo,c.chassis_deadband_hi
+    floor=.2*lo
+    eff=np.where(a<lo,.2*a,np.where(a<hi,floor+(a-lo)/max(hi-lo,1e-9)*(hi-floor),a))
+    return np.sign(w)*eff
+
+
+def deadband_compensate(command, c):
+    """Raise small turn commands to the chassis' smallest effective yaw rate."""
+    out=np.array(command,dtype=float,copy=True)
+    if c.yaw_floor>0 and c.yaw_deadband_min<=abs(out[1])<c.yaw_floor:out[1]=np.copysign(c.yaw_floor,out[1])
+    return out
+
+
 class HybridFollower:
     def __init__(self, config=Tuning()):
         self.c=config
@@ -30,14 +67,52 @@ class HybridFollower:
         self.last_reference_path=np.empty((0,2))
         self.detour=DetourPlanner()
         self.stuck_cycles=0  # consecutive plans without a feasible forward candidate
+        self.trail=[]  # robot positions >= 5 cm apart (swept, so known free), newest last
+        self.backed=0.  # distance backed up in the current stuck episode
+        self.last_pose=None;self.reversing=False
 
     def reset(self):
         """Forget detour side/look state between tasks."""
-        self.detour=DetourPlanner();self.stuck_cycles=0
+        self.detour=DetourPlanner();self.stuck_cycles=0;self.trail=[];self.backed=0.;self.last_pose=None;self.reversing=False
+
+    def _remember(self, pose):
+        p=np.asarray(pose[:2],dtype=float)
+        if self.reversing and self.last_pose is not None:
+            self.backed+=float(np.linalg.norm(p-self.last_pose))
+        self.last_pose=p.copy()
+        if self.reversing:
+            self.reversing=False;return
+        if not self.trail or np.linalg.norm(p-self.trail[-1])>=.05:
+            self.trail.append(p.copy())
+            # Keep about 3 m of path: enough to back up and long-gone space is stale.
+            while len(self.trail)>60:self.trail.pop(0)
+
+    def _backup(self, pose, previous, local_map, c):
+        """Reverse along the swept path while stuck; None when not possible."""
+        p=np.asarray(pose[:2],dtype=float)
+        if self.backed>=c.backup_max_m or len(self.trail)<3:return None
+        # Aim 0.3 m back along the trail (the entry nearest the robot is its own spot).
+        back=[q for q in reversed(self.trail[:-1]) if np.linalg.norm(q-p)>=.3]
+        if not back:return None
+        goal=back[0]
+        # Known obstacles only: the swept path was free; unknown is just unseen.
+        points=p+np.linspace(0.,1.,8)[:,None]*(goal-p)
+        if np.min(local_map.query(points))<c.radius+.02:return None
+        rear=pose[2]+np.pi
+        err=float(wrap(np.arctan2(goal[1]-p[1],goal[0]-p[0])-rear))
+        w=float(np.clip(1.5*err,-.5,.5))
+        w=float(np.clip(w,previous[1]-c.yaw_accel*c.step,previous[1]+c.yaw_accel*c.step))
+        v=-c.backup_speed*max(0.,np.cos(err))
+        self.reversing=True
+        self.last_candidates=dict(safe=1,feasible=1,forward=0,backing=True,backed_m=round(self.backed,2),
+                                  detour=dict(self.detour.last or {}))
+        self.last_reference_path=np.vstack((p,goal))
+        return np.array([v,w])
 
     def command(self, pose, previous, target, velocity, history, local_map, obstacles,
-                status, policy=None, policy_time=None, *, reference_path=None, face_point=None):
+                status, policy=None, policy_time=None, *, reference_path=None, face_point=None, measured=None):
         c=self.c
+        self._remember(pose)
         searching=status in ('search_last_seen','search_heading')
         if searching:
             arrival=policy.search_arrival_m if policy is not None else .35
@@ -55,6 +130,9 @@ class HybridFollower:
             detour=self.detour.plan(pose,np.asarray(target,dtype=float),local_map,c,reference=path)
             if detour is not None:path=detour;detouring=True
             if detour is not None and self.detour.last.get('looking') and self.stuck_cycles>=3:
+                back=self._backup(pose,previous,local_map,c)
+                if back is not None:return back
+            if detour is not None and self.detour.last.get('looking') and self.stuck_cycles>=3:
                 # Turning to observe an unseen flank is an explicit in-place rotation
                 # (bounded rate and yaw acceleration), not a trade-off against the
                 # keep-the-person-centred cost, which otherwise stalls it part way.
@@ -66,6 +144,7 @@ class HybridFollower:
                     self.last_candidates=dict(safe=1,feasible=1,forward=0,looking=True,detour=dict(self.detour.last))
                     self.last_reference_path=np.asarray(detour)
                     if clear>=0.:return np.array([0.,w])
+        if not detouring or not self.detour.last.get('looking'):self.backed=0.
         if not len(path):path=np.asarray(target,dtype=float).reshape(1,2)
         if np.linalg.norm(path[-1]-target)>.01:path=np.vstack((path,target))
         if len(path)<2:path=np.vstack((pose[:2],path))
@@ -81,13 +160,30 @@ class HybridFollower:
         idx=np.argmin(np.linalg.norm(path[:-1]+alpha[:,None]*segments-pose[:2],axis=1))
         s0=arcs[idx]+alpha[idx]*lengths[idx]
         target_speed=np.linalg.norm(velocity)
-        cruise=np.clip(target_speed+.65*(arcs[-1]-s0-c.desired_gap),0.,c.max_v)
+        # Person off the image centre at close range (sidestep, passing the robot):
+        # follow the person rather than their footprints and slow down so the turn
+        # keeps up. Off on detours and finite goals, which own their reference.
+        lateral=0.
+        if reference_path is None and not searching and not detouring:
+            bearing=abs(float(wrap(np.arctan2(target[1]-pose[1],target[0]-pose[0])-pose[2])))
+            lateral=float(np.clip((bearing-c.lateral_bearing_start)/max(c.fov_soft_angle-c.lateral_bearing_start,1e-6),0.,1.))
+        cap=c.max_v
+        if reference_path is None and not searching:
+            # Turn first: the point steered to is the detour waypoint, else the person.
+            aim=path[1] if detouring and len(path)>2 and not self.detour.last.get('looking') else target
+            off=abs(float(wrap(np.arctan2(aim[1]-pose[1],aim[0]-pose[0])-pose[2])))
+            cap=c.max_v*float(np.clip((c.turn_first_angle-off)/max(c.turn_first_angle-c.turn_slow_angle,1e-6),0.,1.))
+        # The trail's arc length overstates the remaining gap once the person curves.
+        remaining=min(arcs[-1]-s0,float(np.linalg.norm(target-pose[:2])))
+        cruise=np.clip(target_speed+.65*(remaining-c.desired_gap),0.,min(c.max_v*(1.-c.lateral_slowdown*lateral),cap))
         times=np.arange(1,c.horizon+1)*c.step
         ref_s=np.maximum(s0,np.minimum(s0+cruise*times,arcs[-1]+target_speed*times-c.desired_gap))
         refs=np.column_stack([np.interp(ref_s,arcs,path[:,j]) for j in range(2)])
         refs+=np.maximum(ref_s-arcs[-1],0.)[:,None]*velocity/max(target_speed,1e-9)
         speeds,offsets=np.meshgrid(np.r_[-.25,-.15,-.075,np.linspace(0.,c.max_v,10)],np.linspace(-1.2,1.2,25))
         speeds,offsets=speeds.ravel(),offsets.ravel()
+        if lateral>0.:speeds=np.minimum(speeds,c.max_v*(1.-c.lateral_slowdown*lateral))
+        speeds=np.minimum(speeds,cap)
         if (not searching and c.target_clearance_max>0 and np.linalg.norm(velocity)<.05 and
                 c.target_hard_gap+.01<=np.linalg.norm(target-pose[:2])<=c.radius+c.target_radius+c.target_clearance_max):
             speeds[:]=0.
@@ -98,6 +194,8 @@ class HybridFollower:
         policy_stop=policy is not None and not policy.translation_allowed(policy_time)
         if policy_stop:speeds[:]=0.
         count=len(speeds); states=np.tile(pose,(count,1));controls=np.tile(previous,(count,1))
+        # Actual chassis twist per rollout, starting from the measured one.
+        actual=np.tile(np.asarray(previous if measured is None else measured,dtype=float),(count,1))
         score=np.zeros(count);safe=np.ones(count,dtype=bool);reasons=np.ones((3,count),dtype=bool)
         near_fov=np.ones(count,dtype=bool); first=None
         op=np.array([o['p'] for o in obstacles]).reshape(-1,2)
@@ -110,7 +208,7 @@ class HybridFollower:
             look=np.array([np.interp(look_s,arcs,path[:,j]) for j in range(2)])
             route_heading=np.arctan2(look[1]-states[:,1],look[0]-states[:,0])
             target_heading=np.arctan2(goal[1]-states[:,1],goal[0]-states[:,0])
-            heading=route_heading+.25*wrap(target_heading-route_heading)
+            heading=route_heading+(.25+.75*lateral)*wrap(target_heading-route_heading)
             if reference_path is not None:
                 heading=route_heading
                 if face_point is not None:
@@ -128,8 +226,13 @@ class HybridFollower:
                 controls[:,0]=0.
                 if not policy.active_search(policy_time):controls[:,1]=0.
             if k==0:first=controls.copy()
-            old=states[:,:2].copy(); turn=controls[:,1]*c.step
-            distance=controls[:,0]*c.step*np.sinc(turn/(2*np.pi))
+            if c.chassis_tau_w>0:
+                actual[:,1]+=(chassis_yaw(controls[:,1],c)-actual[:,1])*min(1.,c.step/c.chassis_tau_w)
+                actual[:,0]+=(controls[:,0]-actual[:,0])*min(1.,c.step/max(c.chassis_tau_v,1e-6))
+            else:
+                actual[:]=controls
+            old=states[:,:2].copy(); turn=actual[:,1]*c.step
+            distance=actual[:,0]*c.step*np.sinc(turn/(2*np.pi))
             states[:,0]+=distance*np.cos(states[:,2]+turn/2)
             states[:,1]+=distance*np.sin(states[:,2]+turn/2);states[:,2]+=turn
             points=np.stack((old,(old+states[:,:2])*.5,states[:,:2]),axis=1)
@@ -157,8 +260,8 @@ class HybridFollower:
             visible=c.camera_half_angle-c.fov_edge_margin
             if tau<=.6 and not detouring:near_fov&=np.abs(angle)<=visible
             gap=np.linalg.norm(goal-states[:,:2],axis=1);safe&=gap>=c.target_hard_gap
-            score+=6*np.sum((states[:,:2]-refs[k])**2,axis=1)+2*(gap-c.desired_gap)**2
-            score+=c.centering_weight*angle**2+60*np.maximum(np.abs(angle)-visible,0.)**2
+            score+=6*(1.-.75*lateral)*np.sum((states[:,:2]-refs[k])**2,axis=1)+2*(gap-c.desired_gap)**2
+            score+=c.centering_weight*angle**2+60*np.maximum(np.abs(angle)-c.fov_soft_angle,0.)**2
             score+=2*np.maximum(.35-clearance,0.)**2+.15*controls[:,1]**2
             score+=.25*np.sum((controls-old_controls)**2,axis=1)+4*np.maximum(-controls[:,0],0.)**2
         feasible=safe&near_fov
