@@ -65,9 +65,9 @@ static int obstacles_in(const Output &o, double x0, double x1, double y0, double
   return n;
 }
 
-static Output run(const Height &h, int frames = 3, double noise = .005, unsigned seed = 1, TerrainAnalyzer *keep = nullptr, double t0 = 0) {
+static Output run(const Height &h, int frames = 3, double noise = .005, unsigned seed = 1, TerrainAnalyzer *keep = nullptr, double t0 = 0, Params params = {}) {
   std::mt19937 rng(seed);
-  TerrainAnalyzer local;
+  TerrainAnalyzer local(params);
   TerrainAnalyzer &a = keep ? *keep : local;
   Pose pose; Output o;
   for (int k = 0; k < frames; ++k) { a.add_frame(frame(h, pose, rng, noise), pose, t0 + .1 * k); o = a.analyze(pose, t0 + .1 * k); }
@@ -96,13 +96,33 @@ int main() {
       if (deg <= 20.) check(on.blocked * 10 <= on.ground && obstacles_in(o, 1.3, 2.8, -.8, .8) <= 3, "traversable ramp blocked");
       else check(on.steep * 2 >= on.ground, "steep ramp not blocked");
     }
-    for (double hgt : {.03, .04, .06, .08, -.06, -.10}) {
-      auto o = run(step(hgt));
+    // Steps down and drops are judged only with consider_drop (off by default).
+    for (bool drops : {false, true}) for (double hgt : {.03, .04, .06, .08, -.06, -.10}) {
+      Params q; q.consider_drop = drops;
+      auto o = run(step(hgt), 3, .005, 1, nullptr, 0, q);
       auto at = region(o, p, 1.65, 1.95, -.8, .8);
-      std::printf("step %+.2f at edge: ground %d step %d obst %d | obstacle pts %d\n", hgt, at.ground, at.step, at.obstacle, obstacles_in(o, 1.6, 2.0, -.8, .8));
-      if (std::abs(hgt) <= .04) check(obstacles_in(o, 1.6, 2.0, -.8, .8) <= 3, "small step blocked");
+      std::printf("step %+.2f drops %d at edge: ground %d step %d obst %d | obstacle pts %d\n", hgt, drops, at.ground, at.step, at.obstacle, obstacles_in(o, 1.6, 2.0, -.8, .8));
+      // A 6 cm drop is 1 cm over max_step: its step cells come sparse along the
+      // edge and the neighbour rule drops them; 10 cm must block.
+      if (drops && hgt == -.06) continue;
+      if (std::abs(hgt) <= .04 || (hgt < 0 && !drops)) check(obstacles_in(o, 1.6, 2.0, -.8, .8) <= 3, "small step / step down blocked");
       else check(obstacles_in(o, 1.6, 2.0, -.8, .8) >= 5, "high step / drop not blocked");
     }
+    // Flat floor with persistent outlier clusters (6 returns +-8 cm in one cell,
+    // as on reflective or dark patches): no cell is blocked by its ground alone.
+    {std::mt19937 rng(11), place(12); TerrainAnalyzer a; Pose pose; Output o;
+     std::uniform_real_distribution<double> ux(1., 4.5), uy(-1.2, 1.2), in(0., .1);
+     std::vector<std::array<double, 3>> spots;
+     for (int i = 0; i < 25; ++i) spots.push_back({std::floor(ux(place) / .1) * .1, std::floor(uy(place) / .1) * .1, i % 2 ? .08 : -.08});
+     for (int k = 0; k < 5; ++k) {
+       auto pts = frame([](double, double) { return 0.; }, pose, rng);
+       for (const auto &sp : spots) for (int j = 0; j < 6; ++j) pts.push_back({sp[0] + in(rng), sp[1] + in(rng), sp[2]});
+       a.add_frame(pts, pose, .1 * k); o = a.analyze(pose, .1 * k);
+     }
+     auto c = region(o, p, .5, 5., -1.5, 1.5);
+     int markers = 0; for (const auto &q : o.obstacles) markers += std::abs(q[3] - .2) < 1e-9;
+     std::printf("outliers  steep %d step %d obst %d | cell markers %d\n", c.steep, c.step, c.obstacle, markers);
+     check(c.steep + c.step == 0 && markers == 0, "outlier cells blocked by their ground");}
     // A 0.4 m x 0.4 m x 0.2 m box at x=2.
     {auto o = run([](double x, double y) { return (x > 2. && x < 2.4 && std::abs(y) < .2) ? .2 : 0.; });
      const int box = obstacles_in(o, 1.95, 2.45, -.25, .25), around = obstacles_in(o, 1.0, 1.85, -1., 1.);

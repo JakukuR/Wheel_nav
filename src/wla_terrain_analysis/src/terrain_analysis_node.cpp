@@ -56,6 +56,9 @@ class TerrainAnalysisNode : public rclcpp::Node {
     p.map_radius = declare_parameter<double>("map_radius", p.map_radius);
     p.terrain_range = declare_parameter<double>("terrain_range", p.terrain_range);
     p.min_confirm = declare_parameter<int>("min_confirm", p.min_confirm);
+    p.consider_drop = declare_parameter<bool>("consider_drop", p.consider_drop);
+    p.min_residual_points = declare_parameter<int>("min_residual_points", p.min_residual_points);
+    p.min_blocked_neighbours = declare_parameter<int>("min_blocked_neighbours", p.min_blocked_neighbours);
     analyzer_ = wla_terrain::TerrainAnalyzer(p);
 
     const auto qos = rclcpp::QoS(rclcpp::KeepLast(2));

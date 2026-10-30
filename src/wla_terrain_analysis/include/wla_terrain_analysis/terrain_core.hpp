@@ -10,7 +10,11 @@
 //  * a cell observed in the current frame keeps only current points
 //    (moved objects and old noise are replaced, not decayed for seconds);
 //  * an obstacle cell is reported after it is seen in min_confirm frames;
-//  * drops (ground below the local plane) are reported like steps.
+//  * drops (ground below the local plane) are reported like steps when
+//    consider_drop is on (off by default, as CMU considerDrop on its Diablo);
+//  * a cell blocked by its ground alone (no points above it) needs blocked
+//    neighbours (CMU pools each cell's 3x3 neighbourhood and its planner needs
+//    pointPerPathThre = 2 points on a path).
 // No ROS dependency: the ROS nodes and the unit tests share this core.
 #pragma once
 #include <array>
@@ -44,6 +48,11 @@ struct Params {
   double terrain_range = 3.5;    // m, slope/step/drop judged only this close (D455 depth
                                  // error ~2% at 4 m would exceed max_step); obstacles beyond
   int min_confirm = 2;           // frames an obstacle cell must be seen in
+  bool consider_drop = false;    // judge ground below the local plane: sunk cells, drops and
+                                 // steps down (CMU considerDrop; its Diablo runs with it off)
+  int min_residual_points = 8;   // points for a raised-cell verdict (CMU minBlockPointNum 10)
+  int min_blocked_neighbours = 2;  // of 8, for a cell blocked by its ground alone (steep,
+                                   // step, raised); an edge pair alone has one each
 };
 
 struct Pose {  // gravity-aligned odom frame, ZYX Euler

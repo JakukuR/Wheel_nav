@@ -196,7 +196,7 @@ Output TerrainAnalyzer::analyze(const Pose &pose, double t) {
       const Plane a = side_plane(c.first, c.second, d.first, d.second, +1);   // behind c
       const Plane b = side_plane(nx, ny, d.first, d.second, -1);              // beyond n
       if (!a.valid || !b.valid) continue;
-      double gap = 1e9, prev = 0;
+      double gap = 1e9, prev = 0, at_gap = 0;
       bool crossed = false;
       for (int i = 0; i <= span; ++i) {
         const double ux = i * d.first * cell, uy = i * d.second * cell;   // from c
@@ -204,9 +204,16 @@ Output TerrainAnalyzer::analyze(const Pose &pose, double t) {
         const double zb = b.a * (ux - span * d.first * cell) + b.b * (uy - span * d.second * cell) + b.c;
         const double diff = za - zb;
         if (i > 0 && diff * prev <= 0) crossed = true;
-        prev = diff; gap = std::min(gap, std::abs(diff));
+        prev = diff;
+        if (std::abs(diff) < gap) { gap = std::abs(diff); at_gap = diff; }
       }
       if (crossed || gap <= p_.max_step) continue;
+      if (!p_.consider_drop) {
+        // Rises only: skip when the side farther from the robot is the lower one.
+        const double dc = std::hypot((c.first + .5) * cell - pose.x, (c.second + .5) * cell - pose.y);
+        const double dn = std::hypot((nx + .5) * cell - pose.x, (ny + .5) * cell - pose.y);
+        if ((dn > dc) == (at_gap > 0)) continue;
+      }
       // The edge lies between the two fitted cells: mark only the inner cells,
       // not the whole span (that painted a 0.3 m band in front of every edge).
       for (int i = 1; i < span; ++i)
@@ -220,7 +227,7 @@ Output TerrainAnalyzer::analyze(const Pose &pose, double t) {
   const int shadow = std::max(2, static_cast<int>(std::lround(p_.drop_shadow / cell)));
   std::unordered_set<int64_t> drop_cells;
   for (const auto &kv : fits) {
-    if (!kv.second.consistent) continue;
+    if (!p_.consider_drop || !kv.second.consistent) continue;
     const auto &c = coords_[kv.first];
     for (const auto &d : {std::pair<int, int>{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
       int k = 1;
@@ -239,6 +246,8 @@ Output TerrainAnalyzer::analyze(const Pose &pose, double t) {
     return true;
   };
   // 4. Classify cells and points.
+  struct Verdict { int64_t k; CellResult res; bool blocked; };
+  std::vector<Verdict> verdicts;
   for (const auto k : keys) {
     auto &state = cells_[k];
     const auto &c = coords_[k];
@@ -261,8 +270,11 @@ Output TerrainAnalyzer::analyze(const Pose &pose, double t) {
       res.step = std::max(jump, std::abs(f.residual));
       const double rx = (c.first + .5) * cell - pose.x, ry = (c.second + .5) * cell - pose.y;
       const bool resolvable = rx * rx + ry * ry <= p_.terrain_range * p_.terrain_range;
-      if (f.residual < -p_.max_step) { res.cls = CellClass::Step; res.reason = 1; }      // sunk below local ground
-      else if (f.residual > p_.max_step) { res.cls = CellClass::Step; res.reason = 2; }  // raised edge / box top
+      // A residual is one cell against its neighbours: like slope and step it needs
+      // depth noise below max_step, and enough points that the quantile is not one return.
+      const bool sampled = static_cast<int>(state.points.size()) >= p_.min_residual_points;
+      if (p_.consider_drop && resolvable && f.residual < -p_.max_step) { res.cls = CellClass::Step; res.reason = 1; }  // sunk
+      else if (resolvable && sampled && f.residual > p_.max_step) { res.cls = CellClass::Step; res.reason = 2; }     // raised edge / box top
       // Slope, step and drop only where depth noise is below max_step.
       else if (!resolvable) res.cls = CellClass::Ground;
       else if (res.slope_deg > p_.max_slope_deg + p_.slope_margin_deg && surrounded(c.first, c.second))
@@ -300,7 +312,29 @@ Output TerrainAnalyzer::analyze(const Pose &pose, double t) {
         blocked = lifted;
       }
     }
-    // 5. Temporal confirmation; an unobserved cell keeps its last verdict.
+    verdicts.push_back({k, res, blocked});
+  }
+  // 5. A cell blocked by its ground alone (one-cell residual, step pair, tilted
+  // fit) on its own is noise; real edges and slopes span several cells. Drop
+  // edges are exempt: they already need an unseen gap and lower ground behind,
+  // and a forward camera samples them sparsely along the edge.
+  std::unordered_set<int64_t> blocked_keys;
+  for (const auto &v : verdicts) if (v.blocked) blocked_keys.insert(v.k);
+  for (auto &v : verdicts) {
+    if (!v.blocked || v.res.cls == CellClass::Obstacle || v.res.reason == 4) continue;
+    int support = 0;
+    for (int dx = -1; dx <= 1; ++dx) for (int dy = -1; dy <= 1; ++dy)
+      if ((dx || dy) && blocked_keys.count(key(v.res.ix + dx, v.res.iy + dy))) ++support;
+    if (support < p_.min_blocked_neighbours) { v.blocked = false; v.res.cls = CellClass::Ground; v.res.reason = 0; }
+  }
+  // 6. Temporal confirmation; an unobserved cell keeps its last verdict.
+  for (auto &v : verdicts) {
+    const auto k = v.k;
+    auto &state = cells_[k];
+    const auto &c = coords_[k];
+    auto &res = v.res;
+    const bool blocked = v.blocked;
+    const auto fi = fits.find(k);
     if (state.observed) state.confirm = blocked ? state.confirm + 1 : 0;
     state.was_obstacle = state.confirm >= p_.min_confirm;
     if (state.was_obstacle) {

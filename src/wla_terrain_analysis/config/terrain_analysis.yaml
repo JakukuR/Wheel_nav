@@ -45,3 +45,9 @@ terrain_analysis:
     map_radius: 5.0
     terrain_range: 3.5
     min_confirm: 2
+    # Noise (CMU terrain_analysis / Diablo launch as reference, 2026-10-30):
+    # no sunk / drop / step-down verdicts (considerDrop false), a raised cell
+    # needs 8 points, a cell blocked by its ground alone needs 2 blocked neighbours.
+    consider_drop: false
+    min_residual_points: 8
+    min_blocked_neighbours: 2
