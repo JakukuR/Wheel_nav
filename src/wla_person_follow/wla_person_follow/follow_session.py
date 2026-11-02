@@ -24,6 +24,15 @@ def position(row, pose, offset=.28, expected_label='person'):
     return p[:2] + (distance + offset)*np.array([math.cos(angle), math.sin(angle)])
 
 
+# Followed-person Kalman noise, from replaying 2,949 recorded detections
+# (2026-10-30 J02 15:02/16:02 and normal follow 19:43). Raw points jitter
+# ~5 cm; the old 2.5 cm / 0.7 m/s^2 passed it through and the velocity
+# direction jumped 0.25 rad per frame (p95). 5 cm / 0.5: 1 s prediction error
+# 0.277 -> 0.250 m, direction jumps 0.13 rad, a sharp 90 deg turn is followed
+# 0.2 s later (63 % after 0.80 s instead of 0.59 s).
+TARGET_MEAS_STD_M = .05
+TARGET_ACCEL_STD_MPS2 = .5
+
 @dataclass(frozen=True)
 class TrackingPolicy:
     state: str
@@ -150,7 +159,8 @@ class FollowTracker:
 
     def _accept(self, point, pose, stamp):
         if self.track is None:
-            self.track = VisualTrack(timeout=self.prediction_s, **self.history_options)
+            self.track = VisualTrack(timeout=self.prediction_s, meas_std=TARGET_MEAS_STD_M,
+                                     accel_std=TARGET_ACCEL_STD_MPS2, **self.history_options)
             self.observations.clear()
         self.track.update(point, stamp)
         velocity = self.track.x[2:].copy()

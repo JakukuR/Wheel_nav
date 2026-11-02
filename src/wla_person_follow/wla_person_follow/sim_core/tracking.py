@@ -4,9 +4,9 @@ from .target_reference import TargetHistory
 class VisualTrack:
     """Constant-velocity Kalman estimate; no invisible truth updates."""
     def __init__(self,timeout=.8,*,history_window_s=5.,history_sample_period_s=.4,
-                 history_max_gap_s=.6):
+                 history_max_gap_s=.6,meas_std=.025,accel_std=.7):
         self.x=None;self.P=np.eye(4);self.time=None;self.seen=None
-        self.timeout=timeout
+        self.timeout=timeout;self.meas_std=meas_std;self.accel_std=accel_std
         self.trail=TargetHistory(history_window_s,history_sample_period_s,history_max_gap_s)
 
     @property
@@ -22,9 +22,9 @@ class VisualTrack:
         dt=max(0.,prediction_time-self.time);self.time=prediction_time
         F=np.eye(4);F[:2,2:]=np.eye(2)*dt
         G=np.vstack((np.eye(2)*dt*dt/2,np.eye(2)*dt))
-        self.x=F@self.x;self.P=F@self.P@F.T+.7**2*G@G.T
+        self.x=F@self.x;self.P=F@self.P@F.T+self.accel_std**2*G@G.T
         if z is not None:
-            S=self.P[:2,:2]+np.eye(2)*.025**2
+            S=self.P[:2,:2]+np.eye(2)*self.meas_std**2
             K=np.linalg.solve(S,self.P[:,:2].T).T
             self.x+=K@(z-self.x[:2]);self.P-=K@self.P[:2,:]
             self.seen=t

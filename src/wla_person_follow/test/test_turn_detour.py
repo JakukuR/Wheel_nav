@@ -195,3 +195,20 @@ def test_shortcut_keeps_the_footprints_behind_an_obstacle():
     assert len(out) >= 4 and np.linalg.norm(out[-1] - [2.5, 0.]) < 1e-9
     # Never a straight line through the wall.
     assert not np.allclose(out[1], [2.5, 0.]) and not np.allclose(out[1], [1.5, 1.1])
+
+
+def test_target_filter_smooths_detection_jitter():
+    """5 cm detection noise on a straight walk: the followed-person filter's
+    velocity direction stays steady (2026-11-02 retune)."""
+    from wla_person_follow import follow_session
+    from wla_person_follow.sim_core.tracking import VisualTrack
+    rng = np.random.default_rng(4); spread = {}
+    for name, kw in (('old', {}), ('tuned', dict(meas_std=follow_session.TARGET_MEAS_STD_M,
+                                                  accel_std=follow_session.TARGET_ACCEL_STD_MPS2))):
+        tr = VisualTrack(timeout=2., **kw); h = []
+        for k in range(80):
+            z = np.array([2. + .8 * .07 * k, 0.]) + rng.normal(0, .035, 2)
+            _, v, _ = tr.update(z, .07 * k)
+            if k > 20: h.append(np.arctan2(v[1], v[0]))
+        spread[name] = np.std(np.diff(h))
+    assert spread['tuned'] < .6 * spread['old']
