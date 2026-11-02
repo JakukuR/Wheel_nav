@@ -26,7 +26,7 @@ def frame(identity, tracker, stamp, people):
     snapshot = tracker.snapshot(stamp, np.zeros(3))
     assert snapshot['state'] != 'tracking'
     rows = [dict(id=i, feature=feature(s), position=np.asarray(p, float)) for i, s, p in people]
-    identity.observe(rows, stamp, {}, tracker, snapshot, people=len(rows))
+    identity.observe(rows, stamp, {}, tracker, snapshot)
 
 
 def geometry(point):

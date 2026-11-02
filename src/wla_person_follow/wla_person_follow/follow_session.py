@@ -94,15 +94,13 @@ class FollowTracker:
     def __init__(self, target_id, now, *, prediction_s=2., freshness_s=.3,
                  offset=.28, jump_radius=.45, jump_growth=.25, jump_max=1.5,
                  confirmations=3, search_arrival=.35, history_window_s=5.,
-                 history_sample_period_s=.4, expected_label='person', mode='0',
-                 search_radius=4.):
+                 history_sample_period_s=.4, expected_label='person', mode='0'):
         self.selected_id = self.target_id = target_id
         self.expected_label = expected_label
         self.mode = str(mode)
         self.started = now
         self.prediction_s, self.freshness_s, self.offset = prediction_s, freshness_s, offset
         self.jump_radius, self.jump_growth, self.jump_max = jump_radius, jump_growth, jump_max
-        self.search_radius = max(search_radius, jump_max)
         self.confirmations, self.search_arrival = confirmations, search_arrival
         self.history_options = dict(history_window_s=history_window_s,
             history_sample_period_s=history_sample_period_s,
@@ -139,29 +137,6 @@ class FollowTracker:
     def radius(self, now):
         age = 0. if self.last_seen is None else max(0., now-self.last_seen)
         return min(self.jump_max, self.jump_radius+self.jump_growth*age)
-
-    def wide_search(self, now):
-        """Lost past the prediction window: the walker may be anywhere near by."""
-        return (self.mode != '2' and self.last_seen is not None
-                and now-self.last_seen > self.prediction_s)
-
-    def recovery_radius(self, now):
-        """Search-only gate: radius() keeps growing past jump_max, up to search_radius.
-
-        J02 2026-10-29 17:25: the walker passed the robot and stood 1.7-2.2 m from
-        the frozen prediction for a minute; the 1.5 m gate never asked for its
-        appearance.
-        """
-        if not self.wide_search(now):
-            return self.radius(now)
-        return min(self.search_radius, self.jump_radius+self.jump_growth*(now-self.last_seen))
-
-    def recovery_error(self, point, stamp):
-        """Distance to the nearer of the prediction and the last accepted position."""
-        refs = [p for p in (self.prediction(stamp), self.last_position) if p is not None]
-        if not refs:
-            return math.inf
-        return min(float(np.linalg.norm(np.asarray(point)-r)) for r in refs)
 
     def observed_position(self, stamp):
         """Geometry for the mask acquisition, independent of MPC worker delay."""
@@ -360,7 +335,6 @@ class RecoveryIdentity:
         self.pending_id = None
         self.pending_count = 0
         self.pending_stamp = None
-        self.pending_wide = False
         self.proposal = None
         self.state, self.reason = 'collecting', 'waiting_for_quality_template'
         self.feature_frames = self.reacquired = 0
@@ -375,10 +349,9 @@ class RecoveryIdentity:
     def reset_confirmation(self):
         self.pending_id = self.pending_stamp = None
         self.pending_count = 0
-        self.pending_wide = False
         self.proposal = None
 
-    def observe(self, rows, stamp, diagnostics, tracker, snapshot, *, neighbor=False, people=None):
+    def observe(self, rows, stamp, diagnostics, tracker, snapshot, *, neighbor=False):
         if stamp <= self.last_frame_stamp:
             return
         self.last_frame_stamp = stamp
@@ -436,7 +409,7 @@ class RecoveryIdentity:
                       key=lambda item:item[0],reverse=True)
         for sim,row in scored:
             error=math.inf if prediction is None else float(np.linalg.norm(row['position']-prediction))
-            self.candidates.append(dict(id=row['id'],similarity=sim,position_error_m=error,qualified=False,wide=False))
+            self.candidates.append(dict(id=row['id'],similarity=sim,position_error_m=error,qualified=False))
         if not scored:
             # Nothing usable this frame: keep any pending confirmation.
             if self.pending_id is None:self.reason='no_usable_recovery_feature'
@@ -448,16 +421,15 @@ class RecoveryIdentity:
         same=(row['id']==self.pending_id and self.pending_stamp is not None
               and 0<stamp-self.pending_stamp<=RECOVERY_CONFIRM_GAP_S)
         self.pending_count=self.pending_count+1 if same else 1
-        self.pending_id=row['id'];self.pending_stamp=stamp;self.last_similarity=sim;self.pending_wide=False
+        self.pending_id=row['id'];self.pending_stamp=stamp;self.last_similarity=sim
         self.reason='confirming_recovery'
         if self.pending_count>=self.confirmations:
-            self.proposal=dict(id=row['id'],stamp=stamp,count=self.pending_count,revision=tracker.revision,wide=False)
+            self.proposal=dict(id=row['id'],stamp=stamp,count=self.pending_count,revision=tracker.revision)
 
     def snapshot(self):
         return dict(state=self.state,reason=self.reason,role='recovery_only',completed_enrollment=self.complete,
             template_slots=len(self.gallery),feature_frames=self.feature_frames,
             similarity=self.last_similarity,pending_id=self.pending_id,pending_confirmations=self.pending_count,
-            pending_wide=self.pending_wide,
             reacquired=self.reacquired,candidates=self.candidates,feature_diagnostics=self.feature_diagnostics)
 
 

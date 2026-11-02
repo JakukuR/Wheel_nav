@@ -5,7 +5,6 @@ The existing FollowEngine owns task/tracking/numerical state. Large buffers use
 one acknowledged slot per direction; there is no frame queue behind the solver.
 """
 import argparse
-from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 import json
 import logging
@@ -22,7 +21,7 @@ from types import SimpleNamespace as NS
 
 from rclpy.serialization import deserialize_message, serialize_message
 from geometry_msgs.msg import TransformStamped
-from sensor_msgs.msg import Image, CameraInfo, PointCloud2
+from sensor_msgs.msg import CameraInfo, PointCloud2
 from std_msgs.msg import String
 from std_srvs.srv import SetBool
 from wla_behavior_interfaces.srv import PersonCommand

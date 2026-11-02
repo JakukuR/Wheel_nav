@@ -22,7 +22,7 @@ class RollingDepthMap:
         # hits in the exact same cells.  This short-lived clear is not a ray.
         self.target_clear_stamp=np.full((size,size),-np.inf)
         self.tags=np.full((size,size,2),-10**9,dtype=np.int64)
-        self.lower=np.zeros(2,dtype=int);self.replacements=0
+        self.lower=np.zeros(2,dtype=int)
         # Bumped by every evidence change; rebuild(reuse_s>0) skips an unchanged map.
         self.version=0;self._built=None
 
@@ -37,7 +37,6 @@ class RollingDepthMap:
         a,b=self.ix[changed],self.iy[changed]
         self.log[a,b]=0.;self.stamp[a,b]=-np.inf;self.target_clear_stamp[a,b]=-np.inf
         self.tags[a,b]=self.cells[changed]
-        self.replacements+=np.sum(changed)
 
     def _slots(self,xy):
         cell=np.floor(np.asarray(xy)/self.res).astype(int)

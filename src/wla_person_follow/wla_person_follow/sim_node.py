@@ -125,7 +125,6 @@ class FollowEngine:
         self.computation_diagnostic = None
         self.status_sequence = 0
         self.infos = deque(maxlen=24)
-        self.pending = None
         self.depth_pairer = MaskDepthPairer()
         self.last_depth_stamp = 0
         self.tof = {}
@@ -375,7 +374,7 @@ class FollowEngine:
                 search_arrival=self.p['search_arrival_m'],
                 history_window_s=self.p['target_history_window_s'],
                 history_sample_period_s=self.p['target_history_sample_period_s'],
-                expected_label=c.target_label, mode=c.mode, search_radius=self.p['reid_search_radius_m'])
+                expected_label=c.target_label, mode=c.mode)
             self.recovery_identity=RecoveryIdentity(similarity=self.p['reid_search_similarity'],margin=self.p['reid_margin'],
                 confirmations=self.p['reid_confirm_frames']) if self.p['reid_enabled'] and cfg['reid'] else None
             self.tracker_key=task_key;self.interest_at=-math.inf;self.result=None
@@ -391,7 +390,6 @@ class FollowEngine:
             points={ident:position(row,pose,self.tracker.offset,c.target_label) for ident,row in c.objects.items()}
             target=points.get(self.tracker.target_id)
             neighbor=target is not None and any(p is not None and ident!=self.tracker.target_id and np.linalg.norm(p-target)<self.p['neighbor_ambiguity_radius_m'] for ident,p in points.items())
-            people=sum(p is not None for p in points.values())
             if self.recovery_identity is not None:
                 sidecar=self.recovery_identity
                 for batch in self.reid_frames:
@@ -401,7 +399,7 @@ class FollowEngine:
                     if batch.get('target_revision')!=self.tracker.revision:continue
                     bp=self.motion.pose_at(ts)
                     if bp is None:continue
-                    sidecar.observe(self._feature_rows(batch,bp),ts,batch.get('diagnostics'),self.tracker,snap,neighbor=neighbor,people=people)
+                    sidecar.observe(self._feature_rows(batch,bp),ts,batch.get('diagnostics'),self.tracker,snap,neighbor=neighbor)
                 if snap['recovery_needed'] and self.tracker.rebind(sidecar.proposal,c.objects,pose,stamp,now):
                     sidecar.reacquired+=1;sidecar.reset_confirmation();sidecar.state='ready';sidecar.reason='reid_reacquired'
                     snap=self.tracker.snapshot(now,self.motion.pose_at(now))
