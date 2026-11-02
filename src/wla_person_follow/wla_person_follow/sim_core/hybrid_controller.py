@@ -144,16 +144,6 @@ class HybridFollower:
         self.last_infeasible=False
         self.last_candidates={}
         self.last_reference_path=np.empty((0,2))
-        if (status=='holding' and target is not None and policy is not None and policy.mode in ('0','1')
-                and reference_path is None):
-            # A detection jumped away from the prediction (usually depth on the wall
-            # behind a person leaving the image): no driving, but keep the camera on
-            # the last trusted position instead of freezing for ~1.8 s.
-            err=float(wrap(np.arctan2(target[1]-pose[1],target[0]-pose[0])-pose[2]))
-            self.last_candidates=dict(safe=1,feasible=1,forward=0,holding_turn=True)
-            if abs(err)<=.1:return np.zeros(2)
-            w=float(np.clip(1.5*err,-c.search_turn_rate,c.search_turn_rate))
-            return np.array([0.,float(np.clip(w,previous[1]-c.yaw_accel*c.step,previous[1]+c.yaw_accel*c.step))])
         if target is None or status in ('lost','binding','holding'):
             return np.zeros(2)
         if recovery:

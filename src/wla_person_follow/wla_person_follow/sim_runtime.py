@@ -150,6 +150,7 @@ class SimulationEngine:
             velocity=np.asarray(tracker_snapshot['velocity_mps'],dtype=float)
             history=[np.asarray(point,dtype=float) for point in tracker_snapshot['history']]
             state={'tracking':'visible','coasting':'coast'}.get(binding,binding)
+            if binding=='holding' and task_mode in ('0','1'):state='coast'
         tuning=self.tuning;route=None;face=None;approach=None
         if task_mode=='1':
             stop_gap=.95+(tracker_snapshot or {}).get('surface_offset_m',.28)
@@ -179,6 +180,7 @@ class SimulationEngine:
             command=limit_step(command,seed,dt,tuning)
         reason=('object_goal_unavailable' if task_mode=='2' and approach is None else
             approach['reason'] if approach is not None else state if state.startswith('search_') else
+            'holding_last_trusted' if tracker_snapshot is not None and tracker_snapshot['state']=='holding' and state=='coast' else
             'tracker_prediction' if state=='coast' else 'tracker_follow')
         if self.controller.last_infeasible:
             command=np.zeros(2);reason='no_feasible_candidate'

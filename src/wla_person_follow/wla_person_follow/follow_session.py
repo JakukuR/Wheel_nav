@@ -52,16 +52,17 @@ class TrackingPolicy:
                 0 <= now-self.last_seen <= .3
         if self.state == 'search_last_seen':
             return True
-        return (self.state in ('tracking', 'coasting') and self.last_seen is not None
+        # Holding = the newest detection jumped away and was rejected; the track
+        # itself is still the last trusted one, so keep driving on its prediction
+        # like coasting (YOPOv2-Tracker rejects and keeps flying the same way).
+        return (self.state in ('tracking', 'coasting', 'holding') and self.last_seen is not None
                 and 0 <= now-self.last_seen <= self.prediction_s)
 
     def active_search(self, now):
         return self.state == 'search_heading'
 
     def rotation_allowed(self, now):
-        # Holding after a geometry jump may turn in place towards the last trusted
-        # position in person modes (never translate).
-        return self.active_search(now) or (self.state == 'holding' and self.mode in ('0', '1'))
+        return self.active_search(now)
 
     def limit_command(self, command, now):
         out = np.array(command, dtype=float, copy=True)

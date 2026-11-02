@@ -214,17 +214,22 @@ def test_target_filter_smooths_detection_jitter():
     assert spread['tuned'] < .6 * spread['old']
 
 
-def test_holding_turns_towards_the_last_trusted_position_without_driving():
-    """A depth jump puts the tracker in 'holding'; the robot keeps the camera on the
-    person instead of freezing (J02 2026-10-30: ~1.8 s stops at corridor corners)."""
+
+def test_holding_keeps_driving_on_the_last_trusted_track():
+    """A rejected depth jump ('holding', J02 2026-10-30 ~1.8 s stops at corridor
+    corners) keeps the coasting plan in person modes; object approach still stops."""
     from wla_person_follow.follow_session import TrackingPolicy
-    c = Tuning(); f = HybridFollower(c); m = _open_map()
-    policy = TrackingPolicy(state="holding", last_seen=0., prediction_s=2., target_id="t", revision=0, mode="0")
-    cmd = np.zeros(2)
-    for _ in range(4):
-        cmd = f.command(np.zeros(3), cmd, np.array([1.2, .8]), np.zeros(2), [], m, [], "holding",
-                        policy=policy, policy_time=.5)
-    out = policy.limit_command(cmd, .5)
-    assert out[0] == 0. and out[1] > .2
+    from wla_person_follow.sim_runtime import SimulationEngine  # noqa: F401  (import check)
+    for mode in ("0", "1"):
+        policy = TrackingPolicy(state="holding", last_seen=0., prediction_s=2., target_id="t", revision=0, mode=mode)
+        assert policy.translation_allowed(.5) and not policy.translation_allowed(2.5)
+        assert np.allclose(policy.limit_command(np.array([.3, .4]), .5), [.3, .4])
     obj = TrackingPolicy(state="holding", last_seen=0., prediction_s=2., target_id="t", revision=0, mode="2")
     assert np.allclose(obj.limit_command(np.array([.2, .4]), .5), 0.)
+    c = Tuning(); f = HybridFollower(c); m = _open_map()
+    cmd = np.zeros(2)
+    for _ in range(6):
+        cmd = f.command(np.zeros(3), cmd, np.array([2.5, .6]), np.zeros(2), [], m, [], "coast",
+                        policy=TrackingPolicy(state="holding", last_seen=0., prediction_s=2., target_id="t",
+                                              revision=0, mode="0"), policy_time=.5)
+    assert cmd[0] > .05 and cmd[1] > 0.

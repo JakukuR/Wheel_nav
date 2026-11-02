@@ -872,13 +872,15 @@ class FollowEngine:
             if policy is not None:
                 command=policy.limit_command(command,ns/1e9)
                 live=self.tracker.snapshot(ns/1e9,self.motion.pose_at(ns/1e9)) if self.tracker is not None else None
+                # Person modes plan holding exactly like coasting (last trusted track).
+                drive={'tracking','coasting'} if policy.mode=='2' else {'tracking','coasting','holding'}
                 same_phase=(live is not None and (live['state']==policy.state or
-                    {live['state'],policy.state} <= {'tracking','coasting'}))
+                    {live['state'],policy.state} <= drive))
                 if not same_phase:
                     command=np.zeros(2);healthy=False;blockers.append('tracking_phase_changed')
                 elif live is not None:
                     command=self._tracking_policy(live).limit_command(command,ns/1e9)
-                    if live['state'] in ('binding','holding'):
+                    if live['state']=='binding' or (live['state']=='holding' and live.get('mode','0')=='2'):
                         healthy=False;blockers.append(live['reason'])
             if healthy and 'first_output_ms' not in result.get('latency',{}):
                 result.setdefault('latency',{}).update(

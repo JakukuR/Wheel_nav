@@ -516,3 +516,12 @@ def test_control_rate_and_map_age_parameters():
         cpp=pathlib.Path(sim_node.__file__).resolve().parents[2]/'wla_follow_transport'/'src'/'follow_transport.cpp'
         if cpp.exists():
             assert 'gate.max_age<=.45' in cpp.read_text()
+
+
+def test_holding_plans_on_the_last_trusted_track_in_person_modes():
+    e=SimulationEngine(np.zeros(3),1.)
+    snapshot=dict(state="holding",prediction=[2.,0.],position=[2.,0.],
+                  velocity_mps=[0.,0.],history=[],last_seen=1.)
+    result=e.step(np.zeros(3),np.zeros(2),[],(1.,np.array([2.,0.]),{},"target"),1.,tracker_snapshot=snapshot)
+    assert result["target_state"]=="coast" and result["reason"]=="holding_last_trusted"
+    assert result["planner_activity"]=="candidate_evaluation"
