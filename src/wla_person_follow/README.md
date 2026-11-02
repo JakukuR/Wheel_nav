@@ -1,104 +1,227 @@
-# 统一目标跟随与靠近
+# 目标跟随与靠近（wla_person_follow）
 
-任务和算法实现位于 `ros2_ws/src/wla_person_follow`。默认由 `wla_follow_transport`
-的 C++ ROS 节点接入真实 RGB-D、检测和轮速，`hybrid_worker` 在一个独立 Python
-进程中运行同一套 `FollowEngine`、目标跟踪和地图/MPC。C++ 负责最终时效、撤销、
-租约和控制权限检查，再交给现有 C++ mux。启动只等待命令，不自动选择 ID。
+一个包同时实现三种任务：跟人、走到人面前、走到某个物体前。
 
-`transport:=python` 保留原 `SimulationFollow` ROS 适配器作为兼容入口；
-这不是另一套控制算法。拆分接口、边界与验证见 [HYBRID_TRANSPORT.md](HYBRID_TRANSPORT.md)。
+- **mode 0（人物跟随）**：选定一个人，保持约 1.2 m 跟随，一直跟到操作者停止，或租约 / 权限被撤销。
+- **mode 1（人物靠近）**：走到人面前，人的表面距机器人参考原点约 0.95 m 时到达，然后结束。
+- **mode 2（物体靠近）**：靠近非人物体，表面距车身外廓 0.15 m 时到达；不可达时停在当前局部地图里最近的可达点。
 
-| mode（ROS 字符串） | 目标 | 终止条件 |
-| --- | --- | --- |
-| `0` | 人物跟随 | 操作者停止或租约/权限撤销 |
-| `1` | 人物靠近 | 观测表面距机器人参考原点约 0.95 m，到达即结束 |
-| `2` | 非人物物体靠近 | 表面距外廓 0.15 m；不可达则当前局部地图最近可达停车点 |
+后端启动后只等待命令，不会自己选目标。
 
-人物：选定 ID → 几何/Kalman tracker → 同帧目标点云屏蔽与已确认历史占据清理 → MPC。
-ReID 只收集人物模板、在丢失时建议重绑定；不参与正常几何跟随的许可。
-丢失期间对画面里所有可见人物（离最后可信位置最近的 4 个）计算外观特征，不做位置限制；
-取相似度最高者，要求 ≥ 0.55（`reid_search_similarity`）且领先第二名至少 0.08，同一 ID 确认 3 帧，
-相邻两次匹配间隔不超过 2 秒；特征不可用的帧（遮挡、贴边、低置信度、未检测到）既不计数也不清零（2026-11-02）。
-初始模板配对相似度仍为 0.80，后续模板更新仍为 0.90，与恢复阈值分开。
-丢失预测 2 秒，然后去最后真实位置，朝消失前运动方向搜索；速度不可靠时使用最后观测方位。
-检测相对预测跳变（`holding`）时只丢弃该检测，模式 0/1 沿最后可信轨迹继续规划，见下节。
-模式 0 保留 5 秒窗口、0.4 秒等间隔采样及多段三阶 Bézier 参考。
-模式 1 对当前人物位置减速靠近，不绕行其已走过的历史路径。
+## 快速开始
 
-物体：绑定具体检测类别与完整 ID，使用同帧分割深度提取可见表面。
-保留目标原始深度和占据，其他人物继续作为动态障碍。物体不可见或表面不可用时等待，
-不调用人物 ReID，也不执行人物丢失搜索。
-
-模式 2 使用滚动地图的八邻接连通图（禁止斜穿障碍角），从当前轮速参考位置选终点，
-把整条路径送入同一个 MPC。所有图边检查已知空间与静态障碍；MPC 继续检查动态人物。
-距离计算沿用原物体靠近的 0.48 m 方形外廓，扫掠用外接圆保守检查。
-最近可达的范围是当前 12 m 滚动地图和 0.1 m 栅格、有效已知空间及外廓约束，
-不是未知区域或全局连续空间的最优保证。保守外廓和栅格会使停车距离大于 0.15 m。
-无安全连接时停车等待，不把规划失败当成到达。
-
-终点至少稳定 0.6 秒；到达确认使用至少三个不同新鲜深度帧（跨度至少 0.2 秒）、
-有效跟踪、方向误差、可行 MPC 和轮速近零。模式 1 距离容差 0.04 m；模式 2 终点容差
-0.065 m。终态锁存，不因目标移动或重发同一 request_id 自动恢复。
-
-## 跟随行为参数（2026-10-30 至 11-02）
-
-| 项 | 当前值 | 说明 |
-| --- | --- | --- |
-| 跟随距离 `desired_gap` | 1.2 m（车中心到人中心） | 原 0.87 m；停车距离 `target_stop_gap` 1.16 m，最小安全距离不变 |
-| 人物位置（检测器） | 躯干带 20% 分位深度 | `perception_geometry.person_point`：框宽中间 40%、高 20–60%；其他类别仍用 `bbox_point`。人半出画面时不再读到身后墙面 |
-| 人物滤波 | 测量 0.05 m，加速度 0.5 m/s² | `follow_session.TARGET_MEAS_STD_M/TARGET_ACCEL_STD_MPS2`；34 段实录 1 s 预测误差 0.241→0.223 m |
-| 检测跳变 `holding` | 模式 0/1 继续行驶 | 跳变检测被拒，按最后可信轨迹的预测照常规划（`planner_reason=holding_last_trusted`）；模式 2 仍停车 |
-| 去最后位置 | 0.4 m/s（`search_speed`） | 原 0.2 m/s |
-| 去最后位置提前结束 | 深度覆盖恢复立即；无可行路径/倒车脱困累计 2 s | 只看规划器信号，不看距离（原地转向、绕行、短暂停顿不会误判）；状态 `search_arrived_by` 为 `distance`/`coverage`/`blocked` |
-| 到达后搜索转向 | 0.6 rad/s（`search_turn_rate`） | 到达即开始：相对人的行走方向先转 1.5 rad（约 90°）到人离开的一侧（`search_side`），再回到另一侧 0.8 rad，每 5 s 交替（`search_exit_turn/search_back_turn/search_sweep_period`）；按 0.5 s 底盘滞后仿真约 2.7 s 转到位 |
-| 画面边缘人物 | 只用方位，距离取预测值 | 检测器在顶层 `image_edge_ids` 列出贴左右边缘的框（各行字段不变）；状态 `edge_range_observations` 计数 |
-| 底盘转向模型 | 增益 1.0，滞后 `chassis_tau_w` 0.5 s | 按实测拟合；已去掉死区补偿（会锁死转向） |
-| 视线捷径 | 开启 | 未绕行、未搜索时，取已走轨迹上直线可通过已知空地（外廓 +0.05 m）的最远点 |
-| 无可行路径 | 连续 ≥3 周期后倒车 | `planner_reason=backing_out` |
-| 深度覆盖不足 | 只倒车或原地转，不前进 | `planner_reason=depth_coverage_recovery` |
-| 检测观测时效 `max_sensor_age_s` | 0.40 s | 启动检查上限 0.45 s（C++、`sim_node`、`TaskSession` 一致） |
-
-观测链路：C++ 收到人物相对观测即送入计算进程，计算进程 0.02 s 内为新观测重规划；
-地图按版本号复用且结果与完整重建一致（`test_observation_path.py`）。
-性能剖析：创建 `~/ros2_ws/.runtime/follow-profile` 后启动 follow 会记录 cProfile，删除即关闭。
-
-## 入口
+在车上（`orin@<车 IP>`）依次运行，每条命令一个终端：
 
 ```bash
-cd /home/orin/ros2_ws
-./r680_person_follow.sh run transport:=cpp enable_motion:=false
-./r680_follow_trial.sh follow --mode 0 --continuous
-./r680_follow_trial.sh follow --mode 1 --continuous
-./r680_follow_trial.sh follow --mode 2 --continuous
+cd ~/ros2_ws
+./r680_camera.sh run
+./r680_perception.sh run
+./r680_person_follow.sh run transport:=cpp enable_motion:=true
+./r680_follow_trial.sh follow --mode 0 --continuous --allow-motion
 ```
 
-已有明确运动授权且后端以 `enable_motion:=true` 启动时，客户端加 `--allow-motion`。
-不填 `--target-id` 可交互选择。终端日志自动保存到 `.runtime/follow-trials/`。
-启动脚本只使用主工作区 install，不叠加旧 releases。
+- 第 1 行：D455 相机和安装 TF。
+- 第 2 行：检测器，输出 `/r680/perception/relative_objects`。
+- 第 3 行：跟随后端。省略 `enable_motion` 时只预览，不出速度。
+- 第 4 行：选目标 ID 并下发任务，Ctrl+C 停止。
 
-唯一服务 `/r680/person_follow/command`，Agent 门面 `/wla_agent/person_command`，均为
-`PersonCommand`，支持 start/heartbeat/stop/status。租约 0.1–2 秒；每次新任务使用新的
-request_id。mode 只接受数字字符串 `0/1/2`，不再接受旧英文模式。
-统一速度通道仍使用 `/r680/person_follow/command_candidate`，由 mux 保留手柄优先和急停。
-状态中的 `mode`、`target_label`、`approach_goal`、`arrival`、`output_blockers` 报告当前决策。
+从自己的电脑操作时，第 4 步要在车上执行，例如 `ssh -t orin@<车 IP> 'cd ~/ros2_ws && ./r680_follow_trial.sh follow --mode 0 --continuous --allow-motion'`。
 
-停止、到达或租约结束后的非活动任务只维护地图（深度处理、占据更新及过期清理），
-跳过动态轨迹预测、靠近终点搜索和 MPC 调用，参考路径及候选为空、输出为零。
-`planner_activity=idle_map_only` 表示本帧仅维护地图；活动任务进行候选计算时为
-`candidate_evaluation`，尚无可规划目标时为 `waiting_target`。
-地图维护仍按原来的约 10 Hz 上限运行；本改动未测量整机 CPU 或耗时收益。
+在后台启动后端（断开 SSH 后不退出）：
+
+```bash
+ssh -n orin@<车 IP> 'cd ~/ros2_ws && L=.runtime/follow-backend-$(date +%Y%m%d-%H%M%S).log && setsid -f ./r680_person_follow.sh run transport:=cpp enable_motion:=true > $L 2>&1 < /dev/null'
+```
+
+停止后端：
+
+```bash
+pkill -INT -f follow.launch.py
+```
+
+**注意**
+
+- **只能运行一个跟随后端。** Wheel_Legged_Agent 的 `tools/run_all_actions.py` 会自己再起一套跟随后端和 `high_action_target_egress`，两者都向 `/r680/person_follow/command_candidate` 发布。和这里的后端同时运行会抢输出，表现为跟随明显变慢。
+- **改了本包的 Python 代码，要先构建再重启后端**：`colcon build --packages-select wla_person_follow`。install 里放的是文件副本，不是指向源码的软链接，不构建就重启仍会运行旧代码。
+
+## 链路
+
+```text
+D455 → nav_yolo_detector（YOLOE 分割 + BoT-SORT + OSNet）
+     → /r680/perception/relative_objects
+     → follow_transport（C++：收发、时效、租约、权限、输出门禁）
+     → hybrid_worker（Python：FollowEngine = 跟踪 + 身份恢复 + 滚动深度地图 + 采样 MPC）
+     → /r680/person_follow/command_candidate → command_mux → 底盘
+```
+
+- C++ 层负责最终的时效、撤销、租约和权限检查。计算放在独立的 Python 进程里。
+- `transport:=python` 保留原来的 `SimulationFollow` 适配器作为兼容入口，用的是同一套算法。
+- 拆分方式和接口见 [HYBRID_TRANSPORT.md](HYBRID_TRANSPORT.md)。
+
+**检测行格式**
+
+- 每一行的字段严格固定为 `{detected, label, id, yaw, distance}`，`TaskSession` 和 Agent 的 `relative_adapter` 都按这个集合精确检查。
+- 额外信息放在消息顶层，例如 `image_edge_ids`：贴左右画面边缘的检测 ID 列表。
+
+**命令接口**
+
+- 服务 `/r680/person_follow/command`，以及 Agent 门面 `/wla_agent/person_command`。
+- 消息类型都是 `PersonCommand`，支持 start、heartbeat、stop、status。
+- 租约 0.1–2 s。每个新任务使用新的 `request_id`。`mode` 只接受字符串 `0`、`1`、`2`。
+
+## 人物跟随的行为
+
+### 跟踪状态
+
+由 `follow_session.FollowTracker` 维护：
+
+| 状态 | 含义 | 运动 |
+| --- | --- | --- |
+| `tracking` | 当前帧看到了目标 | 按 5 s 轨迹（0.4 s 采样，三阶 Bézier）跟随，保持 1.2 m |
+| `coasting` | 短暂没看到，不超过 2 s | 按 Kalman 预测继续走 |
+| `holding` | 检测相对预测跳得太远，被拒绝 | 只丢掉这一次检测；mode 0/1 按最后可信轨迹继续走（`holding_last_trusted`），mode 2 停车 |
+| `search_last_seen` | 丢失超过 2 s | 以 0.4 m/s 开往人消失的位置 |
+| `search_heading` | 到达消失点 | 原地扫视找人 |
+
+**提前结束"开往消失点"**
+
+只看规划器信号，不看离消失点的距离：
+
+- 出现深度覆盖恢复（车头已经贴到障碍）：立即算作到达。
+- 没有可行路径或正在倒车脱困：累计 2 s 后算作到达。
+
+这样原地转向、绕行、短暂停顿都不会被误判为到达。状态字段 `search_arrived_by` 记录到达方式：`distance`、`coverage` 或 `blocked`。
+
+**扫视方式**
+
+- 相对人的行走方向，先转约 90°（1.5 rad）到人离开的一侧（`search_side`），再转回另一侧 0.8 rad。
+- 每 5 s 换一次方向，转速 0.6 rad/s。
+- 相关参数：`search_exit_turn`、`search_back_turn`、`search_sweep_period`、`search_turn_rate`。
+
+### 身份恢复（ReID）
+
+- ReID 只在目标丢失时用来重新绑定，正常跟随完全靠几何。
+- 丢失期间，对画面里所有可见的人计算外观特征，取离预测位置最近的 4 个，不再限制位置。
+- 选相似度最高的人，并要求同时满足：
+  - 相似度 ≥ 0.55（`reid_search_similarity`）；
+  - 比第二名高出至少 0.08；
+  - 同一个 ID 连续确认 3 次，相邻两次间隔不超过 2 s。
+- 特征不可用的帧不计数，也不清零已有确认。这类帧包括遮挡、贴边、低置信度、未检测到，原因见 `feature_diagnostics`。
+- 初次登记模板的配对阈值是 0.80，后续更新模板的阈值是 0.90，都与恢复阈值分开。
+- `reid_similarity`、`reid_search_radius_m`、`reid_search_confirm_frames` 仍保留在配置里供校验，但恢复逻辑已不再使用。
+
+### 人物位置
+
+- 人物取躯干带深度的 20% 分位（`perception_geometry.person_point`：框宽中间 40%、框高 20–60%）。这样人半出画面时，不会读到身后的墙面。
+- 贴左右画面边缘的人（`image_edge_ids`）只采用方位，距离用预测值。状态字段 `edge_range_observations` 计数这类观测。
+- 目标自身的点云按同帧分割掩码从障碍地图里屏蔽，已确认的历史占据也会清理。其他人仍作为动态障碍。
+
+### 避障
+
+规划器是在滚动深度地图上的采样 MPC（`sim_core/hybrid_controller.py`）。车身按半径 0.19 m 的圆处理，障碍余量 0.10 m。
+
+| 情况 | 行为 | `planner_reason` |
+| --- | --- | --- |
+| 直线被挡 | `DetourPlanner` 选左右边缘或栅格路线作为绕行航点；看不到出口时原地转向侧面观察（look） | `tracker_follow` |
+| 走直线已经安全 | 沿已走过的轨迹取最远的、直线可通过的点（视线捷径），不再绕回人的足迹 | `tracker_follow` |
+| 连续 ≥3 个周期没有向前的可行候选 | 沿自己走过的轨迹倒车，每个卡住阶段最多 0.6 m | `backing_out` |
+| 倒车方向和车尾偏差 > 0.5 rad | 先原地转正（≥ 0.3 rad/s），再以 ≥ 0.12 m/s 倒车；倒车 2 s 仍未移动 5 cm 就放弃，改为原地转 | `backing_out` |
+| 深度画面覆盖太少（车头贴着桌子等，进入相机最小量程） | 不前进，只倒车或原地转向人 | `depth_coverage_recovery` |
+| 全部候选都不安全 | 停车 | `no_feasible_candidate` |
+
+车身已经压进障碍余量时，仍然允许原地转（这时 `clear < 0`，圆形车身原地转不改变距离），倒车也允许，只要倒车路径不比当前位置更靠近障碍。11-02 之前这种情况下转向会被禁止，曾经停住 10 s 以上。
+
+### 主要参数
+
+在 `sim_core/common.py` 的 `Tuning` 中：
+
+| 项 | 值 | 说明 |
+| --- | --- | --- |
+| `desired_gap` / `target_stop_gap` | 1.20 / 1.16 m | 车中心到人中心的距离 |
+| `max_v` | 1.2 m/s | 跟随最高速度 |
+| `search_speed` | 0.4 m/s | 开往消失点的速度 |
+| `chassis_tau_w` / `chassis_tau_v` | 0.50 / 0.18 s | 底盘响应模型，增益 1.0，按 J02 实测拟合 |
+| `backup_speed` / `backup_min_speed` / `backup_max_m` | 0.2 / 0.12 m/s，0.6 m | 倒车脱困 |
+| `backup_align` / `backup_stall_s` | 0.5 rad / 2 s | 倒车前先转正的阈值；倒车停滞多久放弃 |
+| 人物滤波 | 测量噪声 0.05 m，加速度 0.5 m/s² | `follow_session.TARGET_MEAS_STD_M` / `TARGET_ACCEL_STD_MPS2` |
+| `max_sensor_age_s` | 0.40 s | 观测时效；启动检查上限 0.45 s，C++、`sim_node`、`TaskSession` 三处一致 |
+
+## 人物靠近与物体靠近
+
+**mode 1**
+
+- 朝人当前所在位置减速靠近，不沿人走过的路线绕。
+
+**mode 2**
+
+- 绑定检测类别和完整 ID，用同帧分割深度取物体的可见表面。
+- 在滚动地图的八邻接图上找路，禁止斜穿障碍角，整条路径交给同一个 MPC。
+- 外廓按 0.48 m 方形计算。地图范围 12 m，栅格 0.1 m，只在已知空间里求最近可达点。
+- 保守外廓和栅格会让实际停车距离大于 0.15 m。
+- 物体不可见或没有可用表面时等待；不使用人物 ReID，也不执行人物搜索。
+
+**到达判定（mode 1 和 2）**
+
+- 终点稳定至少 0.6 s。
+- 至少三个不同的新鲜深度帧，时间跨度 ≥ 0.2 s。
+- 同时满足：跟踪有效、方向误差在范围内、MPC 可行、轮速接近 0。
+- 距离容差：mode 1 为 0.04 m，mode 2 为 0.065 m。
+- 到达后状态锁存，不会因目标移动或重发同一个 `request_id` 而恢复。
+
+**非活动任务**
+
+- 停止、到达或租约结束后，只维护地图（`planner_activity=idle_map_only`），不做预测和 MPC，输出为零。
+
+## 日志与诊断
+
+| 内容 | 位置 |
+| --- | --- |
+| 后端终端输出 | `.runtime/follow-backend-*.log`（后台启动时） |
+| 任务客户端输出 | `.runtime/follow-trials/follow-*.log` |
+| 逐帧状态（`/r680/person_follow/status`） | `.runtime/follow-diagnostics/follow-status-*.jsonl*`，会滚动覆盖，要分析的数据请及时复制出来 |
+| cProfile | 创建 `.runtime/follow-profile` 后再启动后端；删除该文件即关闭 |
+
+分析时常用的状态字段：
+
+- `geometry_binding.state`、`reason`
+- `planner_candidates`：`feasible` / `forward` / `forward_total` / `forward_static`，`detour.side`，`detour.looking`
+- `linear_mps` / `angular_rps`，`measured_motion.wheel.twist`
+- `target_observation.surface_distance_m` / `bearing_rad`
+- `identity_supervision.feature_diagnostics`
+- `search_arrived_by`、`search_blocked_s`
+
+确认运行中的进程加载了哪个版本，要看状态里的 `transport_backend` 和后端日志；源码和构建成功都不能证明这一点。
+
+## 测试
+
+在隔离域 198 运行，不连底盘：
+
+```bash
+cd ~/ros2_ws/src/wla_person_follow
+source /opt/ros/jazzy/setup.bash && source ~/ros2_ws/install/setup.bash
+RUN_SIM_ROS=1 ROS_DOMAIN_ID=198 python3 -m pytest -q test
+```
+
+检测器测试（在 `src/wla_r680_navigation` 下运行，需要 boxmot 虚拟环境）：
+
+```bash
+ROS_DOMAIN_ID=198 ~/ros2_ws/.venv-boxmot/bin/python -m pytest -q test/test_nav_detector_ros.py test/test_boxmot_runtime.py test/test_perception_geometry.py
+```
+
+- 2026-11-02 共 163 项通过。
+- `test_follow_chain_ros` 在整套高负载运行时偶发 `control_tick` 断言失败，单独运行能通过。
 
 ## 验证边界
 
-2026-10-26 的 C++ ROS 拆分构建、隔离 ROS 联调和性能证据见
-[HYBRID_TRANSPORT.md](HYBRID_TRANSPORT.md)。没有启动实车目标任务或进行运动验收。
-生产进程是否加载新版本须核对 `transport_backend`，不能由源码或构建成功推断。
+- **2026-10-30**：J02 实车验证过观测时效、观测链路和转向修正。
+- **2026-11-02**：实车跑过这些改动：1.2 m 跟随距离、`person_point`、holding 继续行驶、搜索提速、90° 扫视、ReID 选最佳匹配、消失点不可达时提前搜索、贴障原地转和倒车修正。
+- 17:08 重启后的那次运行，操作者反馈效果不错，但还没有逐帧分析。
+- 车身按圆形处理；如果实际轮廓是长方形，贴障原地转时边角可能擦到障碍，仍需留意。
+- 软件门禁不等于物理制动验收。
 
-2026-10-27 后续修正旧测试，并完成 113 项跟随回归（含 11 项 Agent API 到实际
-C++ mux 的完整软件进程链）、mux 策略/ROS/一致性测试；见
-[FULL_CHAIN_TESTS.md](FULL_CHAIN_TESTS.md)。新增用例同时修复了到达终态跨进程传递问题。
+## 其他文档
 
-2026-10-30 至 11-02 的上表改动均有单元/引擎/ROS 回归（follow 155 项，检测器环境 17 项）。
-其中 2026-10-30 J02 实车跑过时效、观测链路和转向修正；11-02 的 1.2 m 距离、`person_point`、
-holding 继续行驶和搜索提速尚未实车验证。`test_follow_chain_ros` 在整套高负载运行时偶发
-`control_tick` 断言失败，单独运行通过，改动前后均出现过。
+- [HYBRID_TRANSPORT.md](HYBRID_TRANSPORT.md)：C++ 收发层与 Python 计算进程。
+- [FULL_CHAIN_TESTS.md](FULL_CHAIN_TESTS.md)：全链路测试。
+- [PY_CPP_ARCHITECTURE.md](PY_CPP_ARCHITECTURE.md)、[LATENCY_OPTIMIZATION.md](LATENCY_OPTIMIZATION.md)、[REID_ENROLLMENT_FIX.md](REID_ENROLLMENT_FIX.md)。
+- [三模式操作](../../FOLLOW_TRIAL.md)。
