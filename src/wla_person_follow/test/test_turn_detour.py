@@ -172,3 +172,26 @@ def test_search_turns_to_the_exit_heading_at_the_search_rate():
                         policy=policy, policy_time=10.)
         peak = max(peak, cmd[1])
     assert cmd[0] == 0. and peak > .45 and peak <= c.search_turn_rate + 1e-9
+
+
+def test_clear_walk_is_followed_directly_not_along_the_footprints():
+    """Robot 0.9 m beside the person's straight line with nothing in between:
+    the reference goes straight to the person (no re-joining S-turn)."""
+    c = Tuning(); f = HybridFollower(c); m = _open_map()
+    hist = [np.array([x, .9]) for x in np.arange(-.5, 2.01, .25)]
+    target = np.array([2., .9])
+    f.command(np.zeros(3), np.zeros(2), target, np.array([.6, 0.]), hist, m, [], "visible")
+    ref = f.last_reference_path
+    np.testing.assert_allclose(ref[0], [0., 0.], atol=1e-9)
+    assert np.linalg.norm(ref[1] - target) < .3
+
+
+def test_shortcut_keeps_the_footprints_behind_an_obstacle():
+    c = Tuning(); f = HybridFollower(c)
+    wall = np.array([[x, y, z] for x in (1.0, 1.05) for y in np.arange(-1., .61, .05) for z in (.2, .4)])
+    m = _open_map(wall)
+    path = np.array([[0., 0.], [.5, 0.], [.5, 1.1], [1.5, 1.1], [2.5, 0.]])
+    out = f._shortcut(np.zeros(3), path, m, c)
+    assert len(out) >= 4 and np.linalg.norm(out[-1] - [2.5, 0.]) < 1e-9
+    # Never a straight line through the wall.
+    assert not np.allclose(out[1], [2.5, 0.]) and not np.allclose(out[1], [1.5, 1.1])

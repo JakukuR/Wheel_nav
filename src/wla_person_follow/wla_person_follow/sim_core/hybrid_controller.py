@@ -105,6 +105,20 @@ class HybridFollower:
         self.last_reference_path=np.vstack((p,goal))
         return np.array([v,w])
 
+    def _shortcut(self, pose, path, local_map, c):
+        """Line of sight over the footprint trail: steer at the farthest trail point
+        reachable on a straight line through known free space (body radius + 5 cm).
+        A clear walk is then followed directly instead of re-joining the person's
+        line (2026-10-30: 0.6-2 m beside it, turning 0.3 rad/s with the person
+        straight ahead); behind a corner or obstacle the footprints remain."""
+        p=np.asarray(pose[:2],dtype=float)
+        for j in range(len(path)-1,0,-1):
+            n=max(2,int(np.ceil(np.linalg.norm(path[j]-p)/.05))+1)
+            line=p+np.linspace(0.,1.,n)[1:,None]*(path[j]-p)
+            if np.min(local_map.query(line,unknown=True))>=c.radius+.05:
+                return np.vstack((p,path[j:]))
+        return path
+
     def recover(self, pose, previous, target, local_map, c):
         """Never forward: back out along the swept path, else turn to the target in
         place when the footprint is clear, else stop."""
@@ -161,6 +175,8 @@ class HybridFollower:
         if (not detouring or not self.detour.last.get('looking')) and self.stuck_cycles==0:self.backed=0.
         if not len(path):path=np.asarray(target,dtype=float).reshape(1,2)
         if np.linalg.norm(path[-1]-target)>.01:path=np.vstack((path,target))
+        if reference_path is None and not detouring and not searching and len(path)>=2:
+            path=self._shortcut(pose,path,local_map,c)
         if len(path)<2:path=np.vstack((pose[:2],path))
         edge=np.diff(path,axis=0)
         fraction=np.clip(np.sum((pose[:2]-path[:-1])*edge,axis=1)/np.maximum(np.sum(edge*edge,axis=1),1e-12),0.,1.)
