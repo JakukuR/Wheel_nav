@@ -6,6 +6,7 @@ clear frame, and the robot drove on at 0.65-0.79 m/s with the detour point
 0.7-1.2 rad off until it pinned itself on the desk.
 """
 import numpy as np
+import pytest
 from wla_person_follow.sim_core.common import Tuning
 from wla_person_follow.sim_core.detour import DetourPlanner
 from wla_person_follow.sim_core.hybrid_controller import HybridFollower, chassis_yaw
@@ -233,3 +234,41 @@ def test_holding_keeps_driving_on_the_last_trusted_track():
                         policy=TrackingPolicy(state="holding", last_seen=0., prediction_s=2., target_id="t",
                                               revision=0, mode="0"), policy_time=.5)
     assert cmd[0] > .05 and cmd[1] > 0.
+
+
+
+def test_search_sweep_starts_towards_the_exit_side():
+    from wla_person_follow.follow_session import TrackingPolicy
+    c = Tuning(); m = _open_map()
+    turns = {}
+    for side in (1., -1.):
+        f = HybridFollower(c); cmd = np.zeros(2)
+        policy = TrackingPolicy(state="search_heading", last_seen=0., prediction_s=2., target_id="t", revision=0,
+                                search_heading=0., search_started=0., mode="0", search_side=side)
+        for k in range(10):
+            cmd = f.command(np.zeros(3), cmd, np.array([.2, 0.]), np.zeros(2), [], m, [], "search_heading",
+                            policy=policy, policy_time=1.+.05*k)
+        turns[side] = cmd[1]
+    assert turns[1.] > .1 and turns[-1.] < -.1
+
+
+def test_image_edge_detection_keeps_bearing_and_predicted_range():
+    from wla_person_follow.follow_session import FollowTracker
+    tr = FollowTracker("t", 0.)
+    pose = np.zeros(3)
+    for k in range(8):
+        s = .1*k
+        assert tr.observe({"t": dict(detected=True, label="person", yaw=-.3, distance=1.2)}, pose, s, s+.01)
+    # Person half out of the image: depth reads the wall 2.3 m away.
+    s = .8
+    assert tr.observe({"t": dict(detected=True, label="person", yaw=-.55, distance=2.3, image_edge=True)},
+                      pose, s, s+.01)
+    snap = tr.snapshot(s+.01, pose)
+    assert snap["state"] == "tracking" and snap["search_side"] == -1.
+    assert np.hypot(*snap["position"]) == pytest.approx(1.48, abs=.05)
+    tr2 = FollowTracker("t", 0.)
+    for k in range(8):
+        s = .1*k
+        tr2.observe({"t": dict(detected=True, label="person", yaw=-.3, distance=1.2)}, pose, s, s+.01)
+    tr2.observe({"t": dict(detected=True, label="person", yaw=-.55, distance=2.3)}, pose, .8, .81)
+    assert tr2.snapshot(.81, pose)["state"] == "holding"

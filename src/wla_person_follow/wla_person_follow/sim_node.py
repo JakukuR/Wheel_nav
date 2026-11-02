@@ -356,7 +356,8 @@ class FollowEngine:
         if snapshot is None:return None
         return TrackingPolicy(snapshot['state'],snapshot['last_seen'],snapshot['prediction_s'],
                               snapshot['resolved_id'],snapshot['revision'],snapshot['search_heading'],
-                              snapshot['search_arrival_m'],snapshot['search_started'],snapshot.get('mode','0'))
+                              snapshot['search_arrival_m'],snapshot['search_started'],snapshot.get('mode','0'),
+                              snapshot.get('search_side',1.))
 
     def _tracking_update_locked(self):
         now=self.now_ns()/1e9

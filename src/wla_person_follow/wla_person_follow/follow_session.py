@@ -44,6 +44,9 @@ class TrackingPolicy:
     search_arrival_m: float = .35
     search_started: float | None = None
     mode: str = '0'
+    # +1 left / -1 right: side of the robot the person was last seen on; the
+    # search sweep looks there first.
+    search_side: float = 1.
 
     def translation_allowed(self, now):
         # A stale solution cannot extend prediction or start a new search leg.
@@ -98,6 +101,8 @@ class FollowTracker:
         self.last_position = None
         self.last_bearing = None
         self.heading = None
+        self.exit_side = 1.
+        self.edge_observations = 0
         self.velocity_evidence = 0
         self.hard_break = False
         self.missing_since = None
@@ -177,6 +182,8 @@ class FollowTracker:
                     and np.linalg.norm(measured-velocity) <= .5)
         self.velocity_evidence = self.velocity_evidence+1 if reliable else 0
         self.last_bearing = float(math.atan2(point[1]-pose[1], point[0]-pose[0]))
+        relative = (self.last_bearing-float(pose[2])+math.pi) % (2*math.pi)-math.pi
+        self.exit_side = 1. if relative >= 0 else -1.
         self.heading = float(math.atan2(velocity[1], velocity[0])) if self.velocity_evidence >= 3 else self.last_bearing
         self.last_position, self.last_seen = point.copy(), float(stamp)
         self.observations.append((float(stamp),point.copy()))
@@ -202,6 +209,15 @@ class FollowTracker:
             self.reason = 'target_not_in_current_frame'
             return False
         predicted = self.prediction(stamp)
+        row = objects.get(self.target_id)
+        if predicted is not None and isinstance(row, dict) and row.get('image_edge') is True:
+            # Box cut by the left/right image border: the depth sample is mostly
+            # background (J02/normal follow 2026-11-02: 0.7-2.3 m range jumps at
+            # +-0.55 rad). Keep the bearing, take the range from the prediction.
+            here = np.asarray(pose[:2], dtype=float)
+            ray = point-here
+            point = here+float(np.linalg.norm(predicted-here))*ray/max(1e-9, float(np.linalg.norm(ray)))
+            self.edge_observations += 1
         self.last_error = None if predicted is None else float(np.linalg.norm(point-predicted))
         if predicted is not None and self.last_error > self.radius(stamp):
             self.hard_break = True
@@ -265,6 +281,7 @@ class FollowTracker:
             history_sampling=None if self.track is None else self.track.trail.diagnostic(),
             search_heading=self.heading, search_arrival_m=self.search_arrival,
             search_started=self.sweep_started, search_arrived_at=self.search_started,
+            search_side=self.exit_side, edge_range_observations=self.edge_observations,
             missing_since=self.missing_since, last_position_error_m=self.last_error,
             position_jump_limit_m=self.radius(now), recovery_needed=state!='tracking')
 

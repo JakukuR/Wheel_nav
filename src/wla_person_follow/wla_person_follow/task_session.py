@@ -98,6 +98,11 @@ class TaskSession:
                         ((yaw is None) != (distance is None))):
                     raise ValueError('invalid_relative_geometry')
                 accepted[row['id']] = dict(row)
+            edge = data.get('image_edge_ids', [])
+            if not isinstance(edge, list) or not all(isinstance(key, str) for key in edge):
+                raise ValueError('invalid_image_edge_ids')
+            for key, row in accepted.items():
+                row['image_edge'] = key in edge
             self._generation(session, epoch)
             if stamp <= self.last_stamp:
                 raise ValueError('replayed_relative_frame')

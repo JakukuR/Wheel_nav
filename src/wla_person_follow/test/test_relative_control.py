@@ -51,6 +51,17 @@ class TaskSessionTests(unittest.TestCase):
         obj = batch()['objects'][0]
         self.assertFalse(self.receive(objects=[obj, obj]))
 
+    def test_image_edge_ids_mark_rows_and_bad_lists_are_rejected(self):
+        data = batch()
+        data['image_edge_ids'] = ['camera:0:7']
+        self.assertTrue(self.c.receive(data, 10., round(10e9)))
+        self.assertIs(self.c.objects['camera:0:7']['image_edge'], True)
+        self.assertTrue(self.receive(10.1, 10.1))  # older detectors omit the list
+        self.assertIs(self.c.objects['camera:0:7']['image_edge'], False)
+        data = batch(10.2)
+        data['image_edge_ids'] = [7]
+        self.assertFalse(self.c.receive(data, 10.2, round(10.2e9)))
+
     def test_non_person_target_rejected(self):
         self.receive(label='chair')
         self.assertEqual(self.start(), (False, 'target_id_not_visible'))

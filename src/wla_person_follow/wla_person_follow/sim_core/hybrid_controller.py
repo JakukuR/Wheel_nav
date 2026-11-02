@@ -223,7 +223,9 @@ class HybridFollower:
         search_heading=None
         if status=='search_heading' and policy is not None and policy.search_heading is not None:
             phase=0. if policy.search_started is None else max(0.,policy_time-policy.search_started)
-            search_heading=policy.search_heading+.60*np.sin(2*np.pi*phase/8.)
+            # First half-sweep towards the side the person left on (11-02: it always
+            # went left first; three of four exits were on the right).
+            search_heading=policy.search_heading+.60*policy.search_side*np.sin(2*np.pi*phase/8.)
         policy_stop=policy is not None and not policy.translation_allowed(policy_time)
         if policy_stop:speeds[:]=0.
         count=len(speeds); states=np.tile(pose,(count,1));controls=np.tile(previous,(count,1))

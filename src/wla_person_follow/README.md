@@ -48,7 +48,8 @@ ReID 只收集人物模板、在丢失时建议重绑定；不参与正常几何
 | 人物滤波 | 测量 0.05 m，加速度 0.5 m/s² | `follow_session.TARGET_MEAS_STD_M/TARGET_ACCEL_STD_MPS2`；34 段实录 1 s 预测误差 0.241→0.223 m |
 | 检测跳变 `holding` | 模式 0/1 继续行驶 | 跳变检测被拒，按最后可信轨迹的预测照常规划（`planner_reason=holding_last_trusted`）；模式 2 仍停车 |
 | 去最后位置 | 0.4 m/s（`search_speed`） | 原 0.2 m/s |
-| 到达后搜索转向 | 0.6 rad/s（`search_turn_rate`） | 朝人离开一侧 |
+| 到达后搜索转向 | 0.6 rad/s（`search_turn_rate`） | 在运动方向 ±0.6 rad 扫描，先转向人离开时所在的一侧（`search_side`） |
+| 画面边缘人物 | 只用方位，距离取预测值 | 检测器在顶层 `image_edge_ids` 列出贴左右边缘的框（各行字段不变）；状态 `edge_range_observations` 计数 |
 | 底盘转向模型 | 增益 1.0，滞后 `chassis_tau_w` 0.5 s | 按实测拟合；已去掉死区补偿（会锁死转向） |
 | 视线捷径 | 开启 | 未绕行、未搜索时，取已走轨迹上直线可通过已知空地（外廓 +0.05 m）的最远点 |
 | 无可行路径 | 连续 ≥3 周期后倒车 | `planner_reason=backing_out` |
