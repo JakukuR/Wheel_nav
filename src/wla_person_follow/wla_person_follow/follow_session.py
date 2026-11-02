@@ -37,6 +37,14 @@ TARGET_ACCEL_STD_MPS2 = .5
 # count nor reset. 2026-11-02 16:09: a 0.75-0.78 match at 198.9/199.1/201.0 s was
 # reset by such frames and the person was re-acquired only at 234 s.
 RECOVERY_CONFIRM_GAP_S = 2.
+# Driving to the last-seen point ends early only on explicit planner signals,
+# never on distance alone (turning first, detours and short output gaps make no
+# distance progress but are fine). 2026-11-02 16:38: the point was next to an
+# obstacle; depth-coverage recovery backed the robot off 0.75 m short, it drove
+# in again, for 37 s, and the search sweep never started.
+SEARCH_COVERAGE_REASON = 'depth_coverage_recovery'       # nose at the obstacle: arrive now
+SEARCH_BLOCKED_REASONS = ('no_feasible_candidate', 'backing_out')
+SEARCH_BLOCKED_S = 2.                                     # in total, then arrive
 
 @dataclass(frozen=True)
 class TrackingPolicy:
@@ -117,6 +125,8 @@ class FollowTracker:
         self.reason = 'waiting_initial_geometry'
         self.last_error = None
         self.search_started = None
+        self.search_arrived_by = None
+        self.search_blocked_s, self.search_blocked_at = 0., None
         self.sweep_started = None
 
     def prediction(self, now):
@@ -196,6 +206,8 @@ class FollowTracker:
         self.missing_since = None
         self.return_count = 0
         self.search_started = None
+        self.search_arrived_by = None
+        self.search_blocked_s, self.search_blocked_at = 0., None
         self.sweep_started = None
         self.reason = 'same_id_geometry'
 
@@ -264,6 +276,7 @@ class FollowTracker:
         else:
             arrived = (robot_pose is not None and np.linalg.norm(np.asarray(robot_pose[:2])-self.last_position) <= self.search_arrival+.10)
             if arrived and self.search_started is None:
+                self.search_arrived_by = 'distance'
                 # The sweep starts on arrival; it no longer first aligns with the
                 # walking direction (that cost up to ~1 s of turning).
                 self.search_started = self.sweep_started = now
@@ -285,9 +298,31 @@ class FollowTracker:
             history_sampling=None if self.track is None else self.track.trail.diagnostic(),
             search_heading=self.heading, search_arrival_m=self.search_arrival,
             search_started=self.sweep_started, search_arrived_at=self.search_started,
+            search_arrived_by=self.search_arrived_by, search_blocked_s=round(self.search_blocked_s, 2),
             search_side=self.exit_side, edge_range_observations=self.edge_observations,
             missing_since=self.missing_since, last_position_error_m=self.last_error,
             position_jump_limit_m=self.radius(now), recovery_needed=state!='tracking')
+
+    def report_planner(self, reason, policy_state, now):
+        """Planner outcome of a plan made while driving to the last-seen point."""
+        lost = self.last_seen is not None and now-self.last_seen > self.prediction_s
+        if (self.mode == '2' or policy_state != 'search_last_seen' or not lost
+                or self.search_started is not None):
+            return
+        if reason == SEARCH_COVERAGE_REASON:
+            by = 'coverage'
+        elif reason in SEARCH_BLOCKED_REASONS:
+            if self.search_blocked_at is not None and 0 < now-self.search_blocked_at <= .3:
+                self.search_blocked_s += now-self.search_blocked_at
+            self.search_blocked_at = now
+            if self.search_blocked_s < SEARCH_BLOCKED_S:
+                return
+            by = 'blocked'
+        else:
+            self.search_blocked_at = None
+            return
+        self.search_started = self.sweep_started = now
+        self.search_arrived_by = by
 
     def rebind(self, proposal, objects, pose, stamp, now):
         if (proposal is None or proposal['revision'] != self.revision

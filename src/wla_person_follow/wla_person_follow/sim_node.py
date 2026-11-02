@@ -668,6 +668,7 @@ class FollowEngine:
                         obstacle_track_ids=result.get('obstacle_track_ids'),compute_error=None)
                     if key==self.key() and time.monotonic()<result['valid_until']:
                         self.result=result;self.map_result=result;self.reason=result['reason'] or 'simulation_core'
+                        self._report_planner(result)
                         self.map_frame=dict(key=key,stamp_ns=result['stamp_ns'],
                             map_deadline=valid_until+self.p['map_max_age_s']-self.p['max_sensor_age_s'],
                             target_mask=mask_status,frontend_ms=frontend_ms,obstacle_points=result['obstacle_points'],
@@ -771,11 +772,18 @@ class FollowEngine:
             with self.guard:
                 if key==self.key() and time.monotonic()<result['valid_until']:
                     self.result=result;self.reason=result['reason'] or 'simulation_core'
+                    self._report_planner(result)
                     self.result_ready.trigger()
         except Exception as exc:
             with self.guard:
                 # A failed replan leaves the last frame result to expire on its own deadline.
                 self.reason=str(exc)[:180]
+
+    def _report_planner(self,result):
+        # Caller holds self.guard. Lets the search stop driving at a blocked last-seen point.
+        policy=result.get('policy_snapshot')
+        if self.tracker is not None and policy is not None:
+            self.tracker.report_planner(result.get('reason'),policy.state,self.now_ns()/1e9)
 
     def _target_freshness_for_output(self,result,state,ns):
         # Empty fresh frames permit recovery; a stalled detector does not.

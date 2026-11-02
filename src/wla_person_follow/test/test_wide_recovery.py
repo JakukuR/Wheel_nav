@@ -79,3 +79,45 @@ def test_two_similar_people_or_a_weak_match_are_not_recovered():
     for stamp in (6., 6.1, 6.2, 6.3):
         frame(identity, tracker, stamp, [('bystander', .50, FAR)])
     assert identity.proposal is None
+
+
+
+def test_coverage_recovery_on_the_way_starts_the_search_at_once():
+    """16:38: stuck 0.75 m short of a last-seen point next to an obstacle for 37 s."""
+    _, tracker = lost()
+    pose = np.array([2.28-.75, 0., 0.])
+    assert tracker.snapshot(4., pose)['state'] == 'search_last_seen'
+    tracker.report_planner('search_last_seen', 'search_last_seen', 4.05)
+    assert tracker.snapshot(4.1, pose)['state'] == 'search_last_seen'
+    tracker.report_planner('depth_coverage_recovery', 'search_last_seen', 4.15)
+    snap = tracker.snapshot(4.2, pose)
+    assert snap['state'] == 'search_heading' and snap['search_arrived_by'] == 'coverage'
+
+
+def test_blocked_counts_two_seconds_in_total_and_turning_does_not():
+    _, tracker = lost()
+    pose = np.array([2.28-1.5, 0., 0.])
+    tracker.snapshot(4., pose)
+    t = 4.
+    for _ in range(30):  # 3 s of normal driving / turning: never arrives
+        t += .1; tracker.report_planner('search_last_seen', 'search_last_seen', t)
+    assert tracker.snapshot(t, pose)['state'] == 'search_last_seen'
+    for reason in ('no_feasible_candidate',)*12 + ('search_last_seen',)*5 + ('backing_out',)*7:
+        t += .1; tracker.report_planner(reason, 'search_last_seen', t)
+    assert tracker.snapshot(t, pose)['state'] == 'search_last_seen'  # 1.1 + 0.6 s blocked
+    for _ in range(4):
+        t += .1; tracker.report_planner('backing_out', 'search_last_seen', t)
+    snap = tracker.snapshot(t, pose)
+    assert snap['state'] == 'search_heading' and snap['search_arrived_by'] == 'blocked'
+
+
+def test_planner_reports_outside_the_search_drive_are_ignored():
+    _, tracker = lost()
+    pose = np.array([2.28-1.5, 0., 0.])
+    tracker.report_planner('depth_coverage_recovery', 'coasting', 4.)       # stale plan
+    tracker.report_planner('depth_coverage_recovery', 'search_last_seen', 2.)  # still predicting
+    assert tracker.snapshot(4.1, pose)['state'] == 'search_last_seen'
+    tracker.mode = '2'
+    tracker.report_planner('depth_coverage_recovery', 'search_last_seen', 4.2)
+    tracker.mode = '0'
+    assert tracker.snapshot(4.3, pose)['state'] == 'search_last_seen'
