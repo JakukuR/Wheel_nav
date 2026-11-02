@@ -3,7 +3,7 @@ import json
 from types import SimpleNamespace as NS
 import numpy as np
 import pytest
-from wla_r680_navigation_py.perception_geometry import color_array,depth_array,bbox_point,transform_point
+from wla_r680_navigation_py.perception_geometry import color_array,depth_array,bbox_point,person_point,transform_point
 
 
 
@@ -28,3 +28,17 @@ def test_projection_matches_furniture_formula_and_rejects_bad_depth():
     assert bbox_point([24,16,48,40],d,k) is None
     k[0]=0
     assert bbox_point([24,16,48,40],d,k) is None
+
+
+def test_person_depth_ignores_the_wall_behind_a_partly_visible_person():
+    """Person at the image edge: the box centre falls on the wall 3.5 m away."""
+    d = np.full((48,64),3500,dtype=np.uint16)
+    d[:, 48:] = 1400  # body visible only in the right part of its box
+    k = [40.,0.,32.,0.,40.,24.,0.,0.,1.]
+    box = [24,4,64,46]
+    assert bbox_point(box,d,k)[2] == pytest.approx(3.5)
+    assert person_point(box,d,k)[2] == pytest.approx(1.4)
+    d[:] = 2000
+    assert person_point([24,16,48,40],d,k)[2] == pytest.approx(2.)
+    d[:] = 0
+    assert person_point([24,16,48,40],d,k) is None

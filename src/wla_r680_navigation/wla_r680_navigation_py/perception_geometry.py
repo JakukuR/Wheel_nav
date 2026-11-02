@@ -28,6 +28,31 @@ def depth_array(msg):
     return np.ndarray((msg.height, msg.width), dtype=dtype,
                       buffer=msg.data, strides=(msg.step, 2))
 
+def person_point(box, depth, k, quantile=.2):
+    """Nearest body surface in the torso band of a person box.
+
+    The box-centre median read the wall behind a person who was partly out of the
+    image or turning a corner: range jumped 0.5-2.4 m while the bearing stayed
+    within 0.08 rad (J02 2026-10-29/30), and the follow tracker froze on it. The
+    body is in front of its background, so a low quantile of a wider torso band
+    (middle 40 % of the width, 20-60 % of the height) stays on the person.
+    """
+    x1, y1, x2, y2 = box
+    width, height = x2-x1, y2-y1
+    if (width < 12 or height < 12 or len(k) != 9
+            or not np.isfinite(k).all() or k[0] <= 0 or k[4] <= 0):
+        return None
+    cx = (x1+x2)/2
+    u1, u2 = int(max(0, cx-.2*width)), int(min(depth.shape[1], cx+.2*width+1))
+    v1, v2 = int(max(0, y1+.2*height)), int(min(depth.shape[0], y1+.6*height+1))
+    patch = depth[v1:v2, u1:u2]
+    valid = patch[(patch >= 250) & (patch <= 4000)]
+    if valid.size < 10:
+        return None
+    z = float(np.quantile(valid, quantile))*.001
+    cy = y1+.4*height
+    return [(cx-k[2])*z/k[0], (cy-k[5])*z/k[4], z]
+
 def bbox_point(box, depth, k):
     """Central depth surface candidate, not an object centre or approach pose."""
     x1, y1, x2, y2 = box

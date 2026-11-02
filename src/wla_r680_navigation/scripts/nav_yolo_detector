@@ -25,7 +25,7 @@ from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformListener
 from wla_detection_bridge.stream import encode_batch, stamp_ns
-from wla_r680_navigation_py.perception_geometry import color_array, depth_array, bbox_point, transform_point
+from wla_r680_navigation_py.perception_geometry import color_array, depth_array, bbox_point, person_point, transform_point
 from wla_r680_navigation_py.raw_image import as_frame, frame_message, frame_meta
 
 RELATIVE_TOPIC = '/r680/perception/relative_objects'
@@ -288,7 +288,8 @@ class NavDetector(Node):
         rows = []
         for obj in batch['objects']:
             yaw, distance = None, None
-            point = bbox_point(obj['bbox_xyxy'], data, info.k) if data is not None else None
+            sample = person_point if obj['label'] == 'person' else bbox_point
+            point = sample(obj['bbox_xyxy'], data, info.k) if data is not None else None
             if point is not None and tf is not None:
                 robot = transform_point(point, tf)
                 if all(math.isfinite(v) for v in robot):
