@@ -67,11 +67,20 @@ class Tuning:
     # gives ~20 %, 0.2-0.3 partly, >= 0.3 fully. Without it the rollouts assumed
     # instant turns, chose too-small rates and, in the chassis-model sim, grazed
     # obstacles. 0 disables (commands act instantly, as before).
-    chassis_tau_w: float = .40
+    # Refit 2026-11-02 on four J02 runs (10-29 17:25/17:47, 10-30 16:45/18:41,
+    # command vs wheel odometry at 50 Hz): steady gain 1.0, no dead time,
+    # tau 0.5-0.6 s (rms 0.0995 -> 0.0948 rad/s); 0.40 made the rollouts expect
+    # turns sooner than the chassis delivers them.
+    chassis_tau_w: float = .50
     chassis_tau_v: float = .18
     chassis_deadband_lo: float = .2
     chassis_deadband_hi: float = .3
     backup_max_m: float = .6
+    # After reaching the last-seen point the robot turns to the direction the
+    # person left (walking heading, else last bearing) and sweeps +-0.6 rad.
+    # 0.3 rad/s took 3-12 s per loss (normal follow 2026-10-30 19:08) and could
+    # not follow the 8 s sweep (peak 0.47 rad/s).
+    search_turn_rate: float = .6
 
 def rotation(yaw):
     return np.array([[np.cos(yaw),-np.sin(yaw)],[np.sin(yaw),np.cos(yaw)]])

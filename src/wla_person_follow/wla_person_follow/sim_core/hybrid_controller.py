@@ -230,7 +230,8 @@ class HybridFollower:
                     heading=np.where(np.linalg.norm(goal-states[:,:2],axis=1)<.12,face,heading)
             heading+=apf*np.exp(-tau)
             want_w=np.clip(2.*wrap(heading-states[:,2])+offsets,-c.max_w,c.max_w)
-            if search_heading is not None:want_w=np.clip(2.*wrap(search_heading-states[:,2])+.25*offsets,-.3,.3)
+            if search_heading is not None:
+                want_w=np.clip(2.*wrap(search_heading-states[:,2])+.25*offsets,-c.search_turn_rate,c.search_turn_rate)
             if policy_stop and not policy.active_search(policy_time):want_w[:]=0.
             desired_v=np.minimum(speeds,np.maximum(0.,.8*(np.linalg.norm(goal-states[:,:2],axis=1)-c.target_stop_gap)))
             old_controls=controls.copy()

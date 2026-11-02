@@ -157,3 +157,18 @@ def test_depth_recovery_never_drives_forward():
     assert cmd[0] == 0. and cmd[1] < 0.
     cmd = f.command(np.zeros(3), np.zeros(2), np.array([1.5, .05]), np.zeros(2), hist, m, [], "visible", recovery=True)
     np.testing.assert_allclose(cmd, [0., 0.])
+
+
+def test_search_turns_to_the_exit_heading_at_the_search_rate():
+    """At the last-seen point the robot turns to where the person went at up to
+    search_turn_rate (was 0.3 rad/s; 3-12 s per loss on 2026-10-30)."""
+    from wla_person_follow.follow_session import TrackingPolicy
+    c = Tuning(); f = HybridFollower(c); m = _open_map()
+    policy = TrackingPolicy(state="search_heading", last_seen=0., prediction_s=2., target_id="t", revision=0,
+                            search_heading=1.2, search_started=None)
+    cmd = np.zeros(2); peak = 0.
+    for _ in range(6):
+        cmd = f.command(np.zeros(3), cmd, np.array([.05, 0.]), np.zeros(2), [], m, [], "search_heading",
+                        policy=policy, policy_time=10.)
+        peak = max(peak, cmd[1])
+    assert cmd[0] == 0. and peak > .45 and peak <= c.search_turn_rate + 1e-9
