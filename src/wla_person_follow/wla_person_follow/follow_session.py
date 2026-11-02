@@ -259,12 +259,11 @@ class FollowTracker:
         else:
             arrived = (robot_pose is not None and np.linalg.norm(np.asarray(robot_pose[:2])-self.last_position) <= self.search_arrival+.10)
             if arrived and self.search_started is None:
-                self.search_started = now
+                # The sweep starts on arrival; it no longer first aligns with the
+                # walking direction (that cost up to ~1 s of turning).
+                self.search_started = self.sweep_started = now
             state = ('coasting' if self.mode == '2' else
                      ('search_heading' if self.search_started is not None else 'search_last_seen'))
-            if state == 'search_heading' and self.sweep_started is None and robot_pose is not None:
-                error = (self.heading-float(robot_pose[2])+math.pi) % (2*math.pi)-math.pi
-                if abs(error) <= .15:self.sweep_started = now
         if self.mode == '2' and state != 'tracking':
             state = 'holding'
         estimate = self.prediction(now)
