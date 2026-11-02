@@ -25,7 +25,7 @@ from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformListener
 from wla_detection_bridge.stream import encode_batch, stamp_ns
-from wla_r680_navigation_py.perception_geometry import color_array, depth_array, bbox_point, person_point, transform_point
+from wla_r680_navigation_py.perception_geometry import color_array, depth_array, bbox_point, person_point, touches_side, transform_point
 from wla_r680_navigation_py.raw_image import as_frame, frame_message, frame_meta
 
 RELATIVE_TOPIC = '/r680/perception/relative_objects'
@@ -285,7 +285,7 @@ class NavDetector(Node):
                     tf = None
             except Exception:
                 tf = None
-        rows = []
+        rows, edge_ids = [], []
         for obj in batch['objects']:
             yaw, distance = None, None
             sample = person_point if obj['label'] == 'person' else bbox_point
@@ -294,12 +294,17 @@ class NavDetector(Node):
                 robot = transform_point(point, tf)
                 if all(math.isfinite(v) for v in robot):
                     yaw, distance = math.atan2(robot[1], robot[0]), math.hypot(robot[0], robot[1])
-            rows.append(dict(detected=True, label=obj['label'],
-                id=f"{batch['session']}:{batch['epoch']}:{obj['track_id']}", yaw=yaw, distance=distance))
+            key = f"{batch['session']}:{batch['epoch']}:{obj['track_id']}"
+            rows.append(dict(detected=True, label=obj['label'], id=key, yaw=yaw, distance=distance))
+            if touches_side(obj['bbox_xyxy'], batch['width']):
+                edge_ids.append(key)
         return dict(schema='wla-relative-detections/v1', stamp_ns=stamp,
                     stamp=dict(sec=stamp//1_000_000_000,nanosec=stamp%1_000_000_000),
                     session=batch['session'], epoch=batch['epoch'], enabled=True,
                     base_frame=self.args.base_frame, ttl_s=.30, objects=rows,
+                    # Boxes cut by the left/right image border (depth mostly background).
+                    # Kept out of the rows: consumers check the row field set exactly.
+                    image_edge_ids=edge_ids,
                     association=batch.get('association', {}),
                     depth_stamp_ns=depth_stamp if aligned else None)
 

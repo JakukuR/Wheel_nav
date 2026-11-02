@@ -3,7 +3,7 @@ import json
 from types import SimpleNamespace as NS
 import numpy as np
 import pytest
-from wla_r680_navigation_py.perception_geometry import color_array,depth_array,bbox_point,person_point,transform_point
+from wla_r680_navigation_py.perception_geometry import color_array,depth_array,bbox_point,person_point,touches_side,transform_point
 
 
 
@@ -42,3 +42,9 @@ def test_person_depth_ignores_the_wall_behind_a_partly_visible_person():
     assert person_point([24,16,48,40],d,k)[2] == pytest.approx(2.)
     d[:] = 0
     assert person_point([24,16,48,40],d,k) is None
+
+
+def test_touches_side_flags_boxes_cut_by_the_left_or_right_border():
+    assert touches_side([0,10,100,300],640) and touches_side([500,10,639,300],640)
+    assert touches_side([5,10,100,300],640)          # within 1.5 % (9.6 px)
+    assert not touches_side([20,0,600,479],640)      # top/bottom do not count

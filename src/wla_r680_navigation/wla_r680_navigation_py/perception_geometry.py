@@ -28,6 +28,11 @@ def depth_array(msg):
     return np.ndarray((msg.height, msg.width), dtype=dtype,
                       buffer=msg.data, strides=(msg.step, 2))
 
+def touches_side(box, width, margin=.015):
+    """Box reaches the left or right image border (within 1.5 % of the width)."""
+    edge = max(4., margin*width)
+    return bool(box[0] <= edge or box[2] >= width-edge)
+
 def person_point(box, depth, k, quantile=.2):
     """Nearest body surface in the torso band of a person box.
 

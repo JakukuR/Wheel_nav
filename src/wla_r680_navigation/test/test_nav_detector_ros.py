@@ -162,8 +162,9 @@ def test_projection_only_robot_frame_at_acquisition_time(fixture):
     def lookup(target,source,when):
         requested.append((target,source,when.nanoseconds));return NS(transform=tf)
     node.tf.lookup_transform=lookup
-    row=node.project(b)['objects'][0]
+    out=node.project(b);row=out['objects'][0]
     assert set(row)=={'detected','label','id','yaw','distance'}
+    assert out['image_edge_ids']==[]
     assert row['id']==f'{node.session}:{node.epoch}:7'
     assert row['yaw']==pytest.approx(math.atan2(-.2,2.1))
     assert row['distance']==pytest.approx(math.hypot(2.1,.2))
