@@ -32,6 +32,11 @@ def position(row, pose, offset=.28, expected_label='person'):
 # 0.2 s later (63 % after 0.80 s instead of 0.59 s).
 TARGET_MEAS_STD_M = .05
 TARGET_ACCEL_STD_MPS2 = .5
+# Matches of one recovery candidate may be this far apart; frames without a usable
+# feature in between (crop overlap/clipped, low confidence, not detected) neither
+# count nor reset. 2026-11-02 16:09: a 0.75-0.78 match at 198.9/199.1/201.0 s was
+# reset by such frames and the person was re-acquired only at 234 s.
+RECOVERY_CONFIRM_GAP_S = 2.
 
 @dataclass(frozen=True)
 class TrackingPolicy:
@@ -289,14 +294,10 @@ class FollowTracker:
                 or not 0 <= now-proposal['stamp'] <= .6 or proposal['count'] < self.confirmations
                 or not 0 <= now-stamp <= self.freshness_s):
             return False
+        # Appearance-confirmed: no position gate (RecoveryIdentity picked the best
+        # match among the visible people).
         point = position(objects.get(proposal['id']), pose, self.offset, self.expected_label)
-        predicted = self.prediction(stamp)
-        if point is None or predicted is None:
-            return False
-        if proposal.get('wide'):
-            if self.recovery_error(point, stamp) > self.recovery_radius(now):
-                return False
-        elif np.linalg.norm(point-predicted) > self.radius(now):
+        if point is None:
             return False
         self.target_id = proposal['id']
         self.revision += 1
@@ -310,13 +311,12 @@ class FollowTracker:
 
 class RecoveryIdentity:
     """Collect indefinitely; never alter geometry, command permission or task life."""
-    def __init__(self, *, similarity=.4, margin=.08, confirmations=3,
-                 wide_similarity=.55, wide_confirmations=5):
+    def __init__(self, *, similarity=.55, margin=.08, confirmations=3):
+        # No position gate (2026-11-02: the walker kept going past the 1.5 m gate
+        # while the robot searched): the best-matching visible person wins if it is
+        # above the same-person 5th percentile (.55; the walker scored down to .31,
+        # median .75, a bystander .49-.51) and leads the next person by margin.
         self.threshold, self.margin, self.confirmations = similarity, margin, confirmations
-        # Outside the geometry gate appearance is the only evidence, and the same
-        # walker scored down to .31 (median .75) on the car: accept only the sole
-        # visible person, above the same-person 5th percentile, held for longer.
-        self.wide_similarity, self.wide_confirmations = wide_similarity, wide_confirmations
         # Enrollment consistency is independent of the recovery acceptance threshold.
         self.enrollment_similarity = .80
         self.gallery = []  # First two seed templates survive later appearance updates.
@@ -397,32 +397,26 @@ class RecoveryIdentity:
             return
         self.state='searching'
         prediction=tracker.prediction(stamp)
-        qualified=[];wide=[]
-        sole=len(valid)==1 and (people is None or people<=1)
-        for row in valid:
-            sim=max(float(row['feature']@g) for g in self.gallery)
+        scored=sorted(((max(float(row['feature']@g) for g in self.gallery),row) for row in valid),
+                      key=lambda item:item[0],reverse=True)
+        for sim,row in scored:
             error=math.inf if prediction is None else float(np.linalg.norm(row['position']-prediction))
-            ok=sim>=self.threshold and error<=tracker.radius(stamp)
-            far=(not ok and sole and tracker.wide_search(stamp) and sim>=self.wide_similarity
-                 and tracker.recovery_error(row['position'],stamp)<=tracker.recovery_radius(stamp))
-            self.candidates.append(dict(id=row['id'],similarity=sim,position_error_m=error,qualified=ok,wide=far))
-            if ok:qualified.append((sim,row))
-            if far:wide.append((sim,row))
-        qualified.sort(key=lambda r:r[0],reverse=True)
-        if not qualified and wide:
-            qualified,is_wide,needed=wide,True,self.wide_confirmations
-        else:
-            is_wide,needed=False,self.confirmations
-        if not qualified or (len(qualified)>1 and qualified[0][0]-qualified[1][0]<self.margin):
+            self.candidates.append(dict(id=row['id'],similarity=sim,position_error_m=error,qualified=False,wide=False))
+        if not scored:
+            # Nothing usable this frame: keep any pending confirmation.
+            if self.pending_id is None:self.reason='no_usable_recovery_feature'
+            return
+        sim,row=scored[0]
+        if sim<self.threshold or (len(scored)>1 and sim-scored[1][0]<self.margin):
             self.reset_confirmation();self.reason='no_unambiguous_recovery_candidate';return
-        sim,row=qualified[0]
-        same=(row['id']==self.pending_id and self.pending_stamp is not None and 0<stamp-self.pending_stamp<=.6
-              and self.pending_wide==is_wide)
+        self.candidates[0]['qualified']=True
+        same=(row['id']==self.pending_id and self.pending_stamp is not None
+              and 0<stamp-self.pending_stamp<=RECOVERY_CONFIRM_GAP_S)
         self.pending_count=self.pending_count+1 if same else 1
-        self.pending_id=row['id'];self.pending_stamp=stamp;self.last_similarity=sim;self.pending_wide=is_wide
-        self.reason='confirming_wide_recovery' if is_wide else 'confirming_recovery'
-        if self.pending_count>=needed:
-            self.proposal=dict(id=row['id'],stamp=stamp,count=self.pending_count,revision=tracker.revision,wide=is_wide)
+        self.pending_id=row['id'];self.pending_stamp=stamp;self.last_similarity=sim;self.pending_wide=False
+        self.reason='confirming_recovery'
+        if self.pending_count>=self.confirmations:
+            self.proposal=dict(id=row['id'],stamp=stamp,count=self.pending_count,revision=tracker.revision,wide=False)
 
     def snapshot(self):
         return dict(state=self.state,reason=self.reason,role='recovery_only',completed_enrollment=self.complete,

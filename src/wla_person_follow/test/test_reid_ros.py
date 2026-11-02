@@ -74,7 +74,7 @@ def test_rebind_keeps_request_and_rejects_ambiguous_candidates(initial_gap):
         if initial_gap:
             assert any(.9<r[0]<1.1 and not r[1]['completed_enrollment'] and r[1]['feature_frames']>=2 for r in captured)
         ambiguous=[r for r in captured if r[1]['reason']=='no_unambiguous_recovery_candidate' and
-                   sum(c['qualified'] for c in r[1]['candidates'])==2]
+                   len(r[1]['candidates'])==2]  # two equal matches: neither qualifies
         assert ambiguous and all(r[2]=='s:1:1' and r[1]['pending_confirmations']==0 for r in ambiguous)
         assert any(r[1]['reacquired']==1 and r[2]=='s:1:2' for r in captured)
         assert f.core.target_id=='s:1:1' and f.core.request_id=='test-task'

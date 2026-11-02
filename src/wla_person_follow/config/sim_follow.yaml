@@ -36,13 +36,15 @@ person_follow:
     target_mask_enabled: true
     reid_enabled: true
     reid_model_id: "boxmot25-osnet-x025-msmt17:cf55163d78fc44c6"
+    # Recovery since 2026-11-02: while lost, every visible person (nearest four)
+    # is compared; the best match is re-acquired with no position gate if it is
+    # >= reid_search_similarity and leads the next by reid_margin, after
+    # reid_confirm_frames matches each within 2 s (bad frames do not reset).
+    # reid_similarity, reid_search_radius_m and reid_search_confirm_frames are
+    # kept for validation/status only and no longer used by recovery.
     reid_similarity: 0.40
     reid_margin: 0.08
     reid_confirm_frames: 3
-    # Lost past target_prediction_s: the sole visible person within this distance
-    # of the last position / prediction (the binding gate keeps growing at
-    # binding_jump_growth_mps past binding_jump_radius_max_m) is re-acquired on
-    # appearance alone, with the stricter similarity and more confirmations.
     reid_search_radius_m: 4.0
     reid_search_similarity: 0.55
     reid_search_confirm_frames: 5

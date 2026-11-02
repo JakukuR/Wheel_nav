@@ -376,9 +376,8 @@ class FollowEngine:
                 history_window_s=self.p['target_history_window_s'],
                 history_sample_period_s=self.p['target_history_sample_period_s'],
                 expected_label=c.target_label, mode=c.mode, search_radius=self.p['reid_search_radius_m'])
-            self.recovery_identity=RecoveryIdentity(similarity=self.p['reid_similarity'],margin=self.p['reid_margin'],
-                confirmations=self.p['reid_confirm_frames'],wide_similarity=self.p['reid_search_similarity'],
-                wide_confirmations=self.p['reid_search_confirm_frames']) if self.p['reid_enabled'] and cfg['reid'] else None
+            self.recovery_identity=RecoveryIdentity(similarity=self.p['reid_search_similarity'],margin=self.p['reid_margin'],
+                confirmations=self.p['reid_confirm_frames']) if self.p['reid_enabled'] and cfg['reid'] else None
             self.tracker_key=task_key;self.interest_at=-math.inf;self.result=None
             self.arrival_count=0;self.arrival_stamp=0;self.arrival_started=None
             self.arrival_detail=None;self.arrival_goal_generation=None
@@ -408,15 +407,13 @@ class FollowEngine:
                     snap=self.tracker.snapshot(now,self.motion.pose_at(now))
                 if snap['state']=='tracking':
                     allowed=[self.tracker.target_id]
-                elif snap['prediction'] is not None and 0<=now-stamp<=self.p['max_sensor_age_s']:
-                    pred=np.asarray(snap['prediction'])
-                    allowed=[ident for ident,p in points.items() if p is not None and np.linalg.norm(p-pred)<=self.tracker.radius(now)]
-                    if len(allowed)>4:allowed=[]
-                    # Searching: the sole visible person within the widened gate also gets
-                    # an appearance check (RecoveryIdentity then demands a stricter match).
-                    if not allowed and people==1 and self.tracker.wide_search(now):
-                        allowed=[ident for ident,p in points.items() if p is not None
-                                 and self.tracker.recovery_error(p,stamp)<=self.tracker.recovery_radius(now)]
+                elif 0<=now-stamp<=self.p['max_sensor_age_s']:
+                    # Lost: request the appearance of every visible person (nearest
+                    # four to the last trusted position); no position gate (11-02).
+                    ref=self.tracker.last_position if snap['prediction'] is None else np.asarray(snap['prediction'])
+                    visible=[(ident,p) for ident,p in points.items() if p is not None]
+                    if ref is not None:visible.sort(key=lambda item:float(np.linalg.norm(item[1]-ref)))
+                    allowed=[ident for ident,_ in visible[:4]]
             if self.tracker.revision!=before:
                 self.result=None;self.interest_at=-math.inf
         if self.reid_request_pub is not None and time.monotonic()-self.interest_at>=.1:
