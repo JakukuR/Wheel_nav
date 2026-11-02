@@ -25,9 +25,11 @@ class Tuning:
     # margin band is an inflation cost, so tight passages stay feasible at a price.
     # People keep margin as a hard limit.
     margin_weight: float = 400.
-    desired_gap: float = ROBOT_RADIUS_M+.28+.40
+    # Robot centre to person centre. 0.87 m (0.40 m clear) let a turning person
+    # leave the image at corridor corners; 1.2 m by operator choice 2026-11-02.
+    desired_gap: float = ROBOT_RADIUS_M+.28+.73
     target_radius: float = .28
-    target_stop_gap: float = ROBOT_RADIUS_M+.28+.36
+    target_stop_gap: float = ROBOT_RADIUS_M+.28+.69
     target_hard_gap: float = ROBOT_RADIUS_M+.28+.10
     target_clearance_max: float = .50
     camera_half_angle: float = float(np.arctan(.8))
@@ -81,6 +83,9 @@ class Tuning:
     # 0.3 rad/s took 3-12 s per loss (normal follow 2026-10-30 19:08) and could
     # not follow the 8 s sweep (peak 0.47 rad/s).
     search_turn_rate: float = .6
+    # Driving to the last-seen point (usually the corner the person turned at).
+    # 0.20 m/s took 5-10 s to get there after a corner loss.
+    search_speed: float = .4
 
 def rotation(yaw):
     return np.array([[np.cos(yaw),-np.sin(yaw)],[np.sin(yaw),np.cos(yaw)]])

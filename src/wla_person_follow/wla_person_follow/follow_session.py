@@ -58,11 +58,16 @@ class TrackingPolicy:
     def active_search(self, now):
         return self.state == 'search_heading'
 
+    def rotation_allowed(self, now):
+        # Holding after a geometry jump may turn in place towards the last trusted
+        # position in person modes (never translate).
+        return self.active_search(now) or (self.state == 'holding' and self.mode in ('0', '1'))
+
     def limit_command(self, command, now):
         out = np.array(command, dtype=float, copy=True)
         if not self.translation_allowed(now):
             out[0] = 0.
-            if not self.active_search(now):
+            if not self.rotation_allowed(now):
                 out[1] = 0.
         return out
 

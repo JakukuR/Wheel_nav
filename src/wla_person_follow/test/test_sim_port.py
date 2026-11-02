@@ -9,11 +9,11 @@ from wla_person_follow.sim_core.common import rotation
 def test_deployed_chassis_and_follow_clearances():
     c=Tuning()
     assert (c.step,c.horizon,c.max_v,c.max_w)==(.1,24,1.2,.9)
-    assert c.desired_gap==pytest.approx(.87)
+    assert c.desired_gap==pytest.approx(1.2)
     assert c.target_hard_gap==pytest.approx(.57)
     assert c.radius == .19
-    assert c.target_stop_gap-c.radius-c.target_radius == pytest.approx(.36)
-    assert c.desired_gap-c.radius-c.target_radius == pytest.approx(.40)
+    assert c.target_stop_gap-c.radius-c.target_radius == pytest.approx(.69)
+    assert c.desired_gap-c.radius-c.target_radius == pytest.approx(.73)
     assert c.target_hard_gap-c.radius-c.target_radius == pytest.approx(.10)
     assert c.margin==.1
 

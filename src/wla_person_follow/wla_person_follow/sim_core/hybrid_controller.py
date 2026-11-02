@@ -140,10 +140,20 @@ class HybridFollower:
         if searching:
             arrival=policy.search_arrival_m if policy is not None else .35
             c=replace(c,desired_gap=arrival,target_stop_gap=arrival,target_hard_gap=0.,
-                      target_clearance_max=0.,max_v=min(c.max_v,.20))
+                      target_clearance_max=0.,max_v=min(c.max_v,c.search_speed))
         self.last_infeasible=False
         self.last_candidates={}
         self.last_reference_path=np.empty((0,2))
+        if (status=='holding' and target is not None and policy is not None and policy.mode in ('0','1')
+                and reference_path is None):
+            # A detection jumped away from the prediction (usually depth on the wall
+            # behind a person leaving the image): no driving, but keep the camera on
+            # the last trusted position instead of freezing for ~1.8 s.
+            err=float(wrap(np.arctan2(target[1]-pose[1],target[0]-pose[0])-pose[2]))
+            self.last_candidates=dict(safe=1,feasible=1,forward=0,holding_turn=True)
+            if abs(err)<=.1:return np.zeros(2)
+            w=float(np.clip(1.5*err,-c.search_turn_rate,c.search_turn_rate))
+            return np.array([0.,float(np.clip(w,previous[1]-c.yaw_accel*c.step,previous[1]+c.yaw_accel*c.step))])
         if target is None or status in ('lost','binding','holding'):
             return np.zeros(2)
         if recovery:
@@ -214,6 +224,9 @@ class HybridFollower:
         speeds,offsets=speeds.ravel(),offsets.ravel()
         if lateral>0.:speeds=np.minimum(speeds,c.max_v*(1.-c.lateral_slowdown*lateral))
         speeds=np.minimum(speeds,cap)
+        # Turning in place towards a person beyond the gap: no reverse creep (with
+        # the 1.2 m gap a -0.065 m/s back-off scored marginally better).
+        if cap<=1e-6 and remaining>c.desired_gap:speeds=np.maximum(speeds,0.)
         if (not searching and c.target_clearance_max>0 and np.linalg.norm(velocity)<.05 and
                 c.target_hard_gap+.01<=np.linalg.norm(target-pose[:2])<=c.radius+c.target_radius+c.target_clearance_max):
             speeds[:]=0.
