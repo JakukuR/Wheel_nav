@@ -118,6 +118,22 @@ def generate_launch_description():
     imu_topic = PythonExpression([
         "'/r680_nav/chassis/imu_filtered' if '", use_chassis_imu,
         "' == 'true' else '/r680_nav/d455/imu_filtered'"])
+    # RTAB-Map image source. infra: infra1 + depth, pixel-aligned by construction
+    # (depth is computed in the infra1 frame at the same 640x480 profile). With
+    # dark_infra the projector alternates: projector-off infra1 for features, lit
+    # depth from the neighbouring frame (33 ms apart, so the sync window widens).
+    infra_slam = EqualsSubstitution(LaunchConfiguration('slam_image'), 'infra')
+    dark_infra = EqualsSubstitution(LaunchConfiguration('dark_infra'), 'true')
+    slam_rgb_topic = IfElseSubstitution(infra_slam, IfElseSubstitution(
+        dark_infra, '/r680/d455/infra1_dark/image_rect_raw', '/r680/d455/infra1/image_rect_raw'),
+        '/r680/d455/color/image_raw')
+    slam_depth_topic = IfElseSubstitution(infra_slam, IfElseSubstitution(
+        dark_infra, '/r680/d455/depth_lit/image_rect_raw', '/r680/d455/depth/image_rect_raw'),
+        '/r680/d455/aligned_depth_to_color/image_raw')
+    slam_camera_info_topic = IfElseSubstitution(
+        infra_slam, '/r680/d455/infra1/camera_info', '/r680/d455/color/camera_info')
+    slam_sync_interval = IfElseSubstitution(AllSubstitution(container=[infra_slam, dark_infra]),
+                                            '0.045', '0.025')
 
     realsense = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -290,13 +306,13 @@ def generate_launch_description():
             'visual_odometry': 'false',
             'icp_odometry': 'false',
             'odom_topic': mapping_odom_topic,
-            'rgb_topic': '/r680/d455/color/image_raw',
-            'depth_topic': '/r680/d455/aligned_depth_to_color/image_raw',
-            'camera_info_topic': '/r680/d455/color/camera_info',
+            'rgb_topic': slam_rgb_topic,
+            'depth_topic': slam_depth_topic,
+            'camera_info_topic': slam_camera_info_topic,
             'imu_topic': PythonExpression(["'/r680_nav/disabled_rtabmap_imu' if '", odom_source, "' in ('cuvslam', 'openvins') else '", imu_topic, "'"]),
             'subscribe_scan': 'false',
             'approx_sync': 'true',
-            'approx_sync_max_interval': '0.025',
+            'approx_sync_max_interval': slam_sync_interval,
             'qos': '2',
             'rgb_image_transport': 'raw',
             'depth_image_transport': 'raw',
@@ -575,6 +591,8 @@ def generate_launch_description():
         DeclareLaunchArgument('odom_backend', default_value='fusion', choices=['fusion', 'degraded']),
         DeclareLaunchArgument('dark_infra', default_value='false', choices=['true', 'false'],
                               description='cuVSLAM reads infra*_dark (camera --emitter alternate)'),
+        DeclareLaunchArgument('slam_image', default_value='color', choices=['color', 'infra'],
+                              description='RTAB-Map image source; mapping and localization must match the map'),
         DeclareLaunchArgument('odom_fusion_params_file', default_value=str(config / 'odom_fusion.yaml')),
         DeclareLaunchArgument('cuvslam_statistics_path', default_value='/tmp/cuvslam_navigation_statistics.json'),
         DeclareLaunchArgument('start_web', default_value='true', choices=['true', 'false']),

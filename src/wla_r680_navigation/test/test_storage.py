@@ -60,6 +60,18 @@ def test_publish_sequence_and_resolve_latest(tmp_path):
     assert Path(resolved['database_path']) == second/'rtabmap.db'
     assert Path(resolved['map_yaml']) == second/'map.yaml'
     assert Path(resolved['startup_manifest']) == second/'navigation.yaml'
+    assert resolved['slam_image'] == 'color'
+
+
+def test_slam_image_source_is_recorded_and_resolved(tmp_path):
+    archive = tmp_path/'archive'
+    make_archive(archive)
+    settings = storage(tmp_path)
+    published = publish_navigation_map(archive, settings, 'run-a', slam_image='infra')
+    assert json.loads((published/'map_info.json').read_text())['slam_image'] == 'infra'
+    assert resolve_navigation_map(settings, published.name)['slam_image'] == 'infra'
+    with pytest.raises(ValueError, match='image source'):
+        publish_navigation_map(archive, settings, 'run-b', slam_image='thermal')
 
 
 def test_checksum_rejects_modified_navigation_file(tmp_path):

@@ -66,7 +66,11 @@ def _next_map_name(root, prefix, date):
     return f'{prefix}-{date}-{max(used, default=0)+1}'
 
 
-def publish_navigation_map(archive, storage, source_run_id, map_name=None, now=None):
+SLAM_IMAGES = ('color', 'infra')
+
+
+def publish_navigation_map(archive, storage, source_run_id, map_name=None, now=None,
+                           slam_image='color'):
     """Atomically publish navigation-only files from a completed full archive."""
     archive = Path(archive).expanduser().resolve()
     root = Path(storage['maps_root']).expanduser().resolve()
@@ -80,6 +84,8 @@ def publish_navigation_map(archive, storage, source_run_id, map_name=None, now=N
     if grid.get('frame_id') != 'map' or not all(key in grid for key in
                                                 ('width', 'height', 'resolution', 'origin')):
         raise ValueError('invalid archived occupancy grid metadata')
+    if slam_image not in SLAM_IMAGES:
+        raise ValueError(f'unsupported RTAB-Map image source: {slam_image}')
 
     root.mkdir(parents=True, exist_ok=True)
     lock_path = root/'.publish.lock'
@@ -101,7 +107,7 @@ def publish_navigation_map(archive, storage, source_run_id, map_name=None, now=N
                         frame_id='map', resolution=grid['resolution'],
                         width=grid['width'], height=grid['height'], origin=grid['origin'],
                         occupancy_map='map.yaml', localization_database='rtabmap.db',
-                        semantic_layer='semantic.geojson')
+                        semantic_layer='semantic.geojson', slam_image=slam_image)
             (temporary/'map_info.json').write_text(
                 json.dumps(info, indent=2, allow_nan=False)+'\n')
             semantic = dict(type='FeatureCollection', schema='wla-semantic-map-v1',
@@ -208,13 +214,18 @@ def _verify_navigation_map(directory, edited_pgm_hash=None):
         if not (directory/value).is_file():
             raise FileNotFoundError(directory/value)
     validate_database(directory/names['localization_database'])
+    # Maps published before the field existed were all built from color images.
+    slam_image = info.get('slam_image', 'color')
+    if slam_image not in SLAM_IMAGES:
+        raise ValueError(f'unsupported RTAB-Map image source: {slam_image}')
     return dict(map_id=directory.name, directory=str(directory),
                 startup_manifest=str(directory/'navigation.yaml'),
                 map_yaml=str(directory/names['occupancy_map']),
                 database_path=str(directory/names['localization_database']),
                 map_info=str(directory/names['map_metadata']),
                 semantic_layer=str(directory/names['semantic_layer']),
-                default_initial_pose=startup.get('default_initial_pose'))
+                default_initial_pose=startup.get('default_initial_pose'),
+                slam_image=slam_image)
 
 
 def _pgm_geometry(data):

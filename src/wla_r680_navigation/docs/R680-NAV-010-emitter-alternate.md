@@ -20,5 +20,21 @@
 
 - 未在相机上验证：需要用 `--emitter alternate` 重启相机（会中断其他人的链路，需批准）。
 - 交替后暗帧约 15 Hz，cuVSLAM 帧率减半；需实测跟踪质量。
-- 深度仍使用全部帧，其中投射器关闭帧的深度在弱纹理处较差；`depth_to_points` 按深度元数据只用亮帧留作后续。
+- 避障 `depth_to_points` 仍使用对齐到彩色的全部深度帧，其中投射器关闭帧在弱纹理处较差；改用亮帧留作后续。
 - 转发在 Python 中进行（2 路 640×480 单通道约 15 Hz），CPU 占用需实测，必要时改 C++。
+
+## 红外建图（RTAB-Map `slam_image`）
+
+- 实测（2026-11-02，相机 alternate）：`depth/image_rect_raw` 与 infra1 时间戳逐帧相同，内参相同（640×480，fx=389.34），深度元数据逐帧 0/1 交替。D455 深度本就在 infra1 坐标系计算，infra1 + 原始深度天然逐像素对齐，无需对齐到彩色。
+- splitter 增加第三路：投射器开启的深度帧转发到 `/r680/d455/depth_lit/image_rect_raw`（复用 infra1 元数据按时间戳路由）。
+- launch 参数 `slam_image:=color|infra`（默认 color）决定 RTAB-Map 的 `rgb/depth/camera_info`：
+
+  | slam_image | dark_infra | 图像 | 深度 | 同步窗口 |
+  |---|---|---|---|---|
+  | color | 任意 | color | aligned_depth_to_color | 0.025 s |
+  | infra | false | infra1 | depth | 0.025 s |
+  | infra | true | infra1_dark | depth_lit | 0.045 s |
+
+  暗帧图像与亮帧深度相差一帧（33 ms），运动中深度与特征有轻微错位（0.3 m/s 约 1 cm，0.5 rad/s 约 6 px），对关键帧特征深度和 5 cm 栅格可接受。
+- `r680_mapping.sh --slam-image infra --dark-infra`：写入 `run.json`，保存时进入地图 `map_info.json` 的 `slam_image`（受 manifest 校验；旧地图缺省为 color）。`r680_nav.sh` 从所选地图读取并传给 bringup，保证定位与建图同源；`--dark-infra` 时相机检查要求 `--emitter alternate` 和三路 splitter 输出。
+- 彩色流保持开启，避障点云、跟随、语义不变。

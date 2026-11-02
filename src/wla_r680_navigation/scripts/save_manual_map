@@ -90,11 +90,13 @@ def main():
                     odom_source=run.get('odom_source', 'rgbd'),
                     rtabmap_odom=run.get('rtabmap_odom_topic', '/d455_slam/odom'),
                     imu=run.get('imu_topic', '/r680_nav/chassis/imu_filtered'),
-                    auto_vio_init=run.get('auto_vio_init', False))
+                    auto_vio_init=run.get('auto_vio_init', False),
+                    slam_image=run.get('slam_image', 'color'),
+                    dark_infra=run.get('dark_infra', False))
     result = save_archive(archive, grid, backup, metadata, configs)
     storage = load_storage_config(run_dir/'storage.yaml')
     navigation_map = publish_navigation_map(
-        result, storage, source_run_id=run.get('run_id'))
+        result, storage, source_run_id=run.get('run_id'), slam_image=metadata['slam_image'])
     metadata['navigation_map'] = str(navigation_map)
     (run_dir/'manual_mapping_result.json').write_text(json.dumps(metadata, indent=2)+'\n')
     (run_dir/'navigation_map_result.json').write_text(json.dumps(dict(

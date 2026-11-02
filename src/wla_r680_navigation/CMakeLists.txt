@@ -157,6 +157,8 @@ if(BUILD_TESTING)
     RUN_SERIAL TRUE TIMEOUT 60)
   add_test(NAME emitter_frame_splitter COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/test/test_emitter_frame_splitter.py)
+  add_test(NAME slam_image_source COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_slam_image_source.py)
   add_test(NAME mapless_navigation COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/test/test_mapless_navigation.py)
   set_tests_properties(mapless_navigation PROPERTIES

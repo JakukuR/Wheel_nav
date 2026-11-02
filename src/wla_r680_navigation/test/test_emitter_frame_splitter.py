@@ -35,3 +35,16 @@ for stamp in (400, 500, 600):
     router.image(1, stamp, 'orphan')   # no metadata: held, then evicted
 assert len(router.pending[1]) == 2 and router.dropped == 3, (router.pending, router.dropped)
 print('PASS only projector-off pairs are forwarded, in either arrival order', flush=True)
+
+# Depth shares the infra1 stamp and is routed the opposite way: lit frames only.
+sent.clear()
+router = module.Router(lambda i, m: sent.append((i, m)), window=2)
+router.metadata(100, False)
+router.image('depth', 100, 'depth-dark')
+router.image(1, 100, 'dark1')
+router.image('depth', 200, 'depth-lit')   # before its metadata
+router.image(1, 200, 'lit1')
+router.metadata(200, True)
+assert sent == [(1, 'dark1'), ('depth', 'depth-lit')], sent
+assert router.forwarded == {1: 1, 2: 0, 'depth': 1} and router.dropped == 2, (router.forwarded, router.dropped)
+print('PASS depth is forwarded only from projector-on frames', flush=True)

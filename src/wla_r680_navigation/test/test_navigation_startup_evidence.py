@@ -119,7 +119,7 @@ class LaunchArgumentsTest(unittest.TestCase):
                    AUTO_VIO_INIT='false', ENABLE_MOTION='false', AGENT_CONTROL='false',
                    MAP_DIR='/tmp/user map', INITIAL_POSE=initial_pose,
                    MOUNT_TF='false', DISABLE_DEGRADED_ODOM='false',
-                   ODOM_BACKEND='fusion', DARK_INFRA='false')
+                   ODOM_BACKEND='fusion', DARK_INFRA='false', SLAM_IMAGE='infra')
         result = subprocess.run(['bash', '--noprofile', '--norc', '-c',
             block + '\nprintf "%s\\0" "${LAUNCH_ARGS[@]}"'], env=env,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, timeout=5)
@@ -136,6 +136,9 @@ class LaunchArgumentsTest(unittest.TestCase):
                 self.assertEqual(args['navigation_map_yaml'], '/tmp/user map/map.yaml')
                 self.assertNotIn('initial_pose', args)
                 self.assertEqual(args['publish_mount_tf'], 'false')
+                # The map's image source reaches RTAB-Map for every frontend.
+                self.assertEqual(args['slam_image'], 'infra')
+                self.assertEqual(args['dark_infra'], 'false')
                 if frontend == 'cuvslam':
                     self.assertEqual(args['degraded_odom_params_file'], '/tmp/nav run/degraded_odometry.yaml')
                     self.assertEqual(args['odom_fusion_params_file'], '/tmp/nav run/odom_fusion.yaml')

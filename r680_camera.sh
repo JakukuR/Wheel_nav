@@ -5,11 +5,12 @@ workspace="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 usage() {
   cat <<'EOF'
 用法: r680_camera.sh run   [--infra] [--imu] [--emitter on|off|alternate] [--no-mount]
-      r680_camera.sh check [--infra] [--imu]
+      r680_camera.sh check [--infra] [--imu] [--emitter alternate]
       r680_camera.sh status
   run     独立终端启动 D455：彩色 + 对齐深度 640x480@30 常开，红外双目和 IMU 默认关闭；
           同时发布安装 TF r680_mapping_floor -> d455_link（已有其他发布者时自动不发）。
   check   检查本 ROS 域里的相机是否提供所需数据流（导航启动前调用）；0=就绪，3=无相机，4=缺数据流。
+          check --emitter alternate 另要求发射器交替及 infra*_dark / depth_lit 已发布。
           报告中 mount 表示安装 TF 是否已存在，导航/建图据此决定是否自己发布。
   status  打印相机数据流、发射器与安装 TF 状态。
   --infra        打开红外双目 infra1/infra2（导航 --cuvslam / --openvins 需要）
@@ -54,8 +55,12 @@ from tf2_ros import Buffer, TransformListener
 need = set(sys.argv[1:])
 topics = {'color': '/r680/d455/color/image_raw', 'depth': '/r680/d455/aligned_depth_to_color/image_raw',
           'infra1': '/r680/d455/infra1/image_rect_raw', 'infra2': '/r680/d455/infra2/image_rect_raw',
-          'imu': '/r680/d455/imu'}
-required = {'color', 'depth'} | ({'infra1', 'infra2'} if 'infra' in need else set()) | ({'imu'} if 'imu' in need else set())
+          'imu': '/r680/d455/imu',
+          'infra1_dark': '/r680/d455/infra1_dark/image_rect_raw', 'infra2_dark': '/r680/d455/infra2_dark/image_rect_raw',
+          'depth_lit': '/r680/d455/depth_lit/image_rect_raw'}
+dark = {'infra1_dark', 'infra2_dark', 'depth_lit'}
+required = ({'color', 'depth'} | ({'infra1', 'infra2'} if 'infra' in need else set())
+            | ({'imu'} if 'imu' in need else set()) | (dark if 'alternate' in need else set()))
 process = False
 for entry in Path('/proc').iterdir():
     if not entry.name.isdigit(): continue
@@ -80,11 +85,15 @@ emitter = None
 if streams['color']:
     client = node.create_client(GetParameters, '/r680/d455/get_parameters')
     if client.wait_for_service(timeout_sec=1.0):
-        future = client.call_async(GetParameters.Request(names=['depth_module.emitter_enabled']))
+        future = client.call_async(GetParameters.Request(
+            names=['depth_module.emitter_enabled', 'depth_module.emitter_on_off']))
         rclpy.spin_until_future_complete(node, future, timeout_sec=1.0)
         if future.done() and future.result() and future.result().values:
-            emitter = 'on' if future.result().values[0].integer_value else 'off'
+            values = future.result().values
+            emitter = 'on' if values[0].integer_value else 'off'
+            if emitter == 'on' and len(values) > 1 and values[1].bool_value: emitter = 'alternate'
 missing = sorted(k for k in required if not streams.get(k))
+if 'alternate' in need and emitter != 'alternate': missing.append('emitter_alternate')
 report = dict(camera=bool(streams['color']), process=process, streams={k: bool(v) for k, v in streams.items()},
               emitter=emitter, mount=mounted(), required=sorted(required), missing=missing)
 print(json.dumps(report, ensure_ascii=False))
@@ -98,6 +107,7 @@ PY
 need=()
 [[ "$INFRA" == true ]] && need+=(infra)
 [[ "$IMU" == true ]] && need+=(imu)
+[[ "$EMITTER" == alternate ]] && need+=(alternate)
 case "$operation" in
   check) probe "${need[@]}" ;;
   status) probe "${need[@]}" || true ;;

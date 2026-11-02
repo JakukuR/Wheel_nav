@@ -227,6 +227,11 @@ MAP_JSON=$(ros2 run wla_r680_navigation resolve_navigation_map "${RESOLVE_ARGS[@
 MAP_DIR=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["directory"])' <<<"$MAP_JSON")
 MAP_YAML=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["map_yaml"])' <<<"$MAP_JSON")
 DB_PATH=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["database_path"])' <<<"$MAP_JSON")
+# RTAB-Map must localize with the image source the map was built from.
+SLAM_IMAGE=$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("slam_image", "color"))' <<<"$MAP_JSON")
+if [[ "$SLAM_IMAGE" == infra && "$DARK_INFRA" != true ]]; then
+  echo '[R680 NAV] 提示：该地图用红外建图；发射器常开时红外图带散斑，推荐相机 --emitter alternate 并加 --dark-infra。' >&2
+fi
 
 if [[ -n "$INITIAL_POSE" ]]; then
   python3 - "$INITIAL_POSE" <<'PY'
@@ -305,6 +310,8 @@ cat > "$NAV_RUN_DIR/navigation.json" <<EOF
   "working_database": "$DB_PATH",
   "initial_pose": "$INITIAL_POSE",
   "odom_source": "$ODOM_SOURCE",
+  "slam_image": "$SLAM_IMAGE",
+  "dark_infra": $DARK_INFRA,
   "auto_vio_init": $AUTO_VIO_INIT,
   "openvins_motion_init": $OPENVINS_MOTION_INIT,
   "openvins_config_dir": "$OPENVINS_CONFIG",
@@ -388,8 +395,9 @@ trap 'exit 130' INT TERM HUP
 
 # D455 is owned by r680_camera.sh in its own terminal; navigation only reuses it.
 CAMERA_NEEDS=()
-if [[ "$ODOM_SOURCE" == cuvslam || "$ODOM_SOURCE" == openvins ]]; then CAMERA_NEEDS+=(--infra); fi
+if [[ "$ODOM_SOURCE" == cuvslam || "$ODOM_SOURCE" == openvins || "$SLAM_IMAGE" == infra ]]; then CAMERA_NEEDS+=(--infra); fi
 if [[ "$USE_D455_IMU" == true ]]; then CAMERA_NEEDS+=(--imu); fi
+if [[ "$DARK_INFRA" == true ]]; then CAMERA_NEEDS+=(--emitter alternate); fi
 if ! CAMERA_REPORT="$(bash "$WORKSPACE/r680_camera.sh" check "${CAMERA_NEEDS[@]}")"; then
   echo "[R680 NAV] D455 未就绪：$CAMERA_REPORT" >&2
   echo "[R680 NAV] 请先在独立终端运行：bash $WORKSPACE/r680_camera.sh run ${CAMERA_NEEDS[*]}" >&2
@@ -422,7 +430,7 @@ for unit in "${PAUSE_UNITS[@]}"; do
   fi
 done
 
-echo "[R680 NAV] 地图：$MAP_DIR"
+echo "[R680 NAV] 地图：$MAP_DIR（RTAB-Map 图像：$SLAM_IMAGE）"
 echo "[R680 NAV] 二维栅格：$MAP_YAML"
 echo "[R680 NAV] RTAB-Map 只读源库：$SOURCE_DB_PATH"
 echo "[R680 NAV] RTAB-Map 本次工作副本：$DB_PATH"
@@ -500,6 +508,7 @@ LAUNCH_ARGS=(
   start_d455:=false start_chassis:="$START_CHASSIS" start_nav2:=true start_navigation_servers:=true
   start_state_estimation:=true use_d455_imu:="$USE_D455_IMU" use_chassis_imu:=true
   odom_source:="$ODOM_SOURCE" cuvslam_statistics_path:="$NAV_RUN_DIR/cuvslam_statistics.json"
+  slam_image:="$SLAM_IMAGE" dark_infra:="$DARK_INFRA"
   auto_vio_init:="$AUTO_VIO_INIT" vio_init_result_path:="$NAV_RUN_DIR/vio_init.json"
   publish_mount_tf:="$MOUNT_TF" enable_hardware_output:="$(if [[ "$ODOM_SOURCE" == openvins ]]; then echo false; else echo "$ENABLE_MOTION"; fi)" agent_control:="$AGENT_CONTROL"
   start_semantics:=false semantic_output:="$MAP_DIR/semantic.geojson"
@@ -511,7 +520,7 @@ if [[ "$ODOM_SOURCE" == openvins ]]; then
 fi
 if [[ "$ODOM_SOURCE" == cuvslam ]]; then
   LAUNCH_ARGS+=(degraded_odom_params_file:="$NAV_RUN_DIR/degraded_odometry.yaml"
-    odom_fusion_params_file:="$NAV_RUN_DIR/odom_fusion.yaml" odom_backend:="$ODOM_BACKEND" dark_infra:="$DARK_INFRA"
+    odom_fusion_params_file:="$NAV_RUN_DIR/odom_fusion.yaml" odom_backend:="$ODOM_BACKEND"
     enable_degraded_odom:="$(if [[ "$DISABLE_DEGRADED_ODOM" == true ]]; then echo false; else echo true; fi)")
 fi
 if [[ -n "$INITIAL_POSE" ]]; then

@@ -11,9 +11,12 @@ USE_D455_IMU=false
 AUTO_VIO_INIT=false
 START_RVIZ=true
 START_SEMANTICS=true
+SLAM_IMAGE=color
+DARK_INFRA=false
 usage() {
   cat <<'EOF'
 用法: r680_mapping.sh [--openvins|--cuvslam|--rgbd] [--auto-vio-init] [--dry-run]
+                       [--slam-image color|infra] [--dark-infra]
                        [--storage-config PATH] [--no-rviz] [--no-semantics]
   前提：D455 由独立终端的 r680_camera.sh 启动，建图只复用、不再自己打开相机
         （--cuvslam / --openvins 需要 run --infra；OpenVINS 用 D455 IMU 时再加 --imu）
@@ -22,6 +25,9 @@ usage() {
   --openvins-config PATH  使用指定完整配置目录
   --cuvslam        D455 双目 + 车身 IMU，RTAB-Map RGB-D 建图
   --rgbd           原 RGB-D VO + EKF（默认、回退入口）
+  --slam-image color|infra  RTAB-Map 关键帧图像：彩色+对齐深度（默认）或 infra1+深度；
+                   地图记录该选择，r680_nav.sh 定位时自动沿用；infra 需相机 run --infra
+  --dark-infra     相机 --emitter alternate：cuVSLAM 读暗帧红外；infra 建图用暗帧 infra1 + 亮帧深度
   --auto-vio-init   启动低速运动初始化，成功后交接给手柄；与 --cuvslam 或 --openvins 配合；OpenVINS 候选不驱动底盘
   --dry-run        关闭真实底盘输出；静止时 VIO 可能无法初始化
   --no-rviz        跳过 RViz；Web 保留
@@ -40,6 +46,10 @@ while [[ $# -gt 0 ]]; do
       OPENVINS_IMU="$2"; shift 2 ;;
     --cuvslam) ODOM_SOURCE=cuvslam; shift ;;
     --rgbd) ODOM_SOURCE=rgbd; shift ;;
+    --slam-image)
+      [[ $# -ge 2 && ( "$2" == color || "$2" == infra ) ]] || { echo '--slam-image 需要 color 或 infra' >&2; exit 2; }
+      SLAM_IMAGE="$2"; shift 2 ;;
+    --dark-infra) DARK_INFRA=true; shift ;;
     --auto-vio-init) AUTO_VIO_INIT=true; shift ;;
     --no-rviz) START_RVIZ=false; shift ;;
     --no-semantics) START_SEMANTICS=false; shift ;;
@@ -56,6 +66,12 @@ if [[ "$AUTO_VIO_INIT" == true && "$ODOM_SOURCE" != cuvslam && "$ODOM_SOURCE" !=
 fi
 if [[ -n "$OPENVINS_CONFIG" && "$ODOM_SOURCE" != openvins ]]; then
   echo '--openvins-config requires --openvins' >&2; exit 2
+fi
+if [[ "$DARK_INFRA" == true && "$ODOM_SOURCE" != cuvslam && "$SLAM_IMAGE" != infra ]]; then
+  echo '--dark-infra 需要 --cuvslam 或 --slam-image infra' >&2; exit 2
+fi
+if [[ "$SLAM_IMAGE" == infra && "$DARK_INFRA" != true ]]; then
+  echo '[R680] 提示：发射器常开时红外图带散斑，会干扰 RTAB-Map 特征；推荐相机 --emitter alternate 并加 --dark-infra。' >&2
 fi
 WORKSPACE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source /opt/ros/jazzy/setup.bash
@@ -109,7 +125,9 @@ source "$WORKSPACE/src/wla_r680_navigation/scripts/r680_mode_lock.sh"
 wla_acquire_navigation_lock
 
 ENABLE_HARDWARE=true
-PREPARE_ARGS=(--imu-mode "$(if [[ "$ODOM_SOURCE" == cuvslam ]]; then echo chassis-vio; else echo chassis-full; fi)" --odom-source "$ODOM_SOURCE")
+PREPARE_ARGS=(--imu-mode "$(if [[ "$ODOM_SOURCE" == cuvslam ]]; then echo chassis-vio; else echo chassis-full; fi)" --odom-source "$ODOM_SOURCE"
+              --slam-image "$SLAM_IMAGE")
+if [[ "$DARK_INFRA" == true ]]; then PREPARE_ARGS+=(--dark-infra); fi
 if [[ "$ODOM_SOURCE" == openvins ]]; then PREPARE_ARGS+=(--openvins-config "$OPENVINS_CONFIG"); fi
 if [[ "$AUTO_VIO_INIT" == true ]]; then PREPARE_ARGS+=(--auto-vio-init); fi
 COMMAND_TOPIC=/cmd_vel_nav
@@ -224,7 +242,8 @@ fi
 
 # D455 is owned by r680_camera.sh in its own terminal; mapping only reuses it.
 CAMERA_NEEDS=()
-if [[ "$ODOM_SOURCE" == cuvslam || "$ODOM_SOURCE" == openvins ]]; then CAMERA_NEEDS+=(--infra); fi
+if [[ "$ODOM_SOURCE" == cuvslam || "$ODOM_SOURCE" == openvins || "$SLAM_IMAGE" == infra ]]; then CAMERA_NEEDS+=(--infra); fi
+if [[ "$DARK_INFRA" == true ]]; then CAMERA_NEEDS+=(--emitter alternate); fi
 if [[ "$USE_D455_IMU" == true ]]; then CAMERA_NEEDS+=(--imu); fi
 if ! CAMERA_REPORT="$(bash "$WORKSPACE/r680_camera.sh" check "${CAMERA_NEEDS[@]}")"; then
   echo "[R680] D455 未就绪：$CAMERA_REPORT" >&2
@@ -262,7 +281,7 @@ CONFIG_DIR=$(ros2 pkg prefix wla_r680_navigation)/share/wla_r680_navigation/conf
 RVIZ_CONFIG="$CONFIG_DIR/r680_mapping.rviz"
 
 echo "[R680] 本次运行目录：$RUN_DIR"
-echo "[R680] 里程计前端：$ODOM_SOURCE；真实底盘输出：$ENABLE_HARDWARE"
+echo "[R680] 里程计前端：$ODOM_SOURCE；RTAB-Map 图像：$SLAM_IMAGE；暗帧红外：$DARK_INFRA；真实底盘输出：$ENABLE_HARDWARE"
 if [[ "$ODOM_SOURCE" == cuvslam || "$ODOM_SOURCE" == openvins ]]; then
   if [[ "$USE_MANUAL_BASE" == true ]]; then
     echo '[R680] VIO 稳定前不写入地图，常驻手柄可用于人工初始化。'
@@ -284,6 +303,7 @@ setsid ros2 launch wla_r680_navigation bringup.launch.py \
   start_state_estimation:=true use_d455_imu:="$USE_D455_IMU" use_chassis_imu:=true \
   openvins_config_dir:="$OPENVINS_CONFIG" openvins_allow_commissioning:="$OPENVINS_ALLOW_COMMISSIONING" \
   odom_source:="$ODOM_SOURCE" auto_vio_init:="$AUTO_VIO_INIT" \
+  slam_image:="$SLAM_IMAGE" dark_infra:="$DARK_INFRA" \
   cuvslam_statistics_path:="$RUN_DIR/cuvslam_statistics.json" vio_init_result_path:="$RUN_DIR/vio_init.json" \
   publish_mount_tf:="$MOUNT_TF" enable_hardware_output:="$ENABLE_HARDWARE" \
   start_semantics:="$START_SEMANTICS" semantic_output:="$RUN_DIR/semantic.geojson" \
