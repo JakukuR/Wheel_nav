@@ -277,3 +277,42 @@ def test_image_edge_detection_keeps_bearing_and_predicted_range():
         tr2.observe({"t": dict(detected=True, label="person", yaw=-.3, distance=1.2)}, pose, s, s+.01)
     tr2.observe({"t": dict(detected=True, label="person", yaw=-.55, distance=2.3)}, pose, .8, .81)
     assert tr2.snapshot(.81, pose)["state"] == "holding"
+
+
+
+def test_backing_turns_the_tail_onto_the_trail_before_reversing():
+    """11-02 16:47: trail 80 deg off the tail, reversing at 0.2*cos(err) = 0.03-0.05
+    m/s; the chassis did not move for 9 s."""
+    c = Tuning(); f = HybridFollower(c); m = _open_map(); _drive_trail(f, m)
+    yaw = 1.4  # tail points 80 deg off the trail behind
+    cmd = f._backup(np.array([0., 0., yaw]), np.array([0., -.5]), m, c, 0.)
+    assert cmd is not None and cmd[0] == 0. and cmd[1] <= -c.chassis_deadband_hi + 1e-9
+    cmd = f._backup(np.array([0., 0., .3]), np.zeros(2), m, c, 0.)
+    assert cmd[0] <= -c.backup_min_speed + 1e-9
+
+
+def test_backing_gives_up_when_reversing_does_not_move():
+    c = Tuning(); f = HybridFollower(c); m = _open_map(); _drive_trail(f, m)
+    t = 0.
+    while t < c.backup_stall_s - .05:
+        assert f._backup(np.zeros(3), np.zeros(2), m, c, t)[0] < 0.; t += .1
+    assert f._backup(np.zeros(3), np.zeros(2), m, c, t + .1) is None
+    assert f.backed >= c.backup_max_m  # for the rest of this stuck episode
+    # Progress keeps it going.
+    f2 = HybridFollower(c); _drive_trail(f2, m)
+    for k in range(20):
+        p = np.array([-.03 * k, 0., 0.])
+        assert f2._backup(p, np.zeros(2), m, c, .1 * k) is not None
+
+
+def test_turns_in_place_inside_the_obstacle_margin():
+    """11-02 16:50/16:52: nose inside the margin of a known obstacle, no backing
+    left, person 0.3 rad off: zero command for 10-11 s. The round footprint can
+    turn in place there."""
+    c = Tuning(); hist = [np.array([1.5, 0.])]
+    wall = np.array([[.12, y, z] for y in np.arange(-.6, .61, .05) for z in (.2, .4)])
+    m = _open_map(wall)
+    f = HybridFollower(c)
+    cmd = f.command(np.zeros(3), np.array([0., .3]), np.array([1.5, .5]), np.zeros(2), hist, m, [], "visible",
+                    recovery=True)
+    assert cmd[0] == 0. and cmd[1] > .2

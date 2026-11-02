@@ -64,6 +64,14 @@ class Tuning:
     # Stuck with only flank-looking left: back up along the robot's own swept
     # path (known free: the body was just there) instead of turning in place.
     backup_speed: float = .2
+    # Backing out: with the tail more than backup_align off the trail, turn in
+    # place first; then reverse at >= backup_min_speed. Reversing at
+    # backup_speed*cos(err) gave 0.03-0.05 m/s, which the chassis does not move
+    # at (11-02 16:47: 9 s of backing_out, 0 m). No 5 cm within backup_stall_s
+    # of reversing ends the backing for this stuck episode.
+    backup_align: float = .5
+    backup_min_speed: float = .12
+    backup_stall_s: float = 2.
     # Chassis response inside the rollout (measured on 4 J02 runs, 2026-10-29):
     # sustained yaw commands reach 63 % after 0.44 s; mean |w| below 0.2 rad/s
     # gives ~20 %, 0.2-0.3 partly, >= 0.3 fully. Without it the rollouts assumed

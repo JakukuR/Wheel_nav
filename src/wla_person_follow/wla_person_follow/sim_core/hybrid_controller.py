@@ -63,10 +63,12 @@ class HybridFollower:
         self.trail=[]  # robot positions >= 5 cm apart (swept, so known free), newest last
         self.backed=0.  # distance backed up in the current stuck episode
         self.last_pose=None;self.reversing=False
+        self.back_check=None  # (time, position) of the last 5 cm of reversing
 
     def reset(self):
         """Forget detour side/look state between tasks."""
         self.detour=DetourPlanner();self.stuck_cycles=0;self.trail=[];self.backed=0.;self.last_pose=None;self.reversing=False
+        self.back_check=None
 
     def _remember(self, pose):
         p=np.asarray(pose[:2],dtype=float)
@@ -80,7 +82,7 @@ class HybridFollower:
             # Keep about 3 m of path: enough to back up and long-gone space is stale.
             while len(self.trail)>60:self.trail.pop(0)
 
-    def _backup(self, pose, previous, local_map, c):
+    def _backup(self, pose, previous, local_map, c, now=None):
         """Reverse along the swept path while stuck; None when not possible."""
         p=np.asarray(pose[:2],dtype=float)
         if self.backed>=c.backup_max_m or len(self.trail)<3:return None
@@ -96,9 +98,21 @@ class HybridFollower:
         if np.min(clear[1:])<min(c.radius+.02,clear[0]):return None
         rear=pose[2]+np.pi
         err=float(wrap(np.arctan2(goal[1]-p[1],goal[0]-p[0])-rear))
-        w=float(np.clip(1.5*err,-.5,.5))
+        if abs(err)>c.backup_align:
+            # Tail onto the trail first, turning fast enough for the chassis.
+            w=float(np.sign(err)*np.clip(1.5*abs(err),c.chassis_deadband_hi,.5));v=0.
+            self.back_check=None
+        else:
+            if now is not None:
+                if self.back_check is None or np.linalg.norm(p-self.back_check[1])>=.05:
+                    self.back_check=(now,p.copy())
+                elif now-self.back_check[0]>=c.backup_stall_s:
+                    # Reversing does not move the robot: stop backing this episode.
+                    self.backed=c.backup_max_m;self.back_check=None
+                    return None
+            w=float(np.clip(1.5*err,-.5,.5))
+            v=-max(c.backup_min_speed,c.backup_speed*np.cos(err))
         w=float(np.clip(w,previous[1]-c.yaw_accel*c.step,previous[1]+c.yaw_accel*c.step))
-        v=-c.backup_speed*max(0.,np.cos(err))
         self.reversing=True
         self.last_candidates=dict(safe=1,feasible=1,forward=0,backing=True,backed_m=round(self.backed,2),
                                   detour=dict(self.detour.last or {}))
@@ -119,15 +133,17 @@ class HybridFollower:
                 return np.vstack((p,path[j:]))
         return path
 
-    def recover(self, pose, previous, target, local_map, c):
+    def recover(self, pose, previous, target, local_map, c, now=None):
         """Never forward: back out along the swept path, else turn to the target in
-        place when the footprint is clear, else stop."""
-        back=self._backup(pose,previous,local_map,c)
+        place, else (facing it) stop."""
+        back=self._backup(pose,previous,local_map,c,now)
         if back is not None:return back
         self.last_candidates=dict(safe=1,feasible=1,forward=0,recovery=True,backed_m=round(self.backed,2))
         err=float(wrap(np.arctan2(target[1]-pose[1],target[0]-pose[0])-pose[2]))
-        clear=float(np.min(local_map.query(np.asarray(pose[:2],dtype=float).reshape(1,2))))-c.radius
-        if abs(err)<=.15 or clear<0.:return np.zeros(2)
+        # Turning in place is allowed inside the obstacle margin: the footprint is
+        # a circle, so it does not change the clearance (11-02 16:52: nose inside
+        # the margin, person 0.3 rad off, zero command for 11 s).
+        if abs(err)<=.15:return np.zeros(2)
         w=float(np.clip(1.5*err,-.6,.6))
         return np.array([0.,float(np.clip(w,previous[1]-c.yaw_accel*c.step,previous[1]+c.yaw_accel*c.step))])
 
@@ -149,7 +165,7 @@ class HybridFollower:
         if recovery:
             # The newest depth frame shows too little (e.g. the nose at a desk
             # inside the camera's minimum range): do not drive forward on it.
-            return self.recover(pose,previous,target,local_map,c)
+            return self.recover(pose,previous,target,local_map,c,policy_time)
         path=bezier_reference(history) if reference_path is None else np.asarray(reference_path,dtype=float).reshape(-1,2)
         detouring=False
         if reference_path is None and not searching and self.detour is not None:
@@ -157,7 +173,7 @@ class HybridFollower:
             detour=self.detour.plan(pose,np.asarray(target,dtype=float),local_map,c,reference=path)
             if detour is not None:path=detour;detouring=True
             if detour is not None and self.detour.last.get('looking') and self.stuck_cycles>=3:
-                back=self._backup(pose,previous,local_map,c)
+                back=self._backup(pose,previous,local_map,c,policy_time)
                 if back is not None:return back
             if detour is not None and self.detour.last.get('looking') and self.stuck_cycles>=3:
                 # Turning to observe an unseen flank is an explicit in-place rotation
@@ -167,12 +183,14 @@ class HybridFollower:
                 if not self.detour.look_reached(abs(err)<=.15):
                     w=float(np.clip(1.5*err,-.6,.6))
                     w=float(np.clip(w,previous[1]-c.yaw_accel*c.step,previous[1]+c.yaw_accel*c.step))
-                    clear=np.min(local_map.query(np.asarray(pose[:2],dtype=float).reshape(1,2)))-c.radius
+                    # Also inside the obstacle margin (circular footprint; 11-02
+                    # 16:50: no feasible candidate, zero command for 10 s).
                     self.last_candidates=dict(safe=1,feasible=1,forward=0,looking=True,detour=dict(self.detour.last))
                     self.last_reference_path=np.asarray(detour)
-                    if clear>=0.:return np.array([0.,w])
+                    return np.array([0.,w])
         # The backing budget lasts for a whole stuck episode (no forward option).
-        if (not detouring or not self.detour.last.get('looking')) and self.stuck_cycles==0:self.backed=0.
+        if (not detouring or not self.detour.last.get('looking')) and self.stuck_cycles==0:
+            self.backed=0.;self.back_check=None
         if not len(path):path=np.asarray(target,dtype=float).reshape(1,2)
         if np.linalg.norm(path[-1]-target)>.01:path=np.vstack((path,target))
         if reference_path is None and not detouring and not searching and len(path)>=2:
@@ -313,7 +331,7 @@ class HybridFollower:
             if self.stuck_cycles>=3 and reference_path is None and not searching:
                 # Nothing safe for three plans (e.g. inflated obstacles round the
                 # body): back out along the swept path instead of waiting.
-                back=self._backup(pose,previous,local_map,c)
+                back=self._backup(pose,previous,local_map,c,policy_time)
                 if back is not None:
                     self.last_infeasible=False
                     return back
