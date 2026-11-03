@@ -69,12 +69,11 @@ class Tuning:
     # Stuck with only flank-looking left: back up along the robot's own swept
     # path (known free: the body was just there) instead of turning in place.
     backup_speed: float = .2
-    # Backing out: with the tail more than backup_align off the trail, turn in
-    # place first; then reverse at >= backup_min_speed. Reversing at
-    # backup_speed*cos(err) gave 0.03-0.05 m/s, which the chassis does not move
-    # at (11-02 16:47: 9 s of backing_out, 0 m). No 5 cm within backup_stall_s
-    # of reversing ends the backing for this stuck episode.
-    backup_align: float = .5
+    # Backing out reverses at >= backup_min_speed while steering the tail onto
+    # the trail. Reversing at backup_speed*cos(err) gave 0.03-0.05 m/s, which
+    # the chassis does not move at (11-02 16:47: 9 s of backing_out, 0 m). No
+    # 5 cm within backup_stall_s of reversing ends the backing for this stuck
+    # episode. (The 11-02 turn-the-tail-first step was removed 11-03.)
     backup_min_speed: float = .12
     backup_stall_s: float = 2.
     # Chassis response inside the rollout (measured on 4 J02 runs, 2026-10-29):

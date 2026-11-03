@@ -95,23 +95,24 @@ class HybridFollower:
         # Leaving a spot that is already tight is allowed as long as the path
         # never gets closer to known obstacles than the robot is now.
         clear=local_map.query(points)
-        if np.min(clear[1:])<min(c.radius+.02,clear[0]):return None
         rear=pose[2]+np.pi
+        # Reverse at once, steering the tail onto the trail while moving (no
+        # turn-in-place alignment first: 11-03 18:07 it alternated with search/
+        # look turns for 75 s and never reversed). The straight-back line the
+        # chassis actually starts on must keep the same clearance rule.
+        behind=p+np.linspace(0.,.3,7)[:,None]*np.array([np.cos(rear),np.sin(rear)])
+        clear=np.r_[clear,local_map.query(behind)[1:]]
+        if np.min(clear[1:])<min(c.radius+.02,clear[0]):return None
         err=float(wrap(np.arctan2(goal[1]-p[1],goal[0]-p[0])-rear))
-        if abs(err)>c.backup_align:
-            # Tail onto the trail first, turning fast enough for the chassis.
-            w=float(np.sign(err)*np.clip(1.5*abs(err),c.chassis_deadband_hi,.5));v=0.
-            self.back_check=None
-        else:
-            if now is not None:
-                if self.back_check is None or np.linalg.norm(p-self.back_check[1])>=.05:
-                    self.back_check=(now,p.copy())
-                elif now-self.back_check[0]>=c.backup_stall_s:
-                    # Reversing does not move the robot: stop backing this episode.
-                    self.backed=c.backup_max_m;self.back_check=None
-                    return None
-            w=float(np.clip(1.5*err,-.5,.5))
-            v=-max(c.backup_min_speed,c.backup_speed*np.cos(err))
+        if now is not None:
+            if self.back_check is None or np.linalg.norm(p-self.back_check[1])>=.05:
+                self.back_check=(now,p.copy())
+            elif now-self.back_check[0]>=c.backup_stall_s:
+                # Reversing does not move the robot: stop backing this episode.
+                self.backed=c.backup_max_m;self.back_check=None
+                return None
+        w=float(np.clip(1.5*err,-.5,.5))
+        v=-max(c.backup_min_speed,c.backup_speed*np.cos(err))
         w=float(np.clip(w,previous[1]-c.yaw_accel*c.step,previous[1]+c.yaw_accel*c.step))
         self.reversing=True
         self.last_candidates=dict(safe=1,feasible=1,forward=0,backing=True,backed_m=round(self.backed,2),

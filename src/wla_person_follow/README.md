@@ -146,7 +146,7 @@ D455 → nav_yolo_detector（YOLOE 分割 + BoT-SORT + OSNet）
 | `search_speed` | 0.4 m/s | 开往消失点的速度 |
 | `chassis_tau_w` / `chassis_tau_v` | 0.50 / 0.18 s | 底盘响应模型，增益 1.0，按 J02 实测拟合 |
 | `backup_speed` / `backup_min_speed` / `backup_max_m` | 0.2 / 0.12 m/s，0.6 m | 倒车脱困 |
-| `backup_align` / `backup_stall_s` | 0.5 rad / 2 s | 倒车前先转正的阈值；倒车停滞多久放弃 |
+| `backup_stall_s` | 2 s | 倒车停滞多久放弃（倒车时边退边把车尾转向走过的路，不再原地先转正） |
 | 人物滤波 | 测量噪声 0.05 m，加速度 0.5 m/s² | `follow_session.TARGET_MEAS_STD_M` / `TARGET_ACCEL_STD_MPS2` |
 | `max_sensor_age_s` | 0.40 s | 观测时效；启动检查上限 0.45 s，C++、`sim_node`、`TaskSession` 三处一致 |
 

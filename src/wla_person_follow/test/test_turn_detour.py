@@ -280,15 +280,25 @@ def test_image_edge_detection_keeps_bearing_and_predicted_range():
 
 
 
-def test_backing_turns_the_tail_onto_the_trail_before_reversing():
-    """11-02 16:47: trail 80 deg off the tail, reversing at 0.2*cos(err) = 0.03-0.05
-    m/s; the chassis did not move for 9 s."""
+def test_backing_reverses_at_once_and_steers_the_tail_onto_the_trail():
+    """11-02 16:47: 0.2*cos(err) = 0.03-0.05 m/s did not move the chassis; 11-03
+    18:07: turning the tail first alternated with search turns for 75 s and never
+    reversed. Now it reverses at >= backup_min_speed straight away."""
     c = Tuning(); f = HybridFollower(c); m = _open_map(); _drive_trail(f, m)
     yaw = 1.4  # tail points 80 deg off the trail behind
     cmd = f._backup(np.array([0., 0., yaw]), np.array([0., -.5]), m, c, 0.)
-    assert cmd is not None and cmd[0] == 0. and cmd[1] <= -c.chassis_deadband_hi + 1e-9
+    assert cmd is not None and cmd[0] <= -c.backup_min_speed + 1e-9 and cmd[1] < 0.
     cmd = f._backup(np.array([0., 0., .3]), np.zeros(2), m, c, 0.)
     assert cmd[0] <= -c.backup_min_speed + 1e-9
+
+
+def test_backing_refuses_when_the_straight_back_line_is_blocked():
+    c = Tuning(); f = HybridFollower(c)
+    wall = np.array([[x, -.32, h] for x in np.arange(-.3, .31, .05) for h in (.3, .6)])
+    m = _open_map(wall); _drive_trail(f, m)
+    # Tail towards the wall: the trail is free, but the chassis would start into it.
+    assert f._backup(np.array([0., 0., 1.4]), np.zeros(2), m, c, 0.) is None
+    assert f._backup(np.zeros(3), np.zeros(2), m, c, 0.) is not None
 
 
 def test_backing_gives_up_when_reversing_does_not_move():
