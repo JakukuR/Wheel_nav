@@ -91,7 +91,7 @@ MAP_RESOLUTION_M=.05
 MAP_SIZE_CELLS=160
 # Point goal (mode 3): route refresh period, arrival band and speed cap.
 POINT_ROUTE_REFRESH_S=.5
-POINT_GOAL_MAX_V=.30
+POINT_GOAL_MAX_V=.80
 # Orient (mode 4): in-place turn above the chassis yaw deadband (0.3 rad/s).
 ORIENT_MIN_W=.35
 ORIENT_MAX_W=.50
