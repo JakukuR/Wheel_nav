@@ -1,7 +1,11 @@
 """Wander / curiosity loop. ROS-free: the node supplies inputs and sends the legs.
 
-One round: look around in place -> curiosity (turn, approach, observe) if an
-object scores high enough, else wander 1-2 m into an open sector -> next round.
+Started once, it keeps wandering until another task takes the follow backend,
+it is stopped, or motion permission goes. One full look-around at the start;
+after that it walks 1.2-2.8 m legs through the free region connected to the
+robot, rests a few seconds between legs and now and then glances to one side.
+An object that scores high enough interrupts the walk: turn to it, approach,
+observe. A full turn happens again only when no reachable goal is found.
 Every motion is a leg of the person-follow backend (mode 2 object approach,
 mode 3 point goal, mode 4 orient); this module never publishes velocity.
 """
@@ -10,9 +14,9 @@ import math
 import uuid
 import numpy as np
 from .memory import ObjectMemory, SectorMemory, VisitHeatmap, WheelPose, wrap
-from .policy import Weights, choose_object, object_scores, wander_goal
+from .policy import Weights, choose_object, connected_goal, grid_ray_measure, object_scores, wander_goal
 
-RUNNING = ('look', 'turn_to', 'acquire', 'approach', 'observe', 'wander', 'dwell')
+RUNNING = ('look', 'glance', 'turn_to', 'acquire', 'approach', 'observe', 'wander', 'rest', 'yield')
 # Follow terminal reasons that mean the motion permission itself is gone.
 AUTHORITY_REASONS = ('motion_authority_lost', 'motion_authority_revoked', 'local_estop',
                      'estop_or_direct_publisher_conflict', 'transport_request_revoked_or_invalid',
@@ -21,8 +25,9 @@ AUTHORITY_REASONS = ('motion_authority_lost', 'motion_authority_revoked', 'local
 
 @dataclass
 class Params:
-    session_budget_s: float = 600.
+    session_budget_s: float = 0.          # 0: wander until stopped or preempted
     boundary_radius_m: float = 4.
+    initial_look: bool = True
     look_turn_rad: float = 2*math.pi+.2
     look_timeout_s: float = 35.
     turn_timeout_s: float = 12.
@@ -31,12 +36,21 @@ class Params:
     acquire_timeout_s: float = 2.5
     acquire_radius_m: float = .8
     observe_s: float = 4.
-    dwell_s: float = 2.
+    rest_min_s: float = 1.
+    rest_max_s: float = 4.
+    glance_probability: float = .3
+    glance_min_rad: float = .5
+    glance_max_rad: float = 1.2
+    no_goal_glances: int = 2              # side glances before a full look
+    no_goal_rest_s: float = 10.
+    failure_rest_s: float = 15.
+    grid_max_age_s: float = 1.5
     visit_cooldown_s: float = 300.
     failure_cooldown_s: float = 120.
     turn_skip_rad: float = .2
     interaction_radius_m: float = 1.0
     interaction_hold_s: float = 1.0
+    resume_after_person_s: float = 5.     # < 0: a close person ends the session
     heartbeat_period_s: float = .3
     lease_s: float = 1.
     control_max_age_s: float = .6
@@ -54,14 +68,16 @@ class Explorer:
         self.visits = VisitHeatmap()
         self.objects = ObjectMemory()
         self.sectors = SectorMemory()
+        self.grid = None; self.grid_at = -math.inf
         self.state, self.reason = 'idle', 'waiting_for_start'
         self.session = None; self.leg_count = 0; self.leg = None
         self.start_xy = np.zeros(2); self.active_s = 0.; self.last_tick = None
         self.control = None; self.control_at = -math.inf
         self.visible = []; self.visible_at = -math.inf
-        self.close_since = None
+        self.close_since = None; self.person_seen_at = -math.inf
         self.target = None; self.deadline = None
-        self.looks_since_move = 0; self.failures = 0; self.blocked = set()
+        self.no_goal = 0; self.failures = 0; self.blocked = set()
+        self.travel_heading = None; self.legs_walked = 0; self.walked_m = 0.
         self.follow_status = None; self.last_visit_at = None
         self.last_choice = None; self.history = []
 
@@ -87,13 +103,22 @@ class Explorer:
                 self.objects.observe(row['label'], xy, now)
             visible.append((row, xy))
         self.visible, self.visible_at = visible, now
+        if close:
+            self.person_seen_at = now
         self.close_since = (self.close_since or now) if close else None
         if (self.close_since is not None and now-self.close_since >= self.p.interaction_hold_s
-                and self.state in RUNNING):
-            self.finish(now, 'yielded_to_person')
+                and self.state in RUNNING and self.state != 'yield'):
+            if self.p.resume_after_person_s < 0:
+                self.finish(now, 'yielded_to_person')
+            else:
+                self._stop_leg(); self.target = None
+                self.state, self.reason = 'yield', 'person_close'
+                self._log(now, 'yield')
 
-    def on_grid(self, measure, now):
-        self.sectors.update(self.pose, now, measure)
+    def on_grid(self, snapshot, now):
+        self.grid, self.grid_at = snapshot, now
+        self.sectors.update(self.pose, now, grid_ray_measure(snapshot.grid, snapshot.resolution,
+                                                             snapshot.origin_xy, snapshot.origin_yaw))
 
     def on_control(self, data, now):
         self.control, self.control_at = data, now
@@ -114,7 +139,7 @@ class Explorer:
                 self._leg_failed(now, status.get('reason') or status.get('state'))
         elif (status.get('enabled') and rid and self.session is not None
                 and not rid.startswith('explore-') and self.state in RUNNING):
-            # Someone else's follow task took the backend: give way for good.
+            # Another task took the backend: that is the end of wandering.
             self.finish(now, 'preempted_by_'+rid[:40], stop_leg=False)
 
     def on_leg_reply(self, request_id, command, accepted, reason, state, now):
@@ -151,8 +176,11 @@ class Explorer:
             return False, reason
         self.session = uuid.uuid4().hex[:8]; self.leg_count = 0
         self.start_xy = self.pose.xy(); self.active_s = 0.; self.last_tick = now
-        self.failures = 0; self.looks_since_move = 0; self.blocked = set()
-        self._look(now)
+        self.failures = 0; self.no_goal = 0; self.blocked = set(); self.travel_heading = None
+        if self.p.initial_look:
+            self._look(now)
+        else:
+            self._select(now)
         return True, 'started'
 
     def pause(self, now, reason='paused_by_request'):
@@ -163,7 +191,7 @@ class Explorer:
         return True, 'paused'
 
     def resume(self, now):
-        """Re-select from memory; an exploration has no original target to insist on."""
+        """Re-select from memory; wandering has no original target to insist on."""
         if self.state != 'paused':
             return False, 'not_paused'
         ok, reason = self.authority(now)
@@ -192,7 +220,7 @@ class Explorer:
         if self.state in RUNNING:
             if self.last_tick is not None:
                 self.active_s += max(0., now-self.last_tick)
-            if self.active_s >= self.p.session_budget_s:
+            if self.p.session_budget_s > 0 and self.active_s >= self.p.session_budget_s:
                 self.finish(now, 'budget_exhausted')
         self.last_tick = now
         if self.state not in RUNNING:
@@ -206,17 +234,34 @@ class Explorer:
             return
         if self.state == 'acquire':
             self._acquire(now)
-        elif self.state in ('observe', 'dwell') and now >= self.deadline:
+        elif self.state == 'yield':
+            if self.close_since is None and now-self.person_seen_at >= self.p.resume_after_person_s:
+                self._log(now, 'person_left'); self._select(now)
+        elif self.state in ('observe', 'rest') and now >= self.deadline:
             if self.state == 'observe' and self.target is not None:
                 self.target.visits += 1; self.target.cooldown_until = now+self.p.visit_cooldown_s
                 self._log(now, 'visited', object=self.target.ident, label=self.target.label)
             self.target = None
-            self._look(now)
+            self._select(now)
 
     # ---------- steps ----------
     def _look(self, now):
         self.state = 'look'; self.reason = 'looking_around'
         self._begin_leg(now, '4', f'{self.p.look_turn_rad:.3f}', self.p.look_timeout_s)
+
+    def _glance(self, now, angle, reason):
+        self.state, self.reason = 'glance', reason
+        self._begin_leg(now, '4', f'{angle:.3f}', self.p.turn_timeout_s)
+
+    def _rest(self, now, seconds, reason):
+        self.state, self.reason, self.deadline = 'rest', reason, now+seconds
+
+    def _stalest_side(self, now):
+        """Glance towards the heading sector seen longest ago (bounded to +-glance_max)."""
+        ages = now-self.sectors.stamp
+        index = int(np.argmax(np.where(np.isfinite(ages), ages, 1e9)+self.rng.uniform(0., 1., len(ages))))
+        bearing = wrap(self.sectors.heading(index)-self.pose.yaw)
+        return math.copysign(float(np.clip(abs(bearing), self.p.glance_min_rad, self.p.glance_max_rad)), bearing or 1.)
 
     def _select(self, now):
         rows = object_scores(self.objects, self.pose, now, self.start_xy, self.p.boundary_radius_m, self.p.weights)
@@ -234,22 +279,38 @@ class Explorer:
             else:
                 self._begin_acquire(now)
             return
-        best = wander_goal(self.sectors, self.visits, self.pose, now, self.start_xy,
-                           self.p.boundary_radius_m, self.rng, self.p.weights, blocked=self.blocked)
-        if best is not None:
-            score, index, goal = best
+        goal = None
+        if self.grid is not None and now-self.grid_at <= self.p.grid_max_age_s:
+            found = connected_goal(self.grid, self.visits, self.pose, now, self.start_xy, self.p.boundary_radius_m,
+                                   self.rng, self.travel_heading, self.p.weights)
+            if found is not None:
+                score, goal, parts = found
+                self.last_choice = dict(kind='wander', source='connected_region', score=round(float(score), 3), parts=parts)
+        if goal is None:
+            found = wander_goal(self.sectors, self.visits, self.pose, now, self.start_xy,
+                                self.p.boundary_radius_m, self.rng, self.p.weights, blocked=self.blocked)
+            if found is not None:
+                score, index, goal = found
+                self.last_choice = dict(kind='wander', source='sector', sector=index, score=round(float(score), 3))
+        if goal is not None:
+            self.no_goal = 0
             rel = self.pose.to_robot(goal)
-            self.last_choice = dict(kind='wander', sector=index, score=round(float(score), 3),
-                                    reach_m=round(float(self.sectors.reach[index]), 2),
-                                    goal_odom=[round(float(v), 2) for v in goal])
+            self.last_choice['goal_odom'] = [round(float(v), 2) for v in goal]
             self._log(now, 'wander', **self.last_choice)
             self.state, self.reason = 'wander', 'wandering'
-            self._begin_leg(now, '3', f'{rel[0]:.3f},{rel[1]:.3f}', self.p.wander_timeout_s, sector=index)
+            self._begin_leg(now, '3', f'{rel[0]:.3f},{rel[1]:.3f}', self.p.wander_timeout_s,
+                            sector=self.last_choice.get('sector'), origin=self.pose.xy().tolist(),
+                            goal=goal.tolist())
             return
-        if self.looks_since_move < 2:
+        # Nothing reachable in view: glance aside first, a full turn only after that.
+        self.no_goal += 1
+        if self.no_goal <= self.p.no_goal_glances:
+            self._glance(now, self._stalest_side(now), 'looking_for_open_space')
+        elif self.no_goal == self.p.no_goal_glances+1:
             self._look(now)
         else:
-            self.finish(now, 'no_open_space')
+            self.no_goal = 0; self.blocked = set()
+            self._rest(now, self.p.no_goal_rest_s, 'no_open_space_waiting')
 
     def _begin_acquire(self, now):
         self.state, self.reason = 'acquire', 'finding_'+self.target.label
@@ -286,17 +347,28 @@ class Explorer:
         leg, self.leg = self.leg, None
         self.failures = 0
         self._log(now, 'leg_done', kind=leg['kind'], seconds=round(now-leg['started'], 1))
-        if leg['kind'] == 'look':
-            self.looks_since_move += 1; self.blocked = set()
-            self._select(now)
-        elif leg['kind'] == 'turn_to':
+        kind = leg['kind']
+        if kind == 'look':
+            self.blocked = set(); self._select(now)
+        elif kind == 'glance':
+            if self.reason == 'looking_for_open_space':
+                self._select(now)
+            else:
+                self._rest(now, self.rng.uniform(self.p.rest_min_s, self.p.rest_max_s), 'resting')
+        elif kind == 'turn_to':
             self._begin_acquire(now)
-        elif leg['kind'] == 'approach':
-            self.looks_since_move = 0
+        elif kind == 'approach':
             self.state, self.reason, self.deadline = 'observe', 'observing_'+self.target.label, now+self.p.observe_s
-        elif leg['kind'] == 'wander':
-            self.looks_since_move = 0
-            self.state, self.reason, self.deadline = 'dwell', 'looking_after_walk', now+self.p.dwell_s
+        elif kind == 'wander':
+            self.blocked = set(); self.legs_walked += 1
+            delta = np.asarray(leg['goal'])-np.asarray(leg['origin'])
+            self.walked_m += float(np.linalg.norm(self.pose.xy()-np.asarray(leg['origin'])))
+            self.travel_heading = math.atan2(delta[1], delta[0])
+            if self.rng.uniform() < self.p.glance_probability:
+                side = self.rng.choice([-1., 1.])*self.rng.uniform(self.p.glance_min_rad, self.p.glance_max_rad)
+                self._glance(now, side, 'glancing')
+            else:
+                self._rest(now, self.rng.uniform(self.p.rest_min_s, self.p.rest_max_s), 'resting')
 
     def _leg_failed(self, now, reason, leg=None):
         leg = leg or self.leg
@@ -307,13 +379,16 @@ class Explorer:
         if any(reason.startswith(r) for r in AUTHORITY_REASONS):
             self.finish(now, reason, stop_leg=False); return
         self.failures += 1
-        if self.failures >= self.p.max_consecutive_failures:
-            self.finish(now, 'repeated_leg_failures:'+reason, stop_leg=False); return
         if leg['kind'] in ('turn_to', 'approach') and self.target is not None:
             self.target.failures += 1; self.target.cooldown_until = now+self.p.failure_cooldown_s
             self.target = None
-        elif leg['kind'] == 'wander':
-            self.blocked.add(leg.get('sector'))
+        elif leg['kind'] == 'wander' and leg.get('sector') is not None:
+            self.blocked.add(leg['sector'])
+        if self.failures >= self.p.max_consecutive_failures:
+            # Keep wandering, but back off instead of hammering the backend.
+            self.failures = 0
+            self._rest(now, self.p.failure_rest_s, 'backing_off_after_failures:'+reason[:60])
+            return
         self._select(now)
 
     def _log(self, now, event, **data):
@@ -324,10 +399,13 @@ class Explorer:
         objects = sorted(self.objects.instances, key=lambda o: -o.last_seen)[:12]
         return dict(schema='wla-explore-status/v1', state=self.state, reason=self.reason,
             session=self.session, active_s=round(self.active_s, 1), budget_s=self.p.session_budget_s,
+            legs_walked=self.legs_walked, walked_m=round(self.walked_m, 1),
             pose_odom=[round(self.pose.x, 2), round(self.pose.y, 2), round(self.pose.yaw, 3)],
             start_odom=[round(float(v), 2) for v in self.start_xy],
             leg=None if self.leg is None else {k: v for k, v in self.leg.items() if k != 'beat_at'},
             target=None if self.target is None else self.target.summary(now),
+            rest_remaining_s=round(self.deadline-now, 1) if self.state in ('rest', 'observe') else None,
+            grid_age_s=None if self.grid is None else round(now-self.grid_at, 2),
             last_choice=self.last_choice, consecutive_failures=self.failures,
             sectors=[dict(heading=round(math.degrees(self.sectors.heading(i))), reach_m=round(float(self.sectors.reach[i]), 2),
                           age_s=round(now-self.sectors.stamp[i], 1)) for i in self.sectors.fresh(now, 60.)],

@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 from wla_explore_wander.explorer import Explorer, Params
 from wla_explore_wander.memory import ObjectMemory, SectorMemory, VisitHeatmap, WheelPose
-from wla_explore_wander.policy import Weights, choose_object, grid_ray_measure, object_scores, wander_goal
+from wla_explore_wander.policy import GridSnapshot, Weights, choose_object, connected_goal, grid_ray_measure, object_scores, wander_goal
 
 AUTO = dict(mode='AUTO', estop_latched=False, automatic_source='PERSON')
 
@@ -124,9 +124,13 @@ def test_round_wanders_when_nothing_is_interesting_then_looks_again():
     e.tick(10.4)
     assert io.calls[-1] == ('heartbeat', e.leg['request_id'])
     arrive(e, 15.)
-    assert e.state == 'dwell'
-    e.tick(17.5)
-    assert e.state == 'look' and io.starts()[-1][2] == '4'
+    assert e.state in ('rest', 'glance') and e.travel_heading is not None
+    if e.state == 'glance':
+        assert e.reason == 'glancing' and abs(float(io.starts()[-1][3])) <= 1.2
+        arrive(e, 16.)
+    assert e.state == 'rest' and e.leg is None
+    open_sectors(e, 20.); e.tick(20.)
+    assert e.state == 'wander' and io.starts()[-1][2] == '3'  # no full turn between legs
 
 
 def test_curiosity_turns_acquires_approaches_observes_and_cools_down():
@@ -145,7 +149,7 @@ def test_curiosity_turns_acquires_approaches_observes_and_cools_down():
     arrive(e, 20.)
     assert e.state == 'observe'
     e.tick(24.5)
-    assert e.state == 'look' and target.visits == 1 and target.cooldown_until == pytest.approx(324.5)
+    assert e.state == 'glance' and target.visits == 1 and target.cooldown_until == pytest.approx(324.5)
 
 
 def test_object_lost_during_acquire_goes_into_cooldown_and_reselects():
@@ -158,14 +162,24 @@ def test_object_lost_during_acquire_goes_into_cooldown_and_reselects():
     assert e.state == 'wander' and e.objects.instances[0].cooldown_until > 100.
 
 
-def test_person_coming_close_cancels_for_good():
+def test_person_coming_close_yields_then_wandering_carries_on():
     e, io = explorer(); e.start(0.); rid = e.leg['request_id']
     person = [dict(detected=True, label='person', id='s:0:1', distance=.8, yaw=0.)]
     e.on_detections(person, 1.); e.on_detections(person, 1.5)
     assert e.state == 'look'
     e.on_detections(person, 2.1)
-    assert e.state == 'done' and e.reason == 'yielded_to_person' and io.calls[-1] == ('stop', rid)
-    assert e.resume(3.)[0] is False
+    assert e.state == 'yield' and io.calls[-1] == ('stop', rid) and e.leg is None
+    e.on_detections([], 3.); e.tick(6.)
+    assert e.state == 'yield'
+    open_sectors(e, 8.5); e.tick(8.5)
+    assert e.state == 'wander'
+
+
+def test_person_close_can_still_end_the_session():
+    e, io = explorer(resume_after_person_s=-1.); e.start(0.)
+    person = [dict(detected=True, label='person', id='s:0:1', distance=.8, yaw=0.)]
+    e.on_detections(person, 1.); e.on_detections(person, 2.1)
+    assert e.state == 'done' and e.reason == 'yielded_to_person'
 
 
 def test_pause_then_resume_reselects_from_memory():
@@ -193,7 +207,9 @@ def test_authority_loss_in_backend_finishes_and_ordinary_failures_retry():
     e, io = explorer(max_consecutive_failures=3); e.start(0.); open_sectors(e, 1.)
     for k in range(3):
         e.on_leg_reply(e.leg['request_id'], 'start', False, 'observations_stale', 'rejected', 1.)
-    assert e.state == 'done' and e.reason.startswith('repeated_leg_failures')
+    assert e.state == 'rest' and e.reason.startswith('backing_off_after_failures')
+    e.tick(16.5)
+    assert e.state != 'done' and e.leg is not None
 
 
 def test_leg_timeout_stops_the_leg_and_blocks_that_sector():
@@ -217,3 +233,71 @@ def test_budget_ends_the_session_and_pause_does_not_count():
     assert e.state != 'done'
     e.tick(107.)
     assert e.reason == 'budget_exhausted'
+
+
+def _room_grid(door=True):
+    """Robot-frame grid, 0.05 m cells over +-4 m, robot at the centre.
+
+    Known free floor everywhere except a wall at x = 1.0 m; with a door
+    (|y| < 0.5 m) the space beyond the wall is connected, without it not.
+    """
+    g = np.zeros((160, 160), dtype=int)
+    g[:, 100:102] = 100
+    if door:
+        g[70:90, 100:102] = 0
+    return GridSnapshot(g, .05, (-4., -4.), 0., np.zeros(2), 0.)
+
+
+def test_connected_goal_stays_in_the_region_connected_to_the_robot():
+    rng = np.random.default_rng(2); pose = WheelPose(); v = VisitHeatmap()
+    w = Weights(unvisited=0., openness=0., frontier=0., wander_turn=0., momentum=0., wander_noise=0.)
+    walled = _room_grid(door=False)
+    for _ in range(20):
+        score, goal, parts = connected_goal(walled, v, pose, 0., np.zeros(2), 4., rng, None, w)
+        assert goal[0] < .9 and 1.1 <= np.linalg.norm(goal) <= 2.9
+    beyond = [connected_goal(_room_grid(), v, pose, 0., np.zeros(2), 4., rng, None, w)[1][0] > 1.1 for _ in range(40)]
+    assert any(beyond)
+
+
+def test_connected_goal_carries_on_in_the_walking_direction_and_avoids_visited():
+    rng = np.random.default_rng(3); pose = WheelPose(); v = VisitHeatmap()
+    open_floor = GridSnapshot(np.zeros((160, 160), dtype=int), .05, (-4., -4.), 0., np.zeros(2), 0.)
+    w = Weights(unvisited=0., openness=0., frontier=0., wander_turn=0., momentum=.5)
+    ahead = [connected_goal(open_floor, v, pose, 0., np.zeros(2), 4., rng, math.pi/2, w)[1] for _ in range(30)]
+    assert np.mean([g[1] > 0 for g in ahead]) > .8
+    for k in range(300):
+        v.add([0., 2.], k*.1, 1.)
+    w = Weights(unvisited=.8, openness=0., frontier=0., wander_turn=0., momentum=0.)
+    goals = [connected_goal(open_floor, v, pose, 30., np.zeros(2), 4., rng, None, w)[1] for _ in range(30)]
+    assert np.mean([np.linalg.norm(g-[0., 2.]) > 1. for g in goals]) > .8
+
+
+def test_connected_goal_none_when_boxed_in():
+    g = np.zeros((160, 160), dtype=int); g[:, :] = 100; g[76:84, 76:84] = 0
+    snap = GridSnapshot(g, .05, (-4., -4.), 0., np.zeros(2), 0.)
+    assert connected_goal(snap, VisitHeatmap(), WheelPose(), 0., np.zeros(2), 4., np.random.default_rng(0)) is None
+
+
+def test_grid_goal_is_used_and_no_goal_escalates_glance_glance_look_rest():
+    e, io = explorer(); e.start(0.)
+    e.on_grid(_room_grid(), 9.9)
+    arrive(e, 10.)
+    assert e.state == 'wander' and e.last_choice['source'] == 'connected_region'
+    e, io = explorer(); e.start(0.)
+    arrive(e, 10.)
+    assert e.state == 'glance' and e.reason == 'looking_for_open_space'
+    arrive(e, 11.); assert e.state == 'glance'
+    arrive(e, 12.); assert e.state == 'look'
+    arrive(e, 30.); assert e.state == 'rest' and e.reason == 'no_open_space_waiting'
+    e.tick(40.5); assert e.state == 'glance'
+
+
+def test_wanders_without_end_when_no_budget_is_set():
+    e, io = explorer(); e.start(0.); now = 0.
+    for k in range(50):
+        now += 10.; e.on_control(AUTO, now); open_sectors(e, now)
+        if e.leg is not None:
+            arrive(e, now)
+        e.tick(now+5.)
+    assert e.state != 'done' and e.legs_walked >= 10
+    assert sum(1 for c in io.starts() if c[3] == '6.483') == 1  # one full look, at the start

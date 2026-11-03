@@ -13,7 +13,7 @@ from std_msgs.msg import String
 from std_srvs.srv import Trigger
 from wla_behavior_interfaces.srv import PersonCommand
 from .explorer import Explorer, Params
-from .policy import grid_ray_measure
+from .policy import GridSnapshot
 
 GRID_PERIOD_S = .3
 
@@ -104,7 +104,8 @@ class ExploreNode(Node):
         q = msg.info.origin.orientation
         yaw = math.atan2(2*(q.w*q.z+q.x*q.y), 1-2*(q.y*q.y+q.z*q.z))
         origin = (msg.info.origin.position.x, msg.info.origin.position.y)
-        self.explorer.on_grid(grid_ray_measure(grid, msg.info.resolution, origin, yaw), now)
+        pose = self.explorer.pose
+        self.explorer.on_grid(GridSnapshot(grid, msg.info.resolution, origin, yaw, pose.xy(), pose.yaw), now)
 
     def on_control(self, msg):
         try:
