@@ -496,6 +496,11 @@ def test_extrapolated_position_places_cylinder_for_newer_depth():
     np.testing.assert_allclose(t.extrapolated_position(1.02),[2.,0.])   # exact match window
     np.testing.assert_allclose(t.extrapolated_position(1.2),[2.,0.])    # no track velocity yet
     assert t.extrapolated_position(1.5) is None and t.extrapolated_position(.9) is None
+    # The node keeps the cylinder through a short detection gap (sim_node horizon).
+    from wla_person_follow import sim_node
+    assert sim_node.TARGET_FALLBACK_HORIZON_S==1. and sim_node.TARGET_FALLBACK_GROWTH_M<=.4
+    np.testing.assert_allclose(t.extrapolated_position(1.8,horizon=sim_node.TARGET_FALLBACK_HORIZON_S),[2.,0.])
+    assert t.extrapolated_position(2.1,horizon=sim_node.TARGET_FALLBACK_HORIZON_S) is None
 
 
 def test_control_rate_and_map_age_parameters():

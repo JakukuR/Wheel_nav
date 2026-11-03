@@ -88,6 +88,8 @@ def measurements_from_relative(objects, pose, target_id, center_offset=.28):
 # the smaller window keeps map work near 13 ms on the Orin; the MPC horizon
 # (~2.9 m at 1.2 m/s) and object routes stay inside the window.
 MAP_RESOLUTION_M=.05
+# Person trail kept for ghost retirement: a little over the map's 12 s TTL.
+TRAIL_RETENTION_S=13.
 MAP_SIZE_CELLS=160
 # Point goal (mode 3): route refresh period, arrival band and speed cap.
 POINT_ROUTE_REFRESH_S=.5
@@ -109,6 +111,10 @@ class SimulationEngine:
         self.last_measurement=self.map_stamp=-math.inf
         self.approach=ApproachGoal()
         self.point_route=None  # (goal, planned_at, path) for mode 3
+        # Followed person's measured centres (stamp, x, y) in modes 0/1: the map
+        # forgets hits that appeared where the person stood (retire_person_trail).
+        self.target_trail=np.empty((0,3));self.trail_clear_radius=0.;self.trail_retired=0
+        self.trail_checked=None
         # Last issued planner command: rollout seed and per-interval step bound.
         self.last_command=None;self.last_command_at=None
 
@@ -119,12 +125,23 @@ class SimulationEngine:
                 self.mapping.update(packet,pose,stamp,rebuild=False);self.map_stamp=stamp
         self.mapping.slide(np.asarray(pose[:2]))
         self.mapping.local_assumed_free_center=np.asarray(pose[:2]).copy()
+        if len(self.target_trail):
+            self.target_trail=self.target_trail[self.target_trail[:,0]>=now-TRAIL_RETENTION_S]
+            # Only new hits or a new trail point can create a match.
+            state=(self.mapping.version,len(self.target_trail) and self.target_trail[-1,0])
+            if state!=self.trail_checked:
+                self.trail_retired=self.mapping.retire_person_trail(self.target_trail,now,self.trail_clear_radius)
+                self.trail_checked=(self.mapping.version,state[1])
         # Control-rate replans bring no packets: skip the EDTs whose inputs did
         # not change (exact; see RollingDepthMap.rebuild).
         self.mapping.rebuild(now,reuse=True)
 
     def step(self, pose, previous, packets, observation, now, policy=None,
              tracker_snapshot=None, task_mode='0', object_surface=None, *, active=True, recovery=False, goal=None):
+        if active and task_mode in ('0','1') and observation is not None and observation[1] is not None:
+            stamp=float(observation[0])
+            if not len(self.target_trail) or stamp>self.target_trail[-1,0]:
+                self.target_trail=np.vstack((self.target_trail,[stamp,*np.asarray(observation[1],dtype=float)[:2]]))
         self.update_map(pose,packets,now)
         if not active:
             self.controller.reset()
@@ -286,10 +303,12 @@ def process_step(job):
         if same_reference:
             _PROCESS_ENGINE.mapping=old.mapping
             _PROCESS_ENGINE.map_stamp=old.map_stamp
+            _PROCESS_ENGINE.target_trail=old.target_trail
         _PROCESS_KEY = key
     engine = _PROCESS_ENGINE
     engine.mapping.local_assumed_free_radius=local_radius
     engine.mapping.target_clear_ttl=float(startup.get('target_clear_ttl_s',.5))
+    engine.trail_clear_radius=float(startup.get('trail_clear_radius_m',0.))
     if startup['active'] and local_radius==0 and radius>0 and not _PROCESS_STARTUP_USED:
         # User-authorized assumption, once at the first follow task, not during
         # idle warm-up. Never erase observed obstacles or renew on task changes.
@@ -321,6 +340,8 @@ def process_step(job):
             prior['state']='counting_down' if prior['remaining_s']>0 else 'expired'
     result.update(map_lower=engine.mapping.lower.copy(),resolution=engine.mapping.res,
         startup_prior=prior,startup_prior_consumed=_PROCESS_STARTUP_USED,
+        person_trail_clear=dict(radius_m=engine.trail_clear_radius,trail_points=len(engine.target_trail),
+            retired_cells=engine.trail_retired),
         local_free_prior=dict(source='operator_assumed_robot_free',radius_m=local_radius,
             center_odom=np.asarray(pose[:2]).tolist(),state='continuous' if local_radius else 'disabled',
             assumed_cells=int(np.count_nonzero(engine.mapping.assumed_free))),

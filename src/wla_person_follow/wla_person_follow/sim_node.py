@@ -52,6 +52,12 @@ CONTROL_LOOKAHEAD_S=.03
 # Person removal without that frame's own mask: drop points within this radius
 # of the tracked person centre (body radius 0.28 m plus limb/tracking margin).
 TARGET_FALLBACK_RADIUS_M=.50
+# A short detection gap keeps the cylinder on the extrapolated track for up to
+# this long (was 0.3 s, after which the whole body was marked as an obstacle);
+# it widens linearly to +GROWTH at the horizon for a turn the constant-velocity
+# extrapolation misses. Only this frame's marking/clearing is skipped there.
+TARGET_FALLBACK_HORIZON_S=1.
+TARGET_FALLBACK_GROWTH_M=.40
 # wla_terrain_analysis cloud matched to a depth frame (same camera frames, ~10 Hz).
 TERRAIN_MATCH_NS=150_000_000
 # Exploration primitives (modes 3/4): arrival bands on the wheel pose.
@@ -83,7 +89,8 @@ class FollowEngine:
             binding_jump_radius_m=.45, binding_jump_growth_mps=.25, binding_jump_radius_max_m=1.5,
             neighbor_ambiguity_radius_m=1.5,
             target_ghost_clear_enabled=True,target_bbox_filter_enabled=True,
-            target_ghost_clear_radius_m=.35,target_ghost_clear_ttl_s=.5,terrain_topic='')
+            target_ghost_clear_radius_m=.35,target_ghost_clear_ttl_s=.5,
+            target_trail_clear_enabled=True,target_trail_clear_radius_m=.30,terrain_topic='')
         self.p = {k:self.io.declare_parameter(k,v).value for k,v in defaults.items()}
         if (self.p['output_mode'] not in ('direct','mux') or
             not 0 < self.p['max_sensor_age_s'] <= .45 or  # 0.40 since 2026-10-30
@@ -114,7 +121,8 @@ class FollowEngine:
             not 0 <= self.p['binding_jump_growth_mps'] <= 1 or
             not .5 <= self.p['neighbor_ambiguity_radius_m'] <= 3 or
             not 0 < self.p['target_ghost_clear_radius_m'] <= .35 or
-            not 0 < self.p['target_ghost_clear_ttl_s'] <= 1.):
+            not 0 < self.p['target_ghost_clear_ttl_s'] <= 1. or
+            not 0 < self.p['target_trail_clear_radius_m'] <= .35):
             raise ValueError('invalid_sim_adapter_configuration')
         validate_detection_status_topic(self.p['detection_status_topic'])
         self.follow_preset=validate_follow_config(self.p)
@@ -265,6 +273,9 @@ class FollowEngine:
             self.last_depth_stamp=ns
             self.depth_pairer.put_depth(ns,(frame,time.monotonic()+self.p['max_sensor_age_s']-max(0.,age)))
             self.event.set()
+
+    def _trail_clear_radius(self):
+        return self.p['target_trail_clear_radius_m'] if self.p['target_trail_clear_enabled'] else 0.
 
     def on_target_mask(self,msg):
         try:
@@ -557,7 +568,10 @@ class FollowEngine:
                     if key!=self.key():raise ValueError('target_revision_changed_during_depth')
                     binding_status=self.tracker.snapshot(control_stamp,control_pose) if active and self.tracker is not None else None
                     mask_geometry=self.tracker.observed_position(stamp) if active and self.tracker is not None else None
-                    fallback_center=self.tracker.extrapolated_position(stamp) if active and self.tracker is not None else None
+                    fallback_center=(self.tracker.extrapolated_position(stamp,horizon=TARGET_FALLBACK_HORIZON_S)
+                        if active and self.tracker is not None else None)
+                    fallback_age=(stamp-max(t for t,_ in self.tracker.observations)
+                        if fallback_center is not None and self.tracker.observations else 0.)
                     supervisor_status=self.recovery_identity.snapshot() if active and self.recovery_identity is not None else dict(state='disabled')
                     goal_job=self._goal_job_locked() if active else None
                 identity_status=supervisor_status
@@ -657,12 +671,14 @@ class FollowEngine:
                     # No same-frame silhouette: keep the tracked person out of this
                     # frame's marking and clearing. Old hits are not retired here.
                     center=np.asarray(fallback_center,dtype=float)
-                    keep_c=np.linalg.norm(packet['points_odom'][:,:2]-center,axis=1)>TARGET_FALLBACK_RADIUS_M
-                    keep_o=np.linalg.norm(packet['marking_points_odom'][:,:2]-center,axis=1)>TARGET_FALLBACK_RADIUS_M
+                    grow=np.clip((fallback_age-.3)/(TARGET_FALLBACK_HORIZON_S-.3),0.,1.)
+                    fallback_radius=TARGET_FALLBACK_RADIUS_M+TARGET_FALLBACK_GROWTH_M*float(grow)
+                    keep_c=np.linalg.norm(packet['points_odom'][:,:2]-center,axis=1)>fallback_radius
+                    keep_o=np.linalg.norm(packet['marking_points_odom'][:,:2]-center,axis=1)>fallback_radius
                     removed=int(np.count_nonzero(~keep_o))
                     for name in ('points','points_odom','dynamic'):packet[name]=packet[name][keep_c]
                     for name in ('obstacle_points','marking_points_odom'):packet[name]=packet[name][keep_o]
-                    mask_status.update(fallback='tracked_position_cylinder',fallback_radius_m=TARGET_FALLBACK_RADIUS_M,
+                    mask_status.update(fallback='tracked_position_cylinder',fallback_radius_m=round(fallback_radius,3),fallback_age_s=round(float(fallback_age),3),
                         fallback_removed_obstacle_points=removed)
                 packet['target_points_odom']=target_points
                 mask_status['target_ghost_points']=len(target_points)
@@ -698,6 +714,7 @@ class FollowEngine:
                          motion_threshold=self.p['startup_motion_threshold_m'],
                          local_radius=self.p['local_assumed_free_radius_m'],
                          target_clear_ttl_s=self.p['target_ghost_clear_ttl_s'],
+                         trail_clear_radius_m=self._trail_clear_radius(),
                          tracker_snapshot=binding_status,
                          task_mode=mode,object_surface=object_surface,goal=goal_job,
                          policy_snapshot=self._tracking_policy(binding_status) if active else None)))
@@ -814,6 +831,7 @@ class FollowEngine:
                      motion_threshold=self.p['startup_motion_threshold_m'],
                      local_radius=self.p['local_assumed_free_radius_m'],
                      target_clear_ttl_s=self.p['target_ghost_clear_ttl_s'],
+                     trail_clear_radius_m=self._trail_clear_radius(),
                      tracker_snapshot=binding_status,task_mode=key[1],object_surface=None,recovery=recovery,goal=goal_job,
                      policy_snapshot=self._tracking_policy(binding_status))))
             try:
@@ -1016,6 +1034,7 @@ class FollowEngine:
                 local_assumed_free_radius_m=self.p['local_assumed_free_radius_m'],
                 local_free_prior=self.map_result.get('local_free_prior') if self.map_result else None,
                 startup_prior=self.map_result.get('startup_prior') if self.map_result else None,
+                person_trail_clear=self.map_result.get('person_trail_clear') if self.map_result else None,
                 startup_prior_consumed=self.map_result.get('startup_prior_consumed',False) if self.map_result else False,
                 fault=self.conflict_latched or self.estop,
                 target_tracking=result['target_state'] if result else 'unavailable',

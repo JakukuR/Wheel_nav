@@ -21,6 +21,10 @@ class RollingDepthMap:
         # A matched target silhouette may retire earlier, unattributed person
         # hits in the exact same cells.  This short-lived clear is not a ray.
         self.target_clear_stamp=np.full((size,size),-np.inf)
+        # When the cell last turned occupied (unknown/free -> occupied); a hit
+        # that only re-confirms an occupied cell keeps it. retire_person_trail()
+        # matches it against where the followed person was at that moment.
+        self.occupied_since=np.full((size,size),-np.inf)
         self.tags=np.full((size,size,2),-10**9,dtype=np.int64)
         self.lower=np.zeros(2,dtype=int)
         # Bumped by every evidence change; rebuild(reuse_s>0) skips an unchanged map.
@@ -36,6 +40,7 @@ class RollingDepthMap:
         changed=np.any(self.tags[self.ix,self.iy]!=self.cells,axis=-1)
         a,b=self.ix[changed],self.iy[changed]
         self.log[a,b]=0.;self.stamp[a,b]=-np.inf;self.target_clear_stamp[a,b]=-np.inf
+        self.occupied_since[a,b]=-np.inf
         self.tags[a,b]=self.cells[changed]
 
     def _slots(self,xy):
@@ -144,7 +149,10 @@ class RollingDepthMap:
                 hits=(p[:,2]>=.08)&(p[:,2]<=1.6)&~dynamic
                 occupied_points.append(world[hits])
         hits=np.concatenate(occupied_points) if occupied_points else np.empty((0,2))
-        a,b=self._slots(hits);self.log[a,b]=np.minimum(3.,self.log[a,b]+2.);self.stamp[a,b]=t
+        a,b=self._slots(hits)
+        was=(t-self.stamp[a,b]<=self.ttl)&(self.log[a,b]>=0)
+        self.occupied_since[a,b]=np.where(was,self.occupied_since[a,b],t)
+        self.log[a,b]=np.minimum(3.,self.log[a,b]+2.);self.stamp[a,b]=t
         self.target_clear_stamp[a,b]=-np.inf;self._retire_startup_cells(a,b)
         # The robot itself occupies this footprint; keep its current cell region
         # known when stationary, without declaring its surroundings free.
@@ -156,6 +164,42 @@ class RollingDepthMap:
         self.log[a,b]=np.minimum(self.log[a,b],-1.);self.stamp[a,b]=t
         self.target_clear_stamp[a,b]=-np.inf;self._retire_startup_cells(a,b)
         if rebuild:self.rebuild(t)
+
+    def retire_person_trail(self,trail,t,radius=.30,window=.5,max_gap=2.):
+        """Forget hits the followed person left behind (rows of stamp, x, y).
+
+        A cell that turned occupied at a moment the person stood within `radius`
+        of it is the person's body (a lagging box, or frames without detection),
+        not a fixed obstacle. Positions in a detection gap up to `max_gap` s are
+        interpolated along the trail. Retired cells become unknown, never free; a
+        later hit, once the person has moved on, marks a real obstacle again.
+        Cells occupied before the person came close (a wall seen all along) keep
+        their earlier occupied_since and are never matched.
+        """
+        trail=np.asarray(trail,dtype=float).reshape(-1,3)
+        if radius<=0 or not len(trail):return 0
+        # Ring-ordered arrays: no window gather; tags give each slot's cell.
+        since=self.occupied_since
+        a,b=np.nonzero((since>=trail[0,0]-window)&(since<=trail[-1,0]+window)&
+                       (self.log>=0)&(t-self.stamp<=self.ttl))
+        if not len(a):return 0
+        s=since[a,b];stamps=trail[:,0]
+        after=np.clip(np.searchsorted(stamps,s),0,len(trail)-1);before=np.clip(after-1,0,len(trail)-1)
+        t0,t1=stamps[before],stamps[after]
+        bracketed=(t0<=s)&(s<=t1)&(t1-t0<=max_gap)
+        weight=np.where(t1>t0,(s-t0)/np.maximum(t1-t0,1e-9),0.)[:,None]
+        interpolated=trail[before,1:]+weight*(trail[after,1:]-trail[before,1:])
+        nearest=np.where((np.abs(s-t0)<=np.abs(s-t1))[:,None],trail[before,1:],trail[after,1:])
+        close=np.minimum(np.abs(s-t0),np.abs(s-t1))<=window
+        position=np.where(bracketed[:,None],interpolated,nearest)
+        centers=(self.tags[a,b]+.5)*self.res
+        ghost=(bracketed|close)&(np.linalg.norm(centers-position,axis=1)<=radius)
+        if not ghost.any():return 0
+        a,b=a[ghost],b[ghost]
+        self.log[a,b]=0.;self.stamp[a,b]=-np.inf;self.target_clear_stamp[a,b]=-np.inf
+        self.occupied_since[a,b]=-np.inf
+        self.version+=1
+        return int(np.count_nonzero(ghost))
 
     def _expiry_between(self,t0,t1):
         """True if any cell's TTL or target-clear expiry falls in [t0, t1)."""
