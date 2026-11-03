@@ -409,8 +409,9 @@ def test_blocked_straight_route_plans_round_the_obstacle_edge():
     cmd=f.command(np.zeros(3),np.zeros(2),target,np.zeros(2),hist,_box_ahead_map(),[],'visible')
     d=f.last_candidates.get('detour') or {}
     assert d.get('active') and d.get('side') in ('left','right')
-    # The reference bends past a box corner rather than through the box.
-    assert abs(f.last_reference_path[1][1])>.45 and cmd[0]>0
+    # The reference bends past a box corner rather than through the box
+    # (B-spline-rounded, so the bend is a sampled curve, not one waypoint).
+    assert np.abs(f.last_reference_path[:,1]).max()>.45 and cmd[0]>0
     f.reset()
     assert f.detour.side is None and f.stuck_cycles==0
 

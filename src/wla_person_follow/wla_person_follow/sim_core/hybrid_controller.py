@@ -2,7 +2,7 @@
 from dataclasses import replace
 import numpy as np
 from .common import Tuning, wrap, rotation, ROBOT_RADIUS_M
-from .target_reference import bezier_reference
+from .target_reference import bezier_reference, bspline_corners
 from .detour import DetourPlanner
 
 
@@ -119,6 +119,23 @@ class HybridFollower:
         self.last_reference_path=np.vstack((p,goal))
         return np.array([v,w])
 
+    def _round_corners(self, path, local_map, c):
+        """B-spline corners, kept only if no sample is closer to known obstacles
+        than the polyline itself gets (or than radius + margin, if that is less)."""
+        if c.reference_corner_m<=0 or len(path)<3:return path
+        # Already smooth (a Bezier trail): nothing to round, skip the work.
+        heading=np.arctan2(*np.diff(path,axis=0).T[::-1])
+        if np.abs(wrap(np.diff(heading))).max()<np.radians(10.):return path
+        lengths=np.linalg.norm(np.diff(path,axis=0),axis=1)
+        dense=np.vstack([path[i]+np.linspace(0.,1.,max(2,int(np.ceil(lengths[i]/.05))+1))[:-1,None]*(path[i+1]-path[i])
+                         for i in range(len(path)-1)]+[path[-1:]])
+        need=min(c.radius+c.margin,float(np.min(local_map.query(dense))))
+        for scale in (1.,.6,.3):
+            curve=bspline_corners(path,c.reference_corner_m*scale)
+            if len(curve)>=2 and float(np.min(local_map.query(curve)))>=need-1e-3:
+                return curve
+        return path
+
     def _shortcut(self, pose, path, local_map, c):
         """Line of sight over the footprint trail: steer at the farthest trail point
         reachable on a straight line through known free space (body radius + 5 cm).
@@ -196,6 +213,8 @@ class HybridFollower:
         if reference_path is None and not detouring and not searching and len(path)>=2:
             path=self._shortcut(pose,path,local_map,c)
         if len(path)<2:path=np.vstack((pose[:2],path))
+        corners=path
+        path=self._round_corners(path,local_map,c)
         edge=np.diff(path,axis=0)
         fraction=np.clip(np.sum((pose[:2]-path[:-1])*edge,axis=1)/np.maximum(np.sum(edge*edge,axis=1),1e-12),0.,1.)
         nearest=int(np.argmin(np.linalg.norm(path[:-1]+fraction[:,None]*edge-pose[:2],axis=1)))
@@ -218,7 +237,7 @@ class HybridFollower:
         cap=c.max_v
         if reference_path is None and not searching:
             # Turn first: the point steered to is the detour waypoint, else the person.
-            aim=path[1] if detouring and len(path)>2 and not self.detour.last.get('looking') else target
+            aim=corners[1] if detouring and len(corners)>2 and not self.detour.last.get('looking') else target
             off=abs(float(wrap(np.arctan2(aim[1]-pose[1],aim[0]-pose[0])-pose[2])))
             cap=c.max_v*float(np.clip((c.turn_first_angle-off)/max(c.turn_first_angle-c.turn_slow_angle,1e-6),0.,1.))
         # The trail's arc length overstates the remaining gap once the person curves.

@@ -59,6 +59,54 @@ class TargetHistory:
                     expiry_clock='last_accepted_observation')
 
 
+def bspline_corners(path, corner=.35, step=.05):
+    """Round a polyline's corners with a clamped uniform cubic B-spline.
+
+    Control points: the start, then for every interior vertex the points `d`
+    before and after it on its two segments plus the vertex itself, then the
+    end (d = corner, at most 0.45 of either adjacent segment). Clamped knots
+    keep both endpoints exact; the curve stays near straight segments and cuts
+    each corner inside that +-d window. Sampled every `step` m of arc length.
+    Corners under ~3 degrees are left out. Callers check clearance.
+    """
+    raw = np.asarray(path, dtype=float).reshape(-1, 2)
+    keep = np.r_[True, np.linalg.norm(np.diff(raw, axis=0), axis=1) > 1e-6]
+    raw = raw[keep]
+    if len(raw) < 3 or corner <= 0:
+        return raw.copy()
+    controls = [raw[0]]
+    for i in range(1, len(raw)-1):
+        before, after = raw[i]-raw[i-1], raw[i+1]-raw[i]
+        lb, la = np.linalg.norm(before), np.linalg.norm(after)
+        ub, ua = before/lb, after/la
+        if float(np.dot(ub, ua)) > math.cos(math.radians(3.)):
+            controls.append(raw[i]); continue
+        d = min(corner, .45*lb, .45*la)
+        controls += [raw[i]-d*ub, raw[i], raw[i]+d*ua]
+    controls.append(raw[-1])
+    controls = np.asarray(controls)
+    n, k = len(controls), 3
+    if n < 4:
+        return raw.copy()
+    knots = np.r_[np.zeros(k), np.linspace(0., 1., n-k+1), np.ones(k)]
+    u = np.linspace(0., 1., max(32, 12*n))
+    # De Boor recursion over all samples at once (n is small).
+    span = np.clip(np.searchsorted(knots, u, side='right')-1, k, n-1)
+    d = np.stack([controls[span-k+j] for j in range(k+1)], axis=1)
+    for r in range(1, k+1):
+        for j in range(k, r-1, -1):
+            i = span-k+j
+            left, right = knots[i], knots[i+k+1-r]
+            a = ((u-left)/np.where(right > left, right-left, 1.))[:, None]
+            d[:, j] = (1.-a)*d[:, j-1]+a*d[:, j]
+    curve = d[:, k]
+    curve[-1] = raw[-1]
+    arcs = np.r_[0., np.cumsum(np.linalg.norm(np.diff(curve, axis=0), axis=1))]
+    count = max(2, int(math.ceil(arcs[-1]/step))+1)
+    s = np.linspace(0., arcs[-1], count)
+    return np.column_stack([np.interp(s, arcs, curve[:, j]) for j in range(2)])
+
+
 def bezier_reference(history):
     """Sparse knots -> bounded smoothing -> C1 piecewise cubic Bezier curve.
 

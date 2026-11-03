@@ -21,6 +21,11 @@ class Tuning:
     yaw_accel: float = 3.
     radius: float = ROBOT_RADIUS_M
     margin: float = .10
+    # Reference polylines (shortcut, detour, grid route) get their corners rounded
+    # by a cubic B-spline within this distance of each vertex; it falls back to
+    # 0.6x, 0.3x, then the raw polyline when the curve would lose clearance.
+    # 0 disables.
+    reference_corner_m: float = .35
     # Static obstacles: only penetration (clearance < 0) rejects a rollout; the
     # margin band is an inflation cost, so tight passages stay feasible at a price.
     # People keep margin as a hard limit.
