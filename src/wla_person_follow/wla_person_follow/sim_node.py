@@ -34,7 +34,7 @@ from .follow_session import FollowTracker, RecoveryIdentity, TrackingPolicy, pos
 from .sim_core.common import rotation
 from .sim_core.rolling_depth_map import native_ray_slots
 from .sim_runtime import packet_from_depth, target_points_from_removed_depth, measurements_from_relative, local_points, process_step, warm_worker, worker_initializer
-from .task_modes import mode_config, MODE_PERSON_FOLLOW, MODE_PERSON_APPROACH, MODE_OBJECT_APPROACH
+from .task_modes import mode_config, MODES, GOAL_MODES, MODE_PERSON_FOLLOW, MODE_PERSON_APPROACH, MODE_OBJECT_APPROACH, MODE_POINT_GOAL, MODE_ORIENT
 
 
 def stamp_ns(msg):
@@ -54,6 +54,9 @@ CONTROL_LOOKAHEAD_S=.03
 TARGET_FALLBACK_RADIUS_M=.50
 # wla_terrain_analysis cloud matched to a depth frame (same camera frames, ~10 Hz).
 TERRAIN_MATCH_NS=150_000_000
+# Exploration primitives (modes 3/4): arrival bands on the wheel pose.
+POINT_ARRIVAL_M=.15
+ORIENT_ARRIVAL_RAD=.08
 
 
 class FollowEngine:
@@ -116,6 +119,7 @@ class FollowEngine:
         validate_detection_status_topic(self.p['detection_status_topic'])
         self.follow_preset=validate_follow_config(self.p)
         self.tracker=None;self.recovery_identity=None;self.tracker_key=None
+        self.goal=None  # modes 3/4: goal fixed in the LocalMotion frame at task start
         self.interest_at=-math.inf
         self.guard = threading.RLock()
         self.core = TaskSession(base_frame=self.p['base_frame'],max_age=self.p['max_sensor_age_s'])
@@ -364,7 +368,9 @@ class FollowEngine:
         c._expire(time.monotonic())
         task_key=(c.request_id,c.mode,c.target_id,c.session,c.epoch,self.motion.generation)
         if not c.active:
-            self.tracker=None;self.recovery_identity=None;self.tracker_key=None
+            self.tracker=None;self.recovery_identity=None;self.tracker_key=None;self.goal=None
+        elif c.mode in GOAL_MODES:
+            self._goal_update_locked(task_key,now)
         elif task_key!=self.tracker_key:
             cfg=mode_config(c.mode)
             self.tracker=FollowTracker(c.target_id,now,prediction_s=self.p['target_prediction_s'],
@@ -381,7 +387,7 @@ class FollowEngine:
             self.arrival_count=0;self.arrival_stamp=0;self.arrival_started=None
             self.arrival_detail=None;self.arrival_goal_generation=None
         allowed=[]
-        if c.active:
+        if c.active and self.tracker is not None:
             stamp=c.last_stamp/1e9;pose=self.motion.pose_at(stamp)
             before=self.tracker.revision
             self.tracker.observe(c.objects,pose,stamp,now)
@@ -424,6 +430,63 @@ class FollowEngine:
                 urgent=c.active))))
             self.interest_at=time.monotonic()
 
+    def _goal_update_locked(self,task_key,now):
+        """Resolve a mode 3/4 goal once, at the pose of its start; track turned yaw."""
+        c=self.core
+        if task_key!=self.tracker_key:
+            previous=self.tracker_key
+            self.tracker=None;self.recovery_identity=None;self.tracker_key=task_key;self.result=None
+            self.arrival_count=0;self.arrival_stamp=0;self.arrival_started=None
+            self.arrival_detail=None;self.arrival_goal_generation=None
+            pose=self.motion.pose_at(now)
+            if pose is None and self.motion.healthy(now):pose=self.motion.samples[-1][1]
+            if previous is not None and previous[:5]==task_key[:5]:
+                # Wheel reference reset: a relative goal has no meaning in the new frame.
+                self.goal=None;c._terminate('cancelled','wheel_reference_changed');return
+            if pose is None:
+                self.goal=None;c._terminate('cancelled','wheel_pose_unavailable');return
+            if c.mode==MODE_POINT_GOAL:
+                point=np.asarray(pose[:2])+rotation(pose[2])@np.asarray(c.goal['relative'],dtype=float)
+                self.goal=dict(kind='point',point=point,start=np.asarray(pose[:2]).copy())
+            else:
+                self.goal=dict(kind='orient',total=float(c.goal['relative']),turned=0.,last_yaw=float(pose[2]))
+            return
+        if self.goal is not None and self.goal['kind']=='orient':
+            pose=self.motion.pose_at(now)
+            if pose is not None:
+                self.goal['turned']+=float(np.arctan2(np.sin(pose[2]-self.goal['last_yaw']),np.cos(pose[2]-self.goal['last_yaw'])))
+                self.goal['last_yaw']=float(pose[2])
+
+    def _goal_job_locked(self):
+        if self.goal is None:return None
+        if self.goal['kind']=='point':return dict(kind='point',point=self.goal['point'].tolist())
+        return dict(kind='orient',remaining=self.goal['total']-self.goal['turned'])
+
+    def _goal_status_locked(self,ns):
+        if self.goal is None:return None
+        if self.goal['kind']=='orient':
+            return dict(kind='orient',total_rad=self.goal['total'],turned_rad=self.goal['turned'],
+                remaining_rad=self.goal['total']-self.goal['turned'])
+        pose=self.motion.pose_at(ns/1e9)
+        return dict(kind='point',goal_odom=self.goal['point'].tolist(),
+            remaining_m=None if pose is None else float(np.linalg.norm(np.asarray(pose[:2])-self.goal['point'])))
+
+    def _goal_arrival_locked(self,healthy,ns):
+        """Point and orient legs end on the wheel pose alone (no target to confirm)."""
+        status=self._goal_status_locked(ns)
+        if not healthy or status is None:return False
+        if status['kind']=='point':
+            if status['remaining_m'] is None or status['remaining_m']>POINT_ARRIVAL_M:return False
+            detail=dict(reason='point_goal_reached',remaining_m=status['remaining_m'])
+        else:
+            # Reached or passed (the output guard stops a held turn past the goal).
+            if status['remaining_rad']*math.copysign(1.,status['total_rad'])>ORIENT_ARRIVAL_RAD:return False
+            detail=dict(reason='orient_reached',turned_rad=status['turned_rad'])
+        self.arrival_detail=detail
+        self.core._terminate('arrived',detail['reason'])
+        self.result=None
+        return True
+
     def _control_pose(self,motion,stamp):
         pose=motion.pose_at(stamp+CONTROL_LOOKAHEAD_S)
         return pose if pose is not None else motion.pose_at(stamp)
@@ -436,7 +499,7 @@ class FollowEngine:
             frame_due=time.monotonic()>=next_at
             with self.guard:
                 self.event.clear()
-                person=self.core.active and self.core.mode in (MODE_PERSON_FOLLOW,MODE_PERSON_APPROACH)
+                person=self.core.active and self.core.mode in (MODE_PERSON_FOLLOW,MODE_PERSON_APPROACH,*GOAL_MODES)
                 masked=self.core.active and self.p['target_mask_enabled']
                 # Person modes take the newest depth at once (its own mask only if
                 # already here); object approach still waits for its segmentation.
@@ -496,6 +559,7 @@ class FollowEngine:
                     mask_geometry=self.tracker.observed_position(stamp) if active and self.tracker is not None else None
                     fallback_center=self.tracker.extrapolated_position(stamp) if active and self.tracker is not None else None
                     supervisor_status=self.recovery_identity.snapshot() if active and self.recovery_identity is not None else dict(state='disabled')
+                    goal_job=self._goal_job_locked() if active else None
                 identity_status=supervisor_status
                 resolved_id=binding_status['resolved_id'] if binding_status else None
                 resolved_source=dict(source='FollowTracker',
@@ -503,8 +567,9 @@ class FollowEngine:
                     observation_pose_available=op is not None,selection=deepcopy(binding_status))
                 if active and op is not None and 0<=control_stamp-obs_stamp<=self.p['max_sensor_age_s']:
                     cfg=mode_config(key[1])
-                    target,people=measurements_from_relative(objects,op,resolved_id or '',binding_status['surface_offset_m'])
-                    if binding_status['state'] not in ('tracking','coasting'):
+                    target,people=measurements_from_relative(objects,op,resolved_id or '',
+                        binding_status['surface_offset_m'] if binding_status else self.p['surface_to_center_offset_m'])
+                    if binding_status is None or binding_status['state'] not in ('tracking','coasting'):
                         target=None
                     observation=(obs_stamp,target,people,resolved_id)
                 mask_started=time.monotonic()
@@ -520,7 +585,7 @@ class FollowEngine:
                 mask_status['compute_ms']=(time.monotonic()-mask_started)*1000.
                 mask_status['decision_basis']='follow_tracker'
                 mask_status['geometry_synchronized']=mask_geometry is not None
-                if active:
+                if active and binding_status is not None:
                     ready=frame_target_ready(mask_packet,target_id=resolved_id,revision=binding_status['revision'],
                         request_id=key[0],session=key[3],epoch=key[4],stamp_ns=stamp_ns(msg),
                         frame_id=msg.header.frame_id,shape=depth.shape,now_ns=self.now_ns(),mask_applied=mask_status['applied'])
@@ -634,7 +699,7 @@ class FollowEngine:
                          local_radius=self.p['local_assumed_free_radius_m'],
                          target_clear_ttl_s=self.p['target_ghost_clear_ttl_s'],
                          tracker_snapshot=binding_status,
-                         task_mode=mode,object_surface=object_surface,
+                         task_mode=mode,object_surface=object_surface,goal=goal_job,
                          policy_snapshot=self._tracking_policy(binding_status) if active else None)))
                 try:
                     result=self.future.result(timeout=self.p['result_ttl_s'])
@@ -700,7 +765,7 @@ class FollowEngine:
         """
         with self.guard:
             key=self.key();base=self.map_frame;now=time.monotonic()
-            if (not self.core.active or self.core.mode not in (MODE_PERSON_FOLLOW,MODE_PERSON_APPROACH)
+            if (not self.core.active or self.core.mode not in (MODE_PERSON_FOLLOW,MODE_PERSON_APPROACH,*GOAL_MODES)
                     or base is None or base['key']!=key or now>=base['map_deadline']
                     or now-self.last_plan_at<(OBSERVATION_REPLAN_S if self.core.last_stamp/1e9>self.last_plan_obs
                                               else CONTROL_PERIOD_S)):return
@@ -733,12 +798,14 @@ class FollowEngine:
                 if key!=self.key():return
                 binding_status=self.tracker.snapshot(control_stamp,control_pose) if self.tracker is not None else None
                 supervisor_status=self.recovery_identity.snapshot() if self.recovery_identity is not None else dict(state='disabled')
-            if binding_status is None:return
-            resolved_id=binding_status['resolved_id']
+                goal_job=self._goal_job_locked() if key[1] in GOAL_MODES else None
+            if binding_status is None and goal_job is None:return
+            resolved_id=binding_status['resolved_id'] if binding_status else None
             observation=None;op=motion.pose_at(obs_stamp)
             if op is not None and 0<=control_stamp-obs_stamp<=self.p['max_sensor_age_s']:
-                target,people=measurements_from_relative(objects,op,resolved_id or '',binding_status['surface_offset_m'])
-                if binding_status['state'] not in ('tracking','coasting'):target=None
+                target,people=measurements_from_relative(objects,op,resolved_id or '',
+                    binding_status['surface_offset_m'] if binding_status else self.p['surface_to_center_offset_m'])
+                if binding_status is None or binding_status['state'] not in ('tracking','coasting'):target=None
                 observation=(obs_stamp,target,people,resolved_id)
             v=motion.samples[-1][2]
             begun=time.monotonic()
@@ -747,7 +814,7 @@ class FollowEngine:
                      motion_threshold=self.p['startup_motion_threshold_m'],
                      local_radius=self.p['local_assumed_free_radius_m'],
                      target_clear_ttl_s=self.p['target_ghost_clear_ttl_s'],
-                     tracker_snapshot=binding_status,task_mode=key[1],object_surface=None,recovery=recovery,
+                     tracker_snapshot=binding_status,task_mode=key[1],object_surface=None,recovery=recovery,goal=goal_job,
                      policy_snapshot=self._tracking_policy(binding_status))))
             try:
                 result=self.future.result(timeout=self.p['result_ttl_s'])
@@ -792,6 +859,7 @@ class FollowEngine:
     def _terminal_arrival_locked(self, result, healthy, now, ns):
         """Finite tasks latch only after fresh, observed, stationary confirmations."""
         mode=self.core.mode
+        if mode in GOAL_MODES:return self._goal_arrival_locked(healthy,ns)
         if not healthy or mode not in ('1','2') or self.tracker is None:
             self.arrival_count=0;self.arrival_started=None
             return False
@@ -886,6 +954,11 @@ class FollowEngine:
                     command=self._tracking_policy(live).limit_command(command,ns/1e9)
                     if live['state']=='binding' or (live['state']=='holding' and live.get('mode','0')=='2'):
                         healthy=False;blockers.append(live['reason'])
+            goal_status=self._goal_status_locked(ns) if self.core.active else None
+            if goal_status is not None and goal_status['kind']=='orient':
+                # A held result must not keep turning past the requested angle.
+                remaining=goal_status['remaining_rad']
+                if abs(remaining)<=ORIENT_ARRIVAL_RAD or remaining*command[1]<0:command=np.array([0.,0.])
             if healthy and 'first_output_ms' not in result.get('latency',{}):
                 result.setdefault('latency',{}).update(
                     first_output_ms=(now-result.get('ready_at',now))*1000.,
@@ -910,7 +983,7 @@ class FollowEngine:
             if self._terminal_arrival_locked(result,healthy,now,ns):
                 command=np.zeros(2);healthy=False;blockers.append('task_arrived')
             if self.core.active:
-                self.core.state=('searching' if result.get('geometry_binding',{}).get('state','').startswith('search_') else 'following' if self.core.mode=='0' else 'approaching') if healthy else 'waiting'
+                self.core.state=('searching' if (result.get('geometry_binding') or {}).get('state','').startswith('search_') else 'following' if self.core.mode=='0' else 'approaching') if healthy else 'waiting'
                 self.core.reason=self.reason if healthy else ('direct_publisher_conflict' if self.conflict_latched else 'waiting_for_fresh_inputs')
             state=self.core.snapshot(now)
             preview=Twist();preview.linear.x=float(command[0]);preview.angular.z=float(command[1])
@@ -966,7 +1039,8 @@ class FollowEngine:
                 approach_goal=result.get('approach_goal') if result else None,
                 arrival=self.arrival_detail,
                 task_mode=self.core.mode,
-                task_mode_label=mode_config(self.core.mode)['label'] if self.core.mode in ('0','1','2') else None,
+                task_mode_label=mode_config(self.core.mode)['label'] if self.core.mode in MODES else None,
+                task_goal=goal_status,
                 terminal_arrival=state['state'] == 'arrived',
                 recovery_state=result['recovery_state'] if result else 'waiting',
                 frontend_ms=self.map_result.get('frontend_ms') if self.map_result else None,

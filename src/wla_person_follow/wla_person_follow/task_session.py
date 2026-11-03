@@ -1,5 +1,5 @@
 """Target task ledger: explicit identity, bounded leases, no motion controller."""
-from .task_modes import normalize_mode
+from .task_modes import normalize_mode, parse_goal, GOAL_MODES
 import json
 import math
 
@@ -39,6 +39,7 @@ class TaskSession:
         self.objects, self.expires_at = {}, -math.inf
         self.status_stamp, self.disabled_stamp = 0, 0
         self.request_id = self.mode = self.target_id = self.target_label = ''
+        self.goal = None  # parsed relative goal of modes 3/4
         self.active, self.state, self.reason = False, 'idle', 'waiting_for_command'
         self.lease_until = -math.inf
         self.requests = {}
@@ -190,6 +191,23 @@ class TaskSession:
             return False, 'request_already_terminal'
         if len(self.requests) >= 10000:
             return False, 'request_history_full_restart_required'
+        if mode in GOAL_MODES:
+            # No target identity: the detector gate must still be live, since other
+            # people remain dynamic obstacles during exploration legs.
+            try:
+                goal = parse_goal(mode, target_id)
+            except ValueError as exc:
+                return False, str(exc)
+            if not self.gate_enabled:
+                return False, 'detection_disabled'
+            if now >= self.expires_at:
+                return False, 'observations_stale'
+            self.goal, self.target_label = goal, ''
+            self.request_id, self.mode, self.target_id = request_id, mode, target_id
+            self.requests[request_id] = (mode, target_id)
+            self.active, self.state, self.reason = True, 'waiting', 'waiting_for_safe_depth'
+            self.lease_until = now + lease_duration_s
+            return True, 'started'
         row = self.objects.get(target_id)
         valid_label = row is not None and ((row['label'] == 'person') if mode != '2' else row['label'] != 'person')
         if not self.gate_enabled:
@@ -200,7 +218,7 @@ class TaskSession:
             return False, 'target_id_not_visible'
         if row['yaw'] is None or row['distance'] is None:
             return False, 'target_geometry_unavailable'
-        self.target_label = row['label']
+        self.target_label, self.goal = row['label'], None
         self.request_id, self.mode, self.target_id = request_id, mode, target_id
         self.requests[request_id] = (mode, target_id)
         self.active, self.state, self.reason = True, 'waiting', 'waiting_for_safe_depth'

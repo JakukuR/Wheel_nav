@@ -89,7 +89,13 @@ def measurements_from_relative(objects, pose, target_id, center_offset=.28):
 # (~2.9 m at 1.2 m/s) and object routes stay inside the window.
 MAP_RESOLUTION_M=.05
 MAP_SIZE_CELLS=160
-
+# Point goal (mode 3): route refresh period, arrival band and speed cap.
+POINT_ROUTE_REFRESH_S=.5
+POINT_GOAL_MAX_V=.30
+# Orient (mode 4): in-place turn above the chassis yaw deadband (0.3 rad/s).
+ORIENT_MIN_W=.35
+ORIENT_MAX_W=.50
+ORIENT_DONE_RAD=.05
 
 
 class SimulationEngine:
@@ -102,6 +108,7 @@ class SimulationEngine:
         self.people=PeopleTracks()
         self.last_measurement=self.map_stamp=-math.inf
         self.approach=ApproachGoal()
+        self.point_route=None  # (goal, planned_at, path) for mode 3
         # Last issued planner command: rollout seed and per-interval step bound.
         self.last_command=None;self.last_command_at=None
 
@@ -117,7 +124,7 @@ class SimulationEngine:
         self.mapping.rebuild(now,reuse=True)
 
     def step(self, pose, previous, packets, observation, now, policy=None,
-             tracker_snapshot=None, task_mode='0', object_surface=None, *, active=True, recovery=False):
+             tracker_snapshot=None, task_mode='0', object_surface=None, *, active=True, recovery=False, goal=None):
         self.update_map(pose,packets,now)
         if not active:
             self.controller.reset()
@@ -132,10 +139,26 @@ class SimulationEngine:
                     state='idle',task_mode=task_mode,reference_method='none',
                     history_point_count=0,reference_point_count=0,history_sampling=None,
                     last_measurement_stamp_s=None),obstacle_track_ids=[])
-        return self._plan(pose,previous,observation,now,policy,tracker_snapshot,task_mode,object_surface,recovery)
+        return self._plan(pose,previous,observation,now,policy,tracker_snapshot,task_mode,object_surface,recovery,goal)
+
+    def _point_route(self, pose, goal, tuning, now):
+        """Clearance-weighted grid route to a fixed odom point (DetourPlanner's Dijkstra).
+
+        Reused for POINT_ROUTE_REFRESH_S while its remaining part stays clear;
+        without a route the MPC gets the straight line and creeps on known space.
+        """
+        old=self.point_route
+        if (old is not None and np.allclose(old[0],goal) and now-old[1]<POINT_ROUTE_REFRESH_S):
+            path=old[2];near=int(np.argmin(np.linalg.norm(path-pose[:2],axis=1)))
+            suffix=np.vstack((pose[:2],path[near+1:])) if near+1<len(path) else np.vstack((pose[:2],goal))
+            if np.all(self.mapping.query(ApproachGoal._samples(suffix))>=tuning.radius):return suffix
+        path=self.controller.detour._grid_route(np.asarray(pose[:2],dtype=float),goal,self.mapping,tuning)
+        if path is None:path=np.vstack((pose[:2],goal))
+        self.point_route=(goal.copy(),now,path)
+        return path
 
     def _plan(self, pose, previous, observation, now, policy, tracker_snapshot,
-              task_mode, object_surface, recovery=False):
+              task_mode, object_surface, recovery=False, goal=None):
         if observation is not None:
             stamp,target,people,resolved_id=observation
             if target is not None:self.people.tracks.pop(resolved_id,None)
@@ -168,17 +191,34 @@ class SimulationEngine:
                 if approach is not None:
                     route=approach['path'];estimate=approach['point'];face=np.median(surface,axis=0)
             if approach is None:state='holding'
+        elif task_mode=='3':
+            tuning=replace(tuning,desired_gap=0.,target_stop_gap=.05,target_hard_gap=0.,
+                target_clearance_max=0.,max_v=POINT_GOAL_MAX_V)
+            estimate=np.asarray(goal['point'],dtype=float);velocity=np.zeros(2);history=[];state='visible'
+            route=self._point_route(pose,estimate,tuning,now)
+        elif task_mode=='4':
+            velocity=np.zeros(2);history=[];state='visible'
         self.controller.c=tuning
         seed=seed_command(previous,self.last_command,self.last_command_at,now)
-        command=self.controller.command(np.asarray(pose),seed,estimate,velocity,
-            history,self.mapping,tracks,state,policy=policy,policy_time=now,reference_path=route,face_point=face,
-            measured=np.asarray(previous,dtype=float),recovery=recovery)
+        if task_mode=='4':
+            # Turning in place never changes the circular footprint's clearance.
+            remaining=float(goal['remaining'])
+            w=0. if abs(remaining)<=ORIENT_DONE_RAD else math.copysign(float(np.clip(1.2*abs(remaining),ORIENT_MIN_W,ORIENT_MAX_W)),remaining)
+            self.controller.last_candidates={};self.controller.last_infeasible=False
+            self.controller.last_reference_path=np.empty((0,2))
+            dt=tuning.step if self.last_command_at is None else now-self.last_command_at
+            command=limit_step(np.array([0.,w]),seed,dt,tuning)
+        else:
+            command=self.controller.command(np.asarray(pose),seed,estimate,velocity,
+                history,self.mapping,tracks,state,policy=policy,policy_time=now,reference_path=route,face_point=face,
+                measured=np.asarray(previous,dtype=float),recovery=recovery)
         if self.controller.last_candidates and not self.controller.last_infeasible:
             # Plans now run at control rate; the first change is bounded by the
             # time since the last issued command (zero/stop outputs stay exact).
             dt=tuning.step if self.last_command_at is None else now-self.last_command_at
             command=limit_step(command,seed,dt,tuning)
-        reason=('object_goal_unavailable' if task_mode=='2' and approach is None else
+        reason=('point_goal' if task_mode=='3' else 'orient' if task_mode=='4' else
+            'object_goal_unavailable' if task_mode=='2' and approach is None else
             approach['reason'] if approach is not None else state if state.startswith('search_') else
             'holding_last_trusted' if tracker_snapshot is not None and tracker_snapshot['state']=='holding' and state=='coast' else
             'tracker_prediction' if state=='coast' else 'tracker_follow')
@@ -193,13 +233,13 @@ class SimulationEngine:
             for k,v in approach.items() if k!='path'}
         return dict(policy_snapshot=policy,command=np.asarray(command),target_state=state,
             recovery_state=state,reason=reason,tuning=asdict(tuning),
-            planner_activity='candidate_evaluation' if self.controller.last_candidates else 'waiting_target',
+            planner_activity='candidate_evaluation' if self.controller.last_candidates else 'in_place_turn' if task_mode=='4' else 'waiting_target',
             path=self.controller.last_reference_path.copy(),candidates=self.controller.last_candidates,
             approach_goal=diagnostic,planner_feasible=bool(self.controller.last_candidates.get('feasible',0)>0),
             front_blockage=dict(evaluated=False,reason='mpc_owns_collision_decision',control_stamp_s=now),
             planner_target=dict(position_reference_m=None if estimate is None else estimate.tolist(),
                 velocity_reference_mps=velocity.tolist(),state=state,task_mode=task_mode,
-                reference_method='windowed_cubic_bezier' if task_mode=='0' else 'connected_object_route' if task_mode=='2' else 'current_person',
+                reference_method={'0':'windowed_cubic_bezier','2':'connected_object_route','3':'clearance_grid_route','4':'in_place_turn'}.get(task_mode,'current_person'),
                 history_point_count=len(history),reference_point_count=len(self.controller.last_reference_path),
                 history_sampling=tracker_snapshot.get('history_sampling') if tracker_snapshot else None,
                 last_measurement_stamp_s=tracker_snapshot['last_seen'] if tracker_snapshot else None),
@@ -269,7 +309,7 @@ def process_step(job):
         if moved:
             prior['motion_started_s']=now
             prior['expires_s']=now+engine.mapping.ttl
-    result = engine.step(pose, previous, packets, observation, now, policy=startup.get('policy_snapshot'),tracker_snapshot=startup.get('tracker_snapshot'),task_mode=startup.get('task_mode','0'),object_surface=startup.get('object_surface'),active=startup['active'],recovery=bool(startup.get('recovery',False)))
+    result = engine.step(pose, previous, packets, observation, now, policy=startup.get('policy_snapshot'),tracker_snapshot=startup.get('tracker_snapshot'),task_mode=startup.get('task_mode','0'),object_surface=startup.get('object_surface'),active=startup['active'],recovery=bool(startup.get('recovery',False)),goal=startup.get('goal'))
     prior=dict(_PROCESS_STARTUP_PRIOR) if _PROCESS_STARTUP_PRIOR else None
     if prior is not None:
         if prior['reference_generation']!=key[-1]:

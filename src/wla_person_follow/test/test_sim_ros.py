@@ -356,3 +356,38 @@ def test_diagnostic_status_and_independent_recorder(graph,tmp_path):
     assert 'actual_published_command' in record and record['diagnostic_sequence']>0
     assert record['diagnostics']['target_mask']['applied'] is False
     assert record['_recording']['source']=='/r680/person_follow/status'
+
+
+def test_goal_modes_resolve_at_start_and_arrive_on_the_wheel_pose(graph):
+    from wla_behavior_interfaces.srv import PersonCommand
+    _,f,pump,_=graph;pump(1.1)
+    def feed(w):
+        now=time.monotonic();ns=f.now_ns();t=ns/1e9
+        with f.guard:
+            f.core.receive(dict(schema='wla-relative-detections/v1',stamp_ns=ns,session='fixture',epoch=0,
+                enabled=True,base_frame='r680_mapping_floor',objects=[]),now,ns)
+            f.motion.update(t,(0.,0.,w),t);f.wheel_received=now
+    feed(0.)
+    start=lambda rid,mode,target:f.on_command(PersonCommand.Request(command='start',request_id=rid,mode=mode,
+        target_id=target,lease_duration_s=2.),PersonCommand.Response())
+    res=start('turn','4','0.5')
+    assert res.accepted and f.goal['kind']=='orient' and f.goal['total']==pytest.approx(.5)
+    end=time.monotonic()+.6
+    while time.monotonic()<end:
+        feed(1.);time.sleep(.01)
+        with f.guard:f._tracking_update_locked()
+    with f.guard:
+        status=f._goal_status_locked(f.now_ns())
+        assert status['turned_rad']>.45
+        assert f._goal_arrival_locked(True,f.now_ns()) and f.core.state=='arrived'
+        assert f.core.reason=='orient_reached'
+    # A point goal is fixed in the wheel frame at the heading the robot has now.
+    feed(0.)
+    with f.guard:yaw=f.motion.pose_at(f.now_ns()/1e9)[2]
+    res=start('leg','3','1.0,0.0')
+    assert res.accepted and f.goal['kind']=='point'
+    np.testing.assert_allclose(f.goal['point']-f.goal['start'],[np.cos(yaw),np.sin(yaw)],atol=.05)
+    with f.guard:assert not f._goal_arrival_locked(True,f.now_ns())
+    assert f.core.command('stop','leg',now=time.monotonic())[0] and not f.core.active
+    with f.guard:f._tracking_update_locked()
+    assert f.goal is None
