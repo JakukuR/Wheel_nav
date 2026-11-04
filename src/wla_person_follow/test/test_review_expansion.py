@@ -1,7 +1,7 @@
 """Current recovery-only gallery quality and ownership regressions.
 
 The removed supervisor used a two-second expansion timer. RecoveryIdentity uses
-current accepted geometry, no neighbor and similarity >= .90 instead.
+current accepted geometry, no neighbor and similarity >= .40, every 1.5 s.
 """
 import numpy as np
 from wla_person_follow.follow_session import FollowTracker, RecoveryIdentity
@@ -35,15 +35,26 @@ def test_coasting_cannot_expand_view():
     assert len(identity.gallery)==2
 
 
-def test_expansion_requires_high_similarity_and_unambiguous_current_geometry():
+def test_expansion_requires_a_plausible_match_and_unambiguous_current_geometry():
     identity,tracker,row=enrolled();seeds=[x.copy() for x in identity.gallery]
-    row['feature']=feature(.75)
+    row['feature']=feature(.30)  # A swapped track must not train the gallery.
     for stamp in (1.4,1.6,1.8):observe(identity,tracker,row,stamp)
     assert len(identity.gallery)==2
-    row['feature']=feature(.95)
+    row['feature']=feature(.55)  # The walker's back: a different view, same person.
     observe(identity,tracker,row,2.,neighbor=True)
     assert len(identity.gallery)==2
-    for stamp in np.arange(2.2,4.2,.2):observe(identity,tracker,row,float(stamp))
+    observe(identity,tracker,row,2.2)
+    assert len(identity.gallery)==3
+    np.testing.assert_array_equal(identity.gallery[-1],row['feature'])
+    for actual,expected in zip(identity.gallery[:2],seeds):np.testing.assert_array_equal(actual,expected)
+
+
+def test_gallery_refreshes_on_a_timer_and_keeps_the_seeds():
+    identity,tracker,row=enrolled();seeds=[x.copy() for x in identity.gallery]
+    row['feature']=feature(.95)
+    for stamp in np.arange(2.,3.4,.2):observe(identity,tracker,row,float(stamp))
+    assert len(identity.gallery)==3  # Not every frame: repeats must not flush old views.
+    for stamp in np.arange(3.6,20.,.2):observe(identity,tracker,row,float(stamp))
     assert len(identity.gallery)==8
     for actual,expected in zip(identity.gallery[:2],seeds):np.testing.assert_array_equal(actual,expected)
 

@@ -37,6 +37,12 @@ TARGET_ACCEL_STD_MPS2 = .5
 # count nor reset. 2026-11-02 16:09: a 0.75-0.78 match at 198.9/199.1/201.0 s was
 # reset by such frames and the person was re-acquired only at 234 s.
 RECOVERY_CONFIRM_GAP_S = 2.
+# While the geometry follows the person with nobody near, a feature joins the
+# gallery this often. Frames >= .90 only repeat the enrolled view: 11-03 19:37 the
+# 8 slots filled in seconds, the walker's back then scored a median .54, and a
+# reappearance at .45-.52 waited 24 s. The floor rejects a track that swapped.
+TEMPLATE_REFRESH_S = 1.5
+TEMPLATE_REFRESH_MIN_SIMILARITY = .40
 # Driving to the last-seen point ends early only on explicit planner signals,
 # never on distance alone (turning first, detours and short output gaps make no
 # distance progress but are fine). 2026-11-02 16:38: the point was next to an
@@ -327,6 +333,7 @@ class RecoveryIdentity:
         # above the same-person 5th percentile (.55; the walker scored down to .31,
         # median .75, a bystander .49-.51) and leads the next person by margin.
         self.threshold, self.margin, self.confirmations = similarity, margin, confirmations
+        self.last_template_added = -math.inf
         # Enrollment consistency is independent of the recovery acceptance threshold.
         self.enrollment_similarity = .80
         self.gallery = []  # First two seed templates survive later appearance updates.
@@ -393,8 +400,9 @@ class RecoveryIdentity:
                 else:
                     # Retry a new pair indefinitely, including appearance mismatch.
                     self.provisional=(tracker.revision,stamp,target['feature'].copy())
-            elif sim >= .90:
+            elif sim >= TEMPLATE_REFRESH_MIN_SIMILARITY and stamp-self.last_template_added >= TEMPLATE_REFRESH_S:
                 self.gallery.append(target['feature'].copy())
+                self.last_template_added = stamp
                 if len(self.gallery)>8:del self.gallery[2]
             self.state='ready' if self.complete else 'collecting'
             self.reason='template_ready' if self.complete else 'collecting_template_pair'
