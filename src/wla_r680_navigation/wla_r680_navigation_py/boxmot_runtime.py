@@ -4,7 +4,9 @@ People use BoxMOT OSNet and optional built-in CMC. Other object classes use
 class-separated geometry association (a person ReID network is not an object
 identity model). No Ultralytics tracker or custom GMC gate is instantiated.
 """
+import json
 import os
+from pathlib import Path
 import subprocess
 import sys
 import time
@@ -13,8 +15,29 @@ import numpy as np
 # BotSort's constructor defaults. The native adapter would otherwise read
 # BoxMOT's tuned YAML, which associates differently.
 NATIVE_ALIGNED=dict(frame_rate=30,fuse_first_associate=False,second_match_thresh=.5,
-    unconfirmed_match_thresh=.7,unconfirmed_emb_scale=2.,removed_stracks_buffer=100,asso_func='iou')
+    unconfirmed_match_thresh=.7,unconfirmed_emb_scale=2.,asso_func='iou')
 CLASS_SLOTS=256
+_LIBRARY=None
+
+
+def bounded_library():
+    """BoxMOT's native BoT-SORT with its removed tracks capped; see build_native_botsort.
+
+    The stock library keeps every removed track until reset, so memory grows with
+    each new track. Raises OSError if the build is missing or for another BoxMOT.
+    """
+    global _LIBRARY
+    if _LIBRARY is None:
+        import boxmot
+        from boxmot.native.trackers.botsort import BotSortLibrary
+        root=Path(os.environ.get('WLA_ROS_WS',str(Path.home()/'ros2_ws')))
+        path=Path(os.environ.get('WLA_BOTSORT_LIBRARY',str(root/'models/perception/tracking/botsort_capi_bounded.so')))
+        try:record=json.loads(path.with_suffix('.json').read_text())
+        except ValueError as exc:raise OSError(f'bad_sidecar:{exc}') from exc
+        if record.get('boxmot')!=boxmot.__version__:
+            raise OSError(f"built_for_boxmot_{record.get('boxmot')}_not_{boxmot.__version__}")
+        _LIBRARY=BotSortLibrary(path)
+    return _LIBRARY
 
 
 class NativeObjectTracks:
@@ -36,7 +59,7 @@ class NativeObjectTracks:
         for name in sorted(self.trackers.keys()|set(classes.tolist())):
             if not 0<=name<CLASS_SLOTS:raise ValueError('invalid_detection_class')
             tracker=self.trackers.get(name)
-            if tracker is None:tracker=self.trackers[name]=NativeBotSortTracker(dict(self.options))
+            if tracker is None:tracker=self.trackers[name]=NativeBotSortTracker(dict(self.options),library=bounded_library())
             local=np.flatnonzero(classes==name)
             for row in tracker.update(dets[local],None):
                 row=np.array(row,dtype=np.float64)
@@ -70,7 +93,7 @@ class TrackingRuntime:
         if os.environ.get('WLA_TRACKER_BACKEND','cpp')=='cpp':
             try:
                 from boxmot.trackers.box.botsort.native import NativeBotSortTracker
-                self.tracker=NativeBotSortTracker(dict(NATIVE_ALIGNED,**options),reid_model=self.reid)
+                self.tracker=NativeBotSortTracker(dict(NATIVE_ALIGNED,**options),reid_model=self.reid,library=bounded_library())
                 self.object_tracker=NativeObjectTracks(dict(NATIVE_ALIGNED,**object_options))
                 self.tracker_backend='cpp'
             except (ImportError,OSError,RuntimeError,subprocess.SubprocessError) as exc:

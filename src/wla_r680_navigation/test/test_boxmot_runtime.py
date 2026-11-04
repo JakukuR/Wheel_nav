@@ -85,6 +85,35 @@ def test_person_features_follow_the_detection_index(backend):
         assert int(np.argmax(r.features[row['track_id']]))==int(m.rows[row['detection_index']][0]/5)
 
 
+def test_track_churn_does_not_grow_memory():
+    from wla_r680_navigation_py.boxmot_runtime import NATIVE_ALIGNED,bounded_library
+    from boxmot.trackers.box.botsort.native import NativeBotSortTracker
+    options=dict(NATIVE_ALIGNED,track_high_thresh=.4,track_low_thresh=.1,new_track_thresh=.5,track_buffer=2,
+        match_thresh=.8,proximity_thresh=.5,appearance_thresh=.25,use_cmc=False,use_embeddings=False)
+    tracker=NativeBotSortTracker(options,library=bounded_library())
+    rss=lambda:int(open('/proc/self/statm').read().split()[1])*4096
+    rng=np.random.default_rng(0)
+    def run(frames):
+        for _ in range(frames):
+            x=rng.uniform(0,500,4)
+            tracker.update(np.stack([x,x*0+100,x+80,x*0+300,x*0+.9,x*0],1).astype(np.float32),None)
+    run(3000);before=rss()
+    run(12000)
+    # The stock library grows by about 490 bytes a frame under this churn.
+    assert (rss()-before)/12000<300
+
+
+def test_library_for_another_boxmot_is_refused(tmp_path,monkeypatch):
+    import wla_r680_navigation_py.boxmot_runtime as module
+    path=tmp_path/'library.so';path.with_suffix('.json').write_text('{"boxmot":"0.0"}')
+    monkeypatch.setenv('WLA_BOTSORT_LIBRARY',str(path));monkeypatch.setattr(module,'_LIBRARY',None)
+    with pytest.raises(OSError,match='built_for_boxmot'):module.bounded_library()
+    path.with_suffix('.json').write_text('{')
+    with pytest.raises(OSError,match='bad_sidecar'):module.bounded_library()
+    path.with_suffix('.json').unlink()
+    with pytest.raises(OSError):module.bounded_library()
+
+
 def test_backend_falls_back_to_python_when_native_cannot_load(monkeypatch,capsys):
     import boxmot.trackers.box.botsort.native as native
     def missing(*args,**kwargs):raise OSError('no library')

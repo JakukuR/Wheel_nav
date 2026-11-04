@@ -1,0 +1,45 @@
+#!/usr/bin/env python3
+"""Build BoxMOT's native BoT-SORT with its removed tracks capped. Run with .venv-boxmot.
+
+The stock library keeps every removed track until reset. This copies the installed
+source, changes that one place and builds outside the venv, so BoxMOT stays as
+installed. Stops if the source no longer has the expected line.
+"""
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+
+ANCHOR = 'removed_tracks_.insert(removed_tracks_.end(), removed_tracks.begin(), removed_tracks.end());\n'
+# The Python tracker's removed_stracks_buffer default.
+CAP = """    if (removed_tracks_.size() > 100) {
+        removed_tracks_.erase(removed_tracks_.begin(), removed_tracks_.end() - 100);
+    }
+"""
+
+
+def main():
+    import boxmot
+    root = Path(os.environ.get('WLA_ROS_WS', str(Path.home()/'ros2_ws')))
+    target = Path(os.environ.get('WLA_BOTSORT_LIBRARY', str(root/'models/perception/tracking/botsort_capi_bounded.so')))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=target.parent) as scratch:
+        source = Path(scratch)/'cpp'
+        shutil.copytree(Path(boxmot.__file__).parent/'native/cpp', source)
+        tracker = source/'trackers/botsort/src/tracker.cpp'
+        text = tracker.read_text()
+        if text.count(ANCHOR) != 1:
+            raise SystemExit(f'{tracker.name}: expected line not found once; BoxMOT {boxmot.__version__} changed')
+        tracker.write_text(text.replace(ANCHOR, ANCHOR+CAP))
+        build = Path(scratch)/'build'
+        subprocess.run(['cmake', '-S', str(source/'trackers/botsort'), '-B', str(build), '-DCMAKE_BUILD_TYPE=Release'], check=True, stdout=subprocess.DEVNULL)
+        subprocess.run(['cmake', '--build', str(build), '--target', 'botsort_capi', '-j2'], check=True, stdout=subprocess.DEVNULL)
+        shutil.copy2(next(build.rglob('botsort_capi.so')), target)
+    target.with_suffix('.json').write_text(json.dumps(dict(boxmot=boxmot.__version__, removed_tracks_cap=100), indent=1)+'\n')
+    print(target)
+
+
+if __name__ == '__main__':
+    main()

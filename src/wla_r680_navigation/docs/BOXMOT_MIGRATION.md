@@ -71,10 +71,10 @@ Measured against FP32 on 113 held-out real frames with the live detector also ru
 
 `TrackingRuntime` runs BoxMOT's own native BoT-SORT for people and objects. OSNet still runs through `CachedBoxMOTReID`. `WLA_TRACKER_BACKEND=python` selects the Python tracker on purpose; if the library cannot load the runtime logs an error and uses Python. `/r680_nav/perception/timing` reports `tracker_backend`.
 
-The library is built once per venv, into `site-packages/build/native/botsort/`, and is not in git. If it is missing the first detector start builds it (about 30 seconds, needs cmake, OpenCV and Eigen headers):
+The stock library keeps every removed track until reset, so memory grew by about 2.7 KB a frame under track churn; live, the detector rose about 260 MB in 73 minutes. The runtime therefore loads `~/ros2_ws/models/perception/tracking/botsort_capi_bounded.so` (not in git), built from the installed BoxMOT source with removed tracks capped at 100, as in the Python tracker. If it is missing or was built for another BoxMOT version the runtime logs an error and uses the Python tracker. Build it after installing or upgrading BoxMOT (about 30 seconds; needs cmake, OpenCV and Eigen headers). The script stops if the source line it changes has moved:
 
 ```bash
-~/ros2_ws/.venv-boxmot/bin/python -c "from boxmot.native.trackers.botsort import ensure_botsort_cpp_library as b; print(b())"
+~/ros2_ws/.venv-boxmot/bin/python ~/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/build_native_botsort
 ```
 
 `NATIVE_ALIGNED` must stay: without it the adapter reads BoxMOT's tuned YAML defaults (`fuse_first_associate: true`, other thresholds), not the constructor defaults the Python tracker used. The C API has no `per_class`, so `NativeObjectTracks` keeps one tracker per class.
