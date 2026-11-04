@@ -86,3 +86,13 @@ Measured against Python on 8000 synthetic frames (16 seeds with 2-8 crossing peo
 ## OSNet crop upload (2026-11-04)
 
 BoxMOT uploads each crop to the GPU on its own, which was most of the crop time. `batched_crops` uploads the batch once and produces identical values: for 8 boxes, crop time p50 8.05 to 3.37 ms. `WLA_REID_CROPS=boxmot` selects BoxMOT's path.
+
+## TensorRT FP16 OSNet (2026-11-04)
+
+`CachedBoxMOTReID` runs OSNet on two fixed-batch engines in `~/ros2_ws/models/perception/reid/` (not in git) when their sidecar matches the weights. Otherwise it logs an error and uses the FP32 graph; `WLA_REID_ENGINE=` (empty) selects that on purpose, and `/r680_nav/perception/timing` reports `reid_backend`. The model id stays the same because the network and weights do, so follow's `reid_model_id` does not change. Rebuild after changing the weights (about 6 minutes):
+
+```bash
+~/ros2_ws/.venv-boxmot/bin/python ~/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/build_osnet_engine
+```
+
+Measured against the FP32 graph on 418 real person boxes from two scenes (few identities): cosine at least 0.9998; among 40000 random pairs at most 0.27% changed side at 0.40, 0.45, 0.55 or 0.75. For 8 boxes with batched crops, get_features p50 25.4 to 11.7 ms and CPU per call 4.2 to 8.5 ms: FP16 costs some CPU and frees the GPU. A dedicated CUDA stream did not lower that CPU. Torch half precision on the graph gained only 1-2 ms.

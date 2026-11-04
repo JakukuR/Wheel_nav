@@ -7,8 +7,10 @@ inference for follow-target identity verification.
 from pathlib import Path
 import hashlib
 import os
+import sys
 import time
 import numpy as np
+from .reid_engine import EngineUnavailable,engine_dir,fixed_batches,load_engines
 
 
 class BatchedGraph:
@@ -26,17 +28,8 @@ class BatchedGraph:
                 self.graphs[size]=graph
 
     def __call__(self,batch):
-        import torch
         if not self.graphs:raise ValueError('ReID graph requires explicit startup warmup')
-        result=[]
-        for offset in range(0,len(batch),4):
-            part=batch[offset:offset+4];size=1 if len(part)==1 else 4
-            if len(part)!=size:
-                padded=torch.zeros(size,*part.shape[1:],device=part.device,dtype=part.dtype)
-                padded[:len(part)]=part
-            else:padded=part
-            result.append(self.graphs[size](padded)[:len(part)])
-        return torch.cat(result)
+        return fixed_batches(batch,lambda size,part:self.graphs[size](part))
 
 
 def batched_crops(backend,boxes,image):
@@ -62,7 +55,16 @@ class CachedBoxMOTReID:
         digest=hashlib.sha256(weights.read_bytes()).hexdigest()[:16]
         self.model_id='boxmot25-osnet-x025-msmt17:'+digest
         self.last_features=np.empty((0,512),np.float32);self.last_ms=0.
-        self.graph=BatchedGraph(self.backend.forward,self.backend.device) if self.backend.device.type=='cuda' else None
+        self.graph=None;self.backend_name='eager'
+        if self.backend.device.type=='cuda':
+            self.graph=BatchedGraph(self.backend.forward,self.backend.device);self.backend_name='cuda_graph_fp32'
+            folder=engine_dir()
+            if folder is not None:
+                try:
+                    self.graph=load_engines(folder,weights,self.backend.device);self.backend_name='tensorrt_fp16'
+                except EngineUnavailable as exc:
+                    # Slower but correct. Rebuild with build_osnet_engine to get FP16 back.
+                    print(f'ERROR: FP16 OSNet refused, running the FP32 graph: {exc}',file=sys.stderr,flush=True)
         if self.graph:self.backend.forward=self.graph
         if os.environ.get('WLA_REID_CROPS','batched')=='batched':
             self.backend.get_crops=lambda boxes,image:batched_crops(self.backend,boxes,image)

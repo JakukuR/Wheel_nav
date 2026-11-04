@@ -141,6 +141,6 @@ class TrackingRuntime:
             tracking_reid_ms=(time.perf_counter()-detected)*1000,reid_ms=self.reid.last_ms,
             total_ms=(time.perf_counter()-started)*1000,backend=self.backend,
             cmc=self.use_cmc,cmc_method='sof' if self.use_cmc else None,tracker='boxmot-25.0.0-botsort',
-            tracker_backend=self.tracker_backend,
+            tracker_backend=self.tracker_backend,reid_backend=getattr(self.reid,'backend_name',None),
             appearance='native_all_persons',people=people,detections=len(output.boxes.data),tracks=len(rows))
         return output,rows

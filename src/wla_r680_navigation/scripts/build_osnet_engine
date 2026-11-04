@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+"""Build the FP16 OSNet engines. Run with .venv-boxmot; takes about 6 minutes.
+
+Rebuild after changing the weights: the detector refuses a stale engine and falls
+back to the slower FP32 graph.
+"""
+import argparse
+import os
+import tempfile
+from pathlib import Path
+
+AGENT = Path(os.environ.get('WLA_AGENT_ROOT', str(Path.home()/'Wheel_Legged_Agent')))
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument('--weights', default=os.environ.get('WLA_REID_MODEL', str(AGENT/'models/perception/reid/osnet_x0_25_msmt17.pth')))
+    args = p.parse_args()
+    import tensorrt as trt
+    import torch
+    from boxmot.reid.backends.pytorch_backend import PyTorchBackend
+    from wla_r680_navigation_py.reid_engine import BATCHES, engine_dir, engine_file, write_sidecar
+    folder = engine_dir()
+    if folder is None:
+        p.error('WLA_REID_ENGINE is empty')
+    folder.mkdir(parents=True, exist_ok=True)
+    device = torch.device('cuda:0')
+    model = PyTorchBackend(Path(args.weights), device, False).model.eval()
+    with tempfile.TemporaryDirectory(dir=folder) as scratch:
+        for batch in BATCHES:
+            onnx_path = Path(scratch)/f'osnet-b{batch}.onnx'
+            torch.onnx.export(model, torch.zeros(batch, 3, 256, 128, device=device), str(onnx_path), opset_version=17,
+                              input_names=['images'], output_names=['features'], dynamo=False)
+            builder = trt.Builder(trt.Logger(trt.Logger.WARNING))
+            network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
+            if not trt.OnnxParser(network, builder.logger).parse_from_file(str(onnx_path)):
+                raise SystemExit(f'cannot parse {onnx_path}')
+            config = builder.create_builder_config()
+            config.set_flag(trt.BuilderFlag.FP16)
+            engine = builder.build_serialized_network(network, config)
+            if engine is None:
+                raise SystemExit(f'build failed for batch {batch}')
+            engine_file(folder, batch).write_bytes(bytes(engine))
+            print(engine_file(folder, batch), flush=True)
+    write_sidecar(folder, weights=args.weights, tensorrt_version=trt.__version__)
+
+
+if __name__ == '__main__':
+    main()
