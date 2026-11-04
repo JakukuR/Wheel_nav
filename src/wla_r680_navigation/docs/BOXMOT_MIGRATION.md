@@ -96,3 +96,7 @@ BoxMOT uploads each crop to the GPU on its own, which was most of the crop time.
 ```
 
 Measured against the FP32 graph on 418 real person boxes from two scenes (few identities): cosine at least 0.9998; among 40000 random pairs at most 0.27% changed side at 0.40, 0.45, 0.55 or 0.75. For 8 boxes with batched crops, get_features p50 25.4 to 11.7 ms and CPU per call 4.2 to 8.5 ms: FP16 costs some CPU and frees the GPU. A dedicated CUDA stream did not lower that CPU. Torch half precision on the graph gained only 1-2 ms.
+
+## Detector rate (2026-11-04)
+
+`nav_yolo_detector` runs at 20 Hz while follow's fresh request names the current epoch, and at 10 Hz otherwise. `WLA_DETECTOR_HZ` and `WLA_DETECTOR_IDLE_HZ` (or `--hz`, `--idle-hz`) change them; 30 and 30 is the old behaviour. Follow's control period is 50 ms. The pose producer takes the newest detection at 5 Hz, and consumers allow 0.3-0.5 s of age, from reading their code. Do not use 10 Hz during a task: in the synthetic test below, identity switches for fast walkers nearly doubled.

@@ -22,6 +22,19 @@ def module():
     return mod
 
 
+def test_rate_is_full_only_for_a_fresh_follow_request_of_this_epoch():
+    interest=dict(enabled=True,session='s',epoch=3,stamp_ns=10_000_000_000)
+    host=NS(condition=threading.Condition(),mask_interest=interest,session='s',
+            ros_ns=lambda:10_100_000_000,args=NS(hz=20.,idle_hz=10.))
+    target=module().NavDetector.target_hz
+    assert target(host,3)==20.
+    assert target(host,4)==10.
+    host.mask_interest=dict(interest,enabled=False);assert target(host,3)==10.
+    host.mask_interest=dict(interest,session='other');assert target(host,3)==10.
+    host.mask_interest=dict(interest,stamp_ns=9_000_000_000);assert target(host,3)==10.
+    host.mask_interest=None;assert target(host,3)==10.
+
+
 class Model:
     def __init__(self):
         self.calls=0
@@ -60,7 +73,7 @@ def fixture(monkeypatch):
     rclpy.init()
     model=Model()
     node=module().NavDetector(NS(base_frame='r680_mapping_floor',
-        device='cpu',imgsz=416,tracker='',hz=30.),model)
+        device='cpu',imgsz=416,tracker='',hz=30.,idle_hz=30.),model)
     raw=[];relative=[]
     class Pub:
         def __init__(self,rows):self.rows=rows

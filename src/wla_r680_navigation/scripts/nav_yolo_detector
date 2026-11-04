@@ -100,6 +100,15 @@ class NavDetector(Node):
             with self.condition:self.mask_interest=data
         except (ValueError,TypeError,KeyError):return
 
+    def target_hz(self, epoch):
+        """Full rate while a follow task asks for this epoch, by the same test as its request."""
+        with self.condition:
+            interest = self.mask_interest
+        following = (interest and interest.get('enabled')
+            and (interest.get('session'), interest.get('epoch')) == (self.session, epoch)
+            and 0 <= (self.ros_ns()-interest['stamp_ns'])/1e9 <= .5)
+        return self.args.hz if following else self.args.idle_hz
+
     def ros_ns(self):
         return self.get_clock().now().nanoseconds
 
@@ -245,7 +254,7 @@ class NavDetector(Node):
                         self.result = (None, dict(epoch=self.epoch, error=str(exc),
                             outcome='inference_rejected', runtime=self.runtime.last_metrics))
                 self.result_ready.trigger()
-            next_at = time.monotonic()+max(0., 1/self.args.hz-(self.ros_ns()-start_ns)/1e9)
+            next_at = time.monotonic()+max(0., 1/self.target_hz(epoch)-(self.ros_ns()-start_ns)/1e9)
 
     def publish_status(self):
         now = self.ros_ns()
@@ -395,7 +404,8 @@ def main():
     p.add_argument('--tracker', required=True)
     p.add_argument('--device', default='0')
     p.add_argument('--imgsz', type=int, default=416)
-    p.add_argument('--hz', type=float, default=30.)
+    p.add_argument('--hz', type=float, default=float(os.environ.get('WLA_DETECTOR_HZ', 20.)), help='Rate during a follow task')
+    p.add_argument('--idle-hz', type=float, default=float(os.environ.get('WLA_DETECTOR_IDLE_HZ', 10.)), help='Rate otherwise')
     p.add_argument('--base-frame', choices=['r680_mapping_floor', 'base_link'], default='r680_mapping_floor')
     p.add_argument('--check-dependencies', action='store_true')
     p.add_argument('--observation-socket', default=None, help='Private same-host observation receiver socket')
@@ -407,6 +417,8 @@ def main():
     p.add_argument('--observation-queue-bytes', type=int, default=16_000_000)
     p.add_argument('--observation-ipc-timeout', type=float, default=.15)
     args = p.parse_args()
+    if not (0 < args.idle_hz <= args.hz and math.isfinite(args.hz)):
+        p.error('invalid rate: need 0 < idle-hz <= hz')
     if any(not math.isfinite(v) or v<=0 for v in (args.observation_max_age,args.observation_metadata_items,
             args.observation_clock_jump,args.observation_queue_items,args.observation_queue_bytes,args.observation_ipc_timeout)):
         p.error('invalid observation resource configuration')
