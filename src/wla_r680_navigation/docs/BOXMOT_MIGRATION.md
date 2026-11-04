@@ -79,7 +79,7 @@ The library is built once per venv, into `site-packages/build/native/botsort/`, 
 
 `NATIVE_ALIGNED` must stay: without it the adapter reads BoxMOT's tuned YAML defaults (`fuse_first_associate: true`, other thresholds), not the constructor defaults the Python tracker used. The C API has no `per_class`, so `NativeObjectTracks` keeps one tracker per class.
 
-`track_buffer` counts frames in both backends.
+`track_buffer` counts frames in both backends, so it has to follow the detector rate.
 
 Measured against Python on 8000 synthetic frames (16 seeds with 2-8 crossing people, missed and low-score boxes, distinct and similar appearance, panning camera on half; real pixels, no real people): person tracker p50 14.7 to 2.9 ms; identity switches 504 vs 504 and 514 vs 497. 99.9% of Python's tracked rows were also tracked by C++; 91-92% of frames were identical. The rest differ in association, with no more switches overall. Real multi-person footage has not been compared.
 
@@ -100,3 +100,7 @@ Measured against the FP32 graph on 418 real person boxes from two scenes (few id
 ## Detector rate (2026-11-04)
 
 `nav_yolo_detector` runs at 20 Hz while follow's fresh request names the current epoch, and at 10 Hz otherwise. `WLA_DETECTOR_HZ` and `WLA_DETECTOR_IDLE_HZ` (or `--hz`, `--idle-hz`) change them; 30 and 30 is the old behaviour. Follow's control period is 50 ms. The pose producer takes the newest detection at 5 Hz, and consumers allow 0.3-0.5 s of age, from reading their code. Do not use 10 Hz during a task: in the synthetic test below, identity switches for fast walkers nearly doubled.
+
+## Track buffer (2026-11-04)
+
+17 frames keeps a lost track for 0.85 s at 20 Hz. Identity switches against ground truth, on 8 synthetic seeds of 40 s with people occluded for 0.2-1.2 s, slow / fast walkers: 30 Hz with 15 frames 219 / 254; 30 Hz with 26 frames 136 / 188; 20 Hz with 17 frames 122 / 222; 15 Hz with 15 frames 88 / 263; 10 Hz with 15 frames 63 / 450. Appearance is synthetic and distinct; real people have not been compared.
