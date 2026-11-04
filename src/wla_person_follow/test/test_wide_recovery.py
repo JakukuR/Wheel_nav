@@ -34,6 +34,37 @@ def geometry(point):
     return dict(detected=True, label='person', yaw=math.atan2(point[1], point[0]), distance=r-.28)
 
 
+def test_lone_person_uses_the_lower_bar():
+    identity, tracker = lost()
+    for stamp in (5., 5.1, 5.2): frame(identity, tracker, stamp, [('walker', .48, FAR)])
+    assert identity.proposal is not None and identity.proposal['id'] == 'walker'
+    identity, tracker = lost()
+    for stamp in (5., 5.1, 5.2): frame(identity, tracker, stamp, [('walker', .44, FAR)])
+    assert identity.proposal is None and identity.reason == 'no_unambiguous_recovery_candidate'
+
+
+def test_lower_bar_is_off_when_anyone_else_is_in_view():
+    identity, tracker = lost()
+    far2 = np.array([1., 3.])
+    for stamp in (5., 5.1, 5.2):
+        frame(identity, tracker, stamp, [('walker', .50, FAR), ('other', .30, far2)])
+    assert identity.proposal is None
+    # The other person's crop is unusable, so only the diagnostics show them.
+    identity, tracker = lost()
+    for stamp in (5., 5.1, 5.2):
+        snapshot = tracker.snapshot(stamp, np.zeros(3))
+        rows = [dict(id='walker', feature=feature(.50), position=FAR)]
+        identity.observe(rows, stamp, {'walker': 'feature_ready', 'other': 'crop_overlap'}, tracker, snapshot)
+    assert identity.proposal is None
+    # The old track reported as undetected is nobody in view.
+    identity, tracker = lost()
+    for stamp in (5., 5.1, 5.2):
+        snapshot = tracker.snapshot(stamp, np.zeros(3))
+        rows = [dict(id='walker', feature=feature(.50), position=FAR)]
+        identity.observe(rows, stamp, {'walker': 'feature_ready', 'target': 'target_not_detected'}, tracker, snapshot)
+    assert identity.proposal is not None
+
+
 def test_far_best_match_is_recovered_without_a_position_gate():
     identity, tracker = lost()
     for stamp in (5., 5.1): frame(identity, tracker, stamp, [('walker', .72, FAR)])
@@ -77,7 +108,9 @@ def test_two_similar_people_or_a_weak_match_are_not_recovered():
         frame(identity, tracker, stamp, [('a', .74, FAR), ('b', .70, [2.28, 1.])])
     assert identity.proposal is None and identity.reason == 'no_unambiguous_recovery_candidate'
     for stamp in (6., 6.1, 6.2, 6.3):
-        frame(identity, tracker, stamp, [('bystander', .50, FAR)])
+        # Alone in view the bar is .45, so a lone bystander at .49-.51 (measured
+        # 11-02) IS re-acquired since 11-04; only a weaker match is refused.
+        frame(identity, tracker, stamp, [('bystander', .44, FAR)])
     assert identity.proposal is None
 
 

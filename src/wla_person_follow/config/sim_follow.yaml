@@ -40,6 +40,7 @@ person_follow:
     # is compared; the best match is re-acquired with no position gate if it is
     # >= reid_search_similarity and leads the next by reid_margin, after
     # reid_confirm_frames matches each within 2 s (bad frames do not reset).
+    # With only one person in view the bar is reid_alone_similarity instead.
     # reid_similarity, reid_search_radius_m and reid_search_confirm_frames are
     # kept for validation/status only and no longer used by recovery.
     reid_similarity: 0.40
@@ -47,6 +48,7 @@ person_follow:
     reid_confirm_frames: 3
     reid_search_radius_m: 4.0
     reid_search_similarity: 0.55
+    reid_alone_similarity: 0.45
     reid_search_confirm_frames: 5
     target_prediction_s: 2.0
     # Sparse accepted observations; freeze on loss for last-seen search.

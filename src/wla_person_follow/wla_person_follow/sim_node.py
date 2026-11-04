@@ -87,7 +87,7 @@ class FollowEngine:
             follow_preset='tracker_follow', target_prediction_s=2., search_arrival_m=.35,
             target_history_window_s=5., target_history_sample_period_s=.4,
             binding_jump_radius_m=.45, binding_jump_growth_mps=.25, binding_jump_radius_max_m=1.5,
-            neighbor_ambiguity_radius_m=1.5,
+            neighbor_ambiguity_radius_m=1.5,reid_alone_similarity=.45,
             target_ghost_clear_enabled=True,target_bbox_filter_enabled=True,
             target_ghost_clear_radius_m=.35,target_ghost_clear_ttl_s=.5,
             target_trail_clear_enabled=True,target_trail_clear_radius_m=.30,terrain_topic='')
@@ -109,6 +109,7 @@ class FollowEngine:
             not 2 <= self.p['reid_confirm_frames'] <= 5 or
             not self.p['binding_jump_radius_max_m'] <= self.p['reid_search_radius_m'] <= 6. or
             not self.p['reid_similarity'] <= self.p['reid_search_similarity'] <= .99 or
+            not self.p['reid_similarity'] <= self.p['reid_alone_similarity'] <= self.p['reid_search_similarity'] or
             not self.p['reid_confirm_frames'] <= self.p['reid_search_confirm_frames'] <= 15 or
             (self.p['reid_enabled'] and not self.p['reid_model_id']) or
             not .001 <= self.p['startup_motion_threshold_m'] <= .1 or
@@ -393,7 +394,7 @@ class FollowEngine:
                 history_sample_period_s=self.p['target_history_sample_period_s'],
                 expected_label=c.target_label, mode=c.mode)
             self.recovery_identity=RecoveryIdentity(similarity=self.p['reid_search_similarity'],margin=self.p['reid_margin'],
-                confirmations=self.p['reid_confirm_frames']) if self.p['reid_enabled'] and cfg['reid'] else None
+                confirmations=self.p['reid_confirm_frames'],alone_similarity=self.p['reid_alone_similarity']) if self.p['reid_enabled'] and cfg['reid'] else None
             self.tracker_key=task_key;self.interest_at=-math.inf;self.result=None
             self.arrival_count=0;self.arrival_stamp=0;self.arrival_started=None
             self.arrival_detail=None;self.arrival_goal_generation=None
@@ -1053,7 +1054,7 @@ class FollowEngine:
                     'target_history_window_s','target_history_sample_period_s',
                     'binding_jump_growth_mps','binding_jump_radius_max_m','reid_enabled',
                     'reid_similarity','reid_margin','reid_confirm_frames','reid_search_radius_m',
-                    'reid_search_similarity','reid_search_confirm_frames','neighbor_ambiguity_radius_m',
+                    'reid_search_similarity','reid_alone_similarity','reid_search_confirm_frames','neighbor_ambiguity_radius_m',
                     'target_mask_enabled','target_bbox_filter_enabled','target_ghost_clear_enabled')},
                 approach_goal=result.get('approach_goal') if result else None,
                 arrival=self.arrival_detail,

@@ -107,7 +107,7 @@ D455 → nav_yolo_detector（YOLOE 分割 + BoT-SORT + OSNet）
 - ReID 只在目标丢失时用来重新绑定，正常跟随完全靠几何。
 - 丢失期间，对画面里所有可见的人计算外观特征，取离预测位置最近的 4 个，不再限制位置。
 - 选相似度最高的人，并要求同时满足：
-  - 相似度 ≥ 0.55（`reid_search_similarity`）；
+  - 相似度 ≥ 0.55（`reid_search_similarity`）；画面里只有一个人时 ≥ 0.45（`reid_alone_similarity`）；
   - 比第二名高出至少 0.08；
   - 同一个 ID 连续确认 3 次，相邻两次间隔不超过 2 s。
 - 特征不可用的帧不计数，也不清零已有确认。这类帧包括遮挡、贴边、低置信度、未检测到，原因见 `feature_diagnostics`。

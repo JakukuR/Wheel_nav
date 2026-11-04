@@ -327,12 +327,14 @@ class FollowTracker:
 
 class RecoveryIdentity:
     """Collect indefinitely; never alter geometry, command permission or task life."""
-    def __init__(self, *, similarity=.55, margin=.08, confirmations=3):
+    def __init__(self, *, similarity=.55, margin=.08, confirmations=3, alone_similarity=.45):
         # No position gate (2026-11-02: the walker kept going past the 1.5 m gate
         # while the robot searched): the best-matching visible person wins if it is
         # above the same-person 5th percentile (.55; the walker scored down to .31,
         # median .75, a bystander .49-.51) and leads the next person by margin.
         self.threshold, self.margin, self.confirmations = similarity, margin, confirmations
+        # Only one person in view: nobody to confuse them with in this frame.
+        self.alone_threshold = alone_similarity
         self.last_template_added = -math.inf
         # Enrollment consistency is independent of the recovery acceptance threshold.
         self.enrollment_similarity = .80
@@ -423,7 +425,10 @@ class RecoveryIdentity:
             if self.pending_id is None:self.reason='no_usable_recovery_feature'
             return
         sim,row=scored[0]
-        if sim<self.threshold or (len(scored)>1 and sim-scored[1][0]<self.margin):
+        # Diagnostics also name people whose crop is unusable, so they still count.
+        people=sum(state!='target_not_detected' for state in self.feature_diagnostics.values())
+        threshold=self.alone_threshold if len(scored)==1 and people<=1 else self.threshold
+        if sim<threshold or (len(scored)>1 and sim-scored[1][0]<self.margin):
             self.reset_confirmation();self.reason='no_unambiguous_recovery_candidate';return
         self.candidates[0]['qualified']=True
         same=(row['id']==self.pending_id and self.pending_stamp is not None
