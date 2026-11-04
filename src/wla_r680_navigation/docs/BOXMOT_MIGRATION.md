@@ -66,3 +66,19 @@ After changing the weights, the text encoder or `yoloe_classes.json`, rebuild (a
 The engine has a fixed 320x416 input (what `imgsz=416` gives a 640x480 frame), so `--imgsz` does not apply to it. It needs `agnostic_nms=True` to match the `.pt` path, whose YOLOE class sets that by default; `TrackingRuntime` passes it.
 
 Measured against FP32 on 113 held-out real frames with the live detector also running (one scene, FP32 as reference, no ground truth): detection p50 36.1 to 18.3 ms, forward 22.8 to 4.8 ms; person recall at conf >= .25 100% (30 boxes), at >= .10 98.4% (129 boxes). INT8 was rejected: 0.9 ms faster than FP16, person recall at >= .25 of 6.7% with 276 calibration frames from one scene.
+
+## C++ BoT-SORT (2026-11-04)
+
+`TrackingRuntime` runs BoxMOT's own native BoT-SORT for people and objects. OSNet still runs through `CachedBoxMOTReID`. `WLA_TRACKER_BACKEND=python` selects the Python tracker on purpose; if the library cannot load the runtime logs an error and uses Python. `/r680_nav/perception/timing` reports `tracker_backend`.
+
+The library is built once per venv, into `site-packages/build/native/botsort/`, and is not in git. If it is missing the first detector start builds it (about 30 seconds, needs cmake, OpenCV and Eigen headers):
+
+```bash
+~/ros2_ws/.venv-boxmot/bin/python -c "from boxmot.native.trackers.botsort import ensure_botsort_cpp_library as b; print(b())"
+```
+
+`NATIVE_ALIGNED` must stay: without it the adapter reads BoxMOT's tuned YAML defaults (`fuse_first_associate: true`, other thresholds), not the constructor defaults the Python tracker used. The C API has no `per_class`, so `NativeObjectTracks` keeps one tracker per class.
+
+`track_buffer` counts frames in both backends.
+
+Measured against Python on 8000 synthetic frames (16 seeds with 2-8 crossing people, missed and low-score boxes, distinct and similar appearance, panning camera on half; real pixels, no real people): person tracker p50 14.7 to 2.9 ms; identity switches 504 vs 504 and 514 vs 497. 99.9% of Python's tracked rows were also tracked by C++; 91-92% of frames were identical. The rest differ in association, with no more switches overall. Real multi-person footage has not been compared.

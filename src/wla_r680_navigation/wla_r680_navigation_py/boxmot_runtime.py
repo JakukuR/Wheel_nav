@@ -5,8 +5,44 @@ class-separated geometry association (a person ReID network is not an object
 identity model). No Ultralytics tracker or custom GMC gate is instantiated.
 """
 import os
+import subprocess
+import sys
 import time
 import numpy as np
+
+# BotSort's constructor defaults. The native adapter would otherwise read
+# BoxMOT's tuned YAML, which associates differently.
+NATIVE_ALIGNED=dict(frame_rate=30,fuse_first_associate=False,second_match_thresh=.5,
+    unconfirmed_match_thresh=.7,unconfirmed_emb_scale=2.,removed_stracks_buffer=100,asso_func='iou')
+CLASS_SLOTS=256
+
+
+class NativeObjectTracks:
+    """BotSort(per_class=True) for the native library, which has no such option.
+
+    Output rows keep the Python layout: frame-level detection indices and track
+    ids that are unique across classes, without a growing remapping table.
+    """
+    def __init__(self,options):
+        self.options=options;self.trackers={}
+
+    def reset(self):
+        self.trackers.clear()
+
+    def update(self,dets,frame=None):
+        from boxmot.trackers.box.botsort.native import NativeBotSortTracker
+        classes=dets[:,5].astype(int)
+        rows=[]
+        for name in sorted(self.trackers.keys()|set(classes.tolist())):
+            if not 0<=name<CLASS_SLOTS:raise ValueError('invalid_detection_class')
+            tracker=self.trackers.get(name)
+            if tracker is None:tracker=self.trackers[name]=NativeBotSortTracker(dict(self.options))
+            local=np.flatnonzero(classes==name)
+            for row in tracker.update(dets[local],None):
+                row=np.array(row,dtype=np.float64)
+                row[4]=row[4]*CLASS_SLOTS+name;row[7]=local[int(row[7])]
+                rows.append(row)
+        return np.array(rows,dtype=np.float64).reshape(-1,8)
 
 
 class TrackingRuntime:
@@ -29,9 +65,20 @@ class TrackingRuntime:
             from .boxmot_reid import CachedBoxMOTReID
             reid_backend=CachedBoxMOTReID(weights,device)
         self.reid=reid_backend
-        self.tracker=BotSort(**options,reid_model=self.reid)
-        object_options=dict(options,per_class=True,use_cmc=False,use_embeddings=False)
-        self.object_tracker=BotSort(**object_options)
+        object_options=dict(options,use_cmc=False,use_embeddings=False)
+        self.tracker_backend='python'
+        if os.environ.get('WLA_TRACKER_BACKEND','cpp')=='cpp':
+            try:
+                from boxmot.trackers.box.botsort.native import NativeBotSortTracker
+                self.tracker=NativeBotSortTracker(dict(NATIVE_ALIGNED,**options),reid_model=self.reid)
+                self.object_tracker=NativeObjectTracks(dict(NATIVE_ALIGNED,**object_options))
+                self.tracker_backend='cpp'
+            except (ImportError,OSError,RuntimeError,subprocess.SubprocessError) as exc:
+                # Slower but equivalent association; timing reports the backend in use.
+                print(f'ERROR: native BoT-SORT unavailable, running the Python tracker: {exc}',file=sys.stderr,flush=True)
+        if self.tracker_backend=='python':
+            self.tracker=BotSort(**options,reid_model=self.reid)
+            self.object_tracker=BotSort(**object_options,per_class=True)
         self.signature=None;self.graph=None;self.last_metrics={};self.features={}
         self.engine_imgsz=getattr(model,'wla_engine_imgsz',None)
 
@@ -94,5 +141,6 @@ class TrackingRuntime:
             tracking_reid_ms=(time.perf_counter()-detected)*1000,reid_ms=self.reid.last_ms,
             total_ms=(time.perf_counter()-started)*1000,backend=self.backend,
             cmc=self.use_cmc,cmc_method='sof' if self.use_cmc else None,tracker='boxmot-25.0.0-botsort',
+            tracker_backend=self.tracker_backend,
             appearance='native_all_persons',people=people,detections=len(output.boxes.data),tracks=len(rows))
         return output,rows
