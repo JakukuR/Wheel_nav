@@ -6,6 +6,7 @@ inference for follow-target identity verification.
 """
 from pathlib import Path
 import hashlib
+import os
 import time
 import numpy as np
 
@@ -38,6 +39,19 @@ class BatchedGraph:
         return torch.cat(result)
 
 
+def batched_crops(backend,boxes,image):
+    """BoxMOT's crops, resize and normalization, with one GPU upload for the batch."""
+    import cv2
+    import torch
+    from boxmot.reid.core.crops import extract_crops
+    shape=backend.input_shape
+    blank=np.zeros((*shape,3),np.uint8)
+    array=np.stack([cv2.cvtColor(backend.preprocess_fn(crop if crop.size else blank,shape),cv2.COLOR_BGR2RGB)
+        for crop in extract_crops(boxes,image,shape)])
+    batch=torch.from_numpy(np.ascontiguousarray(array.transpose(0,3,1,2))).to(backend.device).float()
+    return batch.div_(255.).sub_(backend.mean_array).div_(backend.std_array)
+
+
 class CachedBoxMOTReID:
     def __init__(self,weights,device='cuda:0'):
         import torch
@@ -50,6 +64,8 @@ class CachedBoxMOTReID:
         self.last_features=np.empty((0,512),np.float32);self.last_ms=0.
         self.graph=BatchedGraph(self.backend.forward,self.backend.device) if self.backend.device.type=='cuda' else None
         if self.graph:self.backend.forward=self.graph
+        if os.environ.get('WLA_REID_CROPS','batched')=='batched':
+            self.backend.get_crops=lambda boxes,image:batched_crops(self.backend,boxes,image)
 
     def warm(self):
         if self.graph:self.graph.warm()

@@ -82,3 +82,7 @@ The library is built once per venv, into `site-packages/build/native/botsort/`, 
 `track_buffer` counts frames in both backends.
 
 Measured against Python on 8000 synthetic frames (16 seeds with 2-8 crossing people, missed and low-score boxes, distinct and similar appearance, panning camera on half; real pixels, no real people): person tracker p50 14.7 to 2.9 ms; identity switches 504 vs 504 and 514 vs 497. 99.9% of Python's tracked rows were also tracked by C++; 91-92% of frames were identical. The rest differ in association, with no more switches overall. Real multi-person footage has not been compared.
+
+## OSNet crop upload (2026-11-04)
+
+BoxMOT uploads each crop to the GPU on its own, which was most of the crop time. `batched_crops` uploads the batch once and produces identical values: for 8 boxes, crop time p50 8.05 to 3.37 ms. `WLA_REID_CROPS=boxmot` selects BoxMOT's path.
