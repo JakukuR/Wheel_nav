@@ -17,6 +17,9 @@ node_modules/
 *.swo
 .DS_Store
 
+# Built per machine: bound to this TensorRT and CUDA version.
+/models/
+
 # Only one example map belongs in this repository.
 /maps/*
 !/maps/map-2026-10-08-1/

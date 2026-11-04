@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+"""Build the FP16 engine nav_yolo_detector loads. Run with .venv-boxmot; takes ~13 min.
+
+Rebuild after changing the weights, the text encoder or yoloe_classes.json: the
+detector refuses a stale engine and falls back to the slower .pt path.
+--adopt records an engine already built from these same inputs.
+"""
+import argparse
+import os
+import shutil
+import sys
+import tempfile
+from pathlib import Path
+
+AGENT = Path(os.environ.get('WLA_AGENT_ROOT', str(Path.home()/'Wheel_Legged_Agent')))
+MODELS = AGENT/'models/perception/yoloe'
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument('--model', default=str(MODELS/'yoloe-26s-seg.pt'))
+    p.add_argument('--classes-file', default=str(AGENT/'deploy/yoloe_classes.json'))
+    p.add_argument('--text-encoder', default=str(MODELS/'mobileclip2_b.ts'))
+    p.add_argument('--adopt', default=None, help='Existing .engine built from these inputs')
+    args = p.parse_args()
+    sys.path.insert(0, str(AGENT/'src'))
+    os.environ['YOLO_AUTOINSTALL'] = 'false'
+    os.environ['YOLO_OFFLINE'] = 'True'
+    import tensorrt
+    from wla_r680_navigation_py.yoloe_engine import ENGINE_IMGSZ, engine_path, write_sidecar
+    from wla_sim.perception.yoloe import load_yoloe, vocabulary
+    target = engine_path()
+    if target is None:
+        p.error('WLA_YOLOE_ENGINE is empty')
+    target.parent.mkdir(parents=True, exist_ok=True)
+    labels, texts, digest = vocabulary(path=args.classes_file)
+    if args.adopt:
+        shutil.copy2(args.adopt, target)
+    else:
+        # The exporter writes next to its weights: keep that out of the shared models folder.
+        with tempfile.TemporaryDirectory(dir=target.parent) as folder:
+            weights = Path(folder)/'model.pt'
+            shutil.copy2(args.model, weights)
+            model = load_yoloe(str(weights), classes=labels, prompts=dict(zip(labels, texts)),
+                               text_encoder_path=args.text_encoder)
+            built = model.export(format='engine', imgsz=ENGINE_IMGSZ, device=0, batch=1, simplify=False, quantize=16)
+            shutil.move(built, target)
+    write_sidecar(target, weights=args.model, text_encoder=args.text_encoder, classes=labels,
+                  prompts=texts, vocabulary_sha256=digest, tensorrt_version=tensorrt.__version__)
+    print(target)
+
+
+if __name__ == '__main__':
+    main()

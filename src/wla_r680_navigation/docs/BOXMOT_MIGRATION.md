@@ -52,3 +52,17 @@ Removed production source: custom `gmc_recovery.py`, unused Agent `yoloe_runtime
 77 final targeted tests passed (68 component/ROS adapter checks plus 9 follower ROS tests, domain 198/localhost, no hardware command publishers). Real-model GPU test and native SOF weak-texture fallback passed separately. Source/installed parity and launcher dependency checks are required before switching the entrypoints. Raw evidence: `ros2_ws/.staging/boxmot-20261021/`.
 
 Start preview: `cd ~/ros2_ws && ./r680_perception.sh debug-camera`; in a second terminal, `./r680_person_follow.sh run`. These commands keep the existing explicit-target/motion flow; this migration itself did not start camera/following or publish chassis speeds.
+
+## TensorRT FP16 detector (2026-11-04)
+
+`nav_yolo_detector` loads `~/ros2_ws/models/perception/yoloe/yoloe-26s-seg-fp16.engine` (not in git) when its sidecar matches the `--model` weights, text encoder and vocabulary. Otherwise it logs an error and runs the FP32 CUDA-graph path above; `/r680_nav/perception/timing` reports the backend in use. `WLA_YOLOE_ENGINE=` (empty) selects FP32 on purpose. The ReID network stays on its FP32 graph.
+
+After changing the weights, the text encoder or `yoloe_classes.json`, rebuild (about 13 minutes):
+
+```bash
+~/ros2_ws/.venv-boxmot/bin/python ~/ros2_ws/install/wla_r680_navigation/lib/wla_r680_navigation/build_yoloe_engine
+```
+
+The engine has a fixed 320x416 input (what `imgsz=416` gives a 640x480 frame), so `--imgsz` does not apply to it. It needs `agnostic_nms=True` to match the `.pt` path, whose YOLOE class sets that by default; `TrackingRuntime` passes it.
+
+Measured against FP32 on 113 held-out real frames with the live detector also running (one scene, FP32 as reference, no ground truth): detection p50 36.1 to 18.3 ms, forward 22.8 to 4.8 ms; person recall at conf >= .25 100% (30 boxes), at >= .10 98.4% (129 boxes). INT8 was rejected: 0.9 ms faster than FP16, person recall at >= .25 of 6.7% with 276 calibration frames from one scene.

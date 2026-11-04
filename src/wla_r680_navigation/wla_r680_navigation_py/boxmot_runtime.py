@@ -33,6 +33,12 @@ class TrackingRuntime:
         object_options=dict(options,per_class=True,use_cmc=False,use_embeddings=False)
         self.object_tracker=BotSort(**object_options)
         self.signature=None;self.graph=None;self.last_metrics={};self.features={}
+        self.engine_imgsz=getattr(model,'wla_engine_imgsz',None)
+
+    @property
+    def backend(self):
+        if self.engine_imgsz:return 'tensorrt_fp16'
+        return 'cuda_graph_fp32' if self.graph else 'eager'
 
     def reset(self):
         self.tracker.reset();self.object_tracker.reset()
@@ -63,12 +69,14 @@ class TrackingRuntime:
     def process(self,frame,**options):
         options.pop('persist',None);options.pop('tracker',None)
         options.update(retina_masks=True,verbose=False)
+        # The YOLOE class defaults to agnostic NMS; an engine loads through plain YOLO.
+        if self.engine_imgsz:options.update(imgsz=self.engine_imgsz,agnostic_nms=True)
         signature=(frame.shape,str(frame.dtype),repr(sorted(options.items())))
         started=time.perf_counter()
         if self.signature is None:
             self.model.predict(frame,**options)
             predictor=self.model.predictor
-            if predictor.model.device.type=='cuda':
+            if predictor.model.device.type=='cuda' and not self.engine_imgsz:
                 from wla_sim.perception.yoloe_graph import FP32GraphForward
                 network=predictor.model.model;network.pe=network.pe.to(predictor.model.device)
                 self.graph=FP32GraphForward(predictor.inference);predictor.inference=self.graph
@@ -76,7 +84,7 @@ class TrackingRuntime:
             if self.graph:self.graph.allow_capture=False
             self.reid.warm();self.reset();self.signature=signature
             self.last_metrics=dict(warmup_ms=(time.perf_counter()-started)*1000,
-                backend='cuda_graph_fp32' if self.graph else 'eager',cmc=self.use_cmc)
+                backend=self.backend,cmc=self.use_cmc)
             return None
         if signature!=self.signature:raise ValueError('changed_image_or_options_require_new_detector')
         output=self.model.predict(frame,**options)[0]
@@ -84,7 +92,7 @@ class TrackingRuntime:
         rows,people=self.associate(output,frame)
         self.last_metrics=dict(detector_ms=(detected-started)*1000,
             tracking_reid_ms=(time.perf_counter()-detected)*1000,reid_ms=self.reid.last_ms,
-            total_ms=(time.perf_counter()-started)*1000,backend='cuda_graph_fp32' if self.graph else 'eager',
+            total_ms=(time.perf_counter()-started)*1000,backend=self.backend,
             cmc=self.use_cmc,cmc_method='sof' if self.use_cmc else None,tracker='boxmot-25.0.0-botsort',
             appearance='native_all_persons',people=people,detections=len(output.boxes.data),tracks=len(rows))
         return output,rows

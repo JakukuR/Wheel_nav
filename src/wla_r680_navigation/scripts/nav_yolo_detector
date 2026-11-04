@@ -432,8 +432,19 @@ def main():
     torch.set_num_threads(2)
     cv2.setNumThreads(2)
     labels, texts, vocabulary_hash = vocabulary(path=args.classes_file)
-    model = load_yoloe(args.model, classes=labels, prompts=dict(zip(labels, texts)),
-                       text_encoder_path=args.text_encoder)
+    from wla_r680_navigation_py.yoloe_engine import EngineUnavailable, engine_path, load_engine
+    model = None
+    engine = engine_path()
+    if engine is not None:
+        try:
+            model = load_engine(engine, weights=args.model, text_encoder=args.text_encoder,
+                                labels=labels, vocabulary_sha256=vocabulary_hash)
+        except EngineUnavailable as exc:
+            # Slower but correct. Rebuild with build_yoloe_engine to get FP16 back.
+            print(f'ERROR: FP16 engine refused, running the FP32 .pt path: {exc}', file=sys.stderr, flush=True)
+    if model is None:
+        model = load_yoloe(args.model, classes=labels, prompts=dict(zip(labels, texts)),
+                           text_encoder_path=args.text_encoder)
     if args.check_dependencies:
         from wla_r680_navigation_py.boxmot_runtime import TrackingRuntime
         checked_runtime=TrackingRuntime(model,args.tracker)
