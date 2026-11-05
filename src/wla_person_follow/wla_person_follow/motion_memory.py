@@ -8,6 +8,13 @@ def advance(pose, twist, dt):
             y+(vx*math.sin(mid)+vy*math.cos(mid))*dt, angle+w*dt)
 
 
+# Newest wheel sample may be this old before a pose is refused; the twist bridges it.
+# Below the 0.20 s health limit. At 0.05 s a late callback under task load refused the
+# control-time pose and zeroed the command 12 times in a 193 s follow (11-04 17:57;
+# the topic itself never gapped above 27 ms).
+POSE_EXTRAPOLATION_S = .15
+
+
 class LocalMotion:
     def __init__(self):
         self.samples = deque(maxlen=128)
@@ -43,7 +50,7 @@ class LocalMotion:
     def pose_at(self, stamp):
         if not self.samples: return None
         values=list(self.samples)
-        if stamp < values[0][0] or stamp-values[-1][0] > .05: return None
+        if stamp < values[0][0] or stamp-values[-1][0] > POSE_EXTRAPOLATION_S: return None
         for t, pose, twist in reversed(values):
             if t <= stamp: return advance(pose, twist, stamp-t)
         return None

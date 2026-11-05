@@ -100,6 +100,19 @@ class TrackingPolicy:
         return out
 
 
+def same_output_phase(live_state, plan_state, mode='0'):
+    """May a plan made in plan_state keep driving while the tracker is in live_state?
+
+    Person modes drive every phase up to the last-seen point the same way. Zeroing at
+    the coasting -> search_last_seen hand-over stopped the robot for a planner cycle
+    while it had to keep going (11-04 17:57: 12 zero rows). The sweep stays separate.
+    """
+    if live_state == plan_state:
+        return True
+    drive = {'tracking', 'coasting'} if mode == '2' else {'tracking', 'coasting', 'holding', 'search_last_seen'}
+    return live_state in drive and plan_state in drive
+
+
 class FollowTracker:
     """Only real, distinct geometry frames update the single Kalman tracker."""
     def __init__(self, target_id, now, *, prediction_s=2., freshness_s=.3,

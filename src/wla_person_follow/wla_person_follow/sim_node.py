@@ -30,7 +30,7 @@ from .depth_proc import rotation_from_quaternion
 from .motion_memory import LocalMotion
 from .task_session import TaskSession
 from .follow_config import PENDING_CALIBRATION_PARAMETERS, validate_follow_config, validate_detection_status_topic
-from .follow_session import FollowTracker, RecoveryIdentity, TrackingPolicy, position, frame_target_ready
+from .follow_session import FollowTracker, RecoveryIdentity, TrackingPolicy, position, frame_target_ready, same_output_phase
 from .sim_core.common import rotation
 from .sim_core.rolling_depth_map import native_ray_slots
 from .sim_runtime import packet_from_depth, target_points_from_removed_depth, measurements_from_relative, local_points, process_step, warm_worker, worker_initializer
@@ -963,10 +963,7 @@ class FollowEngine:
             if policy is not None:
                 command=policy.limit_command(command,ns/1e9)
                 live=self.tracker.snapshot(ns/1e9,self.motion.pose_at(ns/1e9)) if self.tracker is not None else None
-                # Person modes plan holding exactly like coasting (last trusted track).
-                drive={'tracking','coasting'} if policy.mode=='2' else {'tracking','coasting','holding'}
-                same_phase=(live is not None and (live['state']==policy.state or
-                    {live['state'],policy.state} <= drive))
+                same_phase=live is not None and same_output_phase(live['state'],policy.state,policy.mode)
                 if not same_phase:
                     command=np.zeros(2);healthy=False;blockers.append('tracking_phase_changed')
                 elif live is not None:
