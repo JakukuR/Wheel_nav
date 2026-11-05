@@ -55,6 +55,9 @@ SEARCH_BLOCKED_S = 2.                                     # in total, then arriv
 # SEARCH_BLOCKED_S so the planner signal decides first. Simulation 11-05: stopped
 # 0.46 m from the point (arrival 0.45 m), no signal, no sweep for 34 s.
 SEARCH_STALL_S = 3.
+# Last seen this far off the image centre: the person walked out sideways and is
+# further that way by now, so sweep there instead of driving back to the frozen point.
+SEARCH_EDGE_BEARING = .4
 SEARCH_STALL_M, SEARCH_STALL_RAD = .02, .03
 
 @dataclass(frozen=True)
@@ -137,6 +140,7 @@ class FollowTracker:
         self.last_bearing = None
         self.heading = None
         self.exit_side = 1.
+        self.exit_bearing = 0.
         self.edge_observations = 0
         self.velocity_evidence = 0
         self.hard_break = False
@@ -199,6 +203,7 @@ class FollowTracker:
         self.last_bearing = float(math.atan2(point[1]-pose[1], point[0]-pose[0]))
         relative = (self.last_bearing-float(pose[2])+math.pi) % (2*math.pi)-math.pi
         self.exit_side = 1. if relative >= 0 else -1.
+        self.exit_bearing = relative
         self.heading = float(math.atan2(velocity[1], velocity[0])) if self.velocity_evidence >= 3 else self.last_bearing
         self.last_position, self.last_seen = point.copy(), float(stamp)
         self.observations.append((float(stamp),point.copy()))
@@ -276,6 +281,9 @@ class FollowTracker:
             state = 'coasting'
         else:
             arrived = (robot_pose is not None and np.linalg.norm(np.asarray(robot_pose[:2])-self.last_position) <= self.search_arrival+.10)
+            if self.search_started is None and self.mode != '2' and abs(self.exit_bearing) >= SEARCH_EDGE_BEARING:
+                self.search_arrived_by = 'edge'
+                self.search_started = self.sweep_started = now
             if arrived and self.search_started is None:
                 self.search_arrived_by = 'distance'
                 # The sweep starts on arrival; it no longer first aligns with the

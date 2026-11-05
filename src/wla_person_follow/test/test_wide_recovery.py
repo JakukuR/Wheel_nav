@@ -172,3 +172,31 @@ def test_planner_reports_outside_the_search_drive_are_ignored():
     tracker.report_planner('depth_coverage_recovery', 'search_last_seen', 4.2)
     tracker.mode = '0'
     assert tracker.snapshot(4.3, pose)['state'] == 'search_last_seen'
+
+
+def lost_at_bearing(bearing, mode='0'):
+    tracker = FollowTracker('target', 0., mode=mode)
+    tracker.last_position, tracker.last_seen = np.array([2.28, 0.]), 1.2
+    tracker.exit_bearing, tracker.exit_side = bearing, 1. if bearing >= 0 else -1.
+    return tracker
+
+
+def test_lost_at_the_image_edge_sweeps_towards_the_exit_without_driving_back():
+    tracker = lost_at_bearing(-.5)
+    pose = np.array([0., 0., 0.])
+    assert tracker.snapshot(3.1, pose)['state'] == 'coasting'  # prediction still applies
+    snap = tracker.snapshot(3.3, pose)
+    assert snap['state'] == 'search_heading' and snap['search_arrived_by'] == 'edge'
+    assert snap['search_side'] == -1.
+
+
+def test_lost_near_the_image_centre_still_drives_to_the_last_seen_point():
+    tracker = lost_at_bearing(.39)
+    snap = tracker.snapshot(3.3, np.array([0., 0., 0.]))
+    assert snap['state'] == 'search_last_seen' and snap['search_arrived_by'] is None
+
+
+def test_object_approach_never_starts_the_edge_sweep():
+    tracker = lost_at_bearing(.6, mode='2')
+    snap = tracker.snapshot(3.3, np.array([0., 0., 0.]))
+    assert snap['state'] == 'holding' and snap['search_arrived_by'] is None

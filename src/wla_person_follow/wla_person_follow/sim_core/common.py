@@ -43,8 +43,10 @@ class Tuning:
     fov_edge_margin: float = .05
     # Weak pull to the image centre plus an edge cost starting well inside the
     # image: with only the hard edge limit the person drifted to ~35 deg at 1 m/s and
-    # left the frame on the next sidestep (J02 2026-10-29 15:37).
-    centering_weight: float = 2.
+    # left the frame on the next sidestep (J02 2026-10-29 15:37). 6 rather than 2:
+    # circling at 0.3 rad/s, 2 settled into a stop-go turn inside the chassis
+    # deadband and let the person reach the edge (simulated, 5 seeds).
+    centering_weight: float = 6.
     fov_soft_angle: float = .45
     # Between this bearing and fov_soft_angle the planner shifts from the person's
     # footprints to the person (trail weight 6 -> 1.5, heading blend .25 -> 1) and

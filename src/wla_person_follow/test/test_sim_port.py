@@ -426,10 +426,11 @@ def test_clear_straight_route_does_not_detour():
 def test_person_only_has_to_stay_in_the_image_not_near_its_centre():
     c=Tuning()
     # Hard limit ~35.8 deg (camera 38.7 deg less 0.05 rad) instead of the old 32.6 deg centre box.
-    assert c.camera_half_angle-c.fov_edge_margin>float(np.arctan(.64))+.05 and c.centering_weight<4
-    # ...but a weak pull to the centre and an edge cost from ~26 deg keep it away from
-    # the edge at walking speed (J02 2026-10-29 15:37 lost the person near 35 deg).
-    assert c.centering_weight==2. and abs(c.fov_soft_angle-.45)<1e-9 and c.fov_soft_angle<c.camera_half_angle-c.fov_edge_margin
+    assert c.camera_half_angle-c.fov_edge_margin>float(np.arctan(.64))+.05 
+    # ...but a pull to the centre and an edge cost from ~26 deg keep it away from the edge
+    # at walking speed (J02 2026-10-29 15:37 lost the person near 35 deg) and let the
+    # robot turn steadily when the person circles it.
+    assert c.centering_weight==6. and abs(c.fov_soft_angle-.45)<1e-9 and c.fov_soft_angle<c.camera_half_angle-c.fov_edge_margin
 
 
 def test_planner_result_ttl_is_020():

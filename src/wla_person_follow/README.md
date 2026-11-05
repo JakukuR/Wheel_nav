@@ -84,8 +84,8 @@ D455 → nav_yolo_detector（YOLOE 分割 + BoT-SORT + OSNet）
 | `tracking` | 当前帧看到了目标 | 按 5 s 轨迹（0.4 s 采样，三阶 Bézier）跟随，保持 1.2 m |
 | `coasting` | 短暂没看到，不超过 2 s | 按 Kalman 预测继续走 |
 | `holding` | 检测相对预测跳得太远，被拒绝 | 只丢掉这一次检测；mode 0/1 按最后可信轨迹继续走（`holding_last_trusted`），mode 2 停车 |
-| `search_last_seen` | 丢失超过 2 s | 以 0.4 m/s 开往人消失的位置 |
-| `search_heading` | 到达消失点 | 原地扫视找人 |
+| `search_last_seen` | 丢失超过 2 s，且最后看到时人靠近画面中央（偏角小于 0.4 rad） | 以 0.4 m/s 开往人消失的位置 |
+| `search_heading` | 到达消失点，或丢失超过 2 s 且最后看到时偏角不小于 0.4 rad（人从画面边缘走出） | 原地扫视找人，先朝人离开的一侧转 |
 
 **提前结束"开往消失点"**
 
@@ -96,7 +96,7 @@ D455 → nav_yolo_detector（YOLOE 分割 + BoT-SORT + OSNet）
 
 这样原地转向、绕行、短暂停顿都不会被误判为到达。- 既没移动也没转动持续 3 s：算作到达，避免停在到达范围外一直不开始扫视。
 
-状态字段 `search_arrived_by` 记录到达方式：`distance`、`coverage`、`blocked` 或 `stalled`。
+状态字段 `search_arrived_by` 记录到达方式：`distance`、`coverage`、`blocked`、`stalled` 或 `edge`（从画面边缘丢失，不开往消失点，直接扫视）。
 
 **扫视方式**
 
