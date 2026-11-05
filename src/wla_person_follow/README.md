@@ -75,12 +75,29 @@ pkill -INT -f follow.launch.py
 | 参数 | 内容 | 数据量（后端空闲时测） | 录制进程 CPU |
 |---|---|---:|---:|
 | 默认 | 规划、感知结果、底盘、TF，不录原始图像 | 约 0.6 MB/s | 约 8% 单核 |
+| `--camera` | 加 JPEG 画面（约 5 Hz，硬件编码），Kalo 回放能看到画面 | 约 1 MB/s | 未单独测 |
 | `--depth` | 加对齐深度图 | 约 18 MB/s | 约 14% 单核 |
 | `--depth --color` | 再加彩色图 | 约 44 MB/s | 约 20% 单核 |
 
-**回放：** 车上是 Jazzy，Humble 的 `ros2 bag` 读不了这些包。把包拷到调试机，用 Foxglove Studio 直接打开 `.mcap`。这种方式不经过 DDS，回放不会影响车。
+实际跟随时默认录制约 0.8 MB/s。
 
-**不要在车上或连着车的网络里用同一个 `ROS_DOMAIN_ID` 跑 `ros2 bag play`：** 包里有 `/r680_base/cmd_vel`，回放可能让车动。
+**在 Kalo 网页回放（在车上跑）：**
+
+```bash
+./r680_follow_replay.sh                              # 列出已有的包
+./r680_follow_replay.sh rla-20261105-190450          # 可加 --rate 0.5、--start 30、--port 18082
+```
+
+然后打开 `http://<车 IP>:18082/`，Ctrl+C 结束。
+
+- 固定用 ROS 域 199，只放显示用的话题，不放速度指令，回放不会让车动。
+- 不带 `--camera` 录的包没有相机画面，其他图层正常。
+- 右下角的帧龄拿录制时刻和当前时间比，回放时没有意义。
+- 回放也占车上的 CPU，不要和实际跟随同时开。
+
+**在调试机回放：** 调试机是 Humble，`ros2 bag` 读不了 Jazzy 录的包。可以把包拷过去，用 Foxglove Studio 直接打开 `.mcap`（这条没有实际验证过）。
+
+**不要手动在车上或连着车的网络里用同一个 `ROS_DOMAIN_ID` 跑 `ros2 bag play`：** 包里有 `/r680_base/cmd_vel`，回放可能让车动。
 
 ## 链路
 
