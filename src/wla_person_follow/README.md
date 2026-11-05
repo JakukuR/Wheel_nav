@@ -61,6 +61,27 @@ pkill -INT -f follow.launch.py
 - 状态话题的 `local_planner` 和 `neupan` 字段可看实际在用哪个，以及最小距离、求解耗时。
 - 需要先构建 NeuPAN 进程，见 `neupan_bridge/README.md`；没构建时后端启动就报错。
 
+## 录制跟随过程
+
+后端和跟随任务照常启动，另开一个终端：
+
+```bash
+./r680_follow_bag.sh rla            # 或 mpc；Ctrl+C 结束
+```
+
+- 标签是 `mpc` 或 `rla` 时，会核对正在运行的后端用的规划器，不一致就拒绝录制。
+- 脚本只订阅，不发布，低优先级运行。输出在 `.runtime/follow-bags/<标签>-<时间>/`，同名 `.json` 记录规划器、提交号和话题。
+
+| 参数 | 内容 | 数据量（后端空闲时测） | 录制进程 CPU |
+|---|---|---:|---:|
+| 默认 | 规划、感知结果、底盘、TF，不录原始图像 | 约 0.6 MB/s | 约 8% 单核 |
+| `--depth` | 加对齐深度图 | 约 18 MB/s | 约 14% 单核 |
+| `--depth --color` | 再加彩色图 | 约 44 MB/s | 约 20% 单核 |
+
+**回放：** 车上是 Jazzy，Humble 的 `ros2 bag` 读不了这些包。把包拷到调试机，用 Foxglove Studio 直接打开 `.mcap`。这种方式不经过 DDS，回放不会影响车。
+
+**不要在车上或连着车的网络里用同一个 `ROS_DOMAIN_ID` 跑 `ros2 bag play`：** 包里有 `/r680_base/cmd_vel`，回放可能让车动。
+
 ## 链路
 
 ```text
