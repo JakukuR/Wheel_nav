@@ -134,6 +134,7 @@ def test_blocked_counts_two_seconds_in_total_and_turning_does_not():
     t = 4.
     for _ in range(30):  # 3 s of normal driving / turning: never arrives
         t += .1; tracker.report_planner('search_last_seen', 'search_last_seen', t)
+    pose = pose+[.1, 0., 0.]  # it was driving
     assert tracker.snapshot(t, pose)['state'] == 'search_last_seen'
     for reason in ('no_feasible_candidate',)*12 + ('search_last_seen',)*5 + ('backing_out',)*7:
         t += .1; tracker.report_planner(reason, 'search_last_seen', t)
@@ -142,6 +143,23 @@ def test_blocked_counts_two_seconds_in_total_and_turning_does_not():
         t += .1; tracker.report_planner('backing_out', 'search_last_seen', t)
     snap = tracker.snapshot(t, pose)
     assert snap['state'] == 'search_heading' and snap['search_arrived_by'] == 'blocked'
+
+
+def test_standing_still_just_outside_the_arrival_band_starts_the_search():
+    _, tracker = lost()
+    pose = np.array([2.28-.46, 0., 0.])  # arrival is within 0.45 m
+    assert tracker.snapshot(4., pose)['state'] == 'search_last_seen'
+    assert tracker.snapshot(6.9, pose)['state'] == 'search_last_seen'
+    snap = tracker.snapshot(7., pose)
+    assert snap['state'] == 'search_heading' and snap['search_arrived_by'] == 'stalled'
+
+
+def test_driving_or_turning_towards_the_point_never_counts_as_stalled():
+    _, tracker = lost()
+    pose = np.array([2.28-2., 0., 0.]); t = 4.
+    for k in range(100):  # 10 s: a slow creep, then turning on the spot
+        t += .1; pose = pose+([.003, 0., 0.] if k < 50 else [0., 0., .004])
+        assert tracker.snapshot(t, pose)['state'] == 'search_last_seen'
 
 
 def test_planner_reports_outside_the_search_drive_are_ignored():

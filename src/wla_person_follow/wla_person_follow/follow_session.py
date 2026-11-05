@@ -51,6 +51,11 @@ TEMPLATE_REFRESH_MIN_SIMILARITY = .40
 SEARCH_COVERAGE_REASON = 'depth_coverage_recovery'       # nose at the obstacle: arrive now
 SEARCH_BLOCKED_REASONS = ('no_feasible_candidate', 'backing_out')
 SEARCH_BLOCKED_S = 2.                                     # in total, then arrive
+# Neither driving nor turning for this long on the way: start the sweep. Longer than
+# SEARCH_BLOCKED_S so the planner signal decides first. Simulation 11-05: stopped
+# 0.46 m from the point (arrival 0.45 m), no signal, no sweep for 34 s.
+SEARCH_STALL_S = 3.
+SEARCH_STALL_M, SEARCH_STALL_RAD = .02, .03
 
 @dataclass(frozen=True)
 class TrackingPolicy:
@@ -132,6 +137,7 @@ class FollowTracker:
         self.search_arrived_by = None
         self.search_blocked_s, self.search_blocked_at = 0., None
         self.sweep_started = None
+        self.still_pose, self.still_since = None, None
 
     def prediction(self, now):
         if self.track is None:
@@ -190,6 +196,7 @@ class FollowTracker:
         self.search_arrived_by = None
         self.search_blocked_s, self.search_blocked_at = 0., None
         self.sweep_started = None
+        self.still_pose, self.still_since = None, None
         self.reason = 'same_id_geometry'
 
     def observe(self, objects, pose, stamp, now):
@@ -261,6 +268,7 @@ class FollowTracker:
                 # The sweep starts on arrival; it no longer first aligns with the
                 # walking direction (that cost up to ~1 s of turning).
                 self.search_started = self.sweep_started = now
+            self._check_search_stall(robot_pose, now)
             state = ('coasting' if self.mode == '2' else
                      ('search_heading' if self.search_started is not None else 'search_last_seen'))
         if self.mode == '2' and state != 'tracking':
@@ -283,6 +291,17 @@ class FollowTracker:
             search_side=self.exit_side, edge_range_observations=self.edge_observations,
             missing_since=self.missing_since, last_position_error_m=self.last_error,
             position_jump_limit_m=self.radius(now), recovery_needed=state!='tracking')
+
+    def _check_search_stall(self, robot_pose, now):
+        if robot_pose is None or self.mode == '2' or self.search_started is not None:
+            return
+        here = np.asarray(robot_pose, dtype=float)
+        if (self.still_pose is None or np.linalg.norm(here[:2]-self.still_pose[:2]) > SEARCH_STALL_M
+                or abs(here[2]-self.still_pose[2]) > SEARCH_STALL_RAD):
+            self.still_pose, self.still_since = here.copy(), now
+        elif now-self.still_since >= SEARCH_STALL_S:
+            self.search_started = self.sweep_started = now
+            self.search_arrived_by = 'stalled'
 
     def report_planner(self, reason, policy_state, now):
         """Planner outcome of a plan made while driving to the last-seen point."""

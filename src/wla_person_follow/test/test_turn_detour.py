@@ -237,9 +237,10 @@ def test_holding_keeps_driving_on_the_last_trusted_track():
 
 
 
-def test_search_turns_about_90_degrees_to_the_exit_side_first_then_back():
+def test_search_turns_to_the_exit_side_first_then_sees_the_whole_circle():
     """At the last-seen point (before the corridor corner) the robot turns ~90 deg
-    towards the side the person left on, then swings back past the other side."""
+    towards the side the person left on, then keeps rotating the same way, so a
+    person who turned back behind it is seen too."""
     from wla_person_follow.follow_session import TrackingPolicy
     from wla_person_follow.sim_core.common import wrap
     c = Tuning(); m = _open_map()
@@ -247,14 +248,15 @@ def test_search_turns_about_90_degrees_to_the_exit_side_first_then_back():
         f = HybridFollower(c); pose = np.zeros(3); cmd = np.zeros(2); yaws = []
         policy = TrackingPolicy(state="search_heading", last_seen=0., prediction_s=2., target_id="t", revision=0,
                                 search_heading=0., search_started=0., mode="0", search_side=side)
-        for k in range(int(c.search_sweep_period/c.step)):
+        turned = 0.
+        for k in range(int(12./c.step)):
             cmd = f.command(pose.copy(), cmd, np.array([.2, 0.]), np.zeros(2), [], m, [], "search_heading",
                             policy=policy, policy_time=k*c.step)
             assert cmd[0] == 0.
-            pose[2] = wrap(pose[2]+cmd[1]*c.step); yaws.append(side*pose[2])
-        half = len(yaws)//2
-        assert max(yaws[:half]) > 1.3           # reached ~90 deg on the exit side
-        assert min(yaws[half:]) < -.5           # then swung back past straight ahead
+            pose[2] = wrap(pose[2]+cmd[1]*c.step); turned += side*cmd[1]*c.step; yaws.append(turned)
+        assert yaws[int(3./c.step)] > 1.3       # reached ~90 deg on the exit side by 3 s
+        assert min(np.diff(yaws)) > -.01        # never swings back
+        assert yaws[-1] > 2*np.pi               # the whole circle within 12 s
 
 
 def test_image_edge_detection_keeps_bearing_and_predicted_range():

@@ -96,13 +96,11 @@ class Tuning:
     # not follow the 8 s sweep (peak 0.47 rad/s).
     search_turn_rate: float = .6
     # Search at the last-seen point, relative to the walking direction: first
-    # ~90 deg to the side the person left on, then back past the other side,
-    # alternating every half period. The last-seen point is before a corridor
-    # corner (the person left the image there); the old +-0.6 rad sweep could not
-    # see round it (11-02 14:53: 1.5-6.8 s per search).
+    # ~90 deg to the side the person left on (the last-seen point is before a
+    # corridor corner; 11-02 14:53), then keep rotating the same way until found.
+    # The former +1.5/-0.8 rad swing never looked behind the robot: a person who
+    # turned back past it stayed unseen for good (closed-loop simulation 11-04/05).
     search_exit_turn: float = 1.5
-    search_back_turn: float = .8
-    search_sweep_period: float = 10.
     # Driving to the last-seen point (usually the corner the person turned at).
     # 0.20 m/s took 5-10 s to get there after a corner loss.
     search_speed: float = .4

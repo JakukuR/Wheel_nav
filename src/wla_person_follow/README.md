@@ -94,13 +94,15 @@ D455 → nav_yolo_detector（YOLOE 分割 + BoT-SORT + OSNet）
 - 出现深度覆盖恢复（车头已经贴到障碍）：立即算作到达。
 - 没有可行路径或正在倒车脱困：累计 2 s 后算作到达。
 
-这样原地转向、绕行、短暂停顿都不会被误判为到达。状态字段 `search_arrived_by` 记录到达方式：`distance`、`coverage` 或 `blocked`。
+这样原地转向、绕行、短暂停顿都不会被误判为到达。- 既没移动也没转动持续 3 s：算作到达，避免停在到达范围外一直不开始扫视。
+
+状态字段 `search_arrived_by` 记录到达方式：`distance`、`coverage`、`blocked` 或 `stalled`。
 
 **扫视方式**
 
-- 相对人的行走方向，先转约 90°（1.5 rad）到人离开的一侧（`search_side`），再转回另一侧 0.8 rad。
-- 每 5 s 换一次方向，转速 0.6 rad/s。
-- 相关参数：`search_exit_turn`、`search_back_turn`、`search_sweep_period`、`search_turn_rate`。
+- 相对人的行走方向，先转约 90°（1.5 rad）到人离开的一侧（`search_side`），然后沿同一方向继续转，直到找到人。
+- 转速 0.6 rad/s，转满一圈约 10.5 s，车后方也能看到。
+- 相关参数：`search_exit_turn`、`search_turn_rate`。
 
 ### 身份恢复（ReID）
 
