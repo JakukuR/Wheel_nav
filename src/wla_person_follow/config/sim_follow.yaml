@@ -3,6 +3,8 @@ person_follow:
     # Geometry owns follow/search; appearance is a recovery-only sidecar.
     follow_preset: tracker_follow
     enable_motion: false
+    # mpc, or neupan for mode 0 (needs neupan_bridge/build.sh). Launch: local_planner:=neupan
+    local_planner: mpc
     output_mode: mux
     direct_topic: /r680_base/cmd_vel
     relative_topic: /r680/perception/relative_objects

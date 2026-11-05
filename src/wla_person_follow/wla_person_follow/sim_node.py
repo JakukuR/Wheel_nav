@@ -69,7 +69,7 @@ class FollowEngine:
     """Task/tracking/planning logic; transport owns ROS and executor lifetime."""
     def __init__(self, transport):
         self.io = transport
-        defaults = dict(enable_motion=False, output_mode='mux',
+        defaults = dict(enable_motion=False, local_planner='mpc', output_mode='mux',
             direct_topic='/r680_base/cmd_vel', prefix='/r680/person_follow',
             relative_topic='/r680/perception/relative_objects',
             detection_status_topic='/r680_nav/perception/status',
@@ -198,7 +198,7 @@ class FollowEngine:
         self.io.create_service(PersonCommand,prefix+'/command',self.on_command)
         self.io.create_service(SetBool,prefix+'/set_estop',self.on_estop)
         self.pool=self.io.compute_pool()
-        self.model_tuning = self.pool.submit(warm_worker).result(timeout=20.)
+        self.model_tuning = self.pool.submit(warm_worker,self.p['local_planner']).result(timeout=20.)
         self.future=None
         # A completed solution wakes the ROS executor immediately. The timer
         # still rechecks expiry/stop/lease when no new solution arrives.
@@ -717,7 +717,7 @@ class FollowEngine:
                          target_clear_ttl_s=self.p['target_ghost_clear_ttl_s'],
                          trail_clear_radius_m=self._trail_clear_radius(),
                          tracker_snapshot=binding_status,
-                         task_mode=mode,object_surface=object_surface,goal=goal_job,
+                         task_mode=mode,object_surface=object_surface,goal=goal_job,local_planner=self.p['local_planner'],
                          policy_snapshot=self._tracking_policy(binding_status) if active else None)))
                 try:
                     result=self.future.result(timeout=self.p['result_ttl_s'])
@@ -1019,6 +1019,7 @@ class FollowEngine:
                 linear_mps=float(command[0]),angular_rps=float(command[1]),safety_fresh=healthy,
                 safety_reason=blockers[0] if blockers else self.reason,
                 output_blockers=blockers,planner_reason=self.reason,
+                local_planner=self.p['local_planner'],neupan=result.get('neupan') if result else None,
                 target_freshness_reason=target_freshness_reason,
                 target_observation_age_s=target_observation_age,
                 planner_candidates=result.get('candidates',{}) if result else {},

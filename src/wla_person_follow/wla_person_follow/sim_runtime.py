@@ -7,6 +7,7 @@ from .sim_core.common import rotation
 from .sim_core.common import Tuning
 from .sim_core.approach_goal import ApproachGoal, SWEEP_RADIUS
 from .sim_core.hybrid_controller import HybridFollower, seed_command, limit_step
+from .neupan_follower import NeuPANFollower, TRACKED_STATES as NEUPAN_STATES
 from .sim_core.rolling_depth_map import RollingDepthMap
 from .sim_core.tracking import PeopleTracks
 
@@ -117,6 +118,16 @@ class SimulationEngine:
         self.trail_checked=None
         # Last issued planner command: rollout seed and per-interval step bound.
         self.last_command=None;self.last_command_at=None
+        self.neupan=None  # NeuPANFollower when local_planner is neupan
+
+    def neupan_command(self, pose, tracker_snapshot, task_mode, recovery):
+        """Person following with a target position only; search, recovery and other modes stay as they are."""
+        if (self.neupan is None or task_mode!='0' or recovery or tracker_snapshot is None
+                or tracker_snapshot['state'] not in NEUPAN_STATES or tracker_snapshot.get('prediction') is None):
+            return None
+        cells=np.argwhere(self.mapping.occupied)
+        points=(cells+self.mapping.lower+.5)*self.mapping.res if len(cells) else np.zeros((0,2))
+        return self.neupan.plan(pose,tracker_snapshot['prediction'],points,self.controller.c.desired_gap)
 
     def update_map(self, pose, packets, now):
         """Maintain obstacle evidence and its expiry independently of task activity."""
@@ -243,12 +254,17 @@ class SimulationEngine:
             command=np.zeros(2);reason='no_feasible_candidate'
         elif recovery:reason='depth_coverage_recovery'
         elif self.controller.last_candidates.get('backing'):reason='backing_out'
+        neupan_command=self.neupan_command(np.asarray(pose),tracker_snapshot,task_mode,recovery)
+        neupan_status=None
+        if neupan_command is not None:
+            command=neupan_command;neupan_status=self.neupan.diagnostic
+            self.controller.last_reference_path=np.vstack((np.asarray(pose)[:2],tracker_snapshot['prediction']))
         if policy is not None:command=policy.limit_command(command,now)
         if not np.isfinite(command).all():raise ValueError('nonfinite_core_command')
         self.last_command=np.asarray(command,dtype=float).copy();self.last_command_at=now
         diagnostic=None if approach is None else {k:(v.tolist() if isinstance(v,np.ndarray) else v)
             for k,v in approach.items() if k!='path'}
-        return dict(policy_snapshot=policy,command=np.asarray(command),target_state=state,
+        return dict(policy_snapshot=policy,command=np.asarray(command),neupan=neupan_status,target_state=state,
             recovery_state=state,reason=reason,tuning=asdict(tuning),
             planner_activity='candidate_evaluation' if self.controller.last_candidates else 'in_place_turn' if task_mode=='4' else 'waiting_target',
             path=self.controller.last_reference_path.copy(),candidates=self.controller.last_candidates,
@@ -267,6 +283,15 @@ _PROCESS_ENGINE = None
 _PROCESS_KEY = None
 _PROCESS_STARTUP_USED = False
 _PROCESS_STARTUP_PRIOR = None
+_PROCESS_NEUPAN = None
+
+
+def neupan_for(local_planner):
+    global _PROCESS_NEUPAN
+    if local_planner=='mpc':return None
+    if local_planner!='neupan':raise ValueError('unknown_local_planner: '+str(local_planner))
+    if _PROCESS_NEUPAN is None:_PROCESS_NEUPAN=NeuPANFollower()
+    return _PROCESS_NEUPAN
 
 
 def worker_initializer():
@@ -276,8 +301,9 @@ def worker_initializer():
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
-def warm_worker():
+def warm_worker(local_planner='mpc'):
     """Import/initialize before accepting sensor jobs, outside control deadlines."""
+    neupan_for(local_planner)  # a missing NeuPAN build fails at startup, not during a task
     return asdict(Tuning())
 
 
@@ -305,7 +331,9 @@ def process_step(job):
             _PROCESS_ENGINE.map_stamp=old.map_stamp
             _PROCESS_ENGINE.target_trail=old.target_trail
         _PROCESS_KEY = key
+        if _PROCESS_NEUPAN is not None:_PROCESS_NEUPAN.reset()
     engine = _PROCESS_ENGINE
+    engine.neupan=neupan_for(startup.get('local_planner','mpc'))
     engine.mapping.local_assumed_free_radius=local_radius
     engine.mapping.target_clear_ttl=float(startup.get('target_clear_ttl_s',.5))
     engine.trail_clear_radius=float(startup.get('trail_clear_radius_m',0.))

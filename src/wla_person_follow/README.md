@@ -48,6 +48,19 @@ pkill -INT -f follow.launch.py
 - **只能运行一个跟随后端。** Wheel_Legged_Agent 的 `tools/run_all_actions.py` 会自己再起一套跟随后端和 `high_action_target_egress`，两者都向 `/r680/person_follow/command_candidate` 发布。和这里的后端同时运行会抢输出，表现为跟随明显变慢。
 - **改了本包的 Python 代码，要先构建再重启后端**：`colcon build --packages-select wla_person_follow`。install 里放的是文件副本，不是指向源码的软链接，不构建就重启仍会运行旧代码。
 
+## 局部规划器切换（mode 0）
+
+默认是 `mpc`。启动后端时加 `local_planner:=neupan` 走 R_LA（neupan_cpp 原版 + 直线参考 + lookahead 0.12 s + 角加速度 0.5，只有仿真结果，见 `docs/follow_scenarios_and_known_issues.md` 第 5 节）。
+
+```bash
+./r680_person_follow.sh run transport:=cpp enable_motion:=true local_planner:=neupan
+```
+
+- 只替换 mode 0 跟踪、预测、保持阶段的速度输出。丢人后的搜索、深度覆盖恢复和 mode 1–4 仍走现有逻辑，时效、租约、急停门禁不变。
+- NeuPAN 进程异常或超过 0.1 s 没回复时，该帧没有规划结果，车停下，`planner_reason` 报 `neupan_bridge_*`。不会退回 MPC。
+- 状态话题的 `local_planner` 和 `neupan` 字段可看实际在用哪个，以及最小距离、求解耗时。
+- 需要先构建 NeuPAN 进程，见 `neupan_bridge/README.md`；没构建时后端启动就报错。
+
 ## 链路
 
 ```text

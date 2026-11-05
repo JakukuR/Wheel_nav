@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.16)
+project(neupan_bridge CXX)
+set(CMAKE_BUILD_TYPE Release)
+set(CMAKE_CXX_STANDARD 17)
+set(NEUPAN_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+add_subdirectory(${NEUPAN_SOURCE}/libneupan neupan)
+add_executable(neupan_bridge bridge.cpp)
+target_link_libraries(neupan_bridge PRIVATE neupan)
