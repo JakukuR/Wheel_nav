@@ -90,3 +90,30 @@ def test_no_trail_clears_nothing():
     mapping = RollingDepthMap(resolution=.05, size=160, ttl=12.)
     mapping.update(_map_cloud([(2., 0., .3)]), np.zeros(3), 1.)
     assert not len(mapping.drop_established(np.array([(2., 0., .3)]), np.empty((0, 3)), 1.))
+
+
+def _speckle_scene():
+    depth = np.full((120, 160), 3.)
+    depth[:, :] += np.linspace(0., .5, 160)[None, :]
+    return depth
+
+
+def test_depth_speckles_drop_a_floating_patch_only():
+    from wla_person_follow.sim_runtime import drop_depth_speckles
+    depth = _speckle_scene()
+    depth[40:46, 50:56] = 1.8
+    original = depth.copy()
+    result = drop_depth_speckles(depth, 150)
+    assert np.isnan(result[40:46, 50:56]).all()
+    assert np.isfinite(result[:30]).all()
+    assert np.array_equal(depth, original)
+
+
+def test_depth_speckles_keep_a_thin_tall_pole_and_invalid_pixels():
+    from wla_person_follow.sim_runtime import drop_depth_speckles
+    depth = _speckle_scene()
+    depth[10:110, 80:84] = 1.5
+    depth[0:5, 0:5] = np.nan
+    result = drop_depth_speckles(depth, 150)
+    assert np.allclose(result[10:110, 80:84], 1.5)
+    assert np.isnan(result[0:5, 0:5]).all()

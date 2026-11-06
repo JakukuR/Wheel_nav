@@ -33,7 +33,7 @@ from .follow_config import PENDING_CALIBRATION_PARAMETERS, validate_follow_confi
 from .follow_session import FollowTracker, RecoveryIdentity, TrackingPolicy, position, frame_target_ready, same_output_phase
 from .sim_core.common import rotation
 from .sim_core.rolling_depth_map import native_ray_slots
-from .sim_runtime import packet_from_depth, packet_without_person, target_points_from_removed_depth, measurements_from_relative, local_points, process_step, warm_worker, worker_initializer
+from .sim_runtime import drop_depth_speckles, packet_from_depth, packet_without_person, target_points_from_removed_depth, measurements_from_relative, local_points, process_step, warm_worker, worker_initializer
 from .task_modes import mode_config, MODES, GOAL_MODES, MODE_PERSON_FOLLOW, MODE_PERSON_APPROACH, MODE_OBJECT_APPROACH, MODE_POINT_GOAL, MODE_ORIENT
 
 
@@ -78,7 +78,7 @@ class FollowEngine:
             depth_topic='/r680/d455/aligned_depth_to_color/image_raw',
             camera_info_topic='/r680/d455/color/camera_info',
             wheel_topic='/wheel/odom', base_frame='r680_mapping_floor',
-            max_sensor_age_s=.30, map_max_age_s=.45, depth_stride=4, depth_min_m=.15, depth_max_m=5.,
+            max_sensor_age_s=.30, map_max_age_s=.45, depth_stride=4, depth_min_m=.15, depth_max_m=5., depth_speckle_max_px=0, depth_speckle_diff_m=.075,
             surface_to_center_offset_m=.28, camera_min_valid_fraction=.25,
             camera_front_min_valid_fraction=.35, result_ttl_s=.20, result_hold_s=.20, startup_clear_radius_m=0., startup_motion_threshold_m=.03,
             target_mask_enabled=True, reid_enabled=False, reid_model_id='', reid_similarity=.40,
@@ -116,6 +116,8 @@ class FollowEngine:
             (self.p['reid_enabled'] and not self.p['reid_model_id']) or
             not .001 <= self.p['startup_motion_threshold_m'] <= .1 or
             not 1 <= self.p['depth_stride'] <= 16 or
+            not 0 <= self.p['depth_speckle_max_px'] <= 5000 or
+            not .01 <= self.p['depth_speckle_diff_m'] <= .5 or
             not .1 <= self.p['depth_min_m'] < self.p['depth_max_m'] <= 7 or
             not 0 <= self.p['surface_to_center_offset_m'] <= .5 or
             not .25 <= self.p['camera_min_valid_fraction'] <= 1 or
@@ -553,6 +555,8 @@ class FollowEngine:
                         self._coverage_recovery(key,stamp_ns(msg),valid_until)
                         continue
                     raise ValueError('insufficient_depth_coverage')
+                if self.p['depth_speckle_max_px']>0:
+                    depth=drop_depth_speckles(depth,self.p['depth_speckle_max_px'],self.p['depth_speckle_diff_m'])
                 # Transform measurements at acquisition time, but control from
                 # the latest wheel pose after depth processing, not image pose.
                 with self.guard:

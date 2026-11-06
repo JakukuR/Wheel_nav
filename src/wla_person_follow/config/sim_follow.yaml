@@ -8,6 +8,10 @@ person_follow:
     # cylinder (mask/box + tracked-position cylinder), or cluster: connectivity in the
     # raw cloud seeded by the tracker. Launch: person_filter:=cluster
     target_person_filter: cylinder
+    # Drop depth patches below this many pixels before the cloud is built; 0 is off.
+    # Launch: depth_speckle:=150
+    depth_speckle_max_px: 0
+    depth_speckle_diff_m: 0.075
     output_mode: mux
     direct_topic: /r680_base/cmd_vel
     relative_topic: /r680/perception/relative_objects

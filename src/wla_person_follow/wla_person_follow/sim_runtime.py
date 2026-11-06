@@ -18,6 +18,20 @@ def local_points(points, pose):
     return result
 
 
+def drop_depth_speckles(depth, max_pixels, max_diff=.075):
+    """Blank small depth-connected patches: the stereo smear between a person's legs.
+
+    Returns a new array in metres with NaN in the dropped pixels. A patch survives
+    if it reaches max_pixels with neighbours within max_diff, so a tall thin pole
+    stays while a few pixels floating off a leg edge go.
+    """
+    import cv2
+    millimetres = np.clip(np.nan_to_num(np.asarray(depth, dtype=float), nan=0., posinf=0., neginf=0.) * 1000.,
+                          0, 32767).astype(np.int16)
+    cv2.filterSpeckles(millimetres, 0, int(max_pixels), int(round(max_diff * 1000.)))
+    return np.where(millimetres == 0, np.nan, depth)
+
+
 def packet_from_depth(depth, intrinsics, camera_rotation, translation, pose,
                       minimum=.15, maximum=5., stride=4):
     from _wla_sim_geometry import deproject
