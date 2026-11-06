@@ -29,6 +29,28 @@ def packet_from_depth(depth, intrinsics, camera_rotation, translation, pose,
     return packet_from_filtered_points(obstacles, clearing, translation, pose)
 
 
+def packet_without_person(depth, intrinsics, camera_rotation, translation, pose, center_odom,
+                          others_odom=(), minimum=.15, maximum=5., stride=4):
+    """Remove the person by connectivity in the raw cloud; (None, info) if refused.
+
+    Must run before filter_points: its 0.5 m height limit leaves two separate legs.
+    """
+    from _wla_sim_geometry import deproject, filter_points
+    from .person_cluster import select_person
+    points = deproject(depth, np.asarray(intrinsics, dtype=float),
+                       np.asarray(camera_rotation, dtype=float),
+                       np.asarray(translation, dtype=float), minimum, maximum, stride)
+    world = local_points(points, pose)
+    mask, info = select_person(world, center_odom, others=others_odom)
+    if not mask.any():
+        return None, info
+    obstacles, clearing = filter_points(points[~mask])
+    packet = packet_from_filtered_points(obstacles, clearing, translation, pose)
+    packet['target_points_odom'] = world[mask & (world[:, 2] >= .03) & (world[:, 2] <= .6)]
+    packet['target_points_from_cluster'] = True
+    return packet, info
+
+
 def target_points_from_removed_depth(depth, intrinsics, camera_rotation, translation,
                                      pose, center_odom, *, radius=.35, stride=2,
                                      minimum=.15, maximum=5.):
@@ -133,6 +155,9 @@ class SimulationEngine:
         """Maintain obstacle evidence and its expiry independently of task activity."""
         for stamp,packet in sorted(packets,key=lambda item:item[0]):
             if stamp>self.map_stamp:
+                if packet.get('target_points_from_cluster'):
+                    packet=dict(packet,target_points_odom=self.mapping.drop_established(
+                        packet['target_points_odom'],self.target_trail,stamp))
                 self.mapping.update(packet,pose,stamp,rebuild=False);self.map_stamp=stamp
         self.mapping.slide(np.asarray(pose[:2]))
         self.mapping.local_assumed_free_center=np.asarray(pose[:2]).copy()

@@ -5,6 +5,9 @@ person_follow:
     enable_motion: false
     # mpc, or neupan for mode 0 (needs neupan_bridge/build.sh). Launch: local_planner:=neupan
     local_planner: mpc
+    # cylinder (mask/box + tracked-position cylinder), or cluster: connectivity in the
+    # raw cloud seeded by the tracker. Launch: person_filter:=cluster
+    target_person_filter: cylinder
     output_mode: mux
     direct_topic: /r680_base/cmd_vel
     relative_topic: /r680/perception/relative_objects

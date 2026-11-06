@@ -33,7 +33,7 @@ from .follow_config import PENDING_CALIBRATION_PARAMETERS, validate_follow_confi
 from .follow_session import FollowTracker, RecoveryIdentity, TrackingPolicy, position, frame_target_ready, same_output_phase
 from .sim_core.common import rotation
 from .sim_core.rolling_depth_map import native_ray_slots
-from .sim_runtime import packet_from_depth, target_points_from_removed_depth, measurements_from_relative, local_points, process_step, warm_worker, worker_initializer
+from .sim_runtime import packet_from_depth, packet_without_person, target_points_from_removed_depth, measurements_from_relative, local_points, process_step, warm_worker, worker_initializer
 from .task_modes import mode_config, MODES, GOAL_MODES, MODE_PERSON_FOLLOW, MODE_PERSON_APPROACH, MODE_OBJECT_APPROACH, MODE_POINT_GOAL, MODE_ORIENT
 
 
@@ -58,6 +58,8 @@ TARGET_FALLBACK_RADIUS_M=.50
 # extrapolation misses. Only this frame's marking/clearing is skipped there.
 TARGET_FALLBACK_HORIZON_S=1.
 TARGET_FALLBACK_GROWTH_M=.40
+# Clustering needs a seed on the body: older than this, keep the growing cylinder.
+TARGET_CLUSTER_MAX_AGE_S=.5
 # wla_terrain_analysis cloud matched to a depth frame (same camera frames, ~10 Hz).
 TERRAIN_MATCH_NS=150_000_000
 # Exploration primitives (modes 3/4): arrival bands on the wheel pose.
@@ -69,7 +71,7 @@ class FollowEngine:
     """Task/tracking/planning logic; transport owns ROS and executor lifetime."""
     def __init__(self, transport):
         self.io = transport
-        defaults = dict(enable_motion=False, local_planner='mpc', output_mode='mux',
+        defaults = dict(enable_motion=False, local_planner='mpc', target_person_filter='cylinder', output_mode='mux',
             direct_topic='/r680_base/cmd_vel', prefix='/r680/person_follow',
             relative_topic='/r680/perception/relative_objects',
             detection_status_topic='/r680_nav/perception/status',
@@ -123,7 +125,8 @@ class FollowEngine:
             not .5 <= self.p['neighbor_ambiguity_radius_m'] <= 3 or
             not 0 < self.p['target_ghost_clear_radius_m'] <= .35 or
             not 0 < self.p['target_ghost_clear_ttl_s'] <= 1. or
-            not 0 < self.p['target_trail_clear_radius_m'] <= .35):
+            not 0 < self.p['target_trail_clear_radius_m'] <= .35 or
+            self.p['target_person_filter'] not in ('cylinder','cluster')):
             raise ValueError('invalid_sim_adapter_configuration')
         validate_detection_status_topic(self.p['detection_status_topic'])
         self.follow_preset=validate_follow_config(self.p)
@@ -624,12 +627,23 @@ class FollowEngine:
                     mask_status['removed_pixels']=0
                     mask_status['reason']='object_cloud_preserved'
                 frontend_begun=time.monotonic()
-                packet=packet_from_depth(depth,(info.k[0],info.k[4],info.k[2],info.k[5]),r,trans,pose,
-                    self.p['depth_min_m'],self.p['depth_max_m'],self.p['depth_stride'])
+                packet=None
+                if (self.p['target_person_filter']=='cluster' and active and mode != MODE_OBJECT_APPROACH
+                        and fallback_center is not None and fallback_age<=TARGET_CLUSTER_MAX_AGE_S
+                        and not self.p['terrain_topic']):
+                    others=np.array(list(observation[2].values()),dtype=float).reshape(-1,2) if observation is not None else ()
+                    packet,cluster_info=packet_without_person(original_depth,(info.k[0],info.k[4],info.k[2],info.k[5]),
+                        r,trans,pose,fallback_center,others,self.p['depth_min_m'],self.p['depth_max_m'],self.p['depth_stride'])
+                    mask_status['person_cluster']=cluster_info
+                cluster_applied=packet is not None
+                if not cluster_applied:
+                    packet=packet_from_depth(depth,(info.k[0],info.k[4],info.k[2],info.k[5]),r,trans,pose,
+                        self.p['depth_min_m'],self.p['depth_max_m'],self.p['depth_stride'])
                 # The full box is omitted from live cloud, but only the
                 # independently confirmed silhouette may retire old map hits.
                 target_points=np.empty((0,3),dtype=float)
-                ghost_reason=('object_cloud_preserved' if mode == MODE_OBJECT_APPROACH else
+                ghost_reason=('person_cluster' if cluster_applied else
+                    'object_cloud_preserved' if mode == MODE_OBJECT_APPROACH else
                     'disabled' if not self.p['target_ghost_clear_enabled'] else
                     'no_mask_confirmed_target_pixels' if not np.any(confirmed_target_mask) else
                     'target_geometry_not_synchronized' if mask_geometry is None
@@ -667,7 +681,7 @@ class FollowEngine:
                         packet['marking_points_odom']=local_points(best[2],tpose) if len(best[2]) else np.empty((0,3))
                         terrain_applied=True
                     mask_status['terrain']='applied' if terrain_applied else 'no_matching_cloud_depth_filter_used'
-                if (active and mode != MODE_OBJECT_APPROACH and (not mask_status['applied'] or terrain_applied)
+                if (not cluster_applied and active and mode != MODE_OBJECT_APPROACH and (not mask_status['applied'] or terrain_applied)
                         and fallback_center is not None):
                     # No same-frame silhouette: keep the tracked person out of this
                     # frame's marking and clearing. Old hits are not retired here.
@@ -681,6 +695,7 @@ class FollowEngine:
                     for name in ('obstacle_points','marking_points_odom'):packet[name]=packet[name][keep_o]
                     mask_status.update(fallback='tracked_position_cylinder',fallback_radius_m=round(fallback_radius,3),fallback_age_s=round(float(fallback_age),3),
                         fallback_removed_obstacle_points=removed)
+                if cluster_applied:target_points=packet['target_points_odom']
                 packet['target_points_odom']=target_points
                 mask_status['target_ghost_points']=len(target_points)
                 mask_status['target_ghost_reason']=ghost_reason

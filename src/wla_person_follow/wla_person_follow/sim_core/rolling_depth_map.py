@@ -165,6 +165,29 @@ class RollingDepthMap:
         self.target_clear_stamp[a,b]=-np.inf;self._retire_startup_cells(a,b)
         if rebuild:self.rebuild(t)
 
+    def drop_established(self,points,trail,t,radius=.6):
+        """Clearing candidates without cells that are not the person's own.
+
+        A cell that turned occupied while the person stood more than `radius` away
+        (or before the trail begins) is a real obstacle the person walked past: it
+        keeps its evidence even when the person's component touches it. Without a
+        trail nothing can be attributed to the person, so nothing may be cleared.
+        """
+        points=np.asarray(points,dtype=float).reshape(-1,3)
+        trail=np.asarray(trail,dtype=float).reshape(-1,3)
+        if not len(points) or not len(trail):return points[:0]
+        a,b=self._slots(points[:,:2])
+        since=self.occupied_since[a,b]
+        occupied=(self.log[a,b]>=0)&(t-self.stamp[a,b]<=self.ttl)&np.isfinite(since)
+        then=np.c_[np.interp(since,trail[:,0],trail[:,1]),np.interp(since,trail[:,0],trail[:,2])]
+        centers=(self.tags[a,b]+.5)*self.res
+        real=occupied&((since<trail[0,0])|(np.linalg.norm(centers-then,axis=1)>radius))
+        if not real.any():return points
+        cells=np.floor(points[:,:2]/self.res).astype(np.int64)
+        base=int(cells[:,1].max()-min(cells[:,1].min(),self.tags[a,b][real,1].min()))+1
+        key=lambda c:c[:,0]*base+c[:,1]
+        return points[~np.isin(key(cells),key(self.tags[a,b][real]))]
+
     def retire_person_trail(self,trail,t,radius=.30,window=.5,max_gap=2.):
         """Forget hits the followed person left behind (rows of stamp, x, y).
 

@@ -42,7 +42,7 @@ def launch_backend(context):
         cmd=[value('python'),'-m','wla_person_follow.sim_node']
     cmd+=['--ros-args','--params-file',config,'-p','enable_motion:='+value('enable_motion')]
     if backend=='cpp':cmd+=['-p','worker_python:='+value('python')]
-    cmd+=['-p','local_planner:='+value('local_planner'),'-p','output_mode:='+value('output_mode'),'-p','direct_topic:='+value('direct_topic'),'-p','reid_enabled:='+value('enable_reid')]
+    cmd+=['-p','target_person_filter:='+value('person_filter'),'-p','local_planner:='+value('local_planner'),'-p','output_mode:='+value('output_mode'),'-p','direct_topic:='+value('direct_topic'),'-p','reid_enabled:='+value('enable_reid')]
     terrain=value('terrain')=='true'
     if terrain:cmd+=['-p','terrain_topic:='+TERRAIN_PREFIX+'/points']
     proc=ExecuteProcess(cmd=cmd,output='screen')
@@ -61,6 +61,7 @@ def generate_launch_description():
         DeclareLaunchArgument('config',default_value=''),
         DeclareLaunchArgument('enable_motion',default_value='false'),
         DeclareLaunchArgument('local_planner',default_value='mpc',choices=['mpc','neupan']),
+        DeclareLaunchArgument('person_filter',default_value='cylinder',choices=['cylinder','cluster']),
         DeclareLaunchArgument('enable_reid',default_value='true'),
         DeclareLaunchArgument('output_mode',default_value='mux'),
         DeclareLaunchArgument('direct_topic',default_value='/r680_base/cmd_vel'),
