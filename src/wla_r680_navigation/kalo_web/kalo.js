@@ -83,8 +83,8 @@ const tf = {
 // ------------------------------------------------------------- layers ---
 // ttl: how far (ms) a layer's stamp may be from the camera frame it is projected on. The camera
 // stream is 10 Hz, so geometry is paired within 60 ms; the top-down view always shows the newest data.
-// The obstacle cloud lands 60-100 ms after its frame, later than the JPEG, so it may use the previous
-// cloud until the exact one arrives and redraws; a tighter window would blink every frame.
+// While following, the obstacle cloud lands about 200 ms after its frame and the JPEG after 30 ms, so a
+// camera frame is held until its cloud has arrived (see holdCamera); drawn at once, every frame blinks.
 const LAYERS = [
   { id: 'camera', label: '相机画面', color: '--azure', topics: ['/r680/debug/color/compressed', '/r680/d455/color/camera_info'], on: true },
   { id: 'boxes', label: '检测框', color: '--sakura', topics: ['/r680/perception/detections', '/r680/perception/relative_objects'], ttl: 150, on: true },
@@ -176,16 +176,36 @@ function connect() { // same origin: kalo_debug_web relays /ws to the local brid
 // ---------------------------------------------------------- messages ---
 const state = { image: null, imageT: 0, imageRecv: 0, imageBitmapPending: false, info: null, dirtyCam: true, dirtyTop: true,
   timing: [], follow: null };
+// Hold camera frames until the cloud has caught up with them. This page shows recordings and live
+// debugging, so a late picture is fine and a mismatched overlay is not. Waiting on the cloud instead of
+// a fixed delay keeps slow replay, where every latency stretches, in step as well.
+const CLOUD_TOPIC = '/r680/person_follow/depth_obstacles', CLOUD_MATCH_MS = 60, CLOUD_IDLE_MS = 1000, HOLD_MAX_MS = 1200, HOLD_FRAMES = 16;
+const heldFrames = [];
+function cloudCaughtUp(t, now) {
+  if (!LAYERS.find(l => l.id === 'points').on) return true;
+  const clouds = store.get(CLOUD_TOPIC);
+  if (!clouds || !clouds.length) return true;
+  const arrivals = rates.get(CLOUD_TOPIC) || [];
+  if (!arrivals.length || now - arrivals[arrivals.length - 1] > CLOUD_IDLE_MS) return true;  // no cloud stream
+  return clouds[clouds.length - 1].t >= t - CLOUD_MATCH_MS;  // this frame's cloud has arrived
+}
+function showHeldFrame() {
+  if (state.imageBitmapPending || !heldFrames.length) return;
+  const now = performance.now(); let ready = -1;  // recv is the robot's clock: compare browser arrivals only
+  heldFrames.forEach((f, i) => { if (now - f.arrived > HOLD_MAX_MS || cloudCaughtUp(f.msg.header.t, now)) ready = i; });
+  if (ready < 0) return;
+  const { msg, recv, arrived } = heldFrames.splice(0, ready + 1)[ready];  // decode at most one frame at a time
+  state.imageBitmapPending = true;
+  createImageBitmap(new Blob([msg.data], { type: 'image/jpeg' })).then(bmp => {
+    if (state.image) state.image.close(); state.image = bmp; state.imageT = msg.header.t; state.imageRecv = recv + performance.now() - arrived; state.imageFrame = msg.header.frame;
+    state.imageBitmapPending = false; state.dirtyCam = true; }, () => { state.imageBitmapPending = false; });
+}
 function onMessage(topic, msg, recv) {
   if (topic === '/tf' || topic === '/tf_static') { tf.add(msg); state.dirtyCam = state.dirtyTop = true; return; }
   if (topic === '/r680/d455/color/camera_info') { state.info = msg; return; }
   if (topic === '/r680/debug/color/compressed') {
     remember(topic, msg.header.t, recv, null);
-    if (state.imageBitmapPending) return;  // decode at most one frame at a time
-    state.imageBitmapPending = true;
-    createImageBitmap(new Blob([msg.data], { type: 'image/jpeg' })).then(bmp => {
-      if (state.image) state.image.close(); state.image = bmp; state.imageT = msg.header.t; state.imageRecv = recv; state.imageFrame = msg.header.frame;
-      state.imageBitmapPending = false; state.dirtyCam = true; }, () => { state.imageBitmapPending = false; });
+    heldFrames.push({ msg, recv, arrived: performance.now() }); if (heldFrames.length > HOLD_FRAMES) heldFrames.shift();
     return;
   }
   if (topic === '/r680_nav/perception/timing') { try { const j = JSON.parse(msg); if (j.outcome === 'published') { state.timing.push((j.projection_end_ns - j.stamp_ns) / 1e6); if (state.timing.length > 40) state.timing.shift(); } } catch (e) {} return; }
@@ -413,6 +433,7 @@ setInterval(() => { const now = performance.now(); $('wire').textContent = `${(b
 $('range').addEventListener('change', () => { state.dirtyTop = true; });
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { state.dirtyCam = state.dirtyTop = true; });
 (function frame() {
+  showHeldFrame();
   if (state.dirtyCam) { state.dirtyCam = false; if (LAYERS[0].on) drawCamera(); }
   if (state.dirtyTop) { state.dirtyTop = false; drawTop(); }
   requestAnimationFrame(frame);

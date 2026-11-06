@@ -29,7 +29,7 @@ bash r680_camera.sh run                # 相机单独一个终端
 
 | 图层 | 话题 | 画法 |
 | --- | --- | --- |
-| 相机画面 | `/r680/debug/color/compressed`、`/r680/d455/color/camera_info` | JPEG 解码后作为 WebGL 纹理 |
+| 相机画面 | `/r680/debug/color/compressed`、`/r680/d455/color/camera_info` | JPEG 解码后作为 WebGL 纹理。跟随时点云晚约 200 ms，画面会等对应点云到了再显示（最多 1.2 s），所以比实时晚零点几秒 |
 | 检测框 | `/r680/perception/detections`、`relative_objects` | 选与当前画面时间最接近的一帧（相差 150 ms 以内），标出类别、跟踪 ID 和距离；俯视图上标出目标位置 |
 | 目标掩膜 | `/r680/perception/target_mask` | zlib + packbits 解码后作为半透明叠加层 |
 | 障碍体素 | `/r680/person_follow/depth_obstacles` | 浏览器把障碍点归入立方格：1.2 m 内边长 3 cm，往外依次 6、12、20 cm，格内至少 2 个点才画。按高度从薄荷绿、黄到樱花粉着色，按针孔模型透视投影到画面（相差 150 ms 以内；点云比画面晚 60–100 ms 到达，先用上一帧，本帧到达后立即重画），近处方块遮挡远处方块。俯视图把最新一帧画成同色方块 |
