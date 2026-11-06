@@ -61,3 +61,36 @@ def test_full_map_and_controller_parity(monkeypatch):
             np.testing.assert_array_equal(getattr(reference.mapping,name),getattr(native.mapping,name))
         np.testing.assert_array_equal(a['command'],b['command'])
         assert a['candidates']==b['candidates'] and a['reason']==b['reason']
+
+
+def _astar_mask():
+    """Open 40x40 cells with a wall at ix=20 leaving a gap only at iy>=30."""
+    usable = np.ones((40, 40), dtype=np.uint8); usable[20, :30] = 0
+    return usable
+
+
+def test_grid_astar_goes_through_the_only_gap_and_never_touches_blocked_cells():
+    from _wla_sim_geometry import grid_astar
+    usable = _astar_mask(); res = .05; lower = np.array([0., 0.])
+    route = grid_astar(usable, lower, res, np.array([.5, .5]), np.array([1.5, .5]), .1)
+    assert np.allclose(route[0], [.525, .525]) and np.allclose(route[-1], [1.525, .525])
+    pts = np.vstack([a + (b - a) * np.linspace(0, 1, 200)[:, None] for a, b in zip(route[:-1], route[1:])])
+    cells = np.floor(pts / res).astype(int)
+    assert usable[cells[:, 0], cells[:, 1]].all()
+    assert (cells[:, 1][cells[:, 0] == 20] >= 30).all() and (cells[:, 0] == 20).any()
+
+
+def test_grid_astar_honours_a_shifted_map_lower_corner():
+    from _wla_sim_geometry import grid_astar
+    route = grid_astar(np.ones((10, 10), dtype=np.uint8), np.array([-5., 7.]), .05, np.array([-.24, .36]), np.array([-.04, .36]), .1)
+    assert np.allclose(route, [[-.225, .375], [-.025, .375]])
+
+
+def test_grid_astar_returns_empty_when_unreachable_or_outside():
+    from _wla_sim_geometry import grid_astar
+    usable = np.ones((10, 10), dtype=np.uint8); usable[5, :] = 0; lower = np.zeros(2)
+    assert len(grid_astar(usable, lower, .05, np.array([.05, .05]), np.array([.4, .05]), .1)) == 0
+    assert len(grid_astar(usable, lower, .05, np.array([-1., .05]), np.array([.05, .05]), .1)) == 0
+    assert len(grid_astar(usable, lower, .05, np.array([.26, .05]), np.array([.05, .05]), .1)) == 0
+    with pytest.raises(ValueError):
+        grid_astar(np.ones((3, 4), dtype=np.uint8), lower, .05, np.zeros(2), np.zeros(2), .1)

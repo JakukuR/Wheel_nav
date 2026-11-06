@@ -12,8 +12,17 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import dijkstra
 from .common import wrap
 
+try:
+    from _wla_sim_geometry import grid_astar as native_grid_astar
+except ImportError:
+    native_grid_astar = None
+
 # Lattice spacing of the grid-route fallback (map cells are merged up to this).
 GRID_ROUTE_CELL_M = .1
+# grid_route_planner='astar': route simplification tolerance and the free disc round
+# the robot, which may start inside the inflated band of a nearby obstacle.
+ASTAR_SIMPLIFY_M = .1
+ASTAR_START_CLEAR_M = .2
 
 
 class DetourPlanner:
@@ -87,9 +96,14 @@ class DetourPlanner:
             # Multi-segment way round (e.g. step aside, then forward): grid search.
             route = self._grid_route(p, target, local_map, c)
             if route is not None:
+                search = 'dijkstra'
+                if getattr(c, 'grid_route_planner', 'dijkstra') == 'astar':
+                    refined = self._astar_route(p, route, local_map, c)
+                    if refined is not None:
+                        route, search = refined, 'astar'
                 self.look_hold = 0
                 self.held = np.asarray(route[1], dtype=float).copy()
-                self.last = dict(active=True, side='grid', waypoint=route[1].tolist(), route=route.tolist())
+                self.last = dict(active=True, side='grid', waypoint=route[1].tolist(), route=route.tolist(), search=search)
                 return route
             # Nothing reachable yet: prefer looking towards a side where an opening
             # is already visible but the way there is still unseen.
@@ -186,6 +200,31 @@ class DetourPlanner:
         """Count control cycles spent already facing the look direction."""
         self.look_hold = self.look_hold + 1 if reached else 0
         return reached
+
+    def _astar_route(self, p, route, local_map, c):
+        """Native A* from the robot to the end cell Dijkstra chose, or None to keep Dijkstra's.
+
+        Replay of the 2026-11-06 14:07 bag: the first Dijkstra waypoint lay 0.2 m aside,
+        60-80 deg off the heading, so the turn-first speed cap removed every forward
+        sample for about 10 s. Waypoints nearer than grid_route_lookahead_m are dropped
+        so the point steered to is not a nearby lattice cell.
+        """
+        if native_grid_astar is None or len(route) < 3:
+            return None
+        offset = local_map.res / np.sqrt(2)
+        usable = (local_map.dist - offset - c.radius >= 0.) & (local_map.free_dist - offset >= c.radius)
+        centers = (local_map.cells + .5) * local_map.res
+        usable = usable | (np.linalg.norm(centers - p, axis=-1) <= ASTAR_START_CLEAR_M)
+        found = native_grid_astar(usable.astype(np.uint8), local_map.lower.astype(float), float(local_map.res),
+                                  p, np.asarray(route[-2], dtype=float), ASTAR_SIMPLIFY_M)
+        if len(found) < 2:
+            return None
+        found[0] = p
+        keep = np.linalg.norm(found - p, axis=1) >= c.grid_route_lookahead_m
+        keep[0] = True
+        if keep.sum() >= 2:
+            found = found[keep]
+        return np.vstack((found, route[-1]))
 
     def _grid_route(self, p, target, local_map, c, window_m=3.5, clearance_weight=2.):
         """Dijkstra over known-free cells with room for the body, in a window round the robot.

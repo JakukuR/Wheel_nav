@@ -55,6 +55,10 @@ class Tuning:
     # 0.9 m/s, turning the other way).
     lateral_bearing_start: float = .15
     lateral_slowdown: float = .5
+    # Search behind grid detours: 'dijkstra' or 'astar' (native, end cell still from
+    # Dijkstra, waypoints nearer than the lookahead dropped). Launch: grid_route:=astar
+    grid_route_planner: str = 'dijkstra'
+    grid_route_lookahead_m: float = .5
     # Turn first: above turn_slow_angle between the heading and the point being
     # steered to (detour waypoint, else the person) the speed cap falls linearly,
     # reaching 0 (turn in place) at turn_first_angle. 17:47 J02: the detour point

@@ -5,6 +5,10 @@
 #include <stdexcept>
 #include <vector>
 #include <array>
+#include <algorithm>
+#include <cstdint>
+#include <limits>
+#include <queue>
 #include "isolated_clusters.hpp"
 namespace py = pybind11;
 using Array=py::array_t<double,py::array::c_style|py::array::forcecast>;
@@ -152,7 +156,83 @@ py::array_t<double> grid_query(const Array& points,const Array& field,const Arra
  }
  return result;
 }
+namespace {
+bool line_free(const uint8_t *ok,int n,int a,int b){
+ const int ax=a/n,ay=a%n,bx=b/n,by=b%n,steps=std::max(std::abs(bx-ax),std::abs(by-ay))*2;
+ for(int k=0;k<=steps;++k){
+  const double u=steps?static_cast<double>(k)/steps:0.;
+  const int x=static_cast<int>(std::lround(ax+(bx-ax)*u)),y=static_cast<int>(std::lround(ay+(by-ay)*u));
+  if(!ok[x*n+y])return false;
+ }
+ return true;
+}
+// Douglas-Peucker on cells; a chord through a blocked cell is always split.
+void simplify_cells(const std::vector<int>& cells,int first,int last,int n,double tolerance,const uint8_t *ok,std::vector<int>& kept){
+ if(last-first<2)return;
+ const double ax=cells[first]/n,ay=cells[first]%n,dx=cells[last]/n-ax,dy=cells[last]%n-ay,length=std::hypot(dx,dy);
+ double worst=-1.;int split=first+1;
+ for(int i=first+1;i<last;++i){
+  const double px=cells[i]/n-ax,py=cells[i]%n-ay;
+  const double distance=length>0?std::abs(dx*py-dy*px)/length:std::hypot(px,py);
+  if(distance>worst){worst=distance;split=i;}
+ }
+ if(worst<=tolerance&&line_free(ok,n,cells[first],cells[last]))return;
+ simplify_cells(cells,first,split,n,tolerance,ok,kept);kept.push_back(cells[split]);simplify_cells(cells,split,last,n,tolerance,ok,kept);
+}
+}
+// 8-connected A* over usable cells of a square [ix,iy] mask, no diagonal corner cutting.
+// Returns the simplified route as cell centres, or an empty array when unreachable.
+py::array_t<double> grid_astar(const py::array_t<uint8_t,py::array::c_style|py::array::forcecast>& usable,const Array& lower,double res,
+ const Array& start,const Array& goal,double tolerance_m) {
+ if(usable.ndim()!=2||usable.shape(0)!=usable.shape(1)||usable.shape(0)<2||usable.shape(0)>4096||lower.size()!=2||start.size()!=2||goal.size()!=2||
+    !std::isfinite(res)||res<=0||!std::isfinite(tolerance_m)||tolerance_m<0)
+  throw std::invalid_argument("invalid_grid_astar");
+ const int n=usable.shape(0);const uint8_t *ok=usable.data();const double *l=lower.data(),*s=start.data(),*g=goal.data();
+ const auto cell=[&](const double *p,int& out){
+  const double x=std::floor(p[0]/res)-l[0],y=std::floor(p[1]/res)-l[1];
+  if(!(x>=0&&x<n&&y>=0&&y<n))return false;
+  out=static_cast<int>(x)*n+static_cast<int>(y);return ok[out]!=0;};
+ int from=0,to=0;std::vector<int> route;
+ if(cell(s,from)&&cell(g,to)){
+  py::gil_scoped_release release;
+  const double inf=std::numeric_limits<double>::infinity();
+  std::vector<double> cost(n*n,inf);std::vector<int> parent(n*n,-1);std::vector<uint8_t> closed(n*n,0);
+  using Item=std::pair<double,int>;std::priority_queue<Item,std::vector<Item>,std::greater<Item>> open;
+  const int gx=to/n,gy=to%n;
+  const auto estimate=[&](int x,int y){return std::hypot(static_cast<double>(x-gx),static_cast<double>(y-gy));};
+  cost[from]=0.;open.emplace(estimate(from/n,from%n),from);
+  static const int moves[8][2]={{-1,0},{1,0},{0,-1},{0,1},{-1,-1},{-1,1},{1,-1},{1,1}};
+  while(!open.empty()){
+   const int index=open.top().second;open.pop();
+   if(closed[index])continue;
+   closed[index]=1;
+   if(index==to){
+    for(int at=to;at!=-1;at=parent[at])route.push_back(at);
+    std::reverse(route.begin(),route.end());break;
+   }
+   const int x=index/n,y=index%n;
+   for(int m=0;m<8;++m){
+    const int nx=x+moves[m][0],ny=y+moves[m][1];
+    if(nx<0||nx>=n||ny<0||ny>=n)continue;
+    const int next=nx*n+ny;
+    if(!ok[next]||closed[next])continue;
+    if(m>=4&&(!ok[nx*n+y]||!ok[x*n+ny]))continue;
+    const double candidate=cost[index]+(m<4?1.:M_SQRT2);
+    if(candidate<cost[next]){cost[next]=candidate;parent[next]=index;open.emplace(candidate+estimate(nx,ny),next);}
+   }
+  }
+  if(route.size()>=2){
+   std::vector<int> kept{route.front()};
+   simplify_cells(route,0,static_cast<int>(route.size())-1,n,tolerance_m/res,ok,kept);
+   kept.push_back(route.back());route.swap(kept);
+  }
+ }
+ py::array_t<double> result({static_cast<py::ssize_t>(route.size()),static_cast<py::ssize_t>(2)});
+ double *out=result.mutable_data();
+ for(size_t i=0;i<route.size();++i){out[2*i]=(route[i]/n+l[0]+.5)*res;out[2*i+1]=(route[i]%n+l[1]+.5)*res;}
+ return result;
+}
 PYBIND11_MODULE(_wla_sim_geometry,m){
  m.def("deproject",&deproject);m.def("filter_points",&filter_points);
- m.def("ray_slots",&ray_slots);m.def("grid_query",&grid_query);
+ m.def("ray_slots",&ray_slots);m.def("grid_query",&grid_query);m.def("grid_astar",&grid_astar);
 }

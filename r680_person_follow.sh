@@ -5,7 +5,7 @@ operation="${1:-check}"
 if [[ $# -gt 0 ]]; then shift; fi
 case "$operation" in
   -h|--help|help)
-    echo 'r680_person_follow.sh check | run [transport:=cpp|python] [enable_motion:=false|true] [local_planner:=mpc|neupan] [person_filter:=cylinder|cluster] [depth_speckle:=0|150] [ROS launch arguments]'
+    echo 'r680_person_follow.sh check | run [transport:=cpp|python] [enable_motion:=false|true] [local_planner:=mpc|neupan] [person_filter:=cylinder|cluster] [depth_speckle:=0|150] [grid_route:=dijkstra|astar] [ROS launch arguments]'
     echo '当前统一链路：mode 0 人物跟随，mode 1 人物靠近，mode 2 物体靠近。'
     echo '默认预览；follow 命令由操作者选择目标 ID 后启动。'
     exit 0 ;;

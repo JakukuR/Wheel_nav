@@ -328,3 +328,57 @@ def test_turns_in_place_inside_the_obstacle_margin():
     cmd = f.command(np.zeros(3), np.array([0., .3]), np.array([1.5, .5]), np.zeros(2), hist, m, [], "visible",
                     recovery=True)
     assert cmd[0] == 0. and cmd[1] > .2
+
+
+def _wall_with_gap_map():
+    """A long wall 1 m ahead with a single gap, so edge candidates fail and the grid route runs."""
+    from wla_person_follow.sim_core.rolling_depth_map import RollingDepthMap
+    m = RollingDepthMap(); m.slide(np.zeros(2)); pts = []
+    for x in np.arange(-.6, 3.5, .05):
+        for y in np.arange(-3., 3., .05):
+            if abs(x - 1.) < .1 and not 1.4 < y < 2.1:
+                pts += [[x, y, z] for z in (.2, .5)]
+            else:
+                pts.append([x, y, 0.])
+    pts = np.array(pts)
+    m.update(dict(points=pts, points_odom=pts, dynamic=np.zeros(len(pts), bool),
+                  origin=np.array([0, 0, .3]), origin_odom=np.array([0, 0, .3])), np.zeros(3), 0.)
+    m.rebuild(0.)
+    return m
+
+
+def _grid_plan(m, **tuning):
+    d = DetourPlanner(); d.candidates_per_side = 0
+    route = d.plan(np.zeros(3), np.array([3., 0.]), m, Tuning(**tuning))
+    return d, route
+
+
+def test_grid_route_default_stays_dijkstra():
+    d, route = _grid_plan(_wall_with_gap_map())
+    assert d.last['side'] == 'grid' and d.last['search'] == 'dijkstra' and route is not None
+
+
+def test_grid_route_astar_keeps_goal_drops_near_waypoints_and_stays_clear():
+    m = _wall_with_gap_map(); base, dij = _grid_plan(m); d, route = _grid_plan(m, grid_route_planner='astar')
+    assert d.last['search'] == 'astar' and np.allclose(route[0], 0.)
+    assert np.allclose(route[-1], dij[-1]) and np.linalg.norm(route[-2] - dij[-2]) < .08
+    assert np.linalg.norm(route[1]) >= .5 and np.allclose(d.held, route[1])
+    body = route[:-1]; pts = np.vstack([a + (b - a) * np.linspace(0, 1, 40)[:, None] for a, b in zip(body[:-1], body[1:])])
+    assert m.query(pts[np.linalg.norm(pts, axis=1) > .25]).min() >= Tuning().radius - .03
+
+
+def test_grid_route_astar_falls_back_to_dijkstra_without_the_native_kernel(monkeypatch):
+    import wla_person_follow.sim_core.detour as module
+    monkeypatch.setattr(module, 'native_grid_astar', None)
+    d, route = _grid_plan(_wall_with_gap_map(), grid_route_planner='astar')
+    assert d.last['search'] == 'dijkstra' and route is not None
+
+
+def test_process_step_applies_and_rejects_the_grid_route_setting():
+    import wla_person_follow.sim_runtime as rt
+    job = lambda name: ((0, 0, 'x', 'astar-test'), np.zeros(3), np.zeros(2), [], None, 0.,
+                        dict(active=False, radius=0., grid_route_planner=name))
+    rt.process_step(job('astar'))
+    assert rt._PROCESS_ENGINE.tuning.grid_route_planner == 'astar'
+    with pytest.raises(ValueError):
+        rt.process_step(job('bogus'))

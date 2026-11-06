@@ -12,6 +12,8 @@ person_follow:
     # Launch: depth_speckle:=150
     depth_speckle_max_px: 0
     depth_speckle_diff_m: 0.075
+    # Search behind grid detours. Launch: grid_route:=astar
+    grid_route_planner: dijkstra
     output_mode: mux
     direct_topic: /r680_base/cmd_vel
     relative_topic: /r680/perception/relative_objects

@@ -373,6 +373,11 @@ def process_step(job):
         if _PROCESS_NEUPAN is not None:_PROCESS_NEUPAN.reset()
     engine = _PROCESS_ENGINE
     engine.neupan=neupan_for(startup.get('local_planner','mpc'))
+    grid_route=startup.get('grid_route_planner','dijkstra')
+    if grid_route not in ('dijkstra','astar'):
+        raise ValueError('unknown_grid_route_planner: '+str(grid_route))
+    if engine.tuning.grid_route_planner!=grid_route:
+        engine.tuning=replace(engine.tuning,grid_route_planner=grid_route)
     engine.mapping.local_assumed_free_radius=local_radius
     engine.mapping.target_clear_ttl=float(startup.get('target_clear_ttl_s',.5))
     engine.trail_clear_radius=float(startup.get('trail_clear_radius_m',0.))
