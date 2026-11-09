@@ -116,7 +116,9 @@ class WorkerTransport:
         self.preview = dict(linear=0., angular=0.)
 
     def send(self, message):
-        data = json.dumps(message, separators=(',', ':'), allow_nan=False).encode()
+        self.send_raw(json.dumps(message, separators=(',', ':'), allow_nan=False).encode())
+
+    def send_raw(self, data):
         if len(data) > 128 * 1024:
             raise ValueError('IPC notification too large')
         with self.lock:
@@ -165,7 +167,8 @@ class WorkerTransport:
         elif suffix == '/cmd_vel_candidate':
             self.preview = dict(linear=message.linear.x, angular=message.angular.z)
         elif suffix == '/status':
-            self.publish_result(json.loads(message.data))
+            status = self.engine.last_status if self.engine is not None else None
+            self.publish_result(json.loads(message.data) if status is None else status, message.data)
         elif suffix == '/reid_request':
             self.send(dict(kind='interest', generation=self.generation, data=message.data))
         elif suffix in ('/local_path', '/local_obstacles', '/depth_obstacles'):
@@ -175,7 +178,7 @@ class WorkerTransport:
         else:
             raise ValueError('unsupported hybrid publisher: ' + topic)
 
-    def publish_result(self, status):
+    def publish_result(self, status, text=None):
         e = self.engine
         result = e.result
         self.result_sequence += 1
@@ -187,7 +190,12 @@ class WorkerTransport:
                      valid_until=result['valid_until'] if result else 0., generated_at=time.monotonic(),
                      permitted=bool(status['motion_permitted']),
                      linear=float(self.candidate.get('linear', 0.)), angular=float(self.candidate.get('angular', 0.)))
-        self.send(dict(kind='result', proof=proof, status=status, preview=self.preview))
+        if text is None:
+            self.send(dict(kind='result', proof=proof, status=status, preview=self.preview))
+            return
+        # Splice the already serialised status in; same JSON object as before.
+        head = json.dumps(dict(kind='result', proof=proof, preview=self.preview), separators=(',', ':'), allow_nan=False)
+        self.send_raw((head[:-1] + ',"status":' + text + '}').encode())
 
     def flush_geometry(self):
         with self.lock:

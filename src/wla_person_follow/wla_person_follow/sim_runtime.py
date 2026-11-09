@@ -1,5 +1,4 @@
 """Shared tracker-to-MPC runtime for three target modes. No ROS or actuator I/O."""
-from copy import deepcopy
 from dataclasses import asdict, replace
 import math
 import numpy as np
@@ -231,7 +230,7 @@ class SimulationEngine:
             if target is not None:self.people.tracks.pop(resolved_id,None)
             if self.last_measurement<stamp<=now:
                 self.people.update(people,pose,stamp);self.last_measurement=stamp
-        tracks=deepcopy(self.people).update({},pose,now)
+        tracks=self.people.predict(now)
         estimate=None;velocity=np.zeros(2);history=[];state='lost'
         if tracker_snapshot is not None:
             binding=tracker_snapshot['state']

@@ -1,4 +1,5 @@
 import math
+from copy import copy
 import numpy as np
 from .target_reference import TargetHistory
 
@@ -24,6 +25,20 @@ class VisualTrack:
     @property
     def history(self):
         return self.trail.points()
+
+    def predicted_position(self,t):
+        """The position update(None,t) returns, without touching the track.
+
+        Constant-velocity extrapolation (with the coast decay), as update()
+        does it; the covariance is not needed for the position.
+        """
+        if self.x is None:return None
+        dt=max(0.,min(t,self.seen+self.timeout)-self.time)
+        free=dt if self.coast_decay is None else max(0.,min(dt,self.seen+self.coast_decay[0]-self.time))
+        if dt>free:
+            tau=self.coast_decay[1]
+            return self.x[:2]+self.x[2:]*(free+tau*(1.-math.exp(-(dt-free)/tau)))
+        return self.x[:2]+self.x[2:]*dt
 
     def update(self,z,t):
         if self.x is None:
@@ -70,5 +85,19 @@ class PeopleTracks:
             age=t-track.seen
             if age>1.5:
                 del self.tracks[key];continue
+            result.append(dict(p=p,v=v,r=.28+.035+.15*age,age=age,id=key))
+        return result
+
+    def predict(self,t):
+        """What update({},pose,t) would return, leaving every track as it is.
+
+        Replaces deepcopy(self).update(...): update(None) only rebinds x/P/time
+        (never in place), so a shallow copy of each track is enough.
+        """
+        result=[]
+        for key,track in self.tracks.items():
+            p,v,_=copy(track).update(None,t)
+            age=t-track.seen
+            if age>1.5:continue
             result.append(dict(p=p,v=v,r=.28+.035+.15*age,age=age,id=key))
         return result

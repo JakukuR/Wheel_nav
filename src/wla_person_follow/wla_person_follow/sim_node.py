@@ -142,6 +142,9 @@ class FollowEngine:
         self.wheel_received = -math.inf
         self.wheel_diagnostic = None
         self.computation_diagnostic = None
+        self._diagnostic_json = None
+        self._live_binding = None
+        self.last_status = None
         self.status_sequence = 0
         self.infos = deque(maxlen=24)
         self.depth_pairer = MaskDepthPairer()
@@ -903,7 +906,7 @@ class FollowEngine:
             self.arrival_count=0;self.arrival_started=None
             return False
         row=self.core.objects.get(self.tracker.target_id)
-        live=self.tracker.snapshot(ns/1e9,self.motion.pose_at(ns/1e9))
+        live=self._live_binding_locked(ns)
         if (live['state']!='tracking' or row is None or not row.get('detected') or
                 row.get('distance') is None or row.get('yaw') is None):
             self.arrival_count=0;self.arrival_started=None
@@ -952,6 +955,18 @@ class FollowEngine:
             self.result=None
         return not self.conflict_latched and len(endpoints)==1 and time.monotonic()-self.started_at>=1.
 
+    def _live_binding_locked(self,ns):
+        """The tracker snapshot at ns, computed once per tick.
+
+        snapshot() is idempotent for the same (time, pose); the three users in a
+        tick (output phase, arrival, status) all ask at the tick's ns.
+        """
+        if self.tracker is None:return None
+        cached=self._live_binding
+        if cached is None or cached[0]!=ns or cached[1] is not self.tracker:
+            cached=self._live_binding=(ns,self.tracker,self.tracker.snapshot(ns/1e9,self.motion.pose_at(ns/1e9)))
+        return cached[2]
+
     def tick(self):
         with self.guard:
             now=time.monotonic();ns=self.now_ns()
@@ -982,7 +997,7 @@ class FollowEngine:
             policy=result.get('policy_snapshot') if result is not None else None
             if policy is not None:
                 command=policy.limit_command(command,ns/1e9)
-                live=self.tracker.snapshot(ns/1e9,self.motion.pose_at(ns/1e9)) if self.tracker is not None else None
+                live=self._live_binding_locked(ns)
                 same_phase=live is not None and same_output_phase(live['state'],policy.state,policy.mode)
                 if not same_phase:
                     command=np.zeros(2);healthy=False;blockers.append('tracking_phase_changed')
@@ -1061,7 +1076,7 @@ class FollowEngine:
                 reid_enabled=self.p['reid_enabled'],
                 reid=(self.recovery_identity.snapshot() if self.recovery_identity is not None
                       else dict(state='disabled')),
-                geometry_binding=(self.tracker.snapshot(ns/1e9,self.motion.pose_at(ns/1e9)) if self.tracker is not None else None),
+                geometry_binding=self._live_binding_locked(ns),
                 identity_supervision=self.recovery_identity.snapshot() if self.recovery_identity is not None else None,
                 resolved_target_id=self.tracker.target_id if self.tracker is not None else None,
                 resolved_target_source=self.map_result.get('resolved_target_source') if self.map_result else None,
@@ -1092,10 +1107,14 @@ class FollowEngine:
             current_pose=self.motion.pose_at(ns/1e9)
             diagnostic=self.computation_diagnostic
             same_reference=diagnostic is not None and diagnostic.get('key')==self.key()
-            detail=deepcopy(diagnostic) if same_reference else None
-            if detail is not None:
-                detail.pop('key',None)
-                detail['age_s']=ns/1e9-detail['control_stamp_s']
+            detail=None
+            if same_reference:
+                # A diagnostic is never mutated after it is stored (each one is a
+                # new dict of deep copies), so sanitise it once, not every tick.
+                if self._diagnostic_json is None or self._diagnostic_json[0] is not diagnostic:
+                    self._diagnostic_json=(diagnostic,finite_json({k:v for k,v in diagnostic.items() if k!='key'}))
+                detail=dict(self._diagnostic_json[1])
+                detail['age_s']=finite_json(ns/1e9-diagnostic['control_stamp_s'])
                 detail['planner_result_fresh']=bool(result is not None and result['key']==self.key() and now<result['valid_until'])
             state.update(diagnostic_sequence=self.status_sequence,
                 diagnostic_schema='wla-follow-diagnostics/v1',
@@ -1109,7 +1128,9 @@ class FollowEngine:
                     pose_stamp_ns=ns,reference_generation=self.motion.generation,
                     pose_source='LocalMotion wheel-twist integration; not global localization'),
                 actual_published_command=dict(linear_mps=float(actual[0]),angular_rps=float(actual[1])),
-                diagnostics=finite_json(detail))
+                diagnostics=detail)
+            # The hybrid worker forwards this dict without parsing the text back.
+            self.last_status=state
             self.status_pub.publish(String(data=json.dumps(state,allow_nan=False)))
             mapped=self.map_result
             if (mapped is not None and mapped['key']==self.key() and now<mapped['valid_until'] and

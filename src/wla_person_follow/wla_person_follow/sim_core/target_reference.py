@@ -20,6 +20,7 @@ class TargetHistory:
         self.latest = None
         self.origin = None
         self.next_index = 0
+        self._lists = None
 
     def update(self, point, stamp):
         point = np.asarray(point, dtype=float)
@@ -27,6 +28,7 @@ class TargetHistory:
             raise ValueError('invalid_target_history_observation')
         if self.latest is not None and stamp <= self.latest[0]:
             return
+        self._lists = None
         if self.latest is None or stamp - self.latest[0] > self.max_gap_s:
             self.samples.clear()
             self.origin, self.next_index = float(stamp), 1
@@ -50,6 +52,12 @@ class TargetHistory:
         if self.latest is not None and (not self.samples or self.latest[0] > self.samples[-1][0] + 1e-6):
             result.append(self.latest[1].copy())
         return result
+
+    def as_lists(self):
+        """points() as plain lists; cached until the next accepted observation."""
+        if self._lists is None:
+            self._lists = [point.tolist() for point in self.points()]
+        return [point[:] for point in self._lists]
 
     def diagnostic(self):
         return dict(window_s=self.window_s, sample_period_s=self.period_s,
