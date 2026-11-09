@@ -1048,7 +1048,7 @@ class FollowEngine:
                     follow_session=self.follow_session,request_id=state['request_id'],stamp_ns=ns,
                     linear=float(actual[0]),angular=float(actual[1])))))
             state.update(schema='wla-person-status/v1',stamp_ns=ns,follow_session=self.follow_session,
-                planner='tracker_sampling_mpc',numeric_backend=('cpp_core_cpp_mpc' if self.p['numeric_backend']=='cpp' else
+                planner='tracker_sampling_mpc',numeric_backend=('cpp_follow_core' if self.p['numeric_backend']=='cpp' else
                     'python_mpc_cpp_map' if native_ray_slots is not None else 'python_reference'),native_frontend='cpp_deproject_ground_cluster_filter',
                 obstacle_topic=self.p['prefix']+'/depth_obstacles',
                 base_frame=self.p['base_frame'],output_mode=self.p['output_mode'],

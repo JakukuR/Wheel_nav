@@ -7,6 +7,7 @@
 #include <pybind11/stl.h>
 
 #include <cstring>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -19,6 +20,7 @@ using wla::follow::RollingMap;
 
 void BindTracking(py::module_& m);  // follow_core_tracking.cc
 void BindPlanning(py::module_& m);  // follow_core_planning.cc
+void BindEngine(py::module_& m);    // follow_core_engine.cc
 
 namespace {
 
@@ -101,9 +103,9 @@ void RequireWindow(const RollingMap& map)
 
 PYBIND11_MODULE(_wla_follow_core, m)
 {
-    m.doc() = "C++ follow core: rolling depth map (phase 1), tracking (phase 2) and planning (phase 3) of PY_CPP_ARCHITECTURE.md";
+    m.doc() = "C++ follow core: rolling depth map (phase 1), tracking (phase 2), planning (phase 3) and the FollowCore step (phase 4) of PY_CPP_ARCHITECTURE.md";
 
-    py::class_<RollingMap>(m, "RollingMap")
+    py::class_<RollingMap, std::shared_ptr<RollingMap>>(m, "RollingMap")
         .def(py::init([](double resolution, int size, double ttl, double robot_radius, double target_clear_ttl) {
                  RollingMap::Options options;
                  options.m_resolution = resolution;
@@ -290,4 +292,5 @@ PYBIND11_MODULE(_wla_follow_core, m)
 
     BindTracking(m);
     BindPlanning(m);
+    BindEngine(m);
 }

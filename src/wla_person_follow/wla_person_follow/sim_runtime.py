@@ -10,6 +10,7 @@ from .neupan_follower import NeuPANFollower, TRACKED_STATES as NEUPAN_STATES
 from .native_map import BACKENDS as NUMERIC_BACKENDS, make_rolling_map, map_backend
 from .native_tracking import make_people_tracks
 from .native_planning import make_approach_goal, make_controller
+from .native_engine import NativeFollowEngine
 
 
 def local_points(points, pose):
@@ -364,6 +365,8 @@ def process_step(job):
     backend=startup.get('numeric_backend','python')
     if backend not in NUMERIC_BACKENDS:
         raise ValueError('unknown_numeric_backend: '+str(backend))
+    if backend=='cpp':
+        return _process_step_cpp(key,pose,previous,packets,observation,now,startup,radius,local_radius,motion_threshold)
     # A backend change starts from an empty map: no state crosses backends.
     if _PROCESS_KEY != key or map_backend(_PROCESS_ENGINE.mapping)!=backend:
         old=_PROCESS_ENGINE
@@ -425,4 +428,33 @@ def process_step(job):
             center_odom=np.asarray(pose[:2]).tolist(),state='continuous' if local_radius else 'disabled',
             assumed_cells=int(np.count_nonzero(engine.mapping.assumed_free))),
         grid=np.where(engine.mapping.occupied,100,np.where(engine.mapping.known,0,-1)).astype(np.int8))
+    return result
+
+
+def _process_step_cpp(key, pose, previous, packets, observation, now, startup, radius, local_radius, motion_threshold):
+    """process_step with numeric_backend cpp: one FollowCore call (native_engine.py).
+
+    Same task/reference rules as the Python engine: a new task keeps the map,
+    a wheel reference change starts a new one, and the startup prior is used
+    once per process (mirrored in the globals so a backend change keeps it).
+    """
+    global _PROCESS_ENGINE, _PROCESS_KEY, _PROCESS_STARTUP_USED, _PROCESS_STARTUP_PRIOR
+    engine=_PROCESS_ENGINE if isinstance(_PROCESS_ENGINE,NativeFollowEngine) else None
+    if engine is None or _PROCESS_KEY!=key:
+        if engine is None:
+            engine=NativeFollowEngine(pose,now,resolution=MAP_RESOLUTION_M,size=MAP_SIZE_CELLS,
+                startup_used=_PROCESS_STARTUP_USED,startup_prior=_PROCESS_STARTUP_PRIOR)
+        elif _PROCESS_KEY[-1]==key[-1]:
+            engine.reset_task()
+        else:
+            engine.reset_reference(pose,now)
+        _PROCESS_ENGINE=engine;_PROCESS_KEY=key
+        if _PROCESS_NEUPAN is not None:_PROCESS_NEUPAN.reset()
+    neupan=neupan_for(startup.get('local_planner','mpc'))
+    grid_route=startup.get('grid_route_planner','dijkstra')
+    if grid_route not in ('dijkstra','astar'):
+        raise ValueError('unknown_grid_route_planner: '+str(grid_route))
+    result=engine.step(key,pose,previous,packets,observation,now,startup,local_radius=local_radius,radius=radius,
+        motion_threshold=motion_threshold,grid_route=grid_route,neupan=neupan)
+    _PROCESS_STARTUP_USED=result['startup_prior_consumed'];_PROCESS_STARTUP_PRIOR=engine.prior_base
     return result

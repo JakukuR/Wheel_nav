@@ -46,6 +46,15 @@ class NativeRollingDepthMap:
         self.log, self.stamp, self.target_clear_stamp, self.occupied_since, self.tags = self._core.ring_views()
         self._lower = self._window = self._fields = None
 
+    @classmethod
+    def _wrap(cls, core):
+        """View of a C++ map owned elsewhere (the FollowCore of native_engine)."""
+        self = cls.__new__(cls)
+        self._core = core
+        self.log, self.stamp, self.target_clear_stamp, self.occupied_since, self.tags = core.ring_views()
+        self._lower = self._window = self._fields = None
+        return self
+
     # Scalars and settings.
     res = property(lambda self: self._core.res)
     n = property(lambda self: self._core.n)

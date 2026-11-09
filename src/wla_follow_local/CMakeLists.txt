@@ -22,14 +22,14 @@ if(WLA_FOLLOW_COVERAGE)
 endif()
 
 add_library(wla_follow_core STATIC src/rolling_map.cc src/tracking.cc src/reference_path.cc
-  src/csgraph.cc src/planning.cc src/approach_goal.cc)
+  src/csgraph.cc src/planning.cc src/approach_goal.cc src/follow_core.cc)
 target_include_directories(wla_follow_core PUBLIC include PRIVATE src)
 target_link_libraries(wla_follow_core PUBLIC wla_follow_options)
 target_compile_options(wla_follow_core PRIVATE -Werror)
 set_target_properties(wla_follow_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 pybind11_add_module(_wla_follow_core src/follow_core_module.cc src/follow_core_tracking.cc
-  src/follow_core_planning.cc)
+  src/follow_core_planning.cc src/follow_core_engine.cc)
 target_include_directories(_wla_follow_core PRIVATE src)
 target_link_libraries(_wla_follow_core PRIVATE wla_follow_core)
 

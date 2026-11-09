@@ -315,6 +315,22 @@ using IntArray = py::array_t<std::int64_t, py::array::c_style | py::array::force
 
 } // namespace
 
+// For the FollowCore binding (follow_core_engine.cc).
+py::dict ExportCandidateDict(const CandidateReport& report)
+{
+    return CandidateDict(report);
+}
+
+py::dict ExportApproachDict(const ApproachReport& report)
+{
+    return ApproachDict(report);
+}
+
+Tuning ExportTuningFrom(const py::handle& tuning)
+{
+    return TuningFrom(tuning);
+}
+
 void BindPlanning(py::module_& m)
 {
     py::class_<HybridFollower>(m, "HybridFollower")
