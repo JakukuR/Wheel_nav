@@ -139,4 +139,38 @@ C++ 原生数值测试、pybind11 数组/内存测试、ROS 集成和归档仿�
   depth_to_result p50 约 150 → 135 ms；状态、阻塞原因和命令分布不变。
 - 测试：默认 python 251 项全过；以 cpp 为默认时地图相关测试全过。
 
-下一阶段：跟踪（VisualTrack / PeopleTracks / 目标历史 / 参考曲线）进入同一 C++ 核心。
+### 阶段 2：跟踪与参考曲线（2026-11-09，b1ae353）
+
+- C++ 部件（`wla_follow_local/include/wla_follow/tracking.h`、`src/tracking.cc`、
+  `src/reference_path.cc`）逐语句对应参考实现：`TargetHistory`（固定时间栅格重采样）、
+  `VisualTrack`（匀速 Kalman、新息门限、滑行衰减、预测）、`PeopleTracks`（其他人作动态障碍，
+  保持首次出现顺序）、`BezierReference`、`BsplineCorners`。持有状态的对象不可拷贝；预测只拷贝
+  滤波状态值 `KalmanState`。
+- 逐位相等的前提：numpy 在 Orin 上走系统参考 BLAS/LAPACK（numpy 1.26.4，LAPACK 3.12），
+  先测定再移植，写在 `src/numpy_blas.h`：
+  - `matmul`/`dot`/一维 `norm` 按顺序以融合乘加累加；
+  - `norm(axis=...)` 与逐元素运算不融合；
+  - `solve` 为 dgesv：主元行交换、乘倒数、融合的 Schur 更新与三角回代；
+  - `einsum` 按顺序求和，只有一段三次曲线时 numpy 去掉长度 1 的轴，改走融合乘加。
+- Python 门面 `native_tracking.py`：`NativeVisualTrack`、`NativeTargetHistory`、`NativePeopleTracks`
+  （任意 Python 键映射为 int64 id）、`reference_functions(backend)`。`numeric_backend:=cpp`
+  同时切换 `FollowTracker` 的目标航迹、引擎的 `PeopleTracks` 和 `HybridFollower` 的两条参考
+  曲线（构造参数 `references`）；status 报告 `cpp_core_python_mpc`。cpp 不可用时报错，不回退。
+- `PeopleTracks.drop/keys` 取代直接操作字典；空路径、非有限输入在 C++ 中抛异常（参考实现同样
+  抛异常）。
+- 工具：`tools/map_replay/rec_tracking.py`（`WLA_TRACK_RECORD` 设置时由 `rec_main.py` 加载）在
+  domain 199 回放中记录跟踪调用，`compare_tracking.py` 把记录同时喂给两种实现并逐次比较。
+
+验证：
+- `test/test_native_tracking.py`：随机测量流（门限拒绝、滑行、丢失、重复时间戳，5 组配置）、
+  随机人群、各 3000 条随机历史与折线，返回值与全部状态完全相等；另做 6 万条曲线抽样，0 处不等。
+- 2026-11-06 A* 包 170 s 回放：2614 次 people.update、2961 次 predict、2927 次 Bezier、3271 次
+  B 样条，以及按目标航迹参数重放的 9139 次更新，逐次完全相等。单次耗时 python → cpp：
+  B 样条 2.66 ms → 85 µs，Bezier 460 → 22 µs，people.update 173 → 41 µs，predict 94 → 15 µs。
+- 170 s 回放 A/B（全 python 对比 cpp 地图+跟踪，跟随帧）：compute_ms p50 48.4 → 37.8 ms，
+  p95 58.1 → 48.5 ms；depth_to_result p50 139.9 → 135.9 ms；状态、绑定、阻塞原因不变。
+- 测试：默认 python 274 项全过；以 cpp 为默认（全部默认值改为 cpp 的副本）274 项全过；
+  C++ ctest 2 项全过。
+
+下一阶段：规划与控制（采样 MPC `HybridFollower.command`、`DetourPlanner` 含 Dijkstra、
+`ApproachGoal`），验收为可行性判定一致、命令差 ≤1e-9。
