@@ -173,8 +173,11 @@ def test_cpp_engine_and_tracker_use_the_core():
     from wla_person_follow.sim_runtime import SimulationEngine
     engine = SimulationEngine(np.zeros(3), 0., numeric_backend='cpp')
     assert engine.people.backend == 'cpp'
-    assert engine.controller.bezier_reference is native_tracking.native_bezier_reference
-    assert SimulationEngine(np.zeros(3), 0.).people.__class__ is PeopleTracks
+    # Phase 3: the whole planner is C++ (it builds its curves in C++ too).
+    assert engine.controller.backend == 'cpp' and engine.approach.backend == 'cpp'
+    reference = SimulationEngine(np.zeros(3), 0., numeric_backend='python')
+    assert reference.people.__class__ is PeopleTracks
+    assert reference.controller.bezier_reference is native_tracking.bezier_reference
     tracker = follow_session.FollowTracker('7', 0., numeric_backend='cpp')
     tracker._accept(np.array([2., 0.]), np.zeros(3), 0.)
     assert tracker.track.backend == 'cpp'

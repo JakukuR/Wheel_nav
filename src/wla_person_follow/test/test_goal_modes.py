@@ -1,15 +1,17 @@
 """Exploration primitives: mode 3 point goal and mode 4 in-place orient."""
 import math
 import numpy as np
+from wla_person_follow.native_map import map_backend
 import pytest
 from wla_person_follow.sim_runtime import SimulationEngine
 from wla_person_follow.task_modes import parse_goal, normalize_mode
 from wla_person_follow.task_session import TaskSession
 
 
-def _box_ahead_map():
-    from wla_person_follow.sim_core.rolling_depth_map import RollingDepthMap
-    m=RollingDepthMap(resolution=.05,size=160);m.slide(np.zeros(2))
+def _box_ahead_map(backend='python'):
+    # The engine's map backend: the C++ planner (numeric_backend cpp) reads only the C++ map.
+    from wla_person_follow.native_map import make_rolling_map
+    m=make_rolling_map(backend,resolution=.05,size=160);m.slide(np.zeros(2))
     floor=np.array([[x,y,0.] for x in np.arange(-1.,3.5,.05) for y in np.arange(-2.,2.01,.05)
                     if not (.95<x<1.45 and abs(y)<.45)])
     box=np.array([[x,y,z] for x in np.arange(1.,1.41,.05) for y in np.arange(-.4,.41,.05) for z in (.2,.45)])
@@ -45,7 +47,7 @@ def test_goal_start_needs_live_detector_gate_but_no_target():
 
 
 def test_point_goal_routes_round_a_box_and_drives():
-    e=SimulationEngine(np.zeros(3),0.);e.mapping=_box_ahead_map()
+    e=SimulationEngine(np.zeros(3),0.);e.mapping=_box_ahead_map(map_backend(e.mapping))
     out=e._plan(np.zeros(3),np.zeros(2),None,.1,None,None,'3',None,goal=dict(kind='point',point=[2.5,0.]))
     assert out['reason']=='point_goal' and out['planner_feasible']
     path=out['path']
@@ -55,7 +57,7 @@ def test_point_goal_routes_round_a_box_and_drives():
 
 
 def test_point_goal_route_is_reused_then_refreshed():
-    e=SimulationEngine(np.zeros(3),0.);e.mapping=_box_ahead_map()
+    e=SimulationEngine(np.zeros(3),0.);e.mapping=_box_ahead_map(map_backend(e.mapping))
     goal=dict(kind='point',point=[2.5,0.])
     e._plan(np.zeros(3),np.zeros(2),None,.1,None,None,'3',None,goal=goal)
     first=e.point_route[1]

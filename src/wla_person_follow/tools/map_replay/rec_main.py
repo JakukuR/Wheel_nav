@@ -1,13 +1,16 @@
 """Phase 0 recorder: run the follow worker and log every rolling map call.
 
 Used only for a domain-199 replay: `python3 rec_main.py -m module args...`.
-Appends [map_id, op, args, kwargs, result] records to $WLA_MAP_RECORD.
+Appends [map_id, op, args, kwargs, result] records to $WLA_MAP_RECORD
+(and, with $WLA_PLAN_RECORD set, the planner calls of rec_planning.py).
 """
 import itertools, os, pickle, runpy, sys
 import numpy as np
 from wla_person_follow.sim_core import rolling_depth_map as R
 if os.environ.get('WLA_TRACK_RECORD'):
     import rec_tracking  # noqa: F401  (phase 2: tracking calls)
+if os.environ.get('WLA_PLAN_RECORD'):
+    import rec_planning  # noqa: F401  (phase 3: planner calls, in the map stream)
 
 OUT = open(os.environ['WLA_MAP_RECORD'], 'ab')
 IDS = itertools.count()

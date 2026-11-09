@@ -329,9 +329,9 @@ def test_continuous_prior_obstacles_win_including_inside_footprint(startup_worke
     assert m.known[ij[:,0],ij[:,1]].all()
 
 
-def _straight_corridor(width):
-    from wla_person_follow.sim_core.rolling_depth_map import RollingDepthMap
-    m=RollingDepthMap();m.slide(np.zeros(2))
+def _straight_corridor(width, backend='python'):
+    from wla_person_follow.native_map import make_rolling_map
+    m=make_rolling_map(backend);m.slide(np.zeros(2))
     xs=np.arange(-1,5,.02);h=width/2
     walls=np.r_[np.c_[xs,np.full_like(xs,h),np.full_like(xs,.5)],np.c_[xs,np.full_like(xs,-h),np.full_like(xs,.5)]]
     floor=np.array([[x,y,0.] for x in np.arange(-1,5,.05) for y in np.arange(-h+.03,h-.02,.05)])
@@ -478,8 +478,10 @@ def test_seed_follows_last_command_and_first_step_uses_real_interval():
 
 def test_engine_keeps_zero_and_bounds_planned_changes_between_replans():
     from wla_person_follow.sim_runtime import SimulationEngine
-    m=_straight_corridor(1.4)
-    e=SimulationEngine(np.zeros(3),0.);e.mapping=m;e.map_stamp=0.
+    from wla_person_follow.native_map import map_backend
+    e=SimulationEngine(np.zeros(3),0.)
+    m=_straight_corridor(1.4,map_backend(e.mapping))  # the engine's backend (C++ planner: C++ map)
+    e.mapping=m;e.map_stamp=0.
     snap=dict(state='tracking',prediction=[3.,0.],position=[3.,0.],velocity_mps=[0.,0.],
               history=[[2.+i*.1,0.] for i in range(10)],surface_offset_m=.28,last_seen=0.,history_sampling=None)
     first=e._plan(np.zeros(3),np.array([.6,0.]),None,1.,None,snap,'0',None)['command']

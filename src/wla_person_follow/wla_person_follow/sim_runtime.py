@@ -5,10 +5,11 @@ import numpy as np
 from .sim_core.common import rotation
 from .sim_core.common import Tuning
 from .sim_core.approach_goal import ApproachGoal, SWEEP_RADIUS
-from .sim_core.hybrid_controller import HybridFollower, seed_command, limit_step
+from .sim_core.hybrid_controller import seed_command, limit_step
 from .neupan_follower import NeuPANFollower, TRACKED_STATES as NEUPAN_STATES
 from .native_map import BACKENDS as NUMERIC_BACKENDS, make_rolling_map, map_backend
-from .native_tracking import make_people_tracks, reference_functions
+from .native_tracking import make_people_tracks
+from .native_planning import make_approach_goal, make_controller
 
 
 def local_points(points, pose):
@@ -140,14 +141,14 @@ class SimulationEngine:
     """Single tracker input, shared rolling map and shared MPC; no second FSM."""
     def __init__(self, pose, start_time, numeric_backend='python'):
         self.tuning=Tuning()
-        self.controller=HybridFollower(self.tuning,references=reference_functions(numeric_backend))
-        # numeric_backend 'cpp': map, people tracks and reference curves in the C++ follow core (equal to the
-        # Python reference element-wise); never falls back silently.
+        self.controller=make_controller(numeric_backend,self.tuning)
+        # numeric_backend 'cpp': map, people tracks, reference curves, MPC, detour and approach goal in the
+        # C++ follow core (equal to the Python reference element-wise); never falls back silently.
         self.mapping=make_rolling_map(numeric_backend,resolution=MAP_RESOLUTION_M,size=MAP_SIZE_CELLS,robot_radius=self.tuning.radius)
         self.mapping.slide(np.asarray(pose[:2]));self.mapping.rebuild(start_time)
         self.people=make_people_tracks(numeric_backend)
         self.last_measurement=self.map_stamp=-math.inf
-        self.approach=ApproachGoal()
+        self.approach=make_approach_goal(numeric_backend)
         self.point_route=None  # (goal, planned_at, path) for mode 3
         # Followed person's measured centres (stamp, x, y) in modes 0/1: the map
         # forgets hits that appeared where the person stood (retire_person_trail).

@@ -132,42 +132,12 @@ py::array_t<double> grid_query(const Array& points,const Array& field,const Arra
   throw std::invalid_argument("invalid_grid_query");
  std::vector<py::ssize_t> shape;for(int i=0;i<points.ndim()-1;++i)shape.push_back(points.shape(i));
  py::array_t<double> result(shape);const double *p=points.data(),*f=field.data(),*l=lower.data();double *out=result.mutable_data();
- const int n=field.shape(0);const double area=res/std::sqrt(2.);
+ const int n=field.shape(0);
  {
   py::gil_scoped_release release;
-  for(py::ssize_t i=0;i<points.size()/2;++i){
-   const double cx=std::floor(p[2*i]/res),cy=std::floor(p[2*i+1]/res);
-   const double x=cx-l[0],y=cy-l[1];
-   if(!(x>=0&&x<n&&y>=0&&y<n)){out[i]=0.;continue;}
-   const double dx=p[2*i]-(cx+.5)*res,dy=p[2*i+1]-(cy+.5)*res;
-   out[i]=f[static_cast<int>(x)*n+static_cast<int>(y)]-area-std::sqrt(dx*dx+dy*dy);
-  }
+  for(py::ssize_t i=0;i<points.size()/2;++i)out[i]=wla::follow::detail::GridQuery(f,n,l[0],l[1],res,p[2*i],p[2*i+1]);
  }
  return result;
-}
-namespace {
-bool line_free(const uint8_t *ok,int n,int a,int b){
- const int ax=a/n,ay=a%n,bx=b/n,by=b%n,steps=std::max(std::abs(bx-ax),std::abs(by-ay))*2;
- for(int k=0;k<=steps;++k){
-  const double u=steps?static_cast<double>(k)/steps:0.;
-  const int x=static_cast<int>(std::lround(ax+(bx-ax)*u)),y=static_cast<int>(std::lround(ay+(by-ay)*u));
-  if(!ok[x*n+y])return false;
- }
- return true;
-}
-// Douglas-Peucker on cells; a chord through a blocked cell is always split.
-void simplify_cells(const std::vector<int>& cells,int first,int last,int n,double tolerance,const uint8_t *ok,std::vector<int>& kept){
- if(last-first<2)return;
- const double ax=cells[first]/n,ay=cells[first]%n,dx=cells[last]/n-ax,dy=cells[last]%n-ay,length=std::hypot(dx,dy);
- double worst=-1.;int split=first+1;
- for(int i=first+1;i<last;++i){
-  const double px=cells[i]/n-ax,py=cells[i]%n-ay;
-  const double distance=length>0?std::abs(dx*py-dy*px)/length:std::hypot(px,py);
-  if(distance>worst){worst=distance;split=i;}
- }
- if(worst<=tolerance&&line_free(ok,n,cells[first],cells[last]))return;
- simplify_cells(cells,first,split,n,tolerance,ok,kept);kept.push_back(cells[split]);simplify_cells(cells,split,last,n,tolerance,ok,kept);
-}
 }
 // 8-connected A* over usable cells of a square [ix,iy] mask, no diagonal corner cutting.
 // Returns the simplified route as cell centres, or an empty array when unreachable.
@@ -184,37 +154,7 @@ py::array_t<double> grid_astar(const py::array_t<uint8_t,py::array::c_style|py::
  int from=0,to=0;std::vector<int> route;
  if(cell(s,from)&&cell(g,to)){
   py::gil_scoped_release release;
-  const double inf=std::numeric_limits<double>::infinity();
-  std::vector<double> cost(n*n,inf);std::vector<int> parent(n*n,-1);std::vector<uint8_t> closed(n*n,0);
-  using Item=std::pair<double,int>;std::priority_queue<Item,std::vector<Item>,std::greater<Item>> open;
-  const int gx=to/n,gy=to%n;
-  const auto estimate=[&](int x,int y){return std::hypot(static_cast<double>(x-gx),static_cast<double>(y-gy));};
-  cost[from]=0.;open.emplace(estimate(from/n,from%n),from);
-  static const int moves[8][2]={{-1,0},{1,0},{0,-1},{0,1},{-1,-1},{-1,1},{1,-1},{1,1}};
-  while(!open.empty()){
-   const int index=open.top().second;open.pop();
-   if(closed[index])continue;
-   closed[index]=1;
-   if(index==to){
-    for(int at=to;at!=-1;at=parent[at])route.push_back(at);
-    std::reverse(route.begin(),route.end());break;
-   }
-   const int x=index/n,y=index%n;
-   for(int m=0;m<8;++m){
-    const int nx=x+moves[m][0],ny=y+moves[m][1];
-    if(nx<0||nx>=n||ny<0||ny>=n)continue;
-    const int next=nx*n+ny;
-    if(!ok[next]||closed[next])continue;
-    if(m>=4&&(!ok[nx*n+y]||!ok[x*n+ny]))continue;
-    const double candidate=cost[index]+(m<4?1.:M_SQRT2);
-    if(candidate<cost[next]){cost[next]=candidate;parent[next]=index;open.emplace(candidate+estimate(nx,ny),next);}
-   }
-  }
-  if(route.size()>=2){
-   std::vector<int> kept{route.front()};
-   simplify_cells(route,0,static_cast<int>(route.size())-1,n,tolerance_m/res,ok,kept);
-   kept.push_back(route.back());route.swap(kept);
-  }
+  route=wla::follow::detail::GridAstarCells(ok,n,from,to,tolerance_m/res);
  }
  py::array_t<double> result({static_cast<py::ssize_t>(route.size()),static_cast<py::ssize_t>(2)});
  double *out=result.mutable_data();
