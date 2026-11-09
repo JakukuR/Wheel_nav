@@ -136,14 +136,15 @@ def _trail_follower(c):
 
 
 def test_backs_out_when_no_candidate_is_safe():
-    """Wall inside the body radius ahead: stopping is unsafe too. After three plans
-    without a safe option the robot reverses along its trail (J02 2026-10-30)."""
+    """Wall inside the body radius ahead: no forward option. After three plans
+    with at most turning in place the robot reverses along its trail (J02
+    2026-10-30; turning in place inside the band is allowed since 2026-11-09)."""
     c = Tuning(); f = _trail_follower(c)
     wall = np.array([[.16, y, z] for y in np.arange(-.6, .61, .05) for z in (.2, .4)])
     m = _open_map(wall); target = np.array([2., 0.]); hist = [np.array([1.5 + .1 * i, 0.]) for i in range(5)]
     cmds = [f.command(np.zeros(3), np.zeros(2), target, np.zeros(2), hist, m, [], "visible") for _ in range(4)]
-    assert np.allclose(cmds[0], 0.) and f.last_infeasible is False
-    assert cmds[-1][0] < -.05
+    assert all(cmd[0] <= 0. for cmd in cmds[:3]) and f.last_infeasible is False
+    assert cmds[-1][0] < -.05 and f.last_candidates.get("backing")
 
 
 def test_depth_recovery_never_drives_forward():

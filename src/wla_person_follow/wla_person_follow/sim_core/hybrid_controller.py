@@ -5,6 +5,11 @@ from .common import Tuning, wrap, rotation, ROBOT_RADIUS_M
 from .target_reference import bezier_reference, bspline_corners
 from .detour import DetourPlanner
 
+# Inside (or within this much of) the obstacle band a rollout may come this much
+# closer than the best clearance it has reached: the grid query moves by a few
+# millimetres along a straight wall, which otherwise blocked sliding off it.
+ESCAPE_SLACK_M=.01
+
 
 def approach_tangent(pose, command, tracks, target, radius=ROBOT_RADIUS_M):
     result=0.; robot_v=rotation(pose[2])@np.array([command[0],0.])
@@ -40,8 +45,12 @@ def limit_step(command, seed, dt, c):
     """First command change bounded by the real control interval, not the 0.1 s model step."""
     dt=float(np.clip(dt,.02,c.step))
     seed=np.asarray(seed,dtype=float)
-    return np.array([np.clip(command[0],seed[0]-c.accel*dt,seed[0]+c.accel*dt),
-                     np.clip(command[1],seed[1]-c.yaw_accel*dt,seed[1]+c.yaw_accel*dt)])
+    w=np.clip(command[1],seed[1]-c.yaw_accel*dt,seed[1]+c.yaw_accel*dt)
+    # Stop or reverse while still moving the other way: stop now, like the zero
+    # output with no feasible candidate. Ramped from the measured speed, a backing
+    # out command was published as 0.72 m/s forward (2026-11-06 17:31, 96 s).
+    if seed[0]>0.>=command[0] or seed[0]<0.<=command[0]:return np.array([0.,w])
+    return np.array([np.clip(command[0],seed[0]-c.accel*dt,seed[0]+c.accel*dt),w])
 
 
 def chassis_yaw(w, c):
@@ -277,6 +286,20 @@ class HybridFollower:
         ov=np.array([o['v'] for o in obstacles]).reshape(-1,2)
         radii=np.array([o['r'] for o in obstacles])
         apf=approach_tangent(pose,previous,obstacles,target,c.radius)
+        # Already inside the obstacle band (wall estimate moved closer, or slid in):
+        # a rollout may not get closer than the best it has reached, and one that
+        # moves must leave the band (and unknown space) within the horizon, so
+        # turning in place and pulling away stay feasible but driving on
+        # inside the band or into unseen space does not (2026-11-06 17:31: all 325
+        # rejected at the first point for 12 s). Beyond ESCAPE_SLACK_M outside the band
+        # nothing changes.
+        here=np.asarray(pose[:2],dtype=float)[None]
+        start_clear=float(local_map.query(here)[0])-c.radius-.001
+        start_unknown=float(local_map.query(here,unknown=True)[0])-c.radius-.001
+        floor=np.full(count,min(0.,start_clear));floor_unknown=np.full(count,min(0.,start_unknown))
+        slack=ESCAPE_SLACK_M if start_clear<ESCAPE_SLACK_M else 0.
+        slack_unknown=ESCAPE_SLACK_M if start_unknown<ESCAPE_SLACK_M else 0.
+        left=np.full(count,start_clear>=0.);left_unknown=np.full(count,start_unknown>=0.)
         for k,tau in enumerate(times):
             goal=target+velocity*tau
             look_s=min(arcs[-1],s0+cruise*tau+.7)
@@ -318,8 +341,11 @@ class HybridFollower:
             # Same as person follow/approach for every mode: only the near horizon
             # (stopping distance) must lie in known free space.
             if tau<=max(.5,abs(previous[0])/c.accel+c.step):
-                allowed=(unknown>=0.)|stationary;safe&=allowed;reasons[0]&=allowed
-            static_safe=clearance>=0.;safe&=static_safe;reasons[1]&=static_safe
+                allowed=(unknown>=floor_unknown-slack_unknown)|stationary;safe&=allowed;reasons[0]&=allowed
+                floor_unknown=np.minimum(0.,np.maximum(floor_unknown,unknown))
+            left_unknown|=unknown>=0.
+            static_safe=clearance>=floor-slack;safe&=static_safe;reasons[1]&=static_safe
+            floor=np.minimum(0.,np.maximum(floor,clearance));left|=clearance>=0.
             score+=c.margin_weight*np.maximum(c.margin-clearance,0.)**2
             score+=15*np.maximum(.15-unknown,0.)**2
             if len(obstacles):
@@ -340,6 +366,9 @@ class HybridFollower:
             score+=c.centering_weight*angle**2+60*np.maximum(np.abs(angle)-c.fov_soft_angle,0.)**2
             score+=2*np.maximum(.35-clearance,0.)**2+.15*controls[:,1]**2
             score+=.25*np.sum((controls-old_controls)**2,axis=1)+4*np.maximum(-controls[:,0],0.)**2
+        turning=np.linalg.norm(states[:,:2]-pose[:2],axis=1)<1e-8
+        reasons[0]&=left_unknown|turning;reasons[1]&=left|turning
+        safe&=(left|turning)&(left_unknown|turning)
         feasible=safe&near_fov
         if not feasible.any():feasible=safe
         self.stuck_cycles=self.stuck_cycles+1 if not np.any(feasible&(first[:,0]>.01)) else 0
@@ -359,4 +388,10 @@ class HybridFollower:
                     self.last_infeasible=False
                     return back
             return np.zeros(2)
+        if (start_clear<0. and not np.any(feasible&~turning) and self.stuck_cycles>=3
+                and reference_path is None and not searching):
+            # Inside the band and only turning in place is left (e.g. nose at a
+            # wall): back out along the swept path, as with nothing feasible.
+            back=self._backup(pose,previous,local_map,c,policy_time)
+            if back is not None:return back
         return first[int(np.argmin(np.where(feasible,score,np.inf)))]

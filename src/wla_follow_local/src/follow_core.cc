@@ -55,8 +55,13 @@ constexpr double INF = std::numeric_limits<double>::infinity();
 [[nodiscard]] Point2 LimitStep(const Point2& command, const Point2& seed, double dt, const Tuning& c)
 {
     dt = Clip(dt, .02, c.m_step);
-    return {Clip(command[0], seed[0] - c.m_accel * dt, seed[0] + c.m_accel * dt),
-            Clip(command[1], seed[1] - c.m_yawAccel * dt, seed[1] + c.m_yawAccel * dt)};
+    const double w = Clip(command[1], seed[1] - c.m_yawAccel * dt, seed[1] + c.m_yawAccel * dt);
+    // Stop or reverse while still moving the other way: stop now.
+    if ((seed[0] > 0. && 0. >= command[0]) || (seed[0] < 0. && 0. <= command[0]))
+    {
+        return {0., w};
+    }
+    return {Clip(command[0], seed[0] - c.m_accel * dt, seed[0] + c.m_accel * dt), w};
 }
 
 // follow_session.TrackingPolicy.limit_command

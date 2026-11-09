@@ -185,7 +185,8 @@ def _reset(monkeypatch, neupan=None):
 
 
 @pytest.mark.parametrize('seed,modes', [(seed, None) for seed in range(10)] +
-                         [(seed, ['2', '3', '2', '4']) for seed in (202, 211, 214, 221, 226)])
+                         [(seed, ['2', '3', '2', '4']) for seed in (202, 211, 214, 221, 226)] +
+                         [(seed, ['4', '0', '4', '1']) for seed in (301, 302)])
 def test_follow_core_equals_python_engine(monkeypatch, seed, modes):
     _reset(monkeypatch)
     reference = _drive(seed, 'python', modes=modes)
@@ -194,7 +195,7 @@ def test_follow_core_equals_python_engine(monkeypatch, seed, modes):
     assert isinstance(rt._PROCESS_ENGINE, rt.NativeFollowEngine)
     for k, (a, b) in enumerate(zip(reference, native)):
         _same(a, b, f'seed {seed} step {k}')
-    if modes is not None:
+    if modes is not None and '2' in modes:
         assert {'object_clearance_goal', 'nearest_reachable_local_position'} & {r['reason'] for r in native}
 
 

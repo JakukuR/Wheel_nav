@@ -474,6 +474,13 @@ def test_seed_follows_last_command_and_first_step_uses_real_interval():
     np.testing.assert_allclose(out,[.6+c.accel*.05,c.yaw_accel*.05])
     out=limit_step(np.array([1.,0.]),np.array([.6,0.]),.5,c)  # interval capped at the model step
     np.testing.assert_allclose(out[0],.6+c.accel*c.step)
+    # Stop or reverse while moving the other way: stop at once (2026-11-06 17:31:
+    # backing out from 0.75 m/s was published as 0.72 m/s forward).
+    np.testing.assert_allclose(limit_step(np.array([-.12,.3]),np.array([.75,0.]),.05,c),[0.,c.yaw_accel*.05])
+    np.testing.assert_allclose(limit_step(np.array([0.,0.]),np.array([.75,0.]),.05,c),[0.,0.])
+    np.testing.assert_allclose(limit_step(np.array([.2,0.]),np.array([-.15,0.]),.05,c),[0.,0.])
+    # Slowing down, still forward: bounded as before.
+    np.testing.assert_allclose(limit_step(np.array([.1,0.]),np.array([.75,0.]),.05,c),[.75-c.accel*.05,0.])
 
 
 def test_engine_keeps_zero_and_bounds_planned_changes_between_replans():

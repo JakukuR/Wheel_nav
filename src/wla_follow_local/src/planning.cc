@@ -32,6 +32,8 @@ constexpr double INF = std::numeric_limits<double>::infinity();
 constexpr double GRID_ROUTE_CELL_M = .1;
 constexpr double ASTAR_SIMPLIFY_M = .1;
 constexpr double ASTAR_START_CLEAR_M = .2;
+// hybrid_controller.ESCAPE_SLACK_M
+constexpr double ESCAPE_SLACK_M = .01;
 
 // Python builtin min(a, b) / max(a, b): the first unless the second is
 // strictly smaller / larger.
@@ -1296,6 +1298,19 @@ Point2 HybridFollower::Impl::command(const RollingMap& raw, const MapView& map, 
     people_ok.fill(true);
     near_fov.fill(true);
     const double apf = ApproachTangent(pose, previous, in.m_obstacles, target, c.m_radius);
+    // Inside the obstacle band a rollout may not get closer than the best it has
+    // reached, and one that moves must leave the band (and unknown space) within
+    // the horizon; beyond ESCAPE_SLACK_M outside the band nothing changes.
+    const double start_clear = map.query(pose[0], pose[1]) - c.m_radius - .001;
+    const double start_unknown = map.query(pose[0], pose[1], true) - c.m_radius - .001;
+    std::array<double, ROLLOUTS> floor_static, floor_unknown;
+    floor_static.fill(PyMin(0., start_clear));
+    floor_unknown.fill(PyMin(0., start_unknown));
+    const double slack = start_clear < ESCAPE_SLACK_M ? ESCAPE_SLACK_M : 0.;
+    const double slack_unknown = start_unknown < ESCAPE_SLACK_M ? ESCAPE_SLACK_M : 0.;
+    std::array<bool, ROLLOUTS> left, left_unknown;
+    left.fill(start_clear >= 0.);
+    left_unknown.fill(start_unknown >= 0.);
     const double accel_step = c.m_accel * c.m_step, yaw_step = c.m_yawAccel * c.m_step;
     const double tau_w_gain = PyMin(1., c.m_step / c.m_chassisTauW);
     const double tau_v_gain = PyMin(1., c.m_step / PyMax(c.m_chassisTauV, 1e-6));
@@ -1378,13 +1393,17 @@ Point2 HybridFollower::Impl::command(const RollingMap& raw, const MapView& map, 
             const bool stationary = RowNorm2(sx[r] - pose[0], sy[r] - pose[1]) < 1e-8;
             if (tau <= known_until)
             {
-                const bool allowed = unknown >= 0. || stationary;
+                const bool allowed = unknown >= floor_unknown[r] - slack_unknown || stationary;
                 safe[r] = safe[r] && allowed;
                 known_ok[r] = known_ok[r] && allowed;
+                floor_unknown[r] = NpMin(0., NpMax(floor_unknown[r], unknown));
             }
-            const bool static_safe = clearance >= 0.;
+            left_unknown[r] = left_unknown[r] || unknown >= 0.;
+            const bool static_safe = clearance >= floor_static[r] - slack;
             safe[r] = safe[r] && static_safe;
             static_ok[r] = static_ok[r] && static_safe;
+            floor_static[r] = NpMin(0., NpMax(floor_static[r], clearance));
+            left[r] = left[r] || clearance >= 0.;
             const double m0 = NpMax(c.m_margin - clearance, 0.);
             score[r] = score[r] + c.m_marginWeight * (m0 * m0);
             const double m1 = NpMax(.15 - unknown, 0.);
@@ -1435,6 +1454,14 @@ Point2 HybridFollower::Impl::command(const RollingMap& raw, const MapView& map, 
             score[r] = score[r] + (.25 * (dv * dv + dw * dw) + 4 * (back * back));
         }
     }
+    std::array<bool, ROLLOUTS> turning;
+    for (std::size_t r = 0; r < ROLLOUTS; ++r)
+    {
+        turning[r] = RowNorm2(sx[r] - pose[0], sy[r] - pose[1]) < 1e-8;
+        known_ok[r] = known_ok[r] && (left_unknown[r] || turning[r]);
+        static_ok[r] = static_ok[r] && (left[r] || turning[r]);
+        safe[r] = safe[r] && (left[r] || turning[r]) && (left_unknown[r] || turning[r]);
+    }
     std::array<bool, ROLLOUTS> feasible;
     bool any = false;
     for (std::size_t r = 0; r < ROLLOUTS; ++r)
@@ -1483,6 +1510,19 @@ Point2 HybridFollower::Impl::command(const RollingMap& raw, const MapView& map, 
             }
         }
         return {0., 0.};
+    }
+    bool moving = false;
+    for (std::size_t r = 0; r < ROLLOUTS; ++r)
+    {
+        moving = moving || (feasible[r] && !turning[r]);
+    }
+    if (start_clear < 0. && !moving && m_stuckCycles >= 3 && !has_reference && !searching)
+    {
+        // Inside the band and only turning in place is left: back out along the trail.
+        if (const auto back = backup(map, pose, previous, c, in.m_policyTime))
+        {
+            return *back;
+        }
     }
     std::vector<double> masked(ROLLOUTS);
     for (std::size_t r = 0; r < ROLLOUTS; ++r)

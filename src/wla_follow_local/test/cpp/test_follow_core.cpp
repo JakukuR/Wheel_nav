@@ -109,6 +109,19 @@ void TestOrientIsBoundedAndPolicyLimited()
     CHECK(r.m_command == (Point2{0., 0.}));
 }
 
+void TestStopWhileMovingIsImmediate()
+{
+    // An in-place turn requested while the chassis still moves forward: the
+    // forward speed is dropped at once, not ramped down from the measured speed.
+    FollowCore core(MakeOptions(), {0., 0., 0.}, 1.);
+    StepSettings s;
+    s.m_active = true;
+    s.m_taskMode = '4';
+    s.m_goalRemaining = -2.;
+    const StepResult r = core.step({0., 0., 0.}, {.5, 0.}, {}, std::nullopt, 2., 0, s);
+    CHECK(r.m_command[0] == 0. && std::abs(r.m_command[1] + .3) < 1e-12);
+}
+
 void TestExternalCommandIsCommittedSeparately()
 {
     FollowCore core(MakeOptions(), {0., 0., 0.}, 1.);
@@ -138,6 +151,7 @@ int main()
     TestIdleStepKeepsTheMapOnly();
     TestStartupPriorOnceAndTranslationClock();
     TestOrientIsBoundedAndPolicyLimited();
+    TestStopWhileMovingIsImmediate();
     TestExternalCommandIsCommittedSeparately();
     TestPointGoalNeedsAGoal();
     if (g_failures)

@@ -263,3 +263,103 @@ def test_backing_out_matches_reference(seed):
         np.testing.assert_array_equal(np.asarray(out[0], dtype=float), out[1])
         assert_same_controller(py, cpp)
         previous = np.asarray(out[0], dtype=float)
+
+
+def _wall_maps(rng, pose, t):
+    """A wall alongside the robot, 0.14-0.20 m from its centre (inside the 0.19 m
+    body radius plus slack), sometimes with a second wall across, seen from behind."""
+    heading = np.array([np.cos(pose[2]), np.sin(pose[2])]); normal = np.array([-heading[1], heading[0]])
+    side = float(rng.choice([-1., 1.])); gap = float(rng.uniform(.14, .20))
+    along = rng.uniform(-.6, 1.6, 600)
+    wall = pose[:2] + along[:, None]*heading + side*(gap + .025)*normal
+    if rng.random() < .5:
+        across = rng.uniform(-.8, .8, 300)
+        wall = np.vstack((wall, pose[:2] + float(rng.uniform(.35, .6))*heading + across[:, None]*normal))
+    walls = np.c_[wall, rng.uniform(.1, 1.2, len(wall))]
+    maps = RollingDepthMap(resolution=.05, size=160, robot_radius=.19), \
+        NativeRollingDepthMap(resolution=.05, size=160, robot_radius=.19)
+    for m in maps:
+        m.slide(pose[:2]); m.rebuild(t)
+    for k in range(3):
+        view = pose - np.r_[(.8 + .1*k)*heading, 0.] + np.r_[rng.normal(0, .02, 2), rng.normal(0, .1)]
+        r = rng.uniform(.3, 3., 2000); a = view[2] + rng.uniform(-.75, .75, 2000)
+        floor = np.c_[view[0] + r*np.cos(a), view[1] + r*np.sin(a), rng.uniform(-.02, .02, 2000)]
+        points = np.vstack((floor, walls))
+        rel = (np.arctan2(points[:, 1]-view[1], points[:, 0]-view[0]) - view[2] + np.pi) % (2*np.pi) - np.pi
+        points = points[np.abs(rel) < .78]
+        c, s = np.cos(view[2]), np.sin(view[2]); d = points[:, :2] - view[:2]
+        local = np.c_[d @ np.array([[c, -s], [s, c]]), points[:, 2]]
+        cloud = dict(points=local, points_odom=points, dynamic=np.zeros(len(points), dtype=bool),
+                     origin=np.array([0., 0., .55]), origin_odom=np.array([view[0], view[1], .55]))
+        for m in maps:
+            m.update(cloud, view, t + .1*k, rebuild=False)
+    for m in maps:
+        m.slide(pose[:2]); m.rebuild(t + .5)
+    np.testing.assert_array_equal(maps[0].dist, maps[1].dist)
+    return maps
+
+
+@pytest.mark.parametrize('seed', range(10))
+def test_escape_inside_obstacle_band_matches_reference(seed):
+    """Start inside (or within the slack of) the obstacle band: turning in place and
+    moving off the wall stay feasible, identically in both backends."""
+    from wla_person_follow.sim_core.hybrid_controller import ESCAPE_SLACK_M
+    rng = np.random.default_rng(6000 + seed)
+    pose = np.array([rng.uniform(-2, 2), rng.uniform(-2, 2), rng.uniform(-np.pi, np.pi)])
+    t = 100.
+    maps = _wall_maps(rng, pose, t)
+    start = float(maps[0].query(pose[:2][None])[0]) - .19 - .001
+    assert start < ESCAPE_SLACK_M
+    ahead = pose[2] + rng.normal(0, .8)
+    target = pose[:2] + rng.uniform(1.5, 3.)*np.array([np.cos(ahead), np.sin(ahead)])
+    py, cpp = HybridFollower(Tuning()), NativeHybridFollower(Tuning())
+    previous = np.zeros(2)
+    if seed % 2 == 0:
+        # Arrive along a trail first, so backing out is available as well.
+        for j in range(6, 0, -1):
+            back = pose - np.r_[.07*j*np.cos(pose[2]), .07*j*np.sin(pose[2]), 0.]
+            out = [f.command(back, previous.copy(), target, np.zeros(2), [target], m, [], 'visible',
+                             policy=None, policy_time=t, measured=previous.copy())
+                   for f, m in ((py, maps[0]), (cpp, maps[1]))]
+            np.testing.assert_array_equal(np.asarray(out[0], dtype=float), out[1])
+            assert_same_controller(py, cpp)
+            t += .1
+    for step in range(16):
+        t += .1
+        out = [f.command(pose.copy(), previous.copy(), target, np.zeros(2), [target], m, [], 'visible',
+                         policy=None, policy_time=t, measured=previous.copy())
+               for f, m in ((py, maps[0]), (cpp, maps[1]))]
+        np.testing.assert_array_equal(np.asarray(out[0], dtype=float), out[1])
+        assert_same_controller(py, cpp)
+        if step == 0:
+            # Was: every rollout rejected at its first point (2026-11-06 17:31).
+            assert not py.last_infeasible
+        v, w = out[0]
+        pose = pose + np.array([v*.1*np.cos(pose[2]), v*.1*np.sin(pose[2]), w*.1])
+        previous = np.asarray(out[0], dtype=float)
+
+
+
+@pytest.mark.parametrize('wall_x', [.14, .16, .18])
+def test_backing_out_from_inside_the_band_matches_reference(wall_x):
+    """Nose at a wall after driving up a trail: turning in place is all that is
+    feasible, so after three plans both backends back out along the trail."""
+    floor = np.array([[x, y, 0.] for x in np.arange(-2., 4., .05) for y in np.arange(-2., 2.01, .05)])
+    wall = np.array([[wall_x, y, z] for y in np.arange(-.6, .61, .05) for z in (.2, .4)])
+    points = np.r_[floor, wall]
+    maps = RollingDepthMap(resolution=.05, size=160, robot_radius=.19), \
+        NativeRollingDepthMap(resolution=.05, size=160, robot_radius=.19)
+    for m in maps:
+        m.slide(np.zeros(2))
+        m.update(dict(points=points, points_odom=points, dynamic=np.zeros(len(points), bool),
+                      origin=np.array([0, 0, .3]), origin_odom=np.array([0, 0, .3])), np.zeros(3), 0.)
+    py, cpp = HybridFollower(Tuning()), NativeHybridFollower(Tuning())
+    target, hist, t = np.array([2., 0.]), [np.array([1.5 + .1*i, 0.]) for i in range(5)], 1.
+    poses = [np.array([x, 0., 0.]) for x in np.arange(-.6, .001, .05)] + [np.zeros(3)]*4
+    for pose in poses:
+        t += .1
+        out = [f.command(pose.copy(), np.zeros(2), target, np.zeros(2), hist, m, [], 'visible', policy_time=t)
+               for f, m in ((py, maps[0]), (cpp, maps[1]))]
+        np.testing.assert_array_equal(np.asarray(out[0], dtype=float), out[1])
+        assert_same_controller(py, cpp)
+    assert py.last_candidates.get('backing') and out[0][0] < 0.
