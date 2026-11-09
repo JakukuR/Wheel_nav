@@ -114,3 +114,29 @@ C++ 原生数值测试、pybind11 数组/内存测试、ROS 集成和归档仿�
   gtest，由 colcon test / ctest 运行。
 - 跨语言一致性（同一输入下 C++ 与 Python 参考逐元素比较）、pybind11 数组生命周期、
   ROS 集成和 A/B 回放仍在 pytest 中，验收标准见上节迁移顺序。
+
+## 迁移进度
+
+### 阶段 0+1：对比基线与 C++ 滚动地图（2026-11-09，a1ead05）
+
+- C++ 所有者 `_wla_follow_core.RollingMap`（`wla_follow_local/include/wla_follow/rolling_map.h`、
+  `src/rolling_map.cc`）逐语句对应 `sim_core/rolling_depth_map.py`：环形状态、滑窗、射线/地面/
+  命中更新、车体足迹、启动先验、人物轨迹清除、`drop_established`，以及两张距离场的精确 EDT
+  （整数平方距离的 Felzenszwalb 变换，结果与 scipy 逐位相等）。
+- Python 侧 `native_map.NativeRollingDepthMap` 提供与参考实现相同的属性和方法：环形状态为只读
+  视图，派生场每次重建返回新数组；`query`/`snapshot` 共用参考实现。
+- 开关 `numeric_backend:=python|cpp`（launch 参数与节点参数，默认 python）。cpp 不可用时报错，
+  不回退；切换后端从空地图开始；status 报告 `cpp_map_python_mpc`。
+- `_wla_sim_geometry.ray_slots` 的射线采样移入 `src/grid_kernels.h`，两处共用，输出逐字节不变。
+- 阶段 0 工具 `tools/map_replay/`：`rec_main.py` 在 domain 199 回放中记录全部地图调用，
+  `compare.py` 把记录同时喂给 Python 参考与 C++，每次调用后比较全部状态与返回值。
+
+验证：
+- `test/test_native_rolling_map.py`：8 组随机 60 步场景，每次调用后所有数组与返回值完全相等。
+- 2026-11-06 A* 包 60 s 回放记录约 6000 次地图调用，逐次完全相等。单次耗时 python → cpp：
+  update 7.8 → 2.6 ms，rebuild 6.2 → 1.45 ms，slide 0.75 → 0.09 ms。
+- 170 s 回放 A/B（各 2 次，跟随帧）：compute_ms p50 49 → 41 ms，p95 约 58 → 52 ms；
+  depth_to_result p50 约 150 → 135 ms；状态、阻塞原因和命令分布不变。
+- 测试：默认 python 251 项全过；以 cpp 为默认时地图相关测试全过。
+
+下一阶段：跟踪（VisualTrack / PeopleTracks / 目标历史 / 参考曲线）进入同一 C++ 核心。
