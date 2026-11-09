@@ -8,7 +8,7 @@ from .sim_core.approach_goal import ApproachGoal, SWEEP_RADIUS
 from .sim_core.hybrid_controller import HybridFollower, seed_command, limit_step
 from .neupan_follower import NeuPANFollower, TRACKED_STATES as NEUPAN_STATES
 from .native_map import BACKENDS as NUMERIC_BACKENDS, make_rolling_map, map_backend
-from .sim_core.tracking import PeopleTracks
+from .native_tracking import make_people_tracks, reference_functions
 
 
 def local_points(points, pose):
@@ -140,12 +140,12 @@ class SimulationEngine:
     """Single tracker input, shared rolling map and shared MPC; no second FSM."""
     def __init__(self, pose, start_time, numeric_backend='python'):
         self.tuning=Tuning()
-        self.controller=HybridFollower(self.tuning)
-        # numeric_backend 'cpp': map state in the C++ follow core (equal to the
+        self.controller=HybridFollower(self.tuning,references=reference_functions(numeric_backend))
+        # numeric_backend 'cpp': map, people tracks and reference curves in the C++ follow core (equal to the
         # Python reference element-wise); never falls back silently.
         self.mapping=make_rolling_map(numeric_backend,resolution=MAP_RESOLUTION_M,size=MAP_SIZE_CELLS,robot_radius=self.tuning.radius)
         self.mapping.slide(np.asarray(pose[:2]));self.mapping.rebuild(start_time)
-        self.people=PeopleTracks()
+        self.people=make_people_tracks(numeric_backend)
         self.last_measurement=self.map_stamp=-math.inf
         self.approach=ApproachGoal()
         self.point_route=None  # (goal, planned_at, path) for mode 3
@@ -229,7 +229,7 @@ class SimulationEngine:
               task_mode, object_surface, recovery=False, goal=None):
         if observation is not None:
             stamp,target,people,resolved_id=observation
-            if target is not None:self.people.tracks.pop(resolved_id,None)
+            if target is not None:self.people.drop(resolved_id)
             if self.last_measurement<stamp<=now:
                 self.people.update(people,pose,stamp);self.last_measurement=stamp
         tracks=self.people.predict(now)

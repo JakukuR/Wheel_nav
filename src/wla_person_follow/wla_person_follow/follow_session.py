@@ -3,7 +3,7 @@ from collections import deque
 from dataclasses import dataclass
 import math
 import numpy as np
-from .sim_core.tracking import VisualTrack
+from .native_tracking import check_backend, make_visual_track
 
 
 def position(row, pose, offset=.28, expected_label='person'):
@@ -132,7 +132,8 @@ class FollowTracker:
     def __init__(self, target_id, now, *, prediction_s=2., freshness_s=.3,
                  offset=.28, jump_radius=.45, jump_growth=.25, jump_max=1.5,
                  confirmations=3, search_arrival=.35, history_window_s=5.,
-                 history_sample_period_s=.4, expected_label='person', mode='0'):
+                 history_sample_period_s=.4, expected_label='person', mode='0',
+                 numeric_backend='python'):
         self.selected_id = self.target_id = target_id
         self.expected_label = expected_label
         self.mode = str(mode)
@@ -140,6 +141,8 @@ class FollowTracker:
         self.prediction_s, self.freshness_s, self.offset = prediction_s, freshness_s, offset
         self.jump_radius, self.jump_growth, self.jump_max = jump_radius, jump_growth, jump_max
         self.confirmations, self.search_arrival = confirmations, search_arrival
+        # numeric_backend 'cpp': the target track lives in the C++ follow core.
+        self.numeric_backend = check_backend(numeric_backend)
         self.history_options = dict(history_window_s=history_window_s,
             history_sample_period_s=history_sample_period_s,
             history_max_gap_s=min(2., max(.1, freshness_s*2)))
@@ -198,7 +201,7 @@ class FollowTracker:
 
     def _accept(self, point, pose, stamp):
         if self.track is None:
-            self.track = VisualTrack(timeout=self.prediction_s, meas_std=TARGET_MEAS_STD_M,
+            self.track = make_visual_track(self.numeric_backend, self.prediction_s, meas_std=TARGET_MEAS_STD_M,
                                      accel_std=TARGET_ACCEL_STD_MPS2, gate=TARGET_INNOVATION_GATE,
                                      coast_decay=TARGET_COAST_DECAY, **self.history_options)
             self.observations.clear()

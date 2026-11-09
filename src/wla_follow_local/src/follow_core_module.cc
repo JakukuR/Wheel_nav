@@ -17,6 +17,8 @@ namespace py = pybind11;
 using wla::follow::CloudView;
 using wla::follow::RollingMap;
 
+void BindTracking(py::module_& m);  // follow_core_tracking.cc
+
 namespace {
 
 using DoubleArray = py::array_t<double, py::array::c_style | py::array::forcecast>;
@@ -98,7 +100,7 @@ void RequireWindow(const RollingMap& map)
 
 PYBIND11_MODULE(_wla_follow_core, m)
 {
-    m.doc() = "C++ follow core: rolling depth map (phase 1 of PY_CPP_ARCHITECTURE.md)";
+    m.doc() = "C++ follow core: rolling depth map (phase 1) and tracking (phase 2) of PY_CPP_ARCHITECTURE.md";
 
     py::class_<RollingMap>(m, "RollingMap")
         .def(py::init([](double resolution, int size, double ttl, double robot_radius, double target_clear_ttl) {
@@ -284,4 +286,6 @@ PYBIND11_MODULE(_wla_follow_core, m)
                                   Copy<double>(self.distData(), n),
                                   Copy<double>(self.freeDistData(), n));
         }, "New (sensor_known, occupied, known, assumed_free, dist, free_dist) arrays");
+
+    BindTracking(m);
 }

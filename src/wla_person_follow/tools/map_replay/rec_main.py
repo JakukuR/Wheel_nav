@@ -6,6 +6,8 @@ Appends [map_id, op, args, kwargs, result] records to $WLA_MAP_RECORD.
 import itertools, os, pickle, runpy, sys
 import numpy as np
 from wla_person_follow.sim_core import rolling_depth_map as R
+if os.environ.get('WLA_TRACK_RECORD'):
+    import rec_tracking  # noqa: F401  (phase 2: tracking calls)
 
 OUT = open(os.environ['WLA_MAP_RECORD'], 'ab')
 IDS = itertools.count()

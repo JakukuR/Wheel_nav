@@ -21,13 +21,13 @@ if(WLA_FOLLOW_COVERAGE)
   target_link_options(wla_follow_options INTERFACE --coverage)
 endif()
 
-add_library(wla_follow_core STATIC src/rolling_map.cc)
+add_library(wla_follow_core STATIC src/rolling_map.cc src/tracking.cc src/reference_path.cc)
 target_include_directories(wla_follow_core PUBLIC include PRIVATE src)
 target_link_libraries(wla_follow_core PUBLIC wla_follow_options)
 target_compile_options(wla_follow_core PRIVATE -Werror)
 set_target_properties(wla_follow_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-pybind11_add_module(_wla_follow_core src/follow_core_module.cc)
+pybind11_add_module(_wla_follow_core src/follow_core_module.cc src/follow_core_tracking.cc)
 target_link_libraries(_wla_follow_core PRIVATE wla_follow_core)
 
 pybind11_add_module(_wla_sim_geometry src/sim_geometry.cpp)

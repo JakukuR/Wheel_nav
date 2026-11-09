@@ -75,6 +75,12 @@ class VisualTrack:
 class PeopleTracks:
     def __init__(self):self.tracks={}
 
+    def keys(self):return list(self.tracks)
+
+    def drop(self,key):
+        """Forget one track (the followed person is no obstacle)."""
+        self.tracks.pop(key,None)
+
     def update(self,detections,pose,t):
         for key,z in detections.items():
             if key not in self.tracks:self.tracks[key]=VisualTrack(timeout=1.5,gate=13.8)

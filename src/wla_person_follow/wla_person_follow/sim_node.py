@@ -395,7 +395,7 @@ class FollowEngine:
             self._goal_update_locked(task_key,now)
         elif task_key!=self.tracker_key:
             cfg=mode_config(c.mode)
-            self.tracker=FollowTracker(c.target_id,now,prediction_s=self.p['target_prediction_s'],
+            self.tracker=FollowTracker(c.target_id,now,numeric_backend=self.p['numeric_backend'],prediction_s=self.p['target_prediction_s'],
                 freshness_s=self.p['max_sensor_age_s'],offset=0. if c.mode == MODE_OBJECT_APPROACH else self.p['surface_to_center_offset_m'],
                 jump_radius=self.p['binding_jump_radius_m'],jump_growth=self.p['binding_jump_growth_mps'],
                 jump_max=self.p['binding_jump_radius_max_m'],confirmations=self.p['reid_confirm_frames'],
@@ -1048,7 +1048,7 @@ class FollowEngine:
                     follow_session=self.follow_session,request_id=state['request_id'],stamp_ns=ns,
                     linear=float(actual[0]),angular=float(actual[1])))))
             state.update(schema='wla-person-status/v1',stamp_ns=ns,follow_session=self.follow_session,
-                planner='tracker_sampling_mpc',numeric_backend=('cpp_map_python_mpc' if self.p['numeric_backend']=='cpp' else
+                planner='tracker_sampling_mpc',numeric_backend=('cpp_core_python_mpc' if self.p['numeric_backend']=='cpp' else
                     'python_mpc_cpp_map' if native_ray_slots is not None else 'python_reference'),native_frontend='cpp_deproject_ground_cluster_filter',
                 obstacle_topic=self.p['prefix']+'/depth_obstacles',
                 base_frame=self.p['base_frame'],output_mode=self.p['output_mode'],

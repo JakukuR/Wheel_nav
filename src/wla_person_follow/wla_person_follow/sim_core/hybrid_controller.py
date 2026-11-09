@@ -53,8 +53,10 @@ def chassis_yaw(w, c):
 
 
 class HybridFollower:
-    def __init__(self, config=Tuning()):
+    def __init__(self, config=Tuning(), *, references=None):
         self.c=config
+        # (bezier_reference, bspline_corners); the C++ pair with numeric_backend cpp.
+        self.bezier_reference,self.bspline_corners=references or (bezier_reference,bspline_corners)
         self.last_infeasible=False
         self.last_candidates={}
         self.last_reference_path=np.empty((0,2))
@@ -132,7 +134,7 @@ class HybridFollower:
                          for i in range(len(path)-1)]+[path[-1:]])
         need=min(c.radius+c.margin,float(np.min(local_map.query(dense))))
         for scale in (1.,.6,.3):
-            curve=bspline_corners(path,c.reference_corner_m*scale)
+            curve=self.bspline_corners(path,c.reference_corner_m*scale)
             if len(curve)>=2 and float(np.min(local_map.query(curve)))>=need-1e-3:
                 return curve
         return path
@@ -184,7 +186,7 @@ class HybridFollower:
             # The newest depth frame shows too little (e.g. the nose at a desk
             # inside the camera's minimum range): do not drive forward on it.
             return self.recover(pose,previous,target,local_map,c,policy_time)
-        path=bezier_reference(history) if reference_path is None else np.asarray(reference_path,dtype=float).reshape(-1,2)
+        path=self.bezier_reference(history) if reference_path is None else np.asarray(reference_path,dtype=float).reshape(-1,2)
         detouring=False
         if reference_path is None and not searching and self.detour is not None:
             # Blocked straight route: steer the sampled family around an obstacle edge.
