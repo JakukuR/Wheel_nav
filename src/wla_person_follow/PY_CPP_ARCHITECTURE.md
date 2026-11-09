@@ -55,3 +55,62 @@ MPC 在 C++ 内直接查询地图并做完整碰撞检查。避免每步调用 P
 
 C++ 原生数值测试、pybind11 数组/内存测试、ROS 集成和归档仿真一致性分别验证。
 尚未实现的 C++ 后端不能静默回退并仍报告 cpp；本版只交付实际存在的参考后端。
+
+## C++ 核心编码与构建规范（2026-11-09）
+
+适用于此后新写的 C++ 数值核心（`FollowCore` 及其地图、跟踪、规划、控制部件）。
+已有的 `sim_geometry.cpp` 不为改风格而改动，被迁移触及时再按本节整理。
+规范参考 [pans](https://gitee.com/huajianke2026/pans)（2026-11-07 提交 `2337dcc`）的
+命名与工程组织；只借鉴约定，未复制其代码。
+
+### 命名
+
+| 对象 | 规则 | 例 |
+|---|---|---|
+| 常量 | 全大写，下划线分隔 | `ROBOT_RADIUS_M` |
+| 类、结构体、枚举类型 | 首字母大写驼峰 | `RollingMap`、`TrackState` |
+| 非静态成员函数 | 首字母小写驼峰 | `update()`、`queryClearance()` |
+| 静态成员函数、自由函数 | 首字母大写驼峰 | `FromConfig()`、`WrapAngle()` |
+| 非静态成员变量 | `m_` 前缀，小写驼峰 | `m_resolution` |
+| 静态成员变量 | `s_` 前缀，小写驼峰 | `s_instanceCount` |
+| 函数参数、局部变量 | 小写，下划线分隔 | `robot_pose`、`cell_count` |
+
+命名空间 `wla::follow`。头文件保护宏按路径：`WLA_FOLLOW_<目录>_<文件>_H`。
+
+### 接口与对象
+
+- 对外头文件放 `include/wla_follow/`，实现放 `src/`。`FollowCore` 头文件只声明
+  `reset / updateObservations / plan / diagnostics` 等粗粒度操作，内部状态
+  （滚动地图、距离场、目标历史、动态轨迹、候选缓冲）放在
+  `struct Impl; std::unique_ptr<Impl> m_impl;` 中，pybind11 层只依赖这层窄接口。
+- 持有状态的对象禁止拷贝与移动（五个特殊成员显式 `= delete`），只能由一个所有者
+  持有；需要比较 Python 参考时由测试显式构造两份，而不是复制。
+- 返回结果、不改状态的查询加 `[[nodiscard]]`，不会失败的加 `noexcept`；状态和失败
+  原因用 `enum class`，原因字符串与 Python 参考一致，供 status 原样报告。
+- 参数在构造或 `reset` 时由 Python/ROS 传入；不使用全局配置注册表或单例，以保证
+  切换后端前能完整清空状态，测试之间互不影响。
+
+### 失败处理
+
+- 运动规划失败即停车：非法输入、非有限数、越界等一律抛异常（pybind11 转成 Python
+  异常），本帧不产生命令。禁止"Release 下只记日志然后继续"的断言。
+- `assert` 只用于内部不变量的调试检查，不能替代上面的输入检查。
+- C++ 后端不可用时直接报错，不静默回退到 Python 参考并仍报告 cpp（见上节）。
+
+### 构建
+
+- C++20（Orin：g++ 13.3、CMake 3.28）。不在 CMake 中写死编译器路径，由 colcon 决定。
+- 一个 INTERFACE 目标 `wla_follow_options` 统一选项：`-Wall -Wextra -Wpedantic`、
+  `-ffp-contract=off`（与 Python 参考逐位比对的前提，不得移除）、
+  Release/RelWithDebInfo 下 `-O2 -fno-omit-frame-pointer`（保留帧指针，便于在 Orin
+  上 perf 剖析），Debug 下 `-O0 -g3`；可选覆盖率开关默认关闭。核心库另加 `-Werror`。
+- 日志、断言中的 `__FILE__` 使用相对仓库根的路径，不泄露构建机绝对路径。
+- 不引入新的大型第三方依赖（Boost、protobuf、abseil 等）；已有的 pybind11、Eigen
+  足够。
+
+### 测试
+
+- C++ 数值单测：`test/cpp/*.cpp` 每个文件一个可执行文件、一个 `add_test`，不依赖
+  gtest，由 colcon test / ctest 运行。
+- 跨语言一致性（同一输入下 C++ 与 Python 参考逐元素比较）、pybind11 数组生命周期、
+  ROS 集成和 A/B 回放仍在 pytest 中，验收标准见上节迁移顺序。
