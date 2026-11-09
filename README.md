@@ -2,6 +2,13 @@
 
 这是 Orin NX 上的 `~/ros2_ws`：ROS 2 Jazzy，CycloneDDS，默认 ROS 域 73。
 
+2026-11-09 当前 SSH：`ssh -t orin@192.168.9.129`。当前框架和命令以本轮源码核对结果为准：
+
+- [代码框架与数据流](docs/ros2_ws_architecture.md)
+- [启动命令与常用参数](docs/ros2_ws_operations.md)
+- [完整源码目录树](docs/ros2_ws_directory_tree.md) · [全部 launch 参数](docs/ros2_ws_launch_reference.md)
+- [Markdown 核对、源码覆盖与验证边界](docs/ros2_ws_audit_20261109.md)
+
 工作区包含以下部分：底盘速度仲裁、D455 感知、目标跟随与靠近、Kalo 调试台、导航建图，以及 Agent 接口。
 
 ## 功能
@@ -22,7 +29,7 @@
 
 - `command_mux` 是 `/r680_base/cmd_vel` 的唯一发布者。
 - 优先级：手柄 > 跟随 > 导航。
-- 任一输入过期或急停时，输出为零。
+- 急停锁存时输出零；单一路输入过期或发零只释放本路，其他有效非零输入仍可输出。
 
 ## 跟随
 
@@ -53,9 +60,11 @@ D455 → 检测器 → /r680/perception/relative_objects → 跟随（C++ 收发
 - **改了 `wla_person_follow` 后，先执行 `colcon build --packages-select wla_person_follow`，再重启后端。** 它在 install 里是文件副本，不构建就重启仍会运行旧代码。
 - **停止后端**：`pkill -INT -f follow.launch.py`。
 
+后端还支持探索原语 mode 3/4；试验客户端仅提供 0/1/2。`numeric_backend:=cpp` 只替换地图/跟踪/参考曲线，默认仍为 python。
+
 后台启动、行为说明、参数和日志分析见 [跟随 README](src/wla_person_follow/README.md)。
 
-调试页：运行 `./r680_perception.sh debug-camera`，然后在浏览器打开 `http://<车 IP>:18081/`。
+调试页：运行 `./r680_perception.sh debug-camera`，然后在浏览器打开 `http://192.168.9.129:18081/`。
 
 ## 导航 / 建图
 
@@ -70,14 +79,16 @@ D455 → 检测器 → /r680/perception/relative_objects → 跟随（C++ 收发
 ## Agent
 
 ```bash
-./r680_agent.sh preview|execute|person-api|person|observations|query|navigation
+./r680_agent.sh help
 ```
 
 运行 `./r680_agent.sh help` 查看参数。
 
-## 安全默认
+## 输出默认值
 
-- 导航、建图预览和跟随默认都不出速度，需要显式加 `--enable-motion` 或 `enable_motion:=true`。
+- 导航和跟随默认关闭各自的硬件输出，需显式加 `--enable-motion` 或 `enable_motion:=true`。
+- **建图默认允许硬件输出，预览必须加 `--dry-run`；OpenVINS 建图分支强制 dry-run。** 独立手柄服务仍可人工控制。
+- 常驻底盘启用时，cuVSLAM 建图请省略 `--auto-vio-init`，由手柄提供初始化运动；脚本会拒绝该组合。
 - 跟随还需要操作者下发任务并持续续租。
 - 急停：手柄急停键，或调用 `/r680_base/set_estop`。复位前必须停稳，并重新下发任务。
 - 软件门禁不等于物理制动验收。实车运动前请确认场地空旷。
@@ -91,7 +102,9 @@ ros2_ws/
 │   ├── wla_manual_control/   C++ command_mux 与速度策略
 │   ├── wla_follow_transport/ 跟随的 C++ ROS 收发与输出门禁
 │   ├── wla_person_follow/    跟随计算：跟踪、身份恢复、局部地图、MPC、避障
-│   ├── wla_follow_local/     跟随用原生几何模块 _wla_sim_geometry
+│   ├── wla_follow_local/     原生几何 + 可选 C++ 地图/跟踪/参考曲线
+│   ├── wla_explore_wander/   基于跟随后端 mode 3/4 的无图闲逛
+│   ├── wla_terrain_analysis/ 可选坡面/台阶点云
 │   ├── wla_r680_navigation/  相机、感知、Kalo、导航建图
 │   ├── wla_behavior_*        Agent 桥接、行为树、接口
 │   ├── wla_detection_bridge/ 检测消息

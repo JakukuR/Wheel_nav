@@ -1,5 +1,7 @@
 # cuVSLAM initialization authority and startup timeout
 
+> 2026-11-09 核对：本文保留所述版本的设计/变更与验证证据；其中旧参数、包名、IP、启动/权限步骤不自动代表当前部署。当前框架见 [工作区总览](../ros2_ws_architecture.md)，操作见 [启动与参数](../ros2_ws_operations.md)。历史实测结果不因本轮文档核对而重新获得验收。
+
 ## Observed failures
 - Run nav-20261015-113137-1286498 used --auto-vio-init --enable-motion.
   The guard reported hardware output enabled, but the root cuVSLAM branch did

@@ -9,13 +9,14 @@ ROS 2 Jazzy 的 `wla_cuvslam_navigation` 使用 cuVSLAM v17，输入 D455 左右
 ```text
 infra1 / infra2 + CameraInfo + 车身 IMU
   -> cuvslam_odometry -> /r680_nav/vio_raw_odom
-  -> degraded_odometry + /wheel/odom + 车身 IMU
+  -> odom_fusion（默认）+ /wheel/odom + 车身 IMU
+     --no-fusion-backend 选择旧 degraded_odometry
   -> /d455_slam/odom + d455_floor_odom -> r680_mapping_floor
   -> RTAB-Map RGB-D localization -> map -> d455_floor_odom
   -> Nav2 MPC -> 速度平滑 / 碰撞监控 / 最终指令门禁
 ```
 
-导航 launch 启用 `publish_visual_only` 并关闭前端 TF，由连续里程计节点拥有 odom -> base。初始化阶段保留必要的位姿 passthrough；建立可信视觉后，SDK 的纯 IMU 推算不能作为视觉锚点。通过新增的 `IsLastPoseInertialOnly()` 读取求解器实际分支，总观测点数不等于 PnP 求解成功。
+导航默认连续后端启用时，launch 启用 `publish_visual_only` 并关闭前端 TF，由连续里程计节点拥有 odom -> base。初始化阶段保留必要的位姿 passthrough；建立可信视觉后，SDK 的纯 IMU 推算不能作为视觉锚点。通过新增的 `IsLastPoseInertialOnly()` 读取求解器实际分支，总观测点数不等于 PnP 求解成功。
 
 建图模式不经过导航连续接管；前端发布 `/d455_slam/odom` 和 TF，再由 `mapping_odom_gate` 过滤到 `/r680_nav/mapping_odom` 供 RTAB-Map 建图。
 
@@ -29,7 +30,7 @@ infra1 / infra2 + CameraInfo + 车身 IMU
 bash ~/ros2_ws/src/wla_cuvslam_navigation/build_frontend.sh
 ```
 
-脚本构建前端到 `.runtime/cuvslam_navigation/{build,install,log}`，并构建导航包、同步导航启动脚本。MPC 依赖和插件需按导航仓库的构建说明另行准备。原 `wla_cuvslam_validation` 包保留。
+脚本仅构建前端到 `.runtime/cuvslam_navigation/{build,install,log}`；导航包单独用主工作区 colcon 构建，根启动脚本保持权威且不会被覆盖。MPC 依赖和插件需按导航仓库的构建说明另行准备。原 `wla_cuvslam_validation` 包保留。
 
 ## 启动
 

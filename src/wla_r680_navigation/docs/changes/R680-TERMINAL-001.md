@@ -1,5 +1,7 @@
 # 终点到达需确认实际停稳
 
+> 2026-11-09 核对：本文保留所述版本的设计/变更与验证证据；其中旧参数、包名、IP、启动/权限步骤不自动代表当前部署。当前框架见 [工作区总览](../../../../docs/ros2_ws_architecture.md)，操作见 [启动与参数](../../../../docs/ros2_ws_operations.md)。历史实测结果不因本轮文档核对而重新获得验收。
+
 日期：2026-10-08。适用于 `nav2_mpc.yaml`、`nav2_test.yaml`、`nav2_recovery_test.yaml`。
 
 三个 MPC 参数文件把 GoalChecker 从 SimpleGoalChecker 改为 `nav2_controller::StoppedGoalChecker`，保持 XY 容差 0.20 m、朝向容差 0.18 rad；新增线速度 0.025 m/s、角速度 0.04 rad/s 的停车条件，避免车仍在转动时报告到达。

@@ -1,5 +1,7 @@
 # ReID enrollment gap fix — 2026-10-20
 
+> 2026-11-09 核对：本文保留所述版本的设计/变更与验证证据；其中旧参数、包名、IP、启动/权限步骤不自动代表当前部署。当前框架见 [工作区总览](../../docs/ros2_ws_architecture.md)，操作见 [启动与参数](../../docs/ros2_ws_operations.md)。历史实测结果不因本轮文档核对而重新获得验收。
+
 The supplied continuous-follow log accepted one descriptor, stayed `enrolling`
 with `initial_identity_not_confirmed`, then exceeded the 8 s search window.
 Planner times were 33–47 ms with no output freshness blockers. It generated no

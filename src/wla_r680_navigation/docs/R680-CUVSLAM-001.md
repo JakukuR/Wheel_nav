@@ -1,5 +1,7 @@
 # R680-CUVSLAM-001：cuVSLAM 可选导航前端
 
+> 2026-11-09 核对：本文保留所述版本的设计/变更与验证证据；其中旧参数、包名、IP、启动/权限步骤不自动代表当前部署。当前框架见 [工作区总览](../../../docs/ros2_ws_architecture.md)，操作见 [启动与参数](../../../docs/ros2_ws_operations.md)。历史实测结果不因本轮文档核对而重新获得验收。
+
 日期：2026-09-30。原导航基线：`e52d517`。默认前端保持 RGB-D VO + EKF。
 保留原有未提交的 nav2.yaml、r680_mapping.rviz、web/app.js、web/style.css。
 

@@ -1,5 +1,7 @@
 # 移除接入前端的运动幅度停止条件
 
+> 2026-11-09 核对：本文保留所述版本的设计/变更与验证证据；其中旧参数、包名、IP、启动/权限步骤不自动代表当前部署。当前框架见 [工作区总览](../../docs/ros2_ws_architecture.md)，操作见 [启动与参数](../../docs/ros2_ws_operations.md)。历史实测结果不因本轮文档核对而重新获得验收。
+
 2026-10-09，基线 0eca26f。
 
 按用户要求移除 cuvslam_odometry 对相邻 SDK 位姿的三维平移速度、旋转速度超限判定。有限、合法的 SDK 位姿不会再因超出 2 m/s 或 4 rad/s 被标记 pose_motion_bounds 并停止里程计和 TF 输出；同时移除 max_pose_speed_mps 和 max_pose_angular_speed_radps 参数。

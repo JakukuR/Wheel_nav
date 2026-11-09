@@ -1,5 +1,7 @@
 # 官方 OpenVINS ROS 2 接入
 
+2026-11-09 入口核对：先用 r680_camera.sh run --infra --imu 独立启动相机，再用 r680_nav.sh --openvins 选择该分支；IMU 修复 overlay 必须已准备。完整命令/参数见 [操作手册](../../docs/ros2_ws_operations.md)。下文保留官方源码接入时的版本与验证范围，不是本轮重新构建/运行的验收结果。
+
 估计器与传感器处理直接使用 `rpng/open_vins` 的
 `ov_msckf/run_subscribe_msckf`，固定提交
 `69488123ed9362dd44b6f28e7f4680abbff1442b`。

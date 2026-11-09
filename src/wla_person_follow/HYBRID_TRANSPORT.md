@@ -21,7 +21,7 @@ wla_person_follow.hybrid_worker（一个 Python 进程，不创建 ROS 节点）
 
 `/r680/person_follow/command`（PersonCommand）、`set_estop`（SetBool）、
 status、候选速度、ReID 请求、点云、栅格和路径的话题保持原接口。
-三个任务模式仍为数字字符串 `0/1/2`，启动不会自动选择目标或恢复任务。
+目标任务为数字字符串 `0/1/2`，当前还支持闲逛使用的原语 `3/4`，启动不会自动选择目标或恢复任务。
 
 ```bash
 cd /home/orin/ros2_ws
@@ -74,8 +74,7 @@ colcon build --packages-select wla_follow_transport wla_person_follow --cmake-ar
 租约按 C++ 收到请求的时间计算，迟到响应不能延后原截止时间。已经终止任务的清理
 stop 不覆盖到达/撤销等首个终态。
 
-沿用最大源龄 300 ms、默认计算结果预算 150 ms、轮速新鲜度 200 ms、控制权状态
-500 ms 和命令租约 100 ms–2 s。Python 的原输出判断继续保留，C++ 另行执行最终
+上文最初 300/150 ms 为 10-26 的历史值。当前 launch 加载 sim_follow.yaml 后，观测最大源龄 400 ms、地图年龄 450 ms、结果接收预算 200 ms、输出保留 350 ms；轮速新鲜度 200 ms、控制权状态 500 ms 和命令租约 100 ms–2 s。Python 的原输出判断继续保留，C++ 另行执行最终
 判断。控制权撤销、感知关闭/换代、超时和急停不会因数据重新健康自动恢复任务。
 
 普通 ROS 软件门禁不等于已完成物理停车验收；下游 mux/底盘超时和独立停止手段
@@ -146,7 +145,7 @@ Python 计算、C++ mux 和模拟底盘接收端。另通过 mux 策略 6 项、
 
 ## 2026-10-29 坡面/台阶障碍（wla_terrain_analysis）
 
-- `follow.launch.py terrain:=true`（或 `./r680_person_follow.sh terrain:=true`）另起一对跟随专用的
+- `follow.launch.py terrain:=true`（或 `./r680_person_follow.sh run terrain:=true`）另起一对跟随专用的
   `terrain_odometry_follow` / `terrain_analysis_follow`，话题在 `/r680/person_follow/terrain/*`，不与导航冲突；
   并给后端设 `terrain_topic:=/r680/person_follow/terrain/points`。默认关闭，行为与原来一致。
 - C++ 订阅该点云（基座系，z = 高出局部地面的高度），随输入包转发给 Python；Python 对每帧深度取时间最近

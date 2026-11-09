@@ -61,6 +61,6 @@
 
 ## 人物跟随
 
-`ros2 launch wla_person_follow follow.launch.py terrain:=true`（或 `./r680_person_follow.sh terrain:=true`）：
+`ros2 launch wla_person_follow follow.launch.py terrain:=true`（或 `./r680_person_follow.sh run terrain:=true`）：
 跟随另起一对地形节点（话题 `/r680/person_follow/terrain/*`），跟随地图的障碍改用地形分析结果，
 清除射线和目标处理仍来自深度，见 `wla_person_follow/HYBRID_TRANSPORT.md`。

@@ -1,5 +1,7 @@
 # 导航短时视觉退化的当前帧证据接口
 
+> 2026-11-09 核对：本文保留所述版本的设计/变更与验证证据；其中旧参数、包名、IP、启动/权限步骤不自动代表当前部署。当前框架见 [工作区总览](../../docs/ros2_ws_architecture.md)，操作见 [启动与参数](../../docs/ros2_ws_operations.md)。历史实测结果不因本轮文档核对而重新获得验收。
+
 配合 `wla_r680_navigation/degraded_odometry`，补充三种ROS诊断数据；保留原VIO初始化、重力/零偏检查、时间戳/有限值检查和健康判据。本文与导航包的 `docs/changes/R680-DEGRADED-ODOM-001.md` 对应。
 
 - `/r680_nav/vio_inertial_valid`：当前位姿具有有效重力、IMU零偏与体坐标速度估计；无输出／错误状态为false。

@@ -1,5 +1,7 @@
 # R680 cuVSLAM 自动运动初始化试验版
 
+> 2026-11-09 核对：本文保留所述版本的设计/变更与验证证据；其中旧参数、包名、IP、启动/权限步骤不自动代表当前部署。当前框架见 [工作区总览](../../../docs/ros2_ws_architecture.md)，操作见 [启动与参数](../../../docs/ros2_ws_operations.md)。历史实测结果不因本轮文档核对而重新获得验收。
+
 2026-09-30。实现位于 Orin 的 `/home/orin/ros2_ws/src/wla_r680_navigation`，不修改 Agent 链路。默认仍使用原 RGB-D VO + EKF；自动初始化必须同时指定 `--cuvslam --auto-vio-init`。
 
 ## 启动

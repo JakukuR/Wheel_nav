@@ -1,3 +1,29 @@
+# 人物相对执行与 Agent 共享检测
+
+2026-11-09 当前链路：D455 → nav_yolo_detector（YOLOE-26s 分割、BoT-SORT、OSNet）→ relative_objects → 跟随后端。
+感知进程在 `r680_perception.sh run` 中启动，Agent 只消费结果/管理任务；不存在 detection on/off 服务。
+后端支持模式字符串 0/1/2/3/4，交互试验客户端仅提供 0/1/2；旧 follow/approach_interact 别名不再接受。
+人物 mode 0 默认中心跟随距离 1.2 m，mode 1 表面到机器人原点约 0.95 m，mode 2 物体外廓间距目标 0.15 m。
+当前 mux 是手柄 > PERSON > NAV 的速度优先级直通，不需要先切来源/AUTO；任务和输出仍各有租约/门禁。
+
+```bash
+cd ~/ros2_ws
+./r680_camera.sh run                 # 相机独立终端
+# 另一终端：
+./r680_perception.sh run
+# 再开终端：
+./r680_person_follow.sh run          # 默认预览
+# 任务终端：
+./r680_agent.sh person visible
+./r680_agent.sh person start --mode 0 --target-id '完整ID' --request-id demo-unique --seconds 10
+./r680_agent.sh person stop --request-id demo-unique
+```
+
+完整模型/后端、期限、启动参数见 [操作手册](ros2_ws_operations.md)，框架见 [总览](ros2_ws_architecture.md)。
+SSH 当前地址为 192.168.9.129。原下文中的 YOLO11n、1.40 m、英文 mode、来源切换和 30 Hz 默认值均属于历史版本。
+
+## 2026-10-13 接入历史（原记录）
+
 > 2026-10-13 维护说明：本文中的 `.maintenance` 路径是历史记录。该目录无运行依赖，按用户要求清理；保留的原始测试报告、日志和哈希清单迁入 `/home/orin/ros2_ws/docs/validation/maintenance-history/`，按原分组名查找，完整列表见该目录 `manifest.json`。源码/安装备份压缩包和依赖缓存已清理，不能再按旧路径恢复。历史结果未在本次清理中重跑。
 
 # 人物相对执行与 Agent 接口（2026-10-13）

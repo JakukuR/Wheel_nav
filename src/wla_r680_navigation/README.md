@@ -5,7 +5,7 @@
 MPC 插件和 cuVSLAM 前端是工作区 `src/` 下的同级包 `wla_diff_mpc`、`wla_cuvslam_navigation`；`addons/cuvslam-sdk/` 保存前端所需的 SDK 补丁。
 完整仓库现采用工作区结构，入口和克隆说明见 [工作区 README](../../README.md)。
 
-本文按 2026-10-09 的 cuVSLAM 导航链路说明。**导航脚本默认控制器是 MPC，但里程计前端仍默认 RGB-D；使用当前双目＋车身 IMU 链路必须显式加 `--cuvslam`。** 导航默认关闭真实底盘输出，`--enable-motion` 才开放运动。
+本文于 2026-11-09 按当前工作树核对。完整工作区框架见 [代码总览](../../docs/ros2_ws_architecture.md)，常用命令及参数见 [操作手册](../../docs/ros2_ws_operations.md)。**导航脚本默认控制器是 MPC，但里程计前端仍默认 RGB-D；使用当前双目＋车身 IMU 链路必须显式加 `--cuvslam`。** 导航默认关闭真实底盘输出，`--enable-motion` 才开放运动。
 
 ## 当前导航链路
 
@@ -13,8 +13,8 @@ MPC 插件和 cuVSLAM 前端是工作区 `src/` 下的同级包 `wla_diff_mpc`�
 D455 左右红外图像 + CameraInfo + /wheel/imu/data_raw
   -> cuvslam_odometry：双目视觉 / 车身 IMU
   -> /r680_nav/vio_raw_odom：提供视觉位姿与初始化输出
-  -> degraded_odometry：可信视觉锚点 + 有预算的轮速 / IMU 接管
-       同时输入 /wheel/odom、车身 IMU 和健康状态
+  -> odom_fusion（默认）：轮速 + IMU + 视觉的 3 s 滑窗融合
+       --no-fusion-backend 改用旧 degraded_odometry 有界接管
   -> /d455_slam/odom
        + TF d455_floor_odom -> r680_mapping_floor
 
@@ -24,6 +24,7 @@ D455 RGB + aligned depth + CameraInfo + /d455_slam/odom
        + /d455_slam/localization_pose、/d455_slam/info
 
 已保存的 map.yaml / map.pgm -> map_server -> /r680/d455/map
+  -> navigation_map_mode -> /r680_nav/navigation_map -> 全局静态层
 D455 aligned depth -> depth_to_points
   -> points / clearing_points -> 局部代价地图
   -> points_safety -> collision_monitor
@@ -32,7 +33,7 @@ D455 aligned depth -> depth_to_points
   -> /r680_nav/cmd_vel_controller -> goal_approach_limiter
   -> /cmd_vel_nav -> velocity_smoother -> collision_monitor
   -> /r680_nav/cmd_vel_collision_checked -> command_guard
-  -> /r680_nav/chassis_cmd_vel -> 底盘驱动
+  -> /r680_nav/chassis_cmd_vel -> 常驻 command_mux -> /r680_base/cmd_vel -> 底盘驱动
 ```
 
 启用自动 VIO 初始化时，初始化节点在 `goal_approach_limiter` 与 `/cmd_vel_nav` 之间接管命令，再交还导航；仍经过后续平滑、碰撞监控和最终指令门禁。
@@ -71,13 +72,11 @@ colcon build --packages-select wla_diff_mpc wla_r680_navigation \
   --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
 source install/setup.bash
 bash src/wla_cuvslam_navigation/build_frontend.sh
-install -m 755 src/wla_r680_navigation/scripts/r680_nav.sh ./r680_nav.sh
-install -m 755 src/wla_r680_navigation/scripts/r680_mapping.sh ./r680_mapping.sh
 ```
 
-前端安装在 `.runtime/cuvslam_navigation/install`，MPC 与导航包安装在 `install`。
+前端安装在 `.runtime/cuvslam_navigation/install`，MPC 与导航包安装在 `install`。根目录 r680_nav.sh / r680_mapping.sh 是实际实现，包内同名脚本只是转发器，不能反向覆盖根入口。
 启动脚本按此顺序加载前缀；具体依赖见各包 `package.xml`，SDK 补丁见 [addons/README.md](addons/README.md)。
-默认 ROS 域为 73，RMW 为 CycloneDDS；DDS 配置使用 `~/Wheel_Legged_Agent/deploy/r680/cyclonedds-local.xml`。这些可通过 `ROS_DOMAIN_ID`、`RMW_IMPLEMENTATION`、`CYCLONEDDS_URI` 覆盖。
+默认 ROS 域为 73，RMW 为 CycloneDDS；DDS 配置使用 `~/ros2_ws/install/wla_manual_control/share/wla_manual_control/config/cyclonedds-local.xml`。这些可通过 `ROS_DOMAIN_ID`、`RMW_IMPLEMENTATION`、`CYCLONEDDS_URI` 覆盖。
 
 ## 启动导航
 
@@ -85,6 +84,8 @@ install -m 755 src/wla_r680_navigation/scripts/r680_mapping.sh ./r680_mapping.sh
 
 ```bash
 cd ~/ros2_ws
+./r680_camera.sh run --infra   # 独立终端保持运行
+# 另一终端：
 ./r680_nav.sh --map map-2026-10-08-1 --cuvslam
 ```
 
@@ -95,9 +96,9 @@ VIO 需要运动激励完成惯性初始化，单纯静止五秒不保证就绪�
   --cuvslam --auto-vio-init --enable-motion
 ```
 
-初始化会检查传感器、静止反馈和近场障碍，并限制时间、距离及转角；参数见 `config/vio_initializer.yaml`。失败或取消后停车。启动结果保存在本次运行目录的 `vio_init.json`。
+初始化会检查传感器、静止反馈和近场障碍，并限制时间、距离及转角；cuVSLAM 参数见 `config/vio_initializer_cuvslam.yaml`；OpenVINS 自动初始化用 `config/vio_initializer.yaml`。失败或取消后停车。启动结果保存在本次运行目录的 `vio_init.json`。
 
-启动脚本处理受管理的定位 / 相机服务，拒绝与已有独立底盘或 RealSense 会话争抢串口和相机。初始化和启动就绪后才开放任务运动许可，最终仍由健康门控和 `command_guard` 决定是否输出。
+启动脚本复用独立相机和已运行的常驻底盘，暂停/恢复受管理的冲突定位/感知服务；不会替用户终止其他独立会话。初始化和启动就绪后才开放任务运动许可，最终仍由健康门控和 `command_guard` 决定是否输出。
 
 | 参数 | 当前行为 |
 | --- | --- |
@@ -108,7 +109,8 @@ VIO 需要运动激励完成惯性初始化，单纯静止五秒不保证就绪�
 | `--scan-obstacles` | 局部标记改用派生 LaserScan，保留点云清障和碰撞监控 |
 | `--test-scan-only` | MPC＋局部 Scan，选择独立静态全局地图测试配置 |
 | `--test-recovery` | MPC＋局部 Scan＋有时限的全局动态障碍测试配置 |
-| `--no-degraded-odom` | 禁用轮速＋IMU 接管，视觉失效时停止连续输出 |
+| `--no-fusion-backend` | 从默认 odom_fusion 换到旧 degraded_odometry |
+| `--no-degraded-odom` | 同时禁用融合和旧接管后端 |
 | `--no-rviz` | 不启动 RViz，Web 网关仍保留 |
 
 RGB-D 回退链为 RGB-D VO -> 原 EKF / 车身 IMU 整理 -> `/d455_slam/odom`。cuVSLAM 模式不重复运行该 EKF、Madgwick 或 IMU conditioner；使用车身 IMU，未启用 D455 内部 IMU。脚本必须保持运行，导航 action 才存在。`Ctrl+C` 撤销运动许可、关闭本次节点并恢复受管理服务。
@@ -119,11 +121,14 @@ cuVSLAM 提供局部里程计；机器人在旧地图中的位置由 RTAB-Map �
 
 cuVSLAM 导航的开局健康要求前端 / 连续里程计就绪、RTAB-Map 报告有效地图匹配事件、新鲜且合法的 `localization_pose`、可用的地图 TF 等。地图匹配事件依据 RTAB-Map 的回环、邻近或地标匹配字段；仅收到图像、地图栅格或存在 TF 不能代替匹配证据。
 
-真正故障后，看门狗锁定运动并重启匹配到的前端进程。具备故障前可信锚点时，停止状态下用有界轮式位移提供一次重定位提示，再按近域 1 m、扩域 3 m、VPR＋RGB-D 几何验证的阶段搜索。**一次新鲜、合法、几何验证通过的地图重定位即可形成匹配证据，不要求机器人移动或在同一位置连续匹配三次。** 解除锁定仍需原有健康稳定、地图 TF / 位姿一致性、轮速及可信锚点检查。缺少可信锚点或恢复失败时保留锁定，需要操作者校正定位。
+真正故障后，看门狗按健康状态锁定地图许可；RGB-D 可重启匹配到的前端，cuVSLAM 不再由该看门狗重启。可选 vio_initializer 的 LOST 恢复有自己的有界转向/单次重启逻辑，见 R680-NAV-009。具备故障前可信锚点时，停止状态下用有界轮式位移提供一次重定位提示，再按近域 1 m、扩域 3 m、VPR＋RGB-D 几何验证的阶段搜索。**一次新鲜、合法、几何验证通过的地图重定位即可形成匹配证据，不要求机器人移动或在同一位置连续匹配三次。** 解除锁定仍需原有健康稳定、地图 TF / 位姿一致性、轮速及可信锚点检查。缺少可信锚点或恢复失败时保留锁定，需要操作者校正定位。
 
 `recovery_stable_s=2.0` 是既有健康稳定时间，和连续地图匹配次数不同。参数见 `config/vo_watchdog.yaml`，实现细节见 [恢复说明](docs/changes/R680-RECOVERY-002.md)。
 
 ## 短时视觉退化
+
+当前 cuVSLAM 导航默认 `odom_backend=fusion`，用 `config/odom_fusion.yaml`：3 s 滑窗、0.1 s 关键帧、0.4 s 关键帧滞后、视觉超时 0.5 s，BRIDGING 的位置/航向标准差上限均为 0.25（m/rad）。
+详见 [滑窗融合](docs/R680-NAV-008-odom-fusion.md)。以下 2 s / 距离 / 转角预算表只适用于 `--no-fusion-backend` 选择的旧 degraded 后端，不能当成默认 fusion 的参数。
 
 导航启用连续里程计时，前端区分实际视觉求解与纯 IMU 推算。初始化阶段保留必要的原始位姿输出；建立可信视觉后，纯 IMU 推算不能作为新的视觉锚点。总观测点数量不等于 PnP 求解成功。
 
@@ -167,13 +172,13 @@ cuVSLAM 手柄建图预览：
 ./r680_mapping.sh --cuvslam --dry-run
 ```
 
-由操作者开始运动初始化和手柄建图：
+已有常驻底盘时，由操作者通过手柄提供初始化激励并建图（脚本默认允许其自身硬件输出）：
 
 ```bash
-./r680_mapping.sh --cuvslam --auto-vio-init
+./r680_mapping.sh --cuvslam
 ```
 
-**建图脚本与导航不同：默认允许硬件输出，`--dry-run` 才关闭。** 建图模式使用 `mapping_odom_gate` 向 RTAB-Map 提供 `/r680_nav/mapping_odom`，不启用导航的轮速＋IMU 连续接管。退出时先撤销运动许可、等待停止，在建图节点仍运行时备份数据库和二维地图；未就绪或保存失败时保留日志与工作库，不发布有效导航地图。
+**建图脚本与导航不同：默认允许硬件输出，`--dry-run` 才关闭；OpenVINS 分支强制 dry-run。** 常驻底盘下 cuVSLAM 建图加 --auto-vio-init 会被拒绝；预览不能关闭独立手柄。 建图模式使用 `mapping_odom_gate` 向 RTAB-Map 提供 `/r680_nav/mapping_odom`，不启用导航的轮速＋IMU 连续接管。退出时先撤销运动许可、等待停止，在建图节点仍运行时备份数据库和二维地图；未就绪或保存失败时保留日志与工作库，不发布有效导航地图。
 
 每次导航目录形如 `~/nav_run/nav-YYYYMMDD-HHMMSS-PID/`。排查时优先读取实际加载快照：`navigation.json`、`selected_map.json`、`nav2.yaml`、`cuvslam.yaml`、`degraded_odometry.yaml`、`cuvslam_statistics.json`、`vio_health-*.jsonl` 和 `logs/bringup.log`。源码 YAML 不等于当前进程的实际参数。
 
@@ -181,7 +186,7 @@ cuVSLAM 手柄建图预览：
 
 RViz 的 `2D Pose Estimate` 发布 `/d455_slam/initialpose`，用于重定位初值；`2D Goal Pose` 发布 `/r680_nav/goal_request`，由目标桥接节点调用导航 action。MPC 预测轨迹位于 `/FollowPath/predicted_path`，全局路径位于 `/plan`。
 
-Web 网关默认随 bringup 启动。当前 Orin 地址为 `http://172.31.18.156:8080`，用于地图、相机、位姿、路径、导航和重定位操作；可通过 `start_web:=false`、`web_host`、`web_port` 设置。用户地图插画须与地图 ID、栅格校验值及尺寸一致；TF 超时隐藏机器人贴图。
+Web 网关默认随 bringup 启动。当前 Orin 地址为 `http://192.168.9.129:8080`，用于地图、相机、位姿、路径、导航和重定位操作；可通过 `start_web:=false`、`web_host`、`web_port` 设置。用户地图插画须与地图 ID、栅格校验值及尺寸一致；TF 超时隐藏机器人贴图。
 
 ```bash
 source /opt/ros/jazzy/setup.bash

@@ -16,7 +16,7 @@ Public track integers are `2 * native_id` for people and `2 * native_id + 1` for
 
 `/r680/perception/target_mask` is a bounded `wla-target-mask/v1` JSON message containing packed/compressed mask bits, RGB stamp, matched aligned-depth stamp, frame/size, session/epoch, task request and confirmed target ID. BoxMOT detection indices select the original YOLO instance mask; Kalman-smoothed boxes are not used for mask lookup.
 
-The follower retains up to 16 aligned-depth acquisitions. During an active task it chooses the newest paired depth; after 120 ms it can process unpaired depth conservatively without removal. It never applies an old mask to a newer depth. RGB-depth matching remains bounded by the existing 35 ms policy; expiry remains 300 ms. Idle processing does not wait for masks.
+The follower retains up to 16 aligned-depth acquisitions. Current C++ transport takes the newest depth immediately for person modes and attaches its mask only if already paired; only mode 2 requires the task-matched mask. The 120 ms unpaired fallback describes the earlier generic pairer. It never applies an old mask to a newer depth. RGB-depth matching remains bounded by the existing 35 ms policy; expiry remains 300 ms. Idle processing does not wait for masks.
 
 Before native deprojection/ground/cluster filtering, the current confirmed target's segmentation pixels with valid depth within +/-0.35 m of the masked median surface become NaN. Points outside the silhouette and separated foreground/background depths remain. No whole-box deletion, target prediction mask, or clearing ray behind the target is generated. Missing/expired/changed-identity masks preserve all raw depth. Existing target-distance/collision constraints still apply.
 
@@ -45,7 +45,7 @@ GPU allocation after both graphs approximately 195.3 MiB (Torch allocated, not w
 
 ## Installation and verification
 
-Release overlay: `/home/orin/ros2_ws/releases/sim-follow-20261021-boxmot/install`. Both `r680_perception.sh` and `r680_person_follow.sh` source it last. The inference interpreter is `.venv-boxmot`; the follower remains system Python plus the existing C++ geometry backend. The follow launch no longer starts the old ReID sidecar.
+Current entrypoints source `/home/orin/ros2_ws/install`; the old `releases/sim-follow-20261021-boxmot/install` overlay is historical and is no longer sourced. The inference interpreter is `.venv-boxmot`; the follower remains system Python plus the existing C++ geometry backend. The follow launch no longer starts the old ReID sidecar.
 
 Removed production source: custom `gmc_recovery.py`, unused Agent `yoloe_runtime.py`, old standalone `reid_node.py`/`reid_features.py` and vendored OSNet implementation. Replaced obsolete tests with native BoxMOT association, feature reuse, mask identity/time mismatch, pairer deadline and isolated ROS mask/depth tests. Historical release snapshots/measurement records remain rollback evidence, not active alternatives.
 

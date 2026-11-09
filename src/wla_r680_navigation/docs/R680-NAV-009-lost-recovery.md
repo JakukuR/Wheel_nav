@@ -1,5 +1,7 @@
 # R680-NAV-009 里程计 LOST 后的恢复动作
 
+> 2026-11-09 核对：本文保留所述版本的设计/变更与验证证据；其中旧参数、包名、IP、启动/权限步骤不自动代表当前部署。当前框架见 [工作区总览](../../../docs/ros2_ws_architecture.md)，操作见 [启动与参数](../../../docs/ros2_ws_operations.md)。历史实测结果不因本轮文档核对而重新获得验收。
+
 ## 背景
 
 odom_fusion（R680-NAV-008）在无视觉时桥接，σ 超限或底盘输入中断才进入 LOST。LOST 时 guard 停止导航输出（`continuous_odom_healthy=false`）。停在无特征处的车如果不动，视觉不会自己回来。参照 z-localization 的 SUSPECT → LOST：先等，再找特征，最后重置前端。

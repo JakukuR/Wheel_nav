@@ -1,5 +1,7 @@
 # 跟随只转不走与计算过期：诊断和等价优化
 
+> 2026-11-09 核对：本文保留所述版本的设计/变更与验证证据；其中旧参数、包名、IP、启动/权限步骤不自动代表当前部署。当前框架见 [工作区总览](../../../docs/ros2_ws_architecture.md)，操作见 [启动与参数](../../../docs/ros2_ws_operations.md)。历史实测结果不因本轮文档核对而重新获得验收。
+
 用户试验 trial-0ac6151ed2dc47baa36e793f5f423659：15 秒内前进速度为零，有 -0.15 rad/s 转向候选，计算 129–141 ms；未出现 detector_generation_changed。原 result_ttl_s=0.15 从计算开始计时，输出定时器 50 ms，完成后只剩约 9–21 ms。原 safety_reason 仅呈现恢复策略的 progress_or_clear，无法说明输出条件失效。
 
 ## 实测与改动

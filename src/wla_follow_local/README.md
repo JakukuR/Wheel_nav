@@ -9,5 +9,5 @@
   `src/numpy_blas.h` 记录与 numpy 逐位相等所需的舍入行为。
 
 C++ 单测在 `test/cpp/`，每个文件一个 ctest。
-当前 tracker 与 MPC 位于 wla_person_follow；已删除旧 `_wla_follow_local` 的局部规划器、
+当前跟踪的 Python 参考与 MPC 位于 wla_person_follow，numeric_backend=cpp 时跟踪状态在本包 C++ 中；已删除旧 `_wla_follow_local` 的局部规划器、
 TargetKalman 和 object_close，避免并存两套跟随控制链。

@@ -14,7 +14,7 @@ mode 3/4 没有跟踪目标，但仍要求感知门开着且检测新鲜（其�
 
 ## 快速开始
 
-在车上（`orin@<车 IP>`）依次运行，每条命令一个终端：
+在车上（当前 `orin@192.168.9.129`）依次运行，每条命令一个终端：
 
 ```bash
 cd ~/ros2_ws
@@ -70,7 +70,7 @@ pkill -INT -f follow.launch.py
 ```
 
 - 标签是 `mpc` 或 `rla` 时，会核对正在运行的后端用的规划器，不一致就拒绝录制。
-- 脚本只订阅，不发布，低优先级运行。输出在 `.runtime/follow-bags/<标签>-<时间>/`，同名 `.json` 记录规划器、提交号和话题。
+- 默认录制进程只订阅，低优先级运行；`--camera` 在没有编码器时会额外启动 `kalo_jpeg` 发布 JPEG。输出在 `.runtime/follow-bags/<标签>-<时间>/`，同名 `.json` 记录规划器、提交号和话题。
 
 | 参数 | 内容 | 数据量（后端空闲时测） | 录制进程 CPU |
 |---|---|---:|---:|
@@ -95,7 +95,7 @@ pkill -INT -f follow.launch.py
 - 右下角的帧龄拿录制时刻和当前时间比，回放时没有意义。
 - 回放也占车上的 CPU，不要和实际跟随同时开。
 
-**在调试机回放：** 调试机是 Humble，`ros2 bag` 读不了 Jazzy 录的包。可以把包拷过去，用 Foxglove Studio 直接打开 `.mcap`（这条没有实际验证过）。
+**在调试机回放：** 已有记录显示调试机是 Humble，跨发行版读取还取决于 MCAP 插件、消息定义和元数据兼容性，不能一概断言 Humble 无法读取。可以把包拷过去，用 Foxglove Studio 直接打开 `.mcap`（这条没有实际验证过）。
 
 **不要手动在车上或连着车的网络里用同一个 `ROS_DOMAIN_ID` 跑 `ros2 bag play`：** 包里有 `/r680_base/cmd_vel`，回放可能让车动。
 
@@ -122,7 +122,7 @@ D455 → nav_yolo_detector（YOLOE 分割 + BoT-SORT + OSNet）
 
 - 服务 `/r680/person_follow/command`，以及 Agent 门面 `/wla_agent/person_command`。
 - 消息类型都是 `PersonCommand`，支持 start、heartbeat、stop、status。
-- 租约 0.1–2 s。每个新任务使用新的 `request_id`。`mode` 只接受字符串 `0`、`1`、`2`。
+- 租约 0.1–2 s。每个新任务使用新的 `request_id`。后端 `PersonCommand.mode` 接受字符串 `0`–`4`；交互客户端 `r680_follow_trial.sh` 仅提供 `0`、`1`、`2`。
 
 ## 人物跟随的行为
 
@@ -145,7 +145,9 @@ D455 → nav_yolo_detector（YOLOE 分割 + BoT-SORT + OSNet）
 - 出现深度覆盖恢复（车头已经贴到障碍）：立即算作到达。
 - 没有可行路径或正在倒车脱困：累计 2 s 后算作到达。
 
-这样原地转向、绕行、短暂停顿都不会被误判为到达。- 既没移动也没转动持续 3 s：算作到达，避免停在到达范围外一直不开始扫视。
+这样原地转向、绕行、短暂停顿都不会被误判为到达。
+
+- 既没移动也没转动持续 3 s：算作到达，避免停在到达范围外一直不开始扫视。
 
 状态字段 `search_arrived_by` 记录到达方式：`distance`、`coverage`、`blocked`、`stalled` 或 `edge`（从画面边缘丢失，不开往消失点，直接扫视）。
 
@@ -170,7 +172,7 @@ D455 → nav_yolo_detector（YOLOE 分割 + BoT-SORT + OSNet）
 ### 人物位置
 
 - 人物取躯干带深度的 20% 分位（`perception_geometry.person_point`：框宽中间 40%、框高 20–60%）。这样人半出画面时，不会读到身后的墙面。
-- 贴左右画面边缘的人（`image_edge_ids`）只采用方位，距离用预测值。状态字段 `edge_range_observations` 计数这类观测。
+- 贴左右画面边缘的人（`image_edge_ids`）在距离新息超过当前绑定半径时采用方位并用预测距离；平滑且兼容的真实距离变化仍更新跟踪。此项来自本轮读取时已有的未提交源码修改。状态字段 `edge_range_observations` 计数这类观测。
 - 目标自身的点云按同帧分割掩码从障碍地图里屏蔽，已确认的历史占据也会清理。其他人仍作为动态障碍。
 
 ### 避障
@@ -182,7 +184,7 @@ D455 → nav_yolo_detector（YOLOE 分割 + BoT-SORT + OSNet）
 | 直线被挡 | `DetourPlanner` 选左右边缘或栅格路线作为绕行航点；看不到出口时原地转向侧面观察（look） | `tracker_follow` |
 | 走直线已经安全 | 沿已走过的轨迹取最远的、直线可通过的点（视线捷径），不再绕回人的足迹 | `tracker_follow` |
 | 连续 ≥3 个周期没有向前的可行候选 | 沿自己走过的轨迹倒车，每个卡住阶段最多 0.6 m | `backing_out` |
-| 倒车方向和车尾偏差 > 0.5 rad | 先原地转正（≥ 0.3 rad/s），再以 ≥ 0.12 m/s 倒车；倒车 2 s 仍未移动 5 cm 就放弃，改为原地转 | `backing_out` |
+| 倒车方向和车尾有偏差 | 边倒车边转向走过的路，倒车最低 0.12 m/s；倒车 2 s 仍未移动 5 cm 就放弃，改为原地转 | `backing_out` |
 | 深度画面覆盖太少（车头贴着桌子等，进入相机最小量程） | 不前进，只倒车或原地转向人 | `depth_coverage_recovery` |
 | 全部候选都不安全 | 停车 | `no_feasible_candidate` |
 
@@ -213,7 +215,7 @@ D455 → nav_yolo_detector（YOLOE 分割 + BoT-SORT + OSNet）
 
 - 绑定检测类别和完整 ID，用同帧分割深度取物体的可见表面。
 - 在滚动地图的八邻接图上找路，禁止斜穿障碍角，整条路径交给同一个 MPC。
-- 外廓按 0.48 m 方形计算。地图范围 12 m，栅格 0.1 m，只在已知空间里求最近可达点。
+- 外廓按 0.48 m 方形计算。滚动地图为 8×8 m、0.05 m 栅格；物体路线图在其上约 0.1 m 采样，并限制在机器人/目标外扩 1.2 m 的窗口。路线按观测障碍判阻，未知空间由近场 MPC 再约束，不能宣称整条路线都是已知自由空间。
 - 保守外廓和栅格会让实际停车距离大于 0.15 m。
 - 物体不可见或没有可用表面时等待；不使用人物 ReID，也不执行人物搜索。
 
@@ -277,6 +279,9 @@ ROS_DOMAIN_ID=198 ~/ros2_ws/.venv-boxmot/bin/python -m pytest -q test/test_nav_d
 - 软件门禁不等于物理制动验收。
 
 ## 其他文档
+
+- [当前工作区框架](../../docs/ros2_ws_architecture.md)、[启动命令与常用参数](../../docs/ros2_ws_operations.md)。
+- `numeric_backend:=cpp` 当前覆盖地图、目标/路人跟踪和参考曲线；默认 python，采样 MPC 仍在 Python，见迁移进度。
 
 - [HYBRID_TRANSPORT.md](HYBRID_TRANSPORT.md)：C++ 收发层与 Python 计算进程。
 - [FULL_CHAIN_TESTS.md](FULL_CHAIN_TESTS.md)：全链路测试。

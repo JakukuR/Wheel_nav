@@ -1,5 +1,7 @@
 # R680-MPC-STATIC-GLOBAL-001
 
+> 2026-11-09 核对：本文保留所述版本的设计/变更与验证证据；其中旧参数、包名、IP、启动/权限步骤不自动代表当前部署。当前框架见 [工作区总览](../../../../docs/ros2_ws_architecture.md)，操作见 [启动与参数](../../../../docs/ros2_ws_operations.md)。历史实测结果不因本轮文档核对而重新获得验收。
+
 默认 `r680_nav.sh --map ... --cuvslam --auto-vio-init --enable-motion` 使用
 `config/nav2_mpc.yaml`。移除该配置全局 costmap 的动态点云标记/清除层，只保留
 保存地图的 StaticLayer 与 InflationLayer。局部 costmap 的原始点云、清除射线、

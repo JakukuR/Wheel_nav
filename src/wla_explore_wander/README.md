@@ -44,7 +44,7 @@
 
 ## 运行
 
-先按 `wla_person_follow/README.md` 启动相机、感知和跟随后端（`enable_motion:=true` 才会真正动），并由操作者把 mux 切到 AUTO + PERSON。然后：
+先按 `wla_person_follow/README.md` 启动相机、感知和跟随后端（`enable_motion:=true` 才会真正动），当前 mux 采用速度优先级直通，不需要切 AUTO/PERSON；只核对新鲜控制状态、未急停和后端权限。然后：
 
 ```bash
 ros2 launch wla_explore_wander explore.launch.py boundary_radius_m:=3.0

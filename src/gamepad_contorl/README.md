@@ -1,5 +1,7 @@
 # Gamepad Teleop - 手柄遥控控制节点
 
+2026-11-09 车上部署说明：实际包名 gamepad_control，当前由 r680-manual-base.service 与底盘/mux 一起常驻运行，读取 wla_manual_control/config/gamepad.yaml 并发到 /r680_manual/cmd_vel。下文是通用独立包用法和本包默认配置，不要在常驻服务旁再起第二个手柄节点；完整工作区入口见 [操作手册](../../docs/ros2_ws_operations.md)。
+
 基于 ROS2 Humble 的手柄遥控节点，专为 **高重心、大质量差速驱动底盘** 设计，内置多重安全控制逻辑。
 
 ---

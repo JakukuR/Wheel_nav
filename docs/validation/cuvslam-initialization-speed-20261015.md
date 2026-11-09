@@ -1,4 +1,7 @@
 # cuVSLAM initialization speed request
+
+> 2026-11-09 核对：本文保留所述版本的设计/变更与验证证据；其中旧参数、包名、IP、启动/权限步骤不自动代表当前部署。当前框架见 [工作区总览](../ros2_ws_architecture.md)，操作见 [启动与参数](../ros2_ws_operations.md)。历史实测结果不因本轮文档核对而重新获得验收。
+
 Operator requested peak forward speed 0.20 m/s, peak angular speed 0.50 rad/s,
 and at most 2 seconds of motion. The existing waveform is retained: forward
 0.10--0.20 m/s and angular 0.50*sin(pi*t/2) rad/s during the moving phase.

@@ -1,5 +1,7 @@
 > 2026-10-13 维护说明：本文中的 `.maintenance` 路径是历史记录。该目录无运行依赖，按用户要求清理；保留的原始测试报告、日志和哈希清单迁入 `/home/orin/ros2_ws/docs/validation/maintenance-history/`，按原分组名查找，完整列表见该目录 `manifest.json`。源码/安装备份压缩包和依赖缓存已清理，不能再按旧路径恢复。历史结果未在本次清理中重跑。
 
+> 2026-11-09 核对：本文保留所述版本的设计/变更与验证证据；其中旧参数、包名、IP、启动/权限步骤不自动代表当前部署。当前框架见 [工作区总览](ros2_ws_architecture.md)，操作见 [启动与参数](ros2_ws_operations.md)。历史实测结果不因本轮文档核对而重新获得验收。
+
 > 当前人物链已于2026-10-12改为相对靠近/跟随：不使用map/odom/Nav2，2026-10-13已移除Agent检测开关，NAV感知进程收到新鲜图像即检测，Agent仅管理人物执行，Agent反馈为detected/what/id/yaw/distance。实时B不再有map坐标；家具A存图和已存语义导航保留。详见 [当前接口与入口](Agent共享检测与YOLO模型接入.md)。下文先前人物Nav2/MPC、实时map反馈和旧启动参数仅为历史记录。新代码已构建不等于常驻底盘服务已重启或完成实车验收。
 
 > 2026-10-12 当前感知链更新：YOLO/BoT-SORT 与实时深度/TF投影由 ros2_ws 的 nav_yolo_detector 承担；Agent 仅消费 nav 结果并按 B 白名单适配 observations/context。家具 A 与人物跟随共用 nav raw，导航意图/控制权机制保持既有接线。详见 [nav 统一检测与 Agent 反馈](Agent共享检测与YOLO模型接入.md)。后文中 Agent 作为默认 YOLO 发布者的描述是迁移前记录。
