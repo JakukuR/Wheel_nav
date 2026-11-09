@@ -281,7 +281,7 @@ ROS_DOMAIN_ID=198 ~/ros2_ws/.venv-boxmot/bin/python -m pytest -q test/test_nav_d
 ## 其他文档
 
 - [当前工作区框架](../../docs/ros2_ws_architecture.md)、[启动命令与常用参数](../../docs/ros2_ws_operations.md)。
-- `numeric_backend:=cpp` 当前覆盖地图、目标/路人跟踪和参考曲线；默认 python，采样 MPC 仍在 Python，见迁移进度。
+- `numeric_backend:=cpp` 当前覆盖地图、目标/路人跟踪、参考曲线、采样 MPC、绕行规划和物体接近目标（与 Python 参考逐位相等，跟随帧 compute_ms p50 约 49 → 14 ms）；默认 python，见迁移进度。
 
 - [HYBRID_TRANSPORT.md](HYBRID_TRANSPORT.md)：C++ 收发层与 Python 计算进程。
 - [FULL_CHAIN_TESTS.md](FULL_CHAIN_TESTS.md)：全链路测试。

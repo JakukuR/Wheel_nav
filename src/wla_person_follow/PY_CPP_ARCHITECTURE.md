@@ -174,3 +174,55 @@ C++ 原生数值测试、pybind11 数组/内存测试、ROS 集成和归档仿�
 
 下一阶段：规划与控制（采样 MPC `HybridFollower.command`、`DetourPlanner` 含 Dijkstra、
 `ApproachGoal`），验收为可行性判定一致、命令差 ≤1e-9。
+
+### 阶段 3：规划与控制（2026-11-09，6c34417）
+
+- C++ 部件（`wla_follow_local/include/wla_follow/planning.h`、`src/planning.cc`、
+  `src/approach_goal.cc`、`src/csgraph.cc`）逐语句对应参考实现：
+  - `HybridFollower`：采样 MPC `command`（13 档速度 × 25 档转向偏置、24 步滚动、底盘一阶滞后与
+    偏航死区模型、已知空间/静态/行人三类安全判据、视场约束与代价各项），以及 `recover`、
+    `_backup`（沿走过轨迹倒车，含停滞超时）、`_round_corners`、`_shortcut`、`_remember`；
+  - `DetourPlanner`：边缘点绕行（两侧候选、保持侧、退出滞回）、网格 Dijkstra 路线、可选 A*
+    细化、看侧翼；
+  - `ApproachGoal.select`：物体表面去重、0.1 m 格点连通图、虚拟起点、矩形车体间隙、
+    路线复用；
+  - `ChassisYaw`、`ApproachTangent`。
+- 逐位相等的前提（先测定再移植，`src/numpy_ops.h`）：
+  - `np.argsort` 默认为 numpy 1.26.4 的 introsort（16 个以下插入排序，深度耗尽转堆排序），
+    逐行移植，相等分数的次序也相同；
+  - scipy 1.11.4 `dijkstra` 的 Fibonacci 堆逐操作移植，等代价路径的前驱相同；
+    `coo_matrix.tocsr()` 按行列排序并合并重复边；
+  - `np.interp` 不融合；`np.linspace` 两端精确，向量端点有一维步长为 0 时整体改为先除后乘；
+  - cKDTree 最近距离为 `sqrt(fma(dy,dy,dx*dx))`，只与阈值比较，C++ 用精确的暴力最小值；
+  - 2×2 块均值按内存顺序累加；`np.round` 为偶数舍入；Python 内建 `min/max` 的并列取前者。
+- `_wla_sim_geometry` 的 `grid_query`、`grid_astar` 移入 `src/grid_kernels.h`，规划器与
+  原模块共用，输出逐字节不变（随机 80 组比对）。
+- Python 门面 `native_planning.py`：`NativeHybridFollower`（`c`、`last_*` 仍为普通属性，
+  引擎 mode 4 照常覆盖；`detour._grid_route` 供 mode 3 点目标）、`NativeApproachGoal`。
+  `TrackingPolicy` 的两个判据是纯函数，在 `policy_time` 求值一次后传入 C++。C++ 规划器只读
+  C++ 地图（`NativeRollingDepthMap._core`），所以 `numeric_backend:=cpp` 时地图、跟踪、参考
+  曲线、MPC、绕行和接近目标全部在 C++ 内；status 报告 `cpp_core_cpp_mpc`。cpp 不可用或传入
+  Python 地图时报错，不回退。
+- 工具：`tools/map_replay/rec_planning.py`（`WLA_PLAN_RECORD` 设置时由 `rec_main.py` 加载）把
+  规划调用记录进地图记录流，与地图调用交错；`compare_planning.py` 逐次重建两种地图，再把
+  每次规划调用分别交给两种实现比较（策略对象由 `recorded_policy.py` 记录）。
+- 手工建图注入引擎的测试（`test_goal_modes`、`test_sim_port`）按引擎后端建图：C++ 规划器
+  不接受 Python 地图。
+
+验证：
+- `test/test_native_planning.py`（55 项）：随机场景（横穿直线路线的墙、已知地面、未见侧翼、
+  行人、各任务模式的参数、搜索策略、恢复、参考路径与朝向点）中连续 30 步命令、全部可行性
+  计数、绕行报告、参考路径、卡住计数与倒车距离完全相等；覆盖边缘绕行、保持、Dijkstra 与
+  A* 网格路线、看侧翼、倒车与恢复；接近目标的规划、复用与回退；网格路线、`chassis_yaw`、
+  `approach_tangent`、采样点直接比较。
+- C++ ctest 3 项：排序与 Dijkstra 的性质、端点、死区、无距离场时拒绝计算、恢复不前进。
+- 2026-11-06 A* 包 170 s 回放记录 2878 次 MPC 调用与 14 次 reset（其中无可行解 113 次、
+  倒车 25 次、恢复 9 次，含边缘绕行、看侧翼和保持），离线逐次重放到两种实现：命令与全部诊断
+  完全相等。单次 `command` python → cpp：28.2 → 4.0 ms（含门面转换）。该包只有 mode 0，网格
+  路线与接近目标由随机测试覆盖。
+- 170 s 回放 A/B（各 2 次，跟随帧，numeric_backend python 对比 cpp）：
+  compute_ms p50 49.2 / 49.8 → 13.2 / 15.8 ms，p95 59.0 / 61.7 → 22.8 / 23.5 ms；状态与
+  原因分布在两次运行间的波动范围内。
+- 测试：默认 python 329 项全过；以 cpp 为默认 329 项全过。
+
+下一阶段（阶段 4）：单一 `FollowCore` 所有者，`process_step` 成为一次不持 GIL 的调用。
