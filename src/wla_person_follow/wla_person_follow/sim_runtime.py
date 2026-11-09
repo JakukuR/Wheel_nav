@@ -7,7 +7,7 @@ from .sim_core.common import Tuning
 from .sim_core.approach_goal import ApproachGoal, SWEEP_RADIUS
 from .sim_core.hybrid_controller import HybridFollower, seed_command, limit_step
 from .neupan_follower import NeuPANFollower, TRACKED_STATES as NEUPAN_STATES
-from .sim_core.rolling_depth_map import RollingDepthMap
+from .native_map import BACKENDS as NUMERIC_BACKENDS, make_rolling_map, map_backend
 from .sim_core.tracking import PeopleTracks
 
 
@@ -138,10 +138,12 @@ ORIENT_DONE_RAD=.05
 
 class SimulationEngine:
     """Single tracker input, shared rolling map and shared MPC; no second FSM."""
-    def __init__(self, pose, start_time):
+    def __init__(self, pose, start_time, numeric_backend='python'):
         self.tuning=Tuning()
         self.controller=HybridFollower(self.tuning)
-        self.mapping=RollingDepthMap(resolution=MAP_RESOLUTION_M,size=MAP_SIZE_CELLS,robot_radius=self.tuning.radius)
+        # numeric_backend 'cpp': map state in the C++ follow core (equal to the
+        # Python reference element-wise); never falls back silently.
+        self.mapping=make_rolling_map(numeric_backend,resolution=MAP_RESOLUTION_M,size=MAP_SIZE_CELLS,robot_radius=self.tuning.radius)
         self.mapping.slide(np.asarray(pose[:2]));self.mapping.rebuild(start_time)
         self.people=PeopleTracks()
         self.last_measurement=self.map_stamp=-math.inf
@@ -358,10 +360,15 @@ def process_step(job):
         raise ValueError('invalid_startup_motion_threshold')
     if not math.isfinite(radius) or not 0 <= radius <= .5:
         raise ValueError('invalid_startup_clear_radius')
-    if _PROCESS_KEY != key:
+    backend=startup.get('numeric_backend','python')
+    if backend not in NUMERIC_BACKENDS:
+        raise ValueError('unknown_numeric_backend: '+str(backend))
+    # A backend change starts from an empty map: no state crosses backends.
+    if _PROCESS_KEY != key or map_backend(_PROCESS_ENGINE.mapping)!=backend:
         old=_PROCESS_ENGINE
-        same_reference=old is not None and _PROCESS_KEY[-1]==key[-1]
-        _PROCESS_ENGINE = SimulationEngine(pose, now)
+        same_reference=(old is not None and _PROCESS_KEY[-1]==key[-1]
+                        and map_backend(old.mapping)==backend)
+        _PROCESS_ENGINE = SimulationEngine(pose, now, backend)
         # Starting/stopping a task resets target/controller state, not recent
         # obstacle evidence. A wheel reference reset still discards the map.
         if same_reference:

@@ -10,6 +10,7 @@
 #include <limits>
 #include <queue>
 #include "isolated_clusters.hpp"
+#include "grid_kernels.h"
 namespace py = pybind11;
 using Array=py::array_t<double,py::array::c_style|py::array::forcecast>;
 py::array_t<double> deproject(const Array& depth,const Array& k,const Array& rot,
@@ -113,19 +114,7 @@ py::tuple ray_slots(const Array& endpoints,const Array& origin,const Array& lowe
  std::vector<unsigned char> seen(size*size,0);
  {
   py::gil_scoped_release release;
-  const double step=res*.45;const int count=static_cast<int>(std::ceil(7./step));
-  for(py::ssize_t i=0;i<endpoints.shape(0);++i) {
-   const double dx=e(i,0)-o[0],dy=e(i,1)-o[1];
-   const double length=std::sqrt(dx*dx+dy*dy);
-   if(!std::isfinite(length))throw std::invalid_argument("invalid_ray_endpoint");
-   const double ux=dx/std::max(length,1e-9),uy=dy/std::max(length,1e-9);
-   for(int j=0;j<count;++j) {
-    const double distance=j*step;if(!(distance<length-.12))break;
-    const double x=std::floor((o[0]+ux*distance)/res)-l[0];
-    const double y=std::floor((o[1]+uy*distance)/res)-l[1];
-    if(x>=0&&x<size&&y>=0&&y<size)seen[static_cast<int>(x)*size+static_cast<int>(y)]=1;
-   }
-  }
+  wla::follow::detail::MarkRayCells(e.data(0,0),static_cast<size_t>(endpoints.shape(0)),o[0],o[1],l[0],l[1],res,size,seen);
  }
  size_t count=0;for(auto x:seen)count+=x;
  py::array_t<int64_t> xs(count),ys(count);auto x=xs.mutable_unchecked<1>(),y=ys.mutable_unchecked<1>();

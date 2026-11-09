@@ -42,7 +42,7 @@ def launch_backend(context):
         cmd=[value('python'),'-m','wla_person_follow.sim_node']
     cmd+=['--ros-args','--params-file',config,'-p','enable_motion:='+value('enable_motion')]
     if backend=='cpp':cmd+=['-p','worker_python:='+value('python')]
-    cmd+=['-p','depth_speckle_max_px:='+value('depth_speckle'),'-p','grid_route_planner:='+value('grid_route'),'-p','target_person_filter:='+value('person_filter'),'-p','local_planner:='+value('local_planner'),'-p','output_mode:='+value('output_mode'),'-p','direct_topic:='+value('direct_topic'),'-p','reid_enabled:='+value('enable_reid')]
+    cmd+=['-p','depth_speckle_max_px:='+value('depth_speckle'),'-p','grid_route_planner:='+value('grid_route'),'-p','numeric_backend:='+value('numeric_backend'),'-p','target_person_filter:='+value('person_filter'),'-p','local_planner:='+value('local_planner'),'-p','output_mode:='+value('output_mode'),'-p','direct_topic:='+value('direct_topic'),'-p','reid_enabled:='+value('enable_reid')]
     terrain=value('terrain')=='true'
     if terrain:cmd+=['-p','terrain_topic:='+TERRAIN_PREFIX+'/points']
     proc=ExecuteProcess(cmd=cmd,output='screen')
@@ -64,6 +64,7 @@ def generate_launch_description():
         DeclareLaunchArgument('person_filter',default_value='cylinder',choices=['cylinder','cluster']),
         DeclareLaunchArgument('depth_speckle',default_value='0'),
         DeclareLaunchArgument('grid_route',default_value='dijkstra',choices=['dijkstra','astar']),
+        DeclareLaunchArgument('numeric_backend',default_value='python',choices=['python','cpp']),
         DeclareLaunchArgument('enable_reid',default_value='true'),
         DeclareLaunchArgument('output_mode',default_value='mux'),
         DeclareLaunchArgument('direct_topic',default_value='/r680_base/cmd_vel'),

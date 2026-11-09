@@ -78,7 +78,7 @@ class FollowEngine:
             depth_topic='/r680/d455/aligned_depth_to_color/image_raw',
             camera_info_topic='/r680/d455/color/camera_info',
             wheel_topic='/wheel/odom', base_frame='r680_mapping_floor',
-            max_sensor_age_s=.30, map_max_age_s=.45, depth_stride=4, depth_min_m=.15, depth_max_m=5., depth_speckle_max_px=0, depth_speckle_diff_m=.075, grid_route_planner='dijkstra',
+            max_sensor_age_s=.30, map_max_age_s=.45, depth_stride=4, depth_min_m=.15, depth_max_m=5., depth_speckle_max_px=0, depth_speckle_diff_m=.075, grid_route_planner='dijkstra', numeric_backend='python',
             surface_to_center_offset_m=.28, camera_min_valid_fraction=.25,
             camera_front_min_valid_fraction=.35, result_ttl_s=.20, result_hold_s=.20, startup_clear_radius_m=0., startup_motion_threshold_m=.03,
             target_mask_enabled=True, reid_enabled=False, reid_model_id='', reid_similarity=.40,
@@ -118,6 +118,7 @@ class FollowEngine:
             not 1 <= self.p['depth_stride'] <= 16 or
             not 0 <= self.p['depth_speckle_max_px'] <= 5000 or
             self.p['grid_route_planner'] not in ('dijkstra','astar') or
+            self.p['numeric_backend'] not in ('python','cpp') or
             not .01 <= self.p['depth_speckle_diff_m'] <= .5 or
             not .1 <= self.p['depth_min_m'] < self.p['depth_max_m'] <= 7 or
             not 0 <= self.p['surface_to_center_offset_m'] <= .5 or
@@ -734,7 +735,7 @@ class FollowEngine:
                 if self.future is not None and not self.future.done():
                     raise ValueError('compute_worker_busy_no_queue_growth')
                 self.future=self.pool.submit(process_step,(key,np.asarray(control_pose),np.array([v[0],v[2]]),packets,observation,control_stamp,
-                    dict(active=active,grid_route_planner=self.p['grid_route_planner'],radius=self.p['startup_clear_radius_m'],
+                    dict(active=active,grid_route_planner=self.p['grid_route_planner'],numeric_backend=self.p['numeric_backend'],radius=self.p['startup_clear_radius_m'],
                          motion_threshold=self.p['startup_motion_threshold_m'],
                          local_radius=self.p['local_assumed_free_radius_m'],
                          target_clear_ttl_s=self.p['target_ghost_clear_ttl_s'],
@@ -851,7 +852,7 @@ class FollowEngine:
             v=motion.samples[-1][2]
             begun=time.monotonic()
             self.future=self.pool.submit(process_step,(key,np.asarray(control_pose),np.array([v[0],v[2]]),[],observation,control_stamp,
-                dict(active=True,grid_route_planner=self.p['grid_route_planner'],radius=self.p['startup_clear_radius_m'],
+                dict(active=True,grid_route_planner=self.p['grid_route_planner'],numeric_backend=self.p['numeric_backend'],radius=self.p['startup_clear_radius_m'],
                      motion_threshold=self.p['startup_motion_threshold_m'],
                      local_radius=self.p['local_assumed_free_radius_m'],
                      target_clear_ttl_s=self.p['target_ghost_clear_ttl_s'],
@@ -1047,7 +1048,8 @@ class FollowEngine:
                     follow_session=self.follow_session,request_id=state['request_id'],stamp_ns=ns,
                     linear=float(actual[0]),angular=float(actual[1])))))
             state.update(schema='wla-person-status/v1',stamp_ns=ns,follow_session=self.follow_session,
-                planner='tracker_sampling_mpc',numeric_backend='python_mpc_cpp_map' if native_ray_slots is not None else 'python_reference',native_frontend='cpp_deproject_ground_cluster_filter',
+                planner='tracker_sampling_mpc',numeric_backend=('cpp_map_python_mpc' if self.p['numeric_backend']=='cpp' else
+                    'python_mpc_cpp_map' if native_ray_slots is not None else 'python_reference'),native_frontend='cpp_deproject_ground_cluster_filter',
                 obstacle_topic=self.p['prefix']+'/depth_obstacles',
                 base_frame=self.p['base_frame'],output_mode=self.p['output_mode'],
                 candidate_only=not self.p['enable_motion'],motion_permitted=permitted and healthy,
