@@ -30,8 +30,20 @@ def position(row, pose, offset=.28, expected_label='person'):
 # direction jumped 0.25 rad per frame (p95). 5 cm / 0.5: 1 s prediction error
 # 0.277 -> 0.250 m, direction jumps 0.13 rad, a sharp 90 deg turn is followed
 # 0.2 s later (63 % after 0.80 s instead of 0.59 s).
-TARGET_MEAS_STD_M = .05
-TARGET_ACCEL_STD_MPS2 = .5
+# Retuned 2026-11-09 without the 1 m/s clamp, replaying the 2026-11-06 A* walk
+# (2,303 detections, truth = local quadratic fit): 0.2 s prediction error p50
+# 0.074 -> 0.067 m, p95 0.192 -> 0.184; speed bias above 1 m/s -0.14 -> -0.04;
+# velocity frame-to-frame change p95 0.080 -> 0.092 m/s.
+TARGET_MEAS_STD_M = .06
+TARGET_ACCEL_STD_MPS2 = .8
+# 99.9 % of a 2-dof chi-square; skipped 32 of 2,303 frames, the range jumps at
+# the image edge that otherwise threw the velocity to 3.3 m/s before a loss.
+TARGET_INNOVATION_GATE = 13.8
+# Unseen > 0.7 s: the velocity fades with 0.4 s. Over 1.2-5.4 s gaps the
+# reappearance error fell 2.50 -> 2.16 m (median of 6); short gaps unchanged.
+TARGET_COAST_DECAY = (.7, .4)
+# Upper bound for trusting the filtered velocity as the walking direction.
+TARGET_MAX_WALK_MPS = 2.
 # Matches of one recovery candidate may be this far apart; frames without a usable
 # feature in between (crop overlap/clipped, low confidence, not detected) neither
 # count nor reset. 2026-11-02 16:09: a 0.75-0.78 match at 198.9/199.1/201.0 s was
@@ -190,14 +202,15 @@ class FollowTracker:
     def _accept(self, point, pose, stamp):
         if self.track is None:
             self.track = VisualTrack(timeout=self.prediction_s, meas_std=TARGET_MEAS_STD_M,
-                                     accel_std=TARGET_ACCEL_STD_MPS2, **self.history_options)
+                                     accel_std=TARGET_ACCEL_STD_MPS2, gate=TARGET_INNOVATION_GATE,
+                                     coast_decay=TARGET_COAST_DECAY, **self.history_options)
             self.observations.clear()
         self.track.update(point, stamp)
         velocity = self.track.x[2:].copy()
         dt = None if self.last_seen is None else stamp-self.last_seen
         measured = None if dt is None or dt <= 0 else (point-self.last_position)/dt
         reliable = (measured is not None and dt <= self.freshness_s*2
-                    and .15 <= np.linalg.norm(velocity) <= 1.
+                    and .15 <= np.linalg.norm(velocity) <= TARGET_MAX_WALK_MPS
                     and np.linalg.norm(measured-velocity) <= .5)
         self.velocity_evidence = self.velocity_evidence+1 if reliable else 0
         self.last_bearing = float(math.atan2(point[1]-pose[1], point[0]-pose[0]))
