@@ -226,3 +226,47 @@ C++ 原生数值测试、pybind11 数组/内存测试、ROS 集成和归档仿�
 - 测试：默认 python 329 项全过；以 cpp 为默认 329 项全过。
 
 下一阶段（阶段 4）：单一 `FollowCore` 所有者，`process_step` 成为一次不持 GIL 的调用。
+
+### 阶段 4：单一 FollowCore 所有者（2026-11-09，c41e004）
+
+- C++ `FollowCore`（`wla_follow_local/include/wla_follow/follow_core.h`、`src/follow_core.cc`）是
+  `numeric_backend:=cpp` 时全部数值状态的唯一所有者：滚动地图、路人航迹、采样 MPC 及其绕行规划、
+  接近目标、目标轨迹（人物轨迹清除用）、点目标路线、上一条下发命令，以及进程级的启动先验。
+  `step()` 逐语句对应 `sim_runtime.process_step` 在输入检查之后的部分和 `SimulationEngine.step`：
+  深度包按时间排序更新地图（含 `drop_established`）、轨迹清除、带复用的重建、五种任务模式的参数
+  覆盖、`seed_command`/`limit_step`、原因字符串、空闲帧、`TrackingPolicy.limit_command`、启动先验
+  的首次清空与平移计时。Python `SimulationEngine` 保留为数值参考。
+- 绑定（`src/follow_core_engine.cc`）先在持有 GIL 时转换输入，再在释放 GIL 后执行整个 `step()`，
+  返回普通值。Python 门面 `native_engine.NativeFollowEngine` 只做转换：在步时刻求值策略的两个
+  判据，把检测键映射为 int64 id、把 `key[-1]` 映射为整数令牌，并按参考引擎的键和顺序组装结果
+  字典。`process_step` 在 cpp 时只走这一条路径；status 报告 `cpp_follow_core`。
+- 任务与参考的规则不变：换任务调用 `reset_task`，保留地图证据；轮速参考变化调用
+  `reset_reference`，从新地图开始；启动先验每个进程只用一次，并同步回 `_PROCESS_STARTUP_*`，
+  切换后端时不会再次清空。`_PROCESS_ENGINE.mapping`（共享所有权的 C++ 地图视图）和 `.tuning`
+  仍可读，供测试检查。
+- NeuPAN（`local_planner:=neupan`，neupan_cpp 在独立进程中）分两次调用：`step()` 算到命令后停在
+  策略限幅之前，门面经管道请求 NeuPAN，再由 `FollowCore.commit()` 限幅并记录为上一条命令。
+  默认 `mpc` 每帧只调用一次。
+- C++ 地图改为 `shared_ptr` 持有，`RollingMap` 的 pybind 持有类型随之改变，Python 接口不变。
+
+验证：
+- `test/test_follow_core.py`（20 项）：14 组闭环随机运行（墙、物体、路人、行走目标；带/不带目标
+  清除点的深度包；无深度包的控制频率帧；换任务、换参考、空闲帧；5 种模式、恢复、A* 网格路线、
+  启动先验与局部免检圈、轨迹清除），分别交给 python 与 cpp 两个后端的 `process_step`，每一步的
+  结果字典（键与顺序、命令、原因、候选计数、路径、tuning、先验报告、占据栅格）完全相等；其中 5 组
+  覆盖物体接近的两种结果和点目标。另有 3 组外部规划器分两次调用的运行（调用参数也相等）、后端
+  切换保留启动先验、cpp 不可用时报错不回退。
+- C++ ctest 4 项（新增 `test_follow_core`：空闲帧、启动先验只用一次且只按平移计时、原地转向的
+  首步限幅与策略限幅、外部命令单独提交、点目标缺少目标时报错）。
+- 2026-11-06 A* 包 170 s 回放记录 4154 次 `process_step`（`tools/map_replay/rec_step.py`）。
+  `compare_step.py` 离线逐次交给 python 参考、阶段 4 和阶段 3 三种实现：阶段 4 与阶段 3 均
+  4154/4154 与参考完全相等；回放时实际下发的结果也逐次复现（4154/4154）。单次耗时 p50：
+  python 39.5 ms，阶段 3 6.53 ms，阶段 4 6.02 ms（p95 9.56 → 9.31 ms）。该包只有 mode 0。
+- 170 s 回放 A/B（各 2 次，跟随帧；阶段 3 为当前 install）：compute_ms p50 10.7 / 10.6 →
+  9.6 / 9.4 ms，p95 19.9 / 20.2 → 18.6 / 18.5 ms；原因分布在两次运行间的波动范围内。耗时
+  降得不多，因为阶段 3 时 Python 编排只占约 0.5 ms；本阶段的主要变化是整步计算不再持有 GIL，
+  不再和同一进程里的 ROS 侧 Python 逻辑争抢。
+- 测试：默认 python 349 项全过；以 cpp 为默认 349 项全过。
+
+后续可选：把 NeuPAN 的管道读写也放进 C++，让 neupan 也只调一次（需先确定 NeuPAN 客户端状态
+归谁所有：它的生命周期是整个进程，跨任务保留）。
