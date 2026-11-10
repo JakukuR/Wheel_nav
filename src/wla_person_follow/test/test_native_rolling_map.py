@@ -92,6 +92,11 @@ def test_random_sequences_match_reference(seed):
             radius = float(rng.choice([0., .3, .6]))
             assert py.retire_person_trail(trail, t, radius) == cpp.retire_person_trail(trail, t, radius)
             assert_same(py, cpp)
+        if rng.random() < .4:
+            disc = pose[:2] + rng.uniform(-1.5, 2.5, 2)
+            radius = float(rng.choice([0., .3, .5, .9]))
+            assert py.retire_disc(disc, radius, t) == cpp.retire_disc(disc, radius, t)
+            assert_same(py, cpp)
         if rng.random() < .3:
             release = bool(rng.random() < .3)
             for m in (py, cpp):

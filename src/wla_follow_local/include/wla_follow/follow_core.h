@@ -22,6 +22,8 @@ struct StepPacket
     CloudView m_cloud;
     // packet['target_points_from_cluster']: clearing candidates go through drop_established.
     bool m_targetPointsFromCluster{false};
+    // packet['retire_disc_odom'] = (x, y, radius): RollingMap::retireDisc after the update.
+    std::optional<std::array<double, 3>> m_retireDisc;
 };
 
 // observation = (stamp, target, people, resolved_id) of process_step.

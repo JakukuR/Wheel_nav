@@ -224,6 +224,27 @@ class RollingDepthMap:
         self.version+=1
         return int(np.count_nonzero(ghost))
 
+    def retire_disc(self,center,radius,t):
+        """Forget hits within `radius` of the tracked person's centre (x, y).
+
+        Covers hits retire_person_trail cannot attribute: those written before the
+        task started (person in view, no target set, so nothing filtered them) or
+        outside the trail's time window. Unlike the trail rule this also retires a
+        fixed obstacle that close to the person; retired cells become unknown,
+        never free, and a later hit outside the person's cylinder marks them again
+        (2026-11-10 trial: the person's own ghost blocked the straight route).
+        """
+        if radius<=0:return 0
+        centers=(self.tags+.5)*self.res
+        ghost=((self.log>=0)&(t-self.stamp<=self.ttl)&
+               (np.hypot(centers[...,0]-float(center[0]),centers[...,1]-float(center[1]))<=radius))
+        if not ghost.any():return 0
+        a,b=np.nonzero(ghost)
+        self.log[a,b]=0.;self.stamp[a,b]=-np.inf;self.target_clear_stamp[a,b]=-np.inf
+        self.occupied_since[a,b]=-np.inf
+        self.version+=1
+        return int(len(a))
+
     def _expiry_between(self,t0,t1):
         """True if any cell's TTL or target-clear expiry falls in [t0, t1)."""
         return bool(np.any((self.stamp>=t0-self.ttl)&(self.stamp<t1-self.ttl)) or

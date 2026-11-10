@@ -8,7 +8,7 @@ FollowCore call per step). Every step's result dict must be identical: keys and
 their order, commands, reasons, candidate counts, paths, tuning, prior reports
 and the occupancy grid. Runs cover task changes (map kept), wheel reference
 changes (map dropped), idle steps, all five task modes, recovery, A* grid
-routes, the startup and local free priors, trail clearing and a NeuPAN-style
+routes, the startup and local free priors, trail and person-disc clearing and a NeuPAN-style
 external planner.
 """
 import math
@@ -133,6 +133,8 @@ def _drive(seed, backend, steps=48, neupan=None, modes=None):
             if rng.random() < .5:
                 packet['target_points_odom'] = np.c_[person + rng.normal(0, .1, (40, 2)), rng.uniform(.05, .6, 40)]
                 packet['target_points_from_cluster'] = True
+            if rng.random() < .4:
+                packet['retire_disc_odom'] = np.array([person[0], person[1], .5]) + np.r_[rng.normal(0, .1, 2), 0.]
             packets.append((stamp, packet))
             if rng.random() < .2:
                 packets.append((round(stamp - .05, 6), _cloud(rng, pose, world)))

@@ -231,6 +231,15 @@ struct Packets
             packet.m_stamp = pair[0].cast<double>();
             packet.m_targetPointsFromCluster =
                 cloud.contains("target_points_from_cluster") && py::bool_(cloud["target_points_from_cluster"]);
+            if (cloud.contains("retire_disc_odom"))
+            {
+                const DoubleArray disc = DoubleArray::ensure(cloud["retire_disc_odom"]);
+                if (!disc || disc.size() != 3)
+                {
+                    throw std::invalid_argument("invalid_retire_disc_odom");
+                }
+                packet.m_retireDisc = std::array<double, 3>{disc.data()[0], disc.data()[1], disc.data()[2]};
+            }
             CloudView& view = packet.m_cloud;
             m_keep.push_back(Rows(cloud["points"], "points"));
             view.m_points = Span(m_keep.back());

@@ -93,3 +93,35 @@ def test_engine_collects_trail_only_for_person_modes_and_retires_ghosts():
     engine.step(np.zeros(3), np.zeros(2), [], observation, 1.1, task_mode='0', active=True)
     assert len(engine.target_trail) == 1 and engine.trail_retired == 1
     assert not engine.mapping.occupied[_cell(engine.mapping, body)]
+
+
+def test_hits_written_before_the_task_are_retired_round_the_person():
+    """2026-11-10 trial: the person stood in view while no task ran, so the map
+    held their body; at task start the straight route ended in that ghost."""
+    mapping = RollingDepthMap(resolution=.05, size=80, ttl=12.)
+    robot = np.zeros(3)
+    body = [(1.0, y, .8) for y in (-.15, 0., .15)] + [(.85, 0., .8)]
+    chair = (1.0, .75, .3)  # 0.75 m to the side of the person: kept.
+    mapping.update(_cloud(hits=body + [chair]), robot, 1.)
+    # The trail starts later than the hits, so the trail rule cannot match them.
+    assert mapping.retire_person_trail([[3., 1., 0.]], 3.) == 0
+    assert mapping.retire_disc((1.0, 0.), .5, 3.) == len(body)
+    mapping.rebuild(3.)
+    for point in body:
+        assert not mapping.occupied[_cell(mapping, point)]
+        assert not mapping.known[_cell(mapping, point)]  # unknown, not free
+    assert mapping.occupied[_cell(mapping, chair)]
+    # A later hit marks the cell again.
+    mapping.update(_cloud(hits=body[:1]), robot, 3.2)
+    mapping.rebuild(3.2)
+    assert mapping.occupied[_cell(mapping, body[0])]
+
+
+def test_engine_retires_the_disc_a_packet_requests():
+    engine = SimulationEngine(np.zeros(3), 0.)
+    body = (1.02, .02, .8)
+    engine.update_map(np.zeros(3), [(1., _cloud(hits=(body,)))], 1.)
+    assert engine.mapping.occupied[_cell(engine.mapping, body)]
+    packet = dict(_cloud(), retire_disc_odom=np.array([1., 0., .5]))
+    engine.update_map(np.zeros(3), [(1.1, packet)], 1.1)
+    assert not engine.mapping.occupied[_cell(engine.mapping, body)]

@@ -704,6 +704,14 @@ class FollowEngine:
                     for name in ('obstacle_points','marking_points_odom'):packet[name]=packet[name][keep_o]
                     mask_status.update(fallback='tracked_position_cylinder',fallback_radius_m=round(fallback_radius,3),fallback_age_s=round(float(fallback_age),3),
                         fallback_removed_obstacle_points=removed)
+                if (active and mode != MODE_OBJECT_APPROACH and fallback_center is not None
+                        and fallback_age<=TARGET_FALLBACK_HORIZON_S):
+                    # Hits already in the map round the tracked person (written before
+                    # the task, while nothing filtered the person, or by frames the
+                    # silhouette missed) are retired to unknown as well (2026-11-10).
+                    center=np.asarray(fallback_center,dtype=float)
+                    packet['retire_disc_odom']=np.array([center[0],center[1],TARGET_FALLBACK_RADIUS_M])
+                    mask_status['retire_disc_radius_m']=TARGET_FALLBACK_RADIUS_M
                 if cluster_applied:target_points=packet['target_points_odom']
                 packet['target_points_odom']=target_points
                 mask_status['target_ghost_points']=len(target_points)

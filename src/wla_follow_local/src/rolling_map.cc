@@ -608,6 +608,37 @@ int RollingMap::retirePersonTrail(std::span<const double> trail, double t, doubl
     return static_cast<int>(ghosts.size());
 }
 
+int RollingMap::retireDisc(double x, double y, double radius, double t)
+{
+    Impl& m = *m_impl;
+    if (radius <= 0)
+    {
+        return 0;
+    }
+    int count = 0;
+    for (std::size_t s = 0; s < m.m_log.size(); ++s)
+    {
+        if (!(m.m_log[s] >= 0 && t - m.m_stamp[s] <= m.m_ttl))
+        {
+            continue;
+        }
+        if (!(std::hypot(m.center(m.m_tags[2 * s]) - x, m.center(m.m_tags[2 * s + 1]) - y) <= radius))
+        {
+            continue;
+        }
+        m.m_log[s] = 0.;
+        m.m_stamp[s] = -INF;
+        m.m_clearStamp[s] = -INF;
+        m.m_since[s] = -INF;
+        ++count;
+    }
+    if (count)
+    {
+        ++m.m_version;
+    }
+    return count;
+}
+
 void RollingMap::rebuild(double t, bool reuse)
 {
     Impl& m = *m_impl;

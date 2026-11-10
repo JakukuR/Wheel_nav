@@ -151,6 +151,9 @@ class NativeRollingDepthMap:
         return self._core.retire_person_trail(np.asarray(trail, dtype=float).reshape(-1, 3), float(t),
                                               float(radius), float(window), float(max_gap))
 
+    def retire_disc(self, center, radius, t):
+        return self._core.retire_disc(float(center[0]), float(center[1]), float(radius), float(t))
+
     def rebuild(self, t, reuse=False):
         self._core.rebuild(float(t), bool(reuse))
 

@@ -176,6 +176,10 @@ class SimulationEngine:
                     packet=dict(packet,target_points_odom=self.mapping.drop_established(
                         packet['target_points_odom'],self.target_trail,stamp))
                 self.mapping.update(packet,pose,stamp,rebuild=False);self.map_stamp=stamp
+                disc=packet.get('retire_disc_odom')
+                if disc is not None:
+                    disc=np.asarray(disc,dtype=float).reshape(3)
+                    self.mapping.retire_disc(disc[:2],float(disc[2]),stamp)
         self.mapping.slide(np.asarray(pose[:2]))
         self.mapping.local_assumed_free_center=np.asarray(pose[:2]).copy()
         if len(self.target_trail):

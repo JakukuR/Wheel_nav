@@ -60,6 +60,8 @@ public:
                                                       double t, double radius) const;
     [[nodiscard]] int retirePersonTrail(std::span<const double> trail, double t, double radius,
                                         double window, double max_gap);
+    // Hits within `radius` of (x, y) become unknown (rolling_depth_map.retire_disc).
+    [[nodiscard]] int retireDisc(double x, double y, double radius, double t);
     void rebuild(double t, bool reuse);
     // Unique in-window ring slots of xy (Q x 2), in window-cell order.
     void slots(std::span<const double> xy, std::vector<std::int64_t>& a, std::vector<std::int64_t>& b) const;

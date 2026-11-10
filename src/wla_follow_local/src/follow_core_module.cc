@@ -199,6 +199,10 @@ PYBIND11_MODULE(_wla_follow_core, m)
             }
             return out;
         })
+        .def("retire_disc", [](RollingMap& self, double x, double y, double radius, double t) {
+            py::gil_scoped_release release;
+            return self.retireDisc(x, y, radius, t);
+        })
         .def("retire_person_trail", [](RollingMap& self, const py::handle& trail, double t, double radius,
                                        double window, double max_gap) {
             const DoubleArray r = Rows(trail, "trail");

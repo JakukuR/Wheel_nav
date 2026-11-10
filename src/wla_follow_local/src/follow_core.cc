@@ -182,6 +182,11 @@ struct FollowCore::Impl
                 const CloudView one[1] = {cloud};
                 m_map->update(one, pose, packet->m_stamp, false);
                 m_mapStamp = packet->m_stamp;
+                if (packet->m_retireDisc)
+                {
+                    const auto& disc = *packet->m_retireDisc;
+                    (void)m_map->retireDisc(disc[0], disc[1], disc[2], packet->m_stamp);
+                }
             }
         }
         m_map->slide(pose[0], pose[1]);
