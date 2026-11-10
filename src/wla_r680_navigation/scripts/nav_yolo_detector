@@ -37,7 +37,7 @@ class NavDetector(Node):
         super().__init__('r680_nav_yolo_detector')
         self.args, self.model = args, model
         from wla_r680_navigation_py.boxmot_runtime import TrackingRuntime
-        self.runtime = TrackingRuntime(model, args.tracker)
+        self.runtime = TrackingRuntime(model, args.tracker, chroma_smoothing=getattr(args, 'chroma_smoothing', True))
         self.mask_interest = None
         self.last_valid_result_ns = 0
         self.session, self.epoch = uuid.uuid4().hex, 0
@@ -404,6 +404,8 @@ def main():
     p.add_argument('--tracker', required=True)
     p.add_argument('--device', default='0')
     p.add_argument('--imgsz', type=int, default=416)
+    p.add_argument('--chroma-smoothing', action=argparse.BooleanOptionalAction, default=True,
+                   help='Average the detector input colour over 2x2 pixels, luma kept (raw D455 colour noise lowers person scores)')
     p.add_argument('--hz', type=float, default=float(os.environ.get('WLA_DETECTOR_HZ', 20.)), help='Rate during a follow task')
     p.add_argument('--idle-hz', type=float, default=float(os.environ.get('WLA_DETECTOR_IDLE_HZ', 10.)), help='Rate otherwise')
     p.add_argument('--base-frame', choices=['r680_mapping_floor', 'base_link'], default='r680_mapping_floor')
@@ -459,13 +461,13 @@ def main():
                            text_encoder_path=args.text_encoder)
     if args.check_dependencies:
         from wla_r680_navigation_py.boxmot_runtime import TrackingRuntime
-        checked_runtime=TrackingRuntime(model,args.tracker)
+        checked_runtime=TrackingRuntime(model,args.tracker,chroma_smoothing=args.chroma_smoothing)
         print(json.dumps(dict(owner='ros2_ws/wla_r680_navigation', model=args.model,
             sha256=hashlib.sha256(Path(args.model).read_bytes()).hexdigest(),
             cuda_available=torch.cuda.is_available(), classes=list(model.names.values()),
             detector=model.wla_yoloe_provenance,tracker='boxmot-25.0.0-botsort',
             native_cmc=checked_runtime.use_cmc,reid_model_id=checked_runtime.reid.model_id,
-            reid_source='native_shared',target_mask_filter=True)))
+            reid_source='native_shared',target_mask_filter=True,chroma_smoothing=args.chroma_smoothing)))
         return
     rclpy.init(args=[])
     node = NavDetector(args, model)

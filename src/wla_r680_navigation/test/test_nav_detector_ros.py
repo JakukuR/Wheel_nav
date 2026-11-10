@@ -56,8 +56,9 @@ def fixture(monkeypatch):
     # These tests isolate ROS/queue/geometry contracts. Real TrackingRuntime and
     # BoxMOT tracking is tested separately with the actual YOLOE on GPU0.
     class FixtureRuntime:
-        def __init__(self, model, config=None):
+        def __init__(self, model, config=None, chroma_smoothing=True):
             self.model = model
+            self.chroma_smoothing = chroma_smoothing
             self.signature = ('fixture-warmed',)
             self.last_metrics = {}
             self.use_cmc=True;self.features={}

@@ -18,6 +18,40 @@ NATIVE_ALIGNED=dict(frame_rate=30,fuse_first_associate=False,second_match_thresh
     unconfirmed_match_thresh=.7,unconfirmed_emb_scale=2.,asso_func='iou')
 CLASS_SLOTS=256
 _LIBRARY=None
+# BT.601 luma weights in the RGB order Ultralytics feeds the network.
+LUMA_RGB=(.299,.587,.114)
+
+
+def smooth_chroma(image):
+    """Average the colour difference over 2x2 pixels and keep the luma.
+
+    image is the (N,3,H,W) RGB 0-1 tensor Ultralytics' preprocess returns. Raw
+    D455 RGB8 frames carry pixel-level colour noise that YOLOE-26s reads as a
+    much weaker person: on 906 raw frames (2026-11-10) person p50 was 0.58
+    without this step and 0.89 with it, the value the 4:2:0 debug JPEG gives.
+    Only linear operations on the colour difference, so the luma is unchanged up
+    to float rounding. No clamp: clamping saturated pixels would change the luma.
+    """
+    import torch.nn.functional as F
+    source=image.float()
+    luma=(source*source.new_tensor(LUMA_RGB).view(1,3,1,1)).sum(1,keepdim=True)
+    colour=F.avg_pool2d(source-luma,2,ceil_mode=True)
+    colour=F.interpolate(colour,size=source.shape[-2:],mode='bilinear',align_corners=False)
+    return (luma+colour).to(image.dtype)
+
+
+def install_chroma_smoothing(predictor):
+    """Wrap the predictor's preprocess once, on the GPU tensor it already built.
+
+    Returns whether the wrap is in place (False for a predictor without one).
+    """
+    preprocess=getattr(predictor,'preprocess',None)
+    if preprocess is None:return False
+    if getattr(preprocess,'wla_chroma_smoothing',False):return True
+    def smoothed(image):return smooth_chroma(preprocess(image))
+    smoothed.wla_chroma_smoothing=True
+    predictor.preprocess=smoothed
+    return True
 
 
 def bounded_library():
@@ -69,9 +103,11 @@ class NativeObjectTracks:
 
 
 class TrackingRuntime:
-    def __init__(self,model,config=None,reid_backend=None):
+    def __init__(self,model,config=None,reid_backend=None,chroma_smoothing=True):
         from boxmot import BotSort
         self.model=model
+        # Detector input only: ReID crops, masks and boxes keep the camera frame.
+        self.chroma_smoothing=chroma_smoothing;self.chroma_active=False
         options=dict(track_high_thresh=.4,track_low_thresh=.1,new_track_thresh=.5,
             track_buffer=15,match_thresh=.8,proximity_thresh=.5,appearance_thresh=.25,
             use_cmc=True,cmc_method='sof',use_embeddings=True)
@@ -146,6 +182,7 @@ class TrackingRuntime:
         if self.signature is None:
             self.model.predict(frame,**options)
             predictor=self.model.predictor
+            if self.chroma_smoothing:self.chroma_active=install_chroma_smoothing(predictor)
             if predictor.model.device.type=='cuda' and not self.engine_imgsz:
                 from wla_sim.perception.yoloe_graph import FP32GraphForward
                 network=predictor.model.model;network.pe=network.pe.to(predictor.model.device)
@@ -154,9 +191,11 @@ class TrackingRuntime:
             if self.graph:self.graph.allow_capture=False
             self.reid.warm();self.reset();self.signature=signature
             self.last_metrics=dict(warmup_ms=(time.perf_counter()-started)*1000,
-                backend=self.backend,cmc=self.use_cmc)
+                backend=self.backend,cmc=self.use_cmc,chroma_smoothing=self.chroma_active)
             return None
         if signature!=self.signature:raise ValueError('changed_image_or_options_require_new_detector')
+        # Idempotent; re-wraps if Ultralytics ever rebuilt its predictor.
+        if self.chroma_smoothing:self.chroma_active=install_chroma_smoothing(self.model.predictor)
         output=self.model.predict(frame,**options)[0]
         detected=time.perf_counter()
         rows,people=self.associate(output,frame)
@@ -165,5 +204,6 @@ class TrackingRuntime:
             total_ms=(time.perf_counter()-started)*1000,backend=self.backend,
             cmc=self.use_cmc,cmc_method='sof' if self.use_cmc else None,tracker='boxmot-25.0.0-botsort',
             tracker_backend=self.tracker_backend,reid_backend=getattr(self.reid,'backend_name',None),
-            appearance='native_all_persons',people=people,detections=len(output.boxes.data),tracks=len(rows))
+            appearance='native_all_persons',people=people,detections=len(output.boxes.data),tracks=len(rows),
+            chroma_smoothing=self.chroma_active)
         return output,rows
