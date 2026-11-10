@@ -5,6 +5,7 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
+#include <sensor_msgs/msg/imu.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
@@ -50,6 +51,9 @@ class FollowTransport: public rclcpp::Node {
     depth_topic=param<std::string>("depth_topic","/r680/d455/aligned_depth_to_color/image_raw");
     info_topic=param<std::string>("camera_info_topic","/r680/d455/color/camera_info");
     wheel_topic=param<std::string>("wheel_topic","/wheel/odom_50hz");
+    imu_topic=param<std::string>("imu_topic","/wheel/imu/data_raw");
+    yaw_rate_source=param<std::string>("yaw_rate_source","wheel");
+    if(yaw_rate_source!="wheel" && yaw_rate_source!="imu") throw std::runtime_error("yaw_rate_source must be wheel or imu");
     relative_topic=param<std::string>("relative_topic","/r680/perception/relative_objects");
     detector_topic=param<std::string>("detection_status_topic","/r680_nav/perception/status");
     gate.enabled=param<bool>("enable_motion",false);
@@ -91,8 +95,11 @@ class FollowTransport: public rclcpp::Node {
     subs.push_back(create_subscription<nav_msgs::msg::Odometry>(wheel_topic,rclcpp::SensorDataQoS(),[this](nav_msgs::msg::Odometry::ConstSharedPtr m){ guarded([&]{
       const auto old=motion.generation; const auto &v=m->twist.twist;
       bool accepted=false;
+      const double wheel_stamp=stamp(m->header.stamp)*1e-9;
+      const double w=gyro.yaw_rate(wheel_stamp,v.linear.x,v.linear.y,v.angular.z,yaw_rate_source=="imu");
+      last_yaw_rate={wheel_stamp,v.angular.z,w};
       if(m->child_frame_id!=base) motion.reset();
-      else accepted=motion.update(stamp(m->header.stamp)*1e-9,{v.linear.x,v.linear.y,v.angular.z},now().seconds());
+      else accepted=motion.update(wheel_stamp,{v.linear.x,v.linear.y,w},now().seconds());
       if(accepted) gate.wheel_received=monotonic();
       gate.motion_generation=motion.generation;
       const auto &p=m->pose.pose.position;const auto &q=m->pose.pose.orientation;
@@ -100,6 +107,11 @@ class FollowTransport: public rclcpp::Node {
         {"position",{p.x,p.y,p.z}},{"orientation",{q.x,q.y,q.z,q.w}},{"twist",{v.linear.x,v.linear.y,v.angular.z}},
         {"accepted",accepted},{"received",monotonic()}};
       if(old!=motion.generation) { last_motion_sent=0; barrier("wheel_reference_changed",false); }
+    }); }));
+    // Always subscribed: in wheel mode the gyro rate is still reported next to the
+    // wheel rate, so a run without the switch shows whether the two agree.
+    subs.push_back(create_subscription<sensor_msgs::msg::Imu>(imu_topic,rclcpp::SensorDataQoS(),[this](sensor_msgs::msg::Imu::ConstSharedPtr m){ guarded([&]{
+      gyro.add(stamp(m->header.stamp)*1e-9,m->angular_velocity.z);
     }); }));
     if(!terrain_topic.empty()) {
       // Slope/step obstacle cloud from wla_terrain_analysis (base frame, z = height
@@ -164,6 +176,9 @@ class FollowTransport: public rclcpp::Node {
   bool failed=false;
   Channel channel; OutputGate gate; Motion motion;
   std::string prefix,base,depth_topic,info_topic,wheel_topic,relative_topic,detector_topic,session,terrain_topic;
+  std::string imu_topic,yaw_rate_source;
+  GyroYaw gyro;
+  std::array<double,3> last_yaw_rate{0.,0.,0.};
   Cloud::ConstSharedPtr terrain;int64_t terrain_sent=0;
   std::string terminal_state="idle",terminal_reason="waiting_for_command",active_mode;
   bool ready=false,mask_enabled=true,control_known=false;
@@ -486,6 +501,10 @@ class FollowTransport: public rclcpp::Node {
     s["transport_generation"]=gate.generation;s["transport_worker_pid"]=channel.child;s["transport_worker_age_s"]=last_status_at>0?Json(t-last_status_at):Json();
     s["motion_permitted"]=permitted;s["actual_published_command"]={{"linear_mps",v},{"angular_rps",w}};
     s["transport_blocker"]=reason;s["transport_task_active"]=gate.active;
+    {const auto g=gyro.raw(last_yaw_rate[0]);
+     s["yaw_rate"]={{"source",yaw_rate_source},{"stamp_s",last_yaw_rate[0]},{"wheel_rps",last_yaw_rate[1]},{"used_rps",last_yaw_rate[2]},
+       {"gyro_rps",(g && gyro.bias_known)?Json(*g-gyro.bias):Json()},{"gyro_bias_rps",gyro.bias_known?Json(gyro.bias):Json()},
+       {"gyro_used",gyro.used},{"gyro_fallbacks",gyro.fallbacks}};}
     if(!permitted) {
       s["safety_fresh"]=false;s["safety_reason"]=reason;
       if(!s.contains("output_blockers") || !s["output_blockers"].is_array()) s["output_blockers"]=Json::array();

@@ -16,8 +16,26 @@ Json result() {
     {"valid_until",10.15},{"frame_ns",990000000},{"observation_ns",980000000},
     {"linear",.2},{"angular",.1},{"permitted",true}};
 }
+void test_gyro_yaw() {
+  GyroYaw y;
+  for(int i=0;i<200;++i) y.add(i*.005,.002);           // 200 Hz gyro, bias 0.002 rad/s
+  check(y.yaw_rate(.5,.1,0.,.3,true)==.3 && y.fallbacks==1,"moving before the bias is known must keep the wheel rate");
+  check(y.yaw_rate(.6,0.,0.,0.,true)==0. && y.used==1,"stationary sample not bias-corrected");
+  check(y.bias_known && std::abs(y.bias-.002)<1e-12,"bias not learned at standstill");
+  for(int i=200;i<400;++i) y.add(i*.005,.502);          // turning: true rate 0.5 rad/s
+  const double w=y.yaw_rate(1.5,.1,0.,.6,true);         // encoder over-reports 0.6
+  check(std::abs(w-.5)<1e-12 && y.used==2,"gyro rate (minus bias) not used while turning");
+  check(std::abs(y.bias-.002)<1e-12,"bias learned while moving");
+  check(y.yaw_rate(1.5,.1,0.,.6,false)==.6 && y.used==2,"wheel mode changed the rate");
+  check(y.yaw_rate(5.,.1,0.,.6,true)==.6 && y.fallbacks==2,"stale gyro did not fall back to the wheel rate");
+  GyroYaw z;z.add(0.,.001);z.add(.005,.001);
+  check(z.yaw_rate(.0025,0.,0.,0.,false)==0. && z.bias_known,"wheel mode does not learn the bias");
+  check(!z.add(.004,0.) && !z.add(.01,std::nan("")) && !z.add(.01,7.),"out-of-order or invalid gyro sample accepted");
+  z.stationary(.2);check(std::abs(z.bias-.001)<1e-12,"a turning sample during a zero twist moved the bias");
+}
 int main() {
   try {
+    test_gyro_yaw();
     auto g=gate();auto r=result();check(g.accept(r,10.01,1000000000),"fresh result rejected");
     check(g.blocker(10.02,1010000000,true).empty(),"fresh output blocked");
     check(!g.accept(r,10.03,1020000000),"replay accepted");

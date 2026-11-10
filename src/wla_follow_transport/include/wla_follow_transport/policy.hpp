@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <deque>
 #include <limits>
+#include <optional>
+#include <utility>
 #include <string>
 
 namespace wla_follow {
@@ -49,6 +51,48 @@ struct Motion {
     Json rows=Json::array();
     for(const auto &s:samples) rows.push_back({s.stamp,s.pose,s.twist});
     return rows;
+  }
+};
+
+// Yaw rate for Motion from the chassis gyro instead of the wheel odometry. The
+// odometry's angular.z is encoder-derived (scale 1.0, never calibrated; slips when a
+// wheel-legged base turns in place), and a wrong yaw rate makes a person who stands
+// still appear to move while the robot turns. The gyro bias is learned only while the
+// chassis reports an exactly zero twist (its stationary clamp).
+struct GyroYaw {
+  static constexpr double window=.0125, keep=1., bias_gain=.02, still_max=.03, rate_max=6.;
+  std::deque<std::pair<double,double>> samples;
+  double bias=0.; bool bias_known=false; uint64_t used=0, fallbacks=0;
+  bool add(double stamp,double rate) {
+    if(!std::isfinite(stamp) || !std::isfinite(rate) || std::abs(rate)>rate_max) return false;
+    if(!samples.empty() && stamp<=samples.back().first) return false;
+    samples.emplace_back(stamp,rate);
+    while(samples.front().first<stamp-keep) samples.pop_front();
+    return true;
+  }
+  // Mean raw rate around stamp: the 50 Hz odometry stamp is the centre of its averaging window.
+  std::optional<double> raw(double stamp) const {
+    double sum=0.; int n=0;
+    for(const auto &s:samples) if(std::abs(s.first-stamp)<=window) { sum+=s.second; ++n; }
+    if(n<2) return std::nullopt;
+    return sum/n;
+  }
+  void stationary(double rate) {
+    if(std::abs(rate)>still_max) return;
+    bias=bias_known?bias+bias_gain*(rate-bias):rate; bias_known=true;
+  }
+  std::optional<double> rate(double stamp) const {
+    const auto r=raw(stamp);
+    if(!r || !bias_known) return std::nullopt;
+    return *r-bias;
+  }
+  // Odometry sample at stamp with wheel twist (vx, vy, w): learn the bias at
+  // standstill, then return the yaw rate Motion should integrate.
+  double yaw_rate(double stamp,double vx,double vy,double w,bool use_gyro) {
+    if(vx==0. && vy==0. && w==0.) if(const auto r=raw(stamp)) stationary(*r);
+    if(!use_gyro) return w;
+    if(const auto r=rate(stamp)) { ++used; return *r; }
+    ++fallbacks; return w;
   }
 };
 
