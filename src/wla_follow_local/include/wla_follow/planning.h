@@ -108,6 +108,7 @@ struct CandidateReport
         Recovery,  // recover(): turn in place / stop
         Looking,   // explicit turn to look at a flank
         Sampled,   // the sampled rollout family
+        TurningToRoute,  // explicit turn in place to the detour waypoint
     };
     Kind m_kind{Kind::Empty};
     int m_safe{0};

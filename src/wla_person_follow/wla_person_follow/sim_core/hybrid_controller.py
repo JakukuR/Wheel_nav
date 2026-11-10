@@ -10,6 +10,13 @@ from .detour import DetourPlanner
 # millimetres along a straight wall, which otherwise blocked sliding off it.
 ESCAPE_SLACK_M=.01
 BACKUP_MAP_TOL_M=.03
+LOOK_MIN_W=.3
+# Detour plans that held still (best v < 0.03) before the robot turns explicitly to
+# the detour waypoint. With the waypoint far off the heading the turn-first cap
+# pins the reference to the robot, and nothing in the score rewards turning to
+# it while the person is on the other side: it stood still (15:31 run 172-180 s;
+# simulated nose-at-a-chair).
+DETOUR_IDLE_CYCLES=8
 
 
 def approach_tangent(pose, command, tracks, target, radius=ROBOT_RADIUS_M):
@@ -72,6 +79,7 @@ class HybridFollower:
         self.last_reference_path=np.empty((0,2))
         self.detour=DetourPlanner()
         self.stuck_cycles=0  # consecutive plans without a feasible forward candidate
+        self.detour_idle=0  # consecutive detour plans that held still
         self.trail=[]  # robot positions >= 5 cm apart (swept, so known free), newest last
         self.backed=0.  # distance backed up in the current stuck episode
         self.last_pose=None;self.reversing=False
@@ -79,7 +87,7 @@ class HybridFollower:
 
     def reset(self):
         """Forget detour side/look state between tasks."""
-        self.detour=DetourPlanner();self.stuck_cycles=0;self.trail=[];self.backed=0.;self.last_pose=None;self.reversing=False
+        self.detour=DetourPlanner();self.stuck_cycles=0;self.detour_idle=0;self.trail=[];self.backed=0.;self.last_pose=None;self.reversing=False
         self.back_check=None
 
     def _remember(self, pose):
@@ -214,13 +222,16 @@ class HybridFollower:
                 # keep-the-person-centred cost, which otherwise stalls it part way.
                 err=wrap(np.arctan2(detour[1][1]-pose[1],detour[1][0]-pose[0])-pose[2])
                 if not self.detour.look_reached(abs(err)<=.15):
-                    w=float(np.clip(1.5*err,-.6,.6))
+                    # At least LOOK_MIN_W: below the chassis deadband the turn
+                    # never happened (15:31 run, 164-169 s, |w| 0.1-0.3, sign flipping).
+                    w=float(np.clip(1.5*err,-.6,.6));w=float(np.sign(err))*max(abs(w),LOOK_MIN_W)
                     w=float(np.clip(w,previous[1]-c.yaw_accel*c.step,previous[1]+c.yaw_accel*c.step))
                     # Also inside the obstacle margin (circular footprint; 11-02
                     # 16:50: no feasible candidate, zero command for 10 s).
                     self.last_candidates=dict(safe=1,feasible=1,forward=0,looking=True,detour=dict(self.detour.last))
                     self.last_reference_path=np.asarray(detour)
                     return np.array([0.,w])
+        if not detouring:self.detour_idle=0
         # The backing budget lasts for a whole stuck episode (no forward option).
         if (not detouring or not self.detour.last.get('looking')) and self.stuck_cycles==0:
             self.backed=0.;self.back_check=None
@@ -251,11 +262,19 @@ class HybridFollower:
             bearing=abs(float(wrap(np.arctan2(target[1]-pose[1],target[0]-pose[0])-pose[2])))
             lateral=float(np.clip((bearing-c.lateral_bearing_start)/max(c.fov_soft_angle-c.lateral_bearing_start,1e-6),0.,1.))
         cap=c.max_v
+        route_turn=None  # yaw error to the detour waypoint when turning to it
         if reference_path is None and not searching:
             # Turn first: the point steered to is the detour waypoint, else the person.
             aim=corners[1] if detouring and len(corners)>2 and not self.detour.last.get('looking') else target
             off=abs(float(wrap(np.arctan2(aim[1]-pose[1],aim[0]-pose[0])-pose[2])))
             cap=c.max_v*float(np.clip((c.turn_first_angle-off)/max(c.turn_first_angle-c.turn_slow_angle,1e-6),0.,1.))
+            # Held still on a detour with the waypoint far off the heading: turn to it
+            # explicitly below, after backing out had its chance. The person may leave
+            # the image while turning (accepted: on-robot trial 2026-11-10; the 15:31
+            # replay turned to a 5 m way round and lost them 6 s).
+            if (detouring and not self.detour.last.get('looking') and self.detour_idle>=DETOUR_IDLE_CYCLES
+                    and off>c.turn_slow_angle):
+                route_turn=float(wrap(np.arctan2(aim[1]-pose[1],aim[0]-pose[0])-pose[2]))
         # The trail's arc length overstates the remaining gap once the person curves.
         remaining=min(arcs[-1]-s0,float(np.linalg.norm(target-pose[:2])))
         cruise=np.clip(target_speed+.65*(remaining-c.desired_gap),0.,min(c.max_v*(1.-c.lateral_slowdown*lateral),cap))
@@ -405,4 +424,12 @@ class HybridFollower:
             # wall): back out along the swept path, as with nothing feasible.
             back=self._backup(pose,previous,local_map,c,policy_time)
             if back is not None:return back
-        return first[int(np.argmin(np.where(feasible,score,np.inf)))]
+        if route_turn is not None:
+            w=float(np.sign(route_turn))*max(LOOK_MIN_W,min(.6,1.5*abs(route_turn)))
+            w=float(np.clip(w,previous[1]-c.yaw_accel*c.step,previous[1]+c.yaw_accel*c.step))
+            self.last_candidates=dict(safe=1,feasible=1,forward=0,turning_to_route=True,detour=dict(self.detour.last))
+            return np.array([0.,w])
+        best=first[int(np.argmin(np.where(feasible,score,np.inf)))]
+        if detouring and not self.detour.last.get('looking'):
+            self.detour_idle=self.detour_idle+1 if best[0]<.03 else 0
+        return best

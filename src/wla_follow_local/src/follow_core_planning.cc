@@ -271,6 +271,13 @@ using IntArray = py::array_t<std::int64_t, py::array::c_style | py::array::force
         out["looking"] = true;
         out["detour"] = detour();
         break;
+    case Kind::TurningToRoute:
+        out["safe"] = 1;
+        out["feasible"] = 1;
+        out["forward"] = 0;
+        out["turning_to_route"] = true;
+        out["detour"] = detour();
+        break;
     case Kind::Sampled:
     {
         out["safe"] = report.m_safe;

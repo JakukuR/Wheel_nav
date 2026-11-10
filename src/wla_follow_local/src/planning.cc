@@ -36,6 +36,9 @@ constexpr double ASTAR_START_CLEAR_M = .2;
 constexpr double ESCAPE_SLACK_M = .01;
 // hybrid_controller.BACKUP_MAP_TOL_M (distance field quantisation on the backup path)
 constexpr double BACKUP_MAP_TOL_M = .03;
+// hybrid_controller.LOOK_MIN_W / DETOUR_IDLE_CYCLES
+constexpr double LOOK_MIN_W = .3;
+constexpr int DETOUR_IDLE_CYCLES = 8;
 
 // Python builtin min(a, b) / max(a, b): the first unless the second is
 // strictly smaller / larger.
@@ -807,6 +810,7 @@ struct HybridFollower::Impl
 {
     DetourPlanner m_detour;
     int m_stuckCycles{0};
+    int m_detourIdle{0};  // consecutive detour plans that held still
     std::vector<Point2> m_trail;
     double m_backed{0.};
     std::optional<Point2> m_lastPose;
@@ -1122,6 +1126,8 @@ Point2 HybridFollower::Impl::command(const RollingMap& raw, const MapView& map, 
             if (!m_detour.lookReached(std::fabs(err) <= .15))
             {
                 double w = Clip(1.5 * err, -.6, .6);
+                // At least LOOK_MIN_W: below the chassis deadband the turn never happened.
+                w = Sign(err) * PyMax(std::fabs(w), LOOK_MIN_W);
                 w = Clip(w, previous[1] - c.m_yawAccel * c.m_step, previous[1] + c.m_yawAccel * c.m_step);
                 m_lastCandidates = {};
                 m_lastCandidates.m_kind = CandidateReport::Kind::Looking;
@@ -1131,6 +1137,10 @@ Point2 HybridFollower::Impl::command(const RollingMap& raw, const MapView& map, 
                 return {0., w};
             }
         }
+    }
+    if (!detouring)
+    {
+        m_detourIdle = 0;
     }
     const bool detour_looking = m_detour.last().looking();
     if ((!detouring || !detour_looking) && m_stuckCycles == 0)
@@ -1203,11 +1213,19 @@ Point2 HybridFollower::Impl::command(const RollingMap& raw, const MapView& map, 
         lateral = Clip((bearing - c.m_lateralBearingStart) / PyMax(c.m_fovSoftAngle - c.m_lateralBearingStart, 1e-6), 0., 1.);
     }
     double cap = c.m_maxV;
+    std::optional<double> route_turn;  // yaw error to the detour waypoint when turning to it
     if (!has_reference && !searching)
     {
         const Point2 aim = detouring && corners.size() > 2 && !m_detour.last().looking() ? corners[1] : target;
         const double off = std::fabs(Wrap(std::atan2(aim[1] - pose[1], aim[0] - pose[0]) - pose[2]));
         cap = c.m_maxV * Clip((c.m_turnFirstAngle - off) / PyMax(c.m_turnFirstAngle - c.m_turnSlowAngle, 1e-6), 0., 1.);
+        // Held still on a detour with the waypoint far off the heading: turn to it
+        // explicitly after backing out had its chance, even if the person leaves the
+        // image (hybrid_controller.py, 2026-11-10).
+        if (detouring && !m_detour.last().looking() && m_detourIdle >= DETOUR_IDLE_CYCLES && off > c.m_turnSlowAngle)
+        {
+            route_turn = Wrap(std::atan2(aim[1] - pose[1], aim[0] - pose[0]) - pose[2]);
+        }
     }
     const double to_target = BlasNorm2(target[0] - robot[0], target[1] - robot[1]);
     const double remaining = PyMin(arcs.back() - s0, to_target);
@@ -1530,12 +1548,26 @@ Point2 HybridFollower::Impl::command(const RollingMap& raw, const MapView& map, 
             return *back;
         }
     }
+    if (route_turn)
+    {
+        double w = Sign(*route_turn) * PyMax(LOOK_MIN_W, PyMin(.6, 1.5 * std::fabs(*route_turn)));
+        w = Clip(w, previous[1] - c.m_yawAccel * c.m_step, previous[1] + c.m_yawAccel * c.m_step);
+        m_lastCandidates = {};
+        m_lastCandidates.m_kind = CandidateReport::Kind::TurningToRoute;
+        m_lastCandidates.m_hasDetour = true;
+        m_lastCandidates.m_detour = m_detour.last();
+        return {0., w};
+    }
     std::vector<double> masked(ROLLOUTS);
     for (std::size_t r = 0; r < ROLLOUTS; ++r)
     {
         masked[r] = feasible[r] ? score[r] : INF;
     }
     const std::size_t best = ArgMin(masked);
+    if (detouring && !m_detour.last().looking())
+    {
+        m_detourIdle = first_v[best] < .03 ? m_detourIdle + 1 : 0;
+    }
     return {first_v[best], first_w[best]};
 }
 
@@ -1548,6 +1580,7 @@ void HybridFollower::reset()
     // diagnostics stay until the next command.
     m_impl->m_detour.reset();
     m_impl->m_stuckCycles = 0;
+    m_impl->m_detourIdle = 0;
     m_impl->m_trail.clear();
     m_impl->m_backed = 0.;
     m_impl->m_lastPose.reset();
