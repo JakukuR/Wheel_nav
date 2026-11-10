@@ -296,12 +296,18 @@ if [[ "$ODOM_SOURCE" == cuvslam || "$ODOM_SOURCE" == openvins ]]; then
 else
   echo '[R680] 前 5 秒保持车辆和手柄完全静止，正在估计 IMU 零偏……'
 fi
+# ros2 launch rejects an empty "name:=" argument, so OpenVINS-only arguments are
+# passed only for OpenVINS; the launch file defaults them for other frontends.
+OPENVINS_LAUNCH_ARGS=()
+if [[ "$ODOM_SOURCE" == openvins ]]; then
+  OPENVINS_LAUNCH_ARGS=(openvins_config_dir:="$OPENVINS_CONFIG" openvins_allow_commissioning:="$OPENVINS_ALLOW_COMMISSIONING")
+fi
 setsid ros2 launch wla_r680_navigation bringup.launch.py \
   mode:=mapping database_path:="$DB_PATH" \
   start_d455:=false \
   start_chassis:="$START_CHASSIS" start_nav2:=true start_navigation_servers:=false start_dynamic_obstacles:=false \
   start_state_estimation:=true use_d455_imu:="$USE_D455_IMU" use_chassis_imu:=true \
-  openvins_config_dir:="$OPENVINS_CONFIG" openvins_allow_commissioning:="$OPENVINS_ALLOW_COMMISSIONING" \
+  "${OPENVINS_LAUNCH_ARGS[@]}" \
   odom_source:="$ODOM_SOURCE" auto_vio_init:="$AUTO_VIO_INIT" \
   slam_image:="$SLAM_IMAGE" dark_infra:="$DARK_INFRA" \
   cuvslam_statistics_path:="$RUN_DIR/cuvslam_statistics.json" vio_init_result_path:="$RUN_DIR/vio_init.json" \
