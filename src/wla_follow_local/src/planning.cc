@@ -34,6 +34,8 @@ constexpr double ASTAR_SIMPLIFY_M = .1;
 constexpr double ASTAR_START_CLEAR_M = .2;
 // hybrid_controller.ESCAPE_SLACK_M
 constexpr double ESCAPE_SLACK_M = .01;
+// hybrid_controller.BACKUP_MAP_TOL_M (distance field quantisation on the backup path)
+constexpr double BACKUP_MAP_TOL_M = .03;
 
 // Python builtin min(a, b) / max(a, b): the first unless the second is
 // strictly smaller / larger.
@@ -876,7 +878,7 @@ struct HybridFollower::Impl
         {
             lowest = (clear[k] < lowest || std::isnan(clear[k])) ? clear[k] : lowest;
         }
-        if (lowest < PyMin(c.m_radius + .02, clear[0]))
+        if (lowest < PyMin(c.m_radius + .02, clear[0]) - BACKUP_MAP_TOL_M)
         {
             return std::nullopt;
         }
@@ -1516,7 +1518,11 @@ Point2 HybridFollower::Impl::command(const RollingMap& raw, const MapView& map, 
     {
         moving = moving || (feasible[r] && !turning[r]);
     }
-    if (start_clear < 0. && !moving && m_stuckCycles >= 3 && !has_reference && !searching)
+    // Within the margin of the band with the person beyond the follow gap, also
+    // when reversing rollouts stay feasible (hybrid_controller.py, 2026-11-10).
+    const bool far = BlasNorm2(target[0] - pose[0], target[1] - pose[1]) > c.m_desiredGap + .3;
+    if (((start_clear < 0. && !moving) || (start_clear < c.m_margin && far)) && m_stuckCycles >= 3 && !has_reference
+        && !searching)
     {
         // Inside the band and only turning in place is left: back out along the trail.
         if (const auto back = backup(map, pose, previous, c, in.m_policyTime))

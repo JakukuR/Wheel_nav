@@ -9,6 +9,7 @@ from .detour import DetourPlanner
 # closer than the best clearance it has reached: the grid query moves by a few
 # millimetres along a straight wall, which otherwise blocked sliding off it.
 ESCAPE_SLACK_M=.01
+BACKUP_MAP_TOL_M=.03
 
 
 def approach_tangent(pose, command, tracks, target, radius=ROBOT_RADIUS_M):
@@ -113,7 +114,10 @@ class HybridFollower:
         # chassis actually starts on must keep the same clearance rule.
         behind=p+np.linspace(0.,.3,7)[:,None]*np.array([np.cos(rear),np.sin(rear)])
         clear=np.r_[clear,local_map.query(behind)[1:]]
-        if np.min(clear[1:])<min(c.radius+.02,clear[0]):return None
+        # BACKUP_MAP_TOL_M: the distance field is cell-quantised (0.05 m); backing
+        # 5 cm straight away from a chair read 0.216 -> 0.188 m and was refused
+        # every cycle (2026-11-10 simulated chair pass).
+        if np.min(clear[1:])<min(c.radius+.02,clear[0])-BACKUP_MAP_TOL_M:return None
         err=float(wrap(np.arctan2(goal[1]-p[1],goal[0]-p[0])-rear))
         if now is not None:
             if self.back_check is None or np.linalg.norm(p-self.back_check[1])>=.05:
@@ -388,8 +392,15 @@ class HybridFollower:
                     self.last_infeasible=False
                     return back
             return np.zeros(2)
-        if (start_clear<0. and not np.any(feasible&~turning) and self.stuck_cycles>=3
-                and reference_path is None and not searching):
+        # Within the margin of the band (not inside it) every forward rollout can
+        # cross 0 at once while reversing ones stay feasible but score worse: the
+        # planner turned in place inside the chassis deadband and stood still
+        # (2026-11-10 15:31 run, 7.6 s on a grid detour at 174 s; simulated chair
+        # pass, beside the chair for 8 s). Back out there too while the person is
+        # beyond the follow gap, so a stopped person close by does not trigger it.
+        far=float(np.linalg.norm(np.asarray(target,dtype=float)-np.asarray(pose[:2],dtype=float)))>c.desired_gap+.3
+        if (((start_clear<0. and not np.any(feasible&~turning)) or (start_clear<c.margin and far))
+                and self.stuck_cycles>=3 and reference_path is None and not searching):
             # Inside the band and only turning in place is left (e.g. nose at a
             # wall): back out along the swept path, as with nothing feasible.
             back=self._backup(pose,previous,local_map,c,policy_time)

@@ -36,8 +36,8 @@ struct Tuning
     double m_fovEdgeMargin{.05};
     double m_centeringWeight{6.};
     double m_fovSoftAngle{.45};
-    double m_lateralBearingStart{.15};
-    double m_lateralSlowdown{.5};
+    double m_lateralBearingStart{.10};
+    double m_lateralSlowdown{.80};
     bool m_gridRouteAstar{false};
     double m_gridRouteLookaheadM{.5};
     double m_turnSlowAngle{.3};

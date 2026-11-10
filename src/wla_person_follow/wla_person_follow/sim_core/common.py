@@ -52,9 +52,12 @@ class Tuning:
     # footprints to the person (trail weight 6 -> 1.5, heading blend .25 -> 1) and
     # caps speed down to (1 - lateral_slowdown) * max_v (J02 2026-10-29 17:25: the
     # person passed the robot on its right at 1.4 m while it chased the trail at
-    # 0.9 m/s, turning the other way).
-    lateral_bearing_start: float = .15
-    lateral_slowdown: float = .5
+    # 0.9 m/s, turning the other way). 0.10/0.80 since 2026-11-10: at 0.15/0.50 the
+    # robot kept 0.4-0.8 m/s with the person at 30 deg and lost them at the image
+    # edge (15:31 run, 8 of 17 losses at 32-36 deg); closed-loop zig-zag simulation
+    # (chassis lag, 0.3 s perception delay) out-of-image 1.90 -> 0.75 s.
+    lateral_bearing_start: float = .10
+    lateral_slowdown: float = .80
     # Search behind grid detours: 'dijkstra' or 'astar' (native, end cell still from
     # Dijkstra, waypoints nearer than the lookahead dropped). Launch: grid_route:=astar
     grid_route_planner: str = 'dijkstra'
