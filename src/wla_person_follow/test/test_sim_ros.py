@@ -105,7 +105,7 @@ def test_real_depth_tf_wheel_adapter_preview_only():
     clouds=[]
     fixture.create_subscription(PointCloud2,f.p['prefix']+'/depth_obstacles',clouds.append,qos_profile_sensor_data)
     try:
-        end=time.monotonic()+3.;next_at=0.;captured=None
+        end=time.monotonic()+3.;next_at=0.;captured=None;sent=set();observed=[]
         while time.monotonic()<end:
             if time.monotonic()>=next_at:
                 next_at=time.monotonic()+.04
@@ -116,6 +116,7 @@ def test_real_depth_tf_wheel_adapter_preview_only():
                 depth.encoding='16UC1';depth.step=128;depth.data=(np.ones((48,64),dtype='<u2')*2000).tobytes()
                 wheel=Odometry();wheel.header.stamp=stamp;wheel.child_frame_id='r680_mapping_floor'
                 pub_wheel.publish(wheel);pub_info.publish(info);pub_depth.publish(depth)
+                sent.add(ns)
                 pub_rel.publish(String(data=json.dumps(dict(schema='wla-relative-detections/v1',stamp_ns=ns,
                     session='depth-fixture',epoch=0,enabled=True,base_frame='r680_mapping_floor',objects=[]))))
             ex.spin_once(timeout_sec=.002)
@@ -124,9 +125,12 @@ def test_real_depth_tf_wheel_adapter_preview_only():
                 # inspect a fresh result while it exists, not at an arbitrary end tick.
                 if f.result is not None and time.monotonic()<f.result['valid_until']:
                     assert 0<=(f.now_ns()-f.result['stamp_ns'])/1e9<=f.p['max_sensor_age_s']
-                    captured=f.result
+                    captured=f.result;observed.append(f.result['observation_stamp_ns'])
         assert f.direct_pub is None and f.count_publishers('/r680_base/cmd_vel')==0
         assert captured is not None, f.reason
+        # The C++ transport rejects a proof whose observation is newer than the newest
+        # it delivered; a float-seconds round trip rounded up half the time (2026-11-10).
+        assert observed and all(type(o) is int and o in sent for o in observed), sorted(set(observed)-sent)[:3]
         assert captured['startup_prior'] is None and not captured['startup_prior_consumed']
         assert captured['local_free_prior']['state']=='continuous'
         assert captured['local_free_prior']['radius_m']==.5

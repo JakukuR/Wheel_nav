@@ -568,7 +568,7 @@ class FollowEngine:
                     if key!=self.key():raise ValueError('reference_changed_during_depth')
                     motion=self.motion.snapshot()
                     # TaskSession replaces objects per frame and never mutates rows.
-                    objects=dict(self.core.objects);obs_stamp=self.core.last_stamp/1e9
+                    objects=dict(self.core.objects);obs_ns=int(self.core.last_stamp);obs_stamp=obs_ns/1e9
                     self.last_plan_obs=obs_stamp
                 control_stamp=self.now_ns()/1e9
                 control_pose=self._control_pose(motion,control_stamp)
@@ -755,7 +755,7 @@ class FollowEngine:
                     transport_generation=transport_generation,key=key,stamp_ns=stamp_ns(msg),
                     valid_until=min(valid_until+self.p['map_max_age_s']-self.p['max_sensor_age_s'],begun+self.p['result_hold_s']),
                     frontend_ms=frontend_ms,obstacle_points=len(packet['obstacle_points']),clearing_points=len(packet['points']),
-                    observation_stamp_ns=int(obs_stamp*1e9),ready_at=time.monotonic(),
+                    observation_stamp_ns=obs_ns,ready_at=time.monotonic(),
                     latency=dict(depth_start_age_ms=depth_start_age_ms,frontend_ms=frontend_ms,
                         depth_to_result_ms=(self.now_ns()-stamp_ns(msg))/1e6,
                         observation_to_result_ms=(self.now_ns()/1e9-obs_stamp)*1000.,
@@ -826,7 +826,7 @@ class FollowEngine:
     def _replan(self,key,base,now,planned_from,recovery=False):
         with self.guard:
             if key!=self.key() or self.future is not None and not self.future.done():return
-            motion=self.motion.snapshot();objects=dict(self.core.objects);obs_stamp=self.core.last_stamp/1e9
+            motion=self.motion.snapshot();objects=dict(self.core.objects);obs_ns=int(self.core.last_stamp);obs_stamp=obs_ns/1e9
             self.last_plan_obs=obs_stamp
             transport_generation=getattr(self.io,"generation",0)
         self.last_plan_at=now
@@ -872,7 +872,7 @@ class FollowEngine:
                 transport_generation=transport_generation,key=key,stamp_ns=base['stamp_ns'],
                 valid_until=min(base['map_deadline'],begun+self.p['result_hold_s']),
                 frontend_ms=base['frontend_ms'],obstacle_points=base['obstacle_points'],clearing_points=base['clearing_points'],
-                observation_stamp_ns=int(obs_stamp*1e9),ready_at=time.monotonic(),planned_from=planned_from,
+                observation_stamp_ns=obs_ns,ready_at=time.monotonic(),planned_from=planned_from,
                 latency=dict(map_age_ms=(self.now_ns()-base['stamp_ns'])/1e6,
                     observation_to_result_ms=(self.now_ns()/1e9-obs_stamp)*1000.,
                     processing_ms=(time.monotonic()-begun)*1000.),
