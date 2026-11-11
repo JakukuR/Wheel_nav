@@ -28,10 +28,11 @@ cuvslam_odometry:
     # Assumes chassis IMU at vehicle center with the same axis convention.
     base_from_imu: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
     expected_imu_frame: gyro_link
-    # Chassis IMU stamps are host receive times and lag the camera: Kalibr camera-IMU
-    # timeshift +47.9 ms (2026-10-13); gyro cross-correlation against the D455 gyro
-    # gives ~43 ms (calib_dynamic_02). Applied as stamp + offset, so negative.
-    imu_time_offset_s: -0.0479
+    # Chassis IMU stamps are host receive times and lag the camera. Firmware with
+    # ICM20948 DLPF config 3 (flashed 2026-11-11): chassis gyro lags the D455 gyro by
+    # ~18 ms (imu-delay-dlpf3-20261111-142557), plus ~3 ms D455 IMU->camera (Kalibr).
+    # Old DLPF config 6 firmware needed -0.0479. Applied as stamp + offset, so negative.
+    imu_time_offset_s: -0.021
     stereo_tolerance_ms: 1.0
     max_input_age_s: 0.5
     max_imu_gap_s: 0.15
