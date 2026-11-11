@@ -16,17 +16,22 @@ cuvslam_odometry:
     use_imu: true
     # Synchronous SBA during diagnostics, per the upstream troubleshooting guide.
     async_sba: false
-    # Measured serial feedback rate, NOT the internal MPU6050 sampling rate.
+    # Measured serial feedback rate, NOT the internal ICM20948 sampling rate.
     imu_frequency: 200.0
-    # Starting estimates for a smoke test. Full Allan/extrinsic calibration is pending.
-    gyro_noise_density: 0.000079
+    # White noise: Kalibr wheel_20261013_153818 reference x10. The firmware DLPF (~5.7 Hz)
+    # and 8-point mean make the noise correlated, so static estimates overstate IMU trust.
+    # Random walks keep the earlier, more conservative values (calibration not validated).
+    gyro_noise_density: 0.00079
     gyro_random_walk: 0.00002
-    accel_noise_density: 0.0012
+    accel_noise_density: 0.012
     accel_random_walk: 0.003
     # Assumes chassis IMU at vehicle center with the same axis convention.
     base_from_imu: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
     expected_imu_frame: gyro_link
-    imu_time_offset_s: 0.0
+    # Chassis IMU stamps are host receive times and lag the camera: Kalibr camera-IMU
+    # timeshift +47.9 ms (2026-10-13); gyro cross-correlation against the D455 gyro
+    # gives ~43 ms (calib_dynamic_02). Applied as stamp + offset, so negative.
+    imu_time_offset_s: -0.0479
     stereo_tolerance_ms: 1.0
     max_input_age_s: 0.5
     max_imu_gap_s: 0.15
