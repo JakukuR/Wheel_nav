@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<robot name="analytic_test_fixture">
+  <link name="base"/><link name="thigh_L"/><link name="thigh_R"/>
+  <link name="wheel_L_Link"><collision><origin xyz="0 0.01 0" rpy="1.5707963267948966 0 0"/>
+    <geometry><cylinder radius="0.04" length="0.03"/></geometry></collision></link>
+  <link name="wheel_R_Link"><collision><origin xyz="0 -0.01 0" rpy="1.5707963267948966 0 0"/>
+    <geometry><cylinder radius="0.04" length="0.03"/></geometry></collision></link>
+  <joint name="hip_L" type="revolute"><parent link="base"/><child link="thigh_L"/>
+    <origin xyz="0 0.1 0"/><axis xyz="0 1 0"/><limit lower="-3" upper="3" effort="1" velocity="1"/></joint>
+  <joint name="hip_R" type="revolute"><parent link="base"/><child link="thigh_R"/>
+    <origin xyz="0 -0.1 0"/><axis xyz="0 1 0"/><limit lower="-3" upper="3" effort="1" velocity="1"/></joint>
+  <joint name="wheel_L" type="continuous"><parent link="thigh_L"/><child link="wheel_L_Link"/>
+    <origin xyz="0 0 -0.2"/><axis xyz="0 1 0"/></joint>
+  <joint name="wheel_R" type="continuous"><parent link="thigh_R"/><child link="wheel_R_Link"/>
+    <origin xyz="0 0 -0.2"/><axis xyz="0 1 0"/></joint>
+</robot>
