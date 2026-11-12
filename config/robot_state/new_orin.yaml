@@ -1,0 +1,7 @@
+robot_state_adapter:
+  ros__parameters:
+    imu_topic: /imu/data
+    imu_frame: base_Link
+    state_topic: /motor35_powered/state
+    joint_topic: /joint_states
+    max_input_age_s: 0.10
