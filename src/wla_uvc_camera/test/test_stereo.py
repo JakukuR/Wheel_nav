@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 import pytest
 import yaml
-from wla_uvc_camera.stereo import crop_matrix,project_depth,load_rig,StereoRig
+from wla_uvc_camera.stereo import crop_matrix,raw_crop,project_depth,load_rig,StereoRig
 
 
 def rig_file(tmp_path):
@@ -26,6 +26,26 @@ def test_center_crop_has_correct_pixel_centers():
     assert out[0,2]==pytest.approx(319.5)
     assert out[1,2]==pytest.approx(239.5)
     assert out[0,0]==pytest.approx(1200*4/9)
+
+
+def test_full_view_retains_both_edges_and_updates_intrinsics(tmp_path):
+    raw=np.zeros((1080,1920,3),np.uint8)
+    raw[:,:200]=[0,0,255];raw[:,-200:]=[255,0,0]
+    full=raw_crop(raw,output=(640,360))
+    assert full.shape==(360,640,3)
+    assert np.array_equal(full[180,10],[0,0,255])
+    assert np.array_equal(full[180,-10],[255,0,0])
+    assert not np.any(raw_crop(raw))  # Legacy central crop discards both edge targets.
+    path,_=rig_file(tmp_path)
+    rig=StereoRig(path,rgb_mode='full')
+    assert rig.roi==(0,0,1920,1080) and rig.output==(640,360)
+    assert rig.k[0,0]==pytest.approx(400.)
+    assert rig.k[0,2]==pytest.approx(319.5)
+    assert rig.k[1,2]==pytest.approx(179.5)
+    assert rig.color(raw).shape==full.shape
+    # Pick a projection on an integer pixel, avoiding ambiguous half-pixel ties.
+    depth=project_depth([[.0125,.0225,2]],rig.k,np.eye(4),rig.output)
+    assert depth.shape==(360,640) and depth[184,322]==2000
 
 
 def test_z_buffer_and_nonfinite_or_out_of_range_points():
@@ -51,8 +71,9 @@ def test_rejects_unusable_calibration(tmp_path,bad):
 
 
 @pytest.mark.parametrize('algorithm',['sgbm','bm'])
-def test_textured_plane_recovers_two_metre_depth(tmp_path,algorithm):
-    path,_=rig_file(tmp_path);rig=StereoRig(path,algorithm,64,9)
+@pytest.mark.parametrize('rgb_mode',['crop','full'])
+def test_textured_plane_recovers_two_metre_depth(tmp_path,algorithm,rgb_mode):
+    path,_=rig_file(tmp_path);rig=StereoRig(path,algorithm,64,9,rgb_mode=rgb_mode)
     # f=800px, B=.06m, Z=2m -> 24px raw disparity, 12px at half size.
     rng=np.random.default_rng(7)
     texture=rng.integers(0,256,(360,640),dtype=np.uint8)

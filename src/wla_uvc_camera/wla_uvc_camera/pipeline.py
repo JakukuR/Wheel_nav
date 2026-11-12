@@ -35,7 +35,10 @@ class Pipeline(Node):
     def __init__(self,args):
         super().__init__('uvc_rgb_stereo_depth')
         self.args=args;cv2.setNumThreads(1)
-        self.rig=StereoRig(args.calibration,args.algorithm,args.disparities,args.block_size) if args.calibration else None
+        self.rgb_mode=getattr(args,'rgb_mode','full')
+        if self.rgb_mode not in ('full','crop'):raise ValueError('invalid_rgb_mode')
+        self.output=(640,360) if self.rgb_mode=='full' else (640,480)
+        self.rig=StereoRig(args.calibration,args.algorithm,args.disparities,args.block_size,rgb_mode=self.rgb_mode) if args.calibration else None
         self.colors=deque(maxlen=6);self.pairs={};self.last_used_rgb=0;self.last_pair=0
         self.pending=None;self.condition=threading.Condition();self.closed=False
         self.failure='';self.metrics={};self.last_output=0
@@ -57,7 +60,7 @@ class Pipeline(Node):
         if self.rig:
             self.colors.append(msg);self.match()
         else:
-            self.publish_color(raw_crop(array(msg)),msg.header)
+            self.publish_color(raw_crop(array(msg),output=self.output),msg.header)
 
     def eye(self,which,msg):
         if not self.rig or msg.header.frame_id!=f'sunplus_{which}_optical_frame' or (msg.width,msg.height)!=(1280,720) or not self.fresh(msg):return
@@ -85,7 +88,7 @@ class Pipeline(Node):
 
     def publish_color(self,values,header):
         out=image(values,header,'bgr8');info=CameraInfo();info.header=deepcopy(header)
-        info.width=640;info.height=480
+        info.width=out.width;info.height=out.height
         if self.rig:
             info.distortion_model='plumb_bob';info.d=[0.]*5
             info.k=self.rig.k.reshape(-1).tolist();info.r=np.eye(3).reshape(-1).tolist()
@@ -118,6 +121,7 @@ class Pipeline(Node):
 
     def status(self):
         body=dict(schema='wla-uvc-depth/v1',calibrated=bool(self.rig),
+            rgb_mode=self.rgb_mode,color_width=self.output[0],color_height=self.output[1],
             depth_enabled=bool(self.rig),mount_tf_published_by_this_node=False,
             reason=self.failure or ('calibrated_software_only' if self.rig else 'missing_calibration_2d_only'),
             color_fresh=bool(self.last_output and time.monotonic()-self.last_output<.3),
@@ -134,6 +138,8 @@ class Pipeline(Node):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--rgb-mode',choices=['full','crop'],default='full',
+        help='full keeps the complete RGB field at 640x360; crop uses central 1440x1080 -> 640x480')
     p.add_argument('--calibration',default='');p.add_argument('--algorithm',choices=['sgbm','bm'],default='sgbm')
     p.add_argument('--disparities',type=int,default=128);p.add_argument('--block-size',type=int,default=5)
     p.add_argument('--max-skew-ms',type=float,default=25.)

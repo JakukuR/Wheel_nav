@@ -115,7 +115,7 @@ export WLA_UVC_CALIBRATION_DIR=/home/onana/ros2_ws/config/uvc_rig/calibrated_202
 
 顺序为：原始左右图 → 双目校正 → BM/SGBM 视差 → 米制三维点 → RGB 光学坐标 → 去畸变并裁切的 RGB 像素。第一版匹配分辨率 640×360，以 SGBM 为默认，BM 可用于对比。没有真实标定文件时，节点只输出 RGB 裁切与零内参 CameraInfo，不发布深度测量。
 
-RGB 先按完整 1920×1080 标定；运行时中央取 `(x=240,y=0,w=1440,h=1080)`，缩到 640×480。处理后 `CameraInfo` 用相同去畸变、裁切和缩放更新；不能沿用完整 RGB 的 K。实现包含 resize 像素中心修正：`cx' = sx*(cx-x+0.5)-0.5`，cy 同理。[OpenCV 投影与标定说明](https://docs.opencv.org/4.x/d9/d0c/group__calib3d.html)
+RGB 先按完整 1920×1080 标定；运行时默认 `--rgb-mode full`，完整视野等比例缩到 640×360。对照旧方案可用 `--rgb-mode crop`，中央取 `(x=240,y=0,w=1440,h=1080)`，缩到 640×480。处理后 `CameraInfo` 用相同去畸变、裁切和缩放更新，深度按所选模式投影到同一网格；不能沿用完整 RGB 的 K。实现包含 resize 像素中心修正：`cx' = sx*(cx-x+0.5)-0.5`，cy 同理。全幅模式有 x=y=0、sx=sy=1/3。YOLOE 的内部补边不写回 ROS 图像或 CameraInfo。[OpenCV 投影与标定说明](https://docs.opencv.org/4.x/d9/d0c/group__calib3d.html)
 
 ```bash
 # 常规采集：左右/RGB 默认各发布 30 Hz；实际性能需测量。
@@ -134,7 +134,7 @@ RGB 先按完整 1920×1080 标定；运行时中央取 `(x=240,y=0,w=1440,h=108
 ./robot_perception.sh run
 ```
 
-输出 `/camera/processed/color/image_raw`、`color/camera_info` 和经标定后才有的 `aligned_depth_to_color/image_raw`。深度 `16UC1`，单位毫米、0 为无效，图像 640×480，坐标轴为 RGB optical；多点投到同一像素取最近 Z，空洞不伪造测量。RGB 保留自身接收时刻，深度保留双目接收时刻。25 ms 是当前主机时间近似配对的工程初值，35 ms 是现有检测器的配对上限；这不能证明曝光同步，移动物体仍可能错位。若动态验收不通过，应接硬触发或可靠曝光时间戳，而非修改 stamp 假装同步。
+输出 `/camera/processed/color/image_raw`、`color/camera_info` 和经标定后才有的 `aligned_depth_to_color/image_raw`。深度 `16UC1`，单位毫米、0 为无效，图像默认 640×360（crop 模式 640×480），坐标轴为 RGB optical；多点投到同一像素取最近 Z，空洞不伪造测量。RGB 保留自身接收时刻，深度保留双目接收时刻。25 ms 是当前主机时间近似配对的工程初值，35 ms 是现有检测器的配对上限；这不能证明曝光同步，移动物体仍可能错位。若动态验收不通过，应接硬触发或可靠曝光时间戳，而非修改 stamp 假装同步。
 
 SGBM 的视差数 128、窗口 5、深度过滤 0.15–5 m 是初始软件参数，不是这套硬件的已验收性能或量程。根据实际 fx、基线、最近距离和实测耗时再调整。远距误差近似随 `Z²/(fx*B)` 增长，不应承诺未测的远距精度或深度 30 fps。无纹理、反光、遮挡和 RGB 超出双目共同视场的区域应保留无效深度。
 

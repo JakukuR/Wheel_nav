@@ -13,10 +13,10 @@ from test_stereo import rig_file
 pytestmark=pytest.mark.skipif(os.environ.get('ROS_DOMAIN_ID')!='197',reason='requires isolated ROS domain 197')
 
 
-@pytest.fixture
-def pipeline(tmp_path):
+@pytest.fixture(params=['crop','full'])
+def pipeline(tmp_path,request):
     path,_=rig_file(tmp_path);rclpy.init()
-    node=Pipeline(NS(calibration=str(path),algorithm='sgbm',disparities=64,block_size=9,max_skew_ms=25.))
+    node=Pipeline(NS(calibration=str(path),algorithm='sgbm',disparities=64,block_size=9,max_skew_ms=25.,rgb_mode=request.param))
     published={k:[] for k in ('color','depth','info')}
     for name in published:setattr(node,name+'_pub',NS(publish=published[name].append))
     try:yield node,published
@@ -27,6 +27,24 @@ def packet(values,frame,ns):
     header=Header();header.frame_id=frame
     header.stamp.sec=ns//1_000_000_000;header.stamp.nanosec=ns%1_000_000_000
     return image(np.repeat(values[:,:,None],3,axis=2),header,'bgr8')
+
+
+def test_uncalibrated_default_keeps_full_view_and_no_fake_intrinsics():
+    rclpy.init()
+    node=Pipeline(NS(calibration='',algorithm='sgbm',disparities=64,block_size=9,max_skew_ms=25.))
+    out={k:[] for k in ('color','depth','info')}
+    for name in out:setattr(node,name+'_pub',NS(publish=out[name].append))
+    try:
+        raw=np.zeros((1080,1920),np.uint8);raw[:,:200]=50;raw[:,-200:]=200
+        ns=node.get_clock().now().nanoseconds
+        node.rgb(packet(raw,'dicota_color_optical_frame',ns))
+        assert len(out['color'])==len(out['info'])==1 and not out['depth']
+        color,info=out['color'][0],out['info'][0]
+        assert (color.width,color.height)==(info.width,info.height)==(640,360)
+        values=np.frombuffer(color.data,np.uint8).reshape(360,640,3)
+        assert values[180,10,0]==50 and values[180,-10,0]==200
+        assert stamp(color)==stamp(info)==ns and not any(info.k)
+    finally:node.close();node.destroy_node();rclpy.try_shutdown()
 
 
 def test_metric_depth_keeps_stereo_time_and_rgb_keeps_its_own_time(pipeline):
@@ -44,8 +62,11 @@ def test_metric_depth_keeps_stereo_time_and_rgb_keeps_its_own_time(pipeline):
     depth=out['depth'][0];color=out['color'][0];info=out['info'][0]
     assert stamp(depth)==ns-10_000_000 and stamp(color)==ns-5_000_000
     assert depth.header.frame_id==color.header.frame_id=='dicota_color_optical_frame'
-    assert (depth.width,depth.height,depth.encoding)==(640,480,'16UC1')
-    assert info.k[0]==pytest.approx(1200*4/9) and info.k[2]==pytest.approx(319.5)
+    assert (depth.width,depth.height,depth.encoding)==(*node.output,'16UC1')
+    assert (color.width,color.height)==(info.width,info.height)==node.output
+    scale=1/3 if node.rgb_mode=='full' else 4/9
+    assert info.k[0]==pytest.approx(1200*scale) and info.k[2]==pytest.approx(319.5)
+    assert info.k[5]==pytest.approx((node.output[1]-1)/2)
     values=np.frombuffer(depth.data,dtype='<u2');assert np.median(values[values>0])==pytest.approx(2000,abs=30)
 
 

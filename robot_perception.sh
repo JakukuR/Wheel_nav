@@ -20,7 +20,7 @@ args=(--model "$agent/models/perception/yoloe/yoloe-26s-seg.pt"
  --classes-file "$agent/deploy/yoloe_classes.json"
  --text-encoder "$agent/models/perception/yoloe/mobileclip2_b.ts"
  --tracker "$nav/share/wla_r680_navigation/config/perception.botsort.yaml"
- --device 0 --no-chroma-smoothing
+ --device 0 --chroma-smoothing
  --color-topic /camera/processed/color/image_raw
  --depth-topic /camera/processed/aligned_depth_to_color/image_raw
  --camera-info-topic /camera/processed/color/camera_info

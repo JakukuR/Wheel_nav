@@ -3,7 +3,7 @@
 目标：Sunplus 2560×720 拼接双目（左右各 1280×720），DICOTA 1920×1080 RGB，ROS 2 Jazzy。完整流程见工作区 `docs/新机器人三相机与IMU标定方案.md`。
 
 - `uvc_camera` 采集 MJPEG，连续读取并保留最新帧；V4L2 使用 3 个驱动缓冲，避免单缓冲造成隔帧丢失。左右来自同一帧，保留同一主机接收时间。
-- `uvc_depth` 将 RGB 中央 1440×1080 裁到 640×480；有真实 rig 标定时先去畸变，并更新内参。未标定时 `CameraInfo.k[0]==0`，仅输出二维图像。
+- `uvc_depth` 默认 `--rgb-mode full`，完整 RGB 等比例缩到 640×360，保留左右视野；`--rgb-mode crop` 保留旧中央 1440×1080 → 640×480 模式用于对照。有真实 rig 标定时去畸变，并按所选模式更新内参和深度投影尺寸。未标定时 `CameraInfo.k[0]==0`，仅输出二维图像。
 - 有标定时，以 640×360 校正双目，经 StereoSGBM（可选 BM）得到三维点，变换到 RGB 光学坐标，再投影到裁切图。多点同像素使用最近 Z，输出 `16UC1` 毫米深度，无效值为 0。当前过滤范围 0.15–5 m 是工程初值，须经实测确认。
 - 没有默认内参、基线或外参；文件分辨率、单位、SO(3) 和基线均校验。模板不含可冒充标定的数值。
 - RGB 和双目的曝光不同步；25 ms 为主机接收时间的近似配对初值。分别保留原始时间戳，不用重打时间戳掩盖差异。深度计算超过新鲜度窗口则丢弃。
@@ -13,19 +13,25 @@
 cd /home/onana/ros2_ws
 ./robot_camera.sh probe
 ./robot_camera.sh run both
-# 另一个终端，无标定时先做二维裁切。
+# 另一个终端，无标定时先输出全幅二维图像。
 ./robot_camera.sh pipeline
+# 对照旧中央裁切模式时替代上述 pipeline，不同时运行两个：
+./robot_camera.sh pipeline --rgb-mode crop
 # 有实际标定后替代以上 pipeline：
 ./robot_camera.sh pipeline --calibration config/uvc_rig/rig.yaml --algorithm sgbm
 ./robot_perception.sh check
 ./robot_perception.sh run
+# 对照关闭色度平滑时替代上述检测进程：
+./robot_perception.sh run --no-chroma-smoothing
 ```
 
 新入口默认 `ROS_DOMAIN_ID=0`、Fast DDS，与观察到的真实电控默认配置一致；可通过环境变量覆盖。ROS 域一致不等于 IMU 数据已恢复或接口已验收。
 
 原始图像使用 `/camera/{sunplus/left,sunplus/right,dicota/color}/image_raw`，对应 CameraInfo 同目录。处理后为 `/camera/processed/color/image_raw`、`/camera/processed/color/camera_info`、`/camera/processed/aligned_depth_to_color/image_raw`。深度只在有效标定和配对图像可用时发布，二维检测保留现有 `/r680/perception/*` 协议话题。
 
-软件验证：`ROS_DOMAIN_ID=197 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST python3 -m pytest src/wla_uvc_camera/test`，目标机 21 项通过，包含拆帧、校验失败、裁切内参、Z-buffer，以及 BM/SGBM 合成 2 m 平面、ROS 深度/RGB 保留各自时间戳和错时拒绝测试；它们不构成实机深度精度验收。
+软件验证命令：`ROS_DOMAIN_ID=197 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST python3 -m pytest src/wla_uvc_camera/test`。覆盖拆帧、校验失败、全幅/裁切内参、边缘目标保留、Z-buffer，以及 BM/SGBM 合成 2 m 平面、ROS 深度/RGB 保留各自时间戳和错时拒绝；它们不构成实机深度精度验收。
+
+新机 `robot_perception.sh` 恢复原提交 `59b4d81` 的色度平滑默认开启：在推理库完成 RGB/归一化/补边后的 GPU 张量上做 2×2 色度平滑，保留亮度；ReID 与原始图像不变。YOLOE TensorRT 引擎仍为 416×320，内部补边及框回映由推理库负责。全幅模式的检测框坐标属于 640×360 图像，深度与 CameraInfo 使用相同像素网格。对比数据与命令见 `docs/新相机输入预处理对比_20261112.md`。
 
 标定文件导出：`PYTHONPATH=src/wla_uvc_camera python3 -m wla_uvc_camera.export cameras-camchain.yaml --output config/uvc_rig/calibrated_v1`。导出目录必须不存在，cam0/1/2 顺序和话题固定为本机左/右/RGB；通过独立验收后设置 `WLA_UVC_CALIBRATION_DIR`，采集器和 pipeline 会加载同一目录的真实标定。
 

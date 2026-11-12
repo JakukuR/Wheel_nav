@@ -72,13 +72,14 @@ def project_depth(points, k, transform, size, near=.15, far=5.):
 
 
 class StereoRig:
-    def __init__(self,path,algorithm='sgbm',disparities=128,block=5):
+    def __init__(self,path,algorithm='sgbm',disparities=128,block=5,rgb_mode='crop'):
         if algorithm not in ('sgbm','bm') or disparities<16 or disparities%16:
             raise ValueError('invalid_matcher')
         if block<5 or block%2==0 or block>51:raise ValueError('invalid_block_size')
         cams,right,self.rgb_from_left=load_rig(path)
         kl,dl=cams['left'];kr,dr=cams['right'];kc,dc=cams['rgb']
-        self.size=(640,360);self.output=(640,480)
+        if rgb_mode not in ('full','crop'):raise ValueError('invalid_rgb_mode')
+        self.size=(640,360);self.output=(640,360) if rgb_mode=='full' else (640,480)
         r1,r2,p1,p2,self.q,_,_=cv2.stereoRectify(kl,dl,kr,dr,(1280,720),
             right[:3,:3],right[:3,3],flags=cv2.CALIB_ZERO_DISPARITY,
             alpha=0,newImageSize=self.size)
@@ -87,7 +88,7 @@ class StereoRig:
         self.r1=r1
         self.left_maps=cv2.initUndistortRectifyMap(kl,dl,r1,p1,self.size,cv2.CV_32FC1)
         self.right_maps=cv2.initUndistortRectifyMap(kr,dr,r2,p2,self.size,cv2.CV_32FC1)
-        self.roi,a=crop_matrix();self.k=a@kc
+        self.roi,a=crop_matrix(output=self.output);self.k=a@kc
         self.rgb_maps=cv2.initUndistortRectifyMap(kc,dc,np.eye(3),self.k,self.output,cv2.CV_32FC1)
         if algorithm=='sgbm':
             self.matcher=cv2.StereoSGBM_create(minDisparity=0,numDisparities=disparities,

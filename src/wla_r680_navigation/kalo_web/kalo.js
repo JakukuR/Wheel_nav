@@ -306,7 +306,10 @@ const topView = (() => {
 function drawCamera() {
   if (!cam || !state.image) return;
   const { gl } = cam, W = state.image.width, H = state.image.height, canvas = $('camGl');
-  if (canvas.width !== W) { canvas.width = W; canvas.height = H; $('camOverlay').width = W; $('camOverlay').height = H; }
+  if (canvas.width !== W || canvas.height !== H) {
+    canvas.width = W; canvas.height = H; $('camOverlay').width = W; $('camOverlay').height = H;
+  }
+  canvas.parentElement.style.aspectRatio = `${W} / ${H}`;
   gl.viewport(0, 0, W, H); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
   gl.useProgram(cam.quad.p); gl.bindTexture(gl.TEXTURE_2D, cam.tex);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, state.image);
