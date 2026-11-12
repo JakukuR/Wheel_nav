@@ -1,0 +1,47 @@
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="new_orin_sensor_mounts_cad">
+  <!--CAD mounts only. No optical frames, no IMU raw-axis transform. upper_camera_L absent on current robot.-->
+  <link name="base_link" />
+  <link name="upper_camera_R" />
+  <joint name="upper_camera_R_mount" type="fixed">
+    <parent link="base_link" />
+    <child link="upper_camera_R" />
+    <origin xyz="0.06777 -0.0263 0.087248" rpy="0 0 0" />
+  </joint>
+  <link name="bottom_camera_R" />
+  <joint name="bottom_camera_R_mount" type="fixed">
+    <parent link="base_link" />
+    <child link="bottom_camera_R" />
+    <origin xyz="0.084995 -0.0185 0.038482" rpy="0 0.19199 0" />
+  </joint>
+  <link name="bottom_camera_L" />
+  <joint name="bottom_camera_L_mount" type="fixed">
+    <parent link="base_link" />
+    <child link="bottom_camera_L" />
+    <origin xyz="0.084995 0.0185 0.038482" rpy="0 0.19199 0" />
+  </joint>
+  <link name="front_tof_R" />
+  <joint name="front_tof_R_mount" type="fixed">
+    <parent link="base_link" />
+    <child link="front_tof_R" />
+    <origin xyz="0.073442 -0.040488 0.035893" rpy="-1.0468E-05 0.40778 -0.57934" />
+  </joint>
+  <link name="front_tof_L" />
+  <joint name="front_tof_L_mount" type="fixed">
+    <parent link="base_link" />
+    <child link="front_tof_L" />
+    <origin xyz="0.073442 0.040495 0.035893" rpy="0 0.40776 0.57931" />
+  </joint>
+  <link name="back_tof_R" />
+  <joint name="back_tof_R_mount" type="fixed">
+    <parent link="base_link" />
+    <child link="back_tof_R" />
+    <origin xyz="-0.086212 -0.020313 0.026245" rpy="0 0.7854 -2.3562" />
+  </joint>
+  <link name="back_tof_L" />
+  <joint name="back_tof_L_mount" type="fixed">
+    <parent link="base_link" />
+    <child link="back_tof_L" />
+    <origin xyz="-0.0862125000000004 0.020312499999999 0.026244885463394" rpy="0 0.785398163397441 2.35619449019235" />
+  </joint>
+</robot>

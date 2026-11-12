@@ -1,0 +1,197 @@
+{
+  "schema_version": 1,
+  "purpose": "CAD mount geometry only; not runtime optical/IMU calibration",
+  "source_urdf_sha256": "c2d2c36ab68eeaa2ece91917f9a54f1a57e4764fa54a3c57473c0e153ebe8289",
+  "source_csv_sha256": "8d2c9013ef777838093dd9a39b04459054eb2d9f58b66e4a28cc8b95f0c2dd71",
+  "parent_frame": "base_link",
+  "cad_root_coordinate_system": "base_point",
+  "imu_location": "base_point; user confirmed location between and below four ToFs",
+  "imu_raw_measurement_axes_verified": false,
+  "runtime_tf_enabled": false,
+  "device_to_mount_mapping": {
+    "DICOTA_4K_RGB": "upper_camera_R",
+    "Sunplus_stereo_left": "bottom_camera_L",
+    "Sunplus_stereo_right": "bottom_camera_R"
+  },
+  "device_to_mount_mapping_source": "user confirmed 2026-11-12",
+  "sunplus_image_half_order_physically_verified": false,
+  "transform_convention": "p_base = R_base_sensor @ p_sensor + t_base_sensor; R=Rz(yaw)Ry(pitch)Rx(roll)",
+  "units": {
+    "translation": "m",
+    "rpy": "rad",
+    "quaternion_order": "xyzw"
+  },
+  "sensors": {
+    "upper_camera_R": {
+      "installed": true,
+      "parent": "base_link",
+      "xyz_m": [
+        0.06777,
+        -0.0263,
+        0.087248
+      ],
+      "rpy_rad": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    "upper_camera_L": {
+      "installed": false,
+      "parent": "base_link",
+      "xyz_m": [
+        0.06777,
+        0.0263,
+        0.087248
+      ],
+      "rpy_rad": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    "bottom_camera_R": {
+      "installed": true,
+      "parent": "base_link",
+      "xyz_m": [
+        0.084995,
+        -0.0185,
+        0.038482
+      ],
+      "rpy_rad": [
+        0.0,
+        0.19199,
+        0.0
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.09584763495392962,
+        0.0,
+        0.9953960171076325
+      ]
+    },
+    "bottom_camera_L": {
+      "installed": true,
+      "parent": "base_link",
+      "xyz_m": [
+        0.084995,
+        0.0185,
+        0.038482
+      ],
+      "rpy_rad": [
+        0.0,
+        0.19199,
+        0.0
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.09584763495392962,
+        0.0,
+        0.9953960171076325
+      ]
+    },
+    "front_tof_R": {
+      "installed": true,
+      "parent": "base_link",
+      "xyz_m": [
+        0.073442,
+        -0.040488,
+        0.035893
+      ],
+      "rpy_rad": [
+        -1.0468e-05,
+        0.40778,
+        -0.57934
+      ],
+      "quaternion_xyzw": [
+        0.057830742149882486,
+        0.19404604575386813,
+        -0.27971840691574396,
+        0.938487799719421
+      ]
+    },
+    "front_tof_L": {
+      "installed": true,
+      "parent": "base_link",
+      "xyz_m": [
+        0.073442,
+        0.040495,
+        0.035893
+      ],
+      "rpy_rad": [
+        0.0,
+        0.40776,
+        0.57931
+      ],
+      "quaternion_xyzw": [
+        -0.057829946462658446,
+        0.19403606429142212,
+        0.2797059235184427,
+        0.9384936331137875
+      ]
+    },
+    "back_tof_R": {
+      "installed": true,
+      "parent": "base_link",
+      "xyz_m": [
+        -0.086212,
+        -0.020313,
+        0.026245
+      ],
+      "rpy_rad": [
+        0.0,
+        0.7854,
+        -2.3562
+      ],
+      "quaternion_xyzw": [
+        0.35355457785816985,
+        0.14644596006689012,
+        -0.8535540399263637,
+        0.35355090465306654
+      ]
+    },
+    "back_tof_L": {
+      "installed": true,
+      "parent": "base_link",
+      "xyz_m": [
+        -0.0862125000000004,
+        0.020312499999999,
+        0.026244885463394
+      ],
+      "rpy_rad": [
+        0.0,
+        0.785398163397441,
+        2.35619449019235
+      ],
+      "quaternion_xyzw": [
+        -0.353553390593271,
+        0.14644660940672402,
+        0.853553390593276,
+        0.35355339059327207
+      ]
+    }
+  },
+  "source_full_robot_limit_lower_gt_upper": [
+    "joint_hip_R",
+    "Joint_thigh_R",
+    "Joint_calf_R",
+    "Joint_wheel_R",
+    "Joint_hip_L",
+    "Joint_thigh_L",
+    "Joint_calf_L",
+    "Joint_wheel_L"
+  ],
+  "bottom_mount_separation_m": 0.037
+}

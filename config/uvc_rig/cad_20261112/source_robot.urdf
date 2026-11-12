@@ -1,0 +1,935 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="坐姿步侧视图.png">
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="-0.010855362742586 -0.00285530964004582 0.0421016504313884"
+        rpy="0 0 0" />
+      <mass
+        value="2.91843528581674" />
+      <inertia
+        ixx="0.00652100756732763"
+        ixy="1.93933720279465E-06"
+        ixz="-2.24557553152377E-05"
+        iyy="0.00308910260176537"
+        iyz="-9.5287717286802E-08"
+        izz="0.00798238352425194" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="link_hip_R">
+    <inertial>
+      <origin
+        xyz="0.0370660914035324 -0.00535003652999762 -0.00192199824989732"
+        rpy="0 0 0" />
+      <mass
+        value="0.164211934972613" />
+      <inertia
+        ixx="4.7738315002861E-05"
+        ixy="-3.65888858854782E-06"
+        ixz="1.92762045241907E-06"
+        iyy="5.18168562647607E-05"
+        iyz="7.77711202754968E-07"
+        izz="4.08374863594874E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/link_hip_R.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/link_hip_R.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint_hip_R"
+    type="revolute">
+    <origin
+      xyz="-0.0042 -0.034 -0.02675"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="link_hip_R" />
+    <axis
+      xyz="-1 0 0" />
+    <limit
+      lower="1"
+      upper="0.8"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="link_thigh_R">
+    <inertial>
+      <origin
+        xyz="-0.0657682409627138 -0.0292996749716884 -0.036801019019939"
+        rpy="0 0 0" />
+      <mass
+        value="0.161052346071178" />
+      <inertia
+        ixx="6.37342650309739E-05"
+        ixy="-1.587535232892E-07"
+        ixz="5.07357359636337E-05"
+        iyy="0.000166421350635629"
+        iyz="2.31571031913674E-07"
+        izz="0.000115795487673743" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/link_thigh_R.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/link_thigh_R.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="Joint_thigh_R"
+    type="revolute">
+    <origin
+      xyz="0.04825 -0.0228 0"
+      rpy="0 0 0" />
+    <parent
+      link="link_hip_R" />
+    <child
+      link="link_thigh_R" />
+    <axis
+      xyz="0 -1 0" />
+    <limit
+      lower="1"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="Link_calf_R">
+    <inertial>
+      <origin
+        xyz="0.0771166551264051 0.00689686432786378 -0.0327626645841214"
+        rpy="0 0 0" />
+      <mass
+        value="0.119582435244463" />
+      <inertia
+        ixx="5.31458659976955E-05"
+        ixy="1.47078102382466E-05"
+        ixz="-4.07471754013222E-05"
+        iyy="0.000168100087947708"
+        iyz="-6.24869704093898E-06"
+        izz="0.000131742657082834" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/Link_calf_R.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/Link_calf_R.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="Joint_calf_R"
+    type="revolute">
+    <origin
+      xyz="-0.087045 -0.0481 -0.049226"
+      rpy="0 0 0" />
+    <parent
+      link="link_thigh_R" />
+    <child
+      link="Link_calf_R" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="1"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="Link_wheel_R">
+    <inertial>
+      <origin
+        xyz="-4.30211422042248E-16 0.0120962386122596 -3.88578058618805E-16"
+        rpy="0 0 0" />
+      <mass
+        value="0.0804975532288187" />
+      <inertia
+        ixx="4.46235421874022E-05"
+        ixy="-2.56456330194016E-19"
+        ixz="8.38295852034203E-21"
+        iyy="7.73629881840055E-05"
+        iyz="-2.14634171498801E-19"
+        izz="4.46235421874021E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/Link_wheel_R.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.796078431372549 0.823529411764706 0.937254901960784 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/Link_wheel_R.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="Joint_wheel_R"
+    type="revolute">
+    <origin
+      xyz="0.101241807123517 0.023 -0.0430127479983258"
+      rpy="0 0 0" />
+    <parent
+      link="Link_calf_R" />
+    <child
+      link="Link_wheel_R" />
+    <axis
+      xyz="0 -1 0" />
+    <limit
+      lower="1"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="Link_hip_L">
+    <inertial>
+      <origin
+        xyz="0.0373160464096247 0.00548265882285279 -0.00183470055175488"
+        rpy="0 0 0" />
+      <mass
+        value="0.164946753759458" />
+      <inertia
+        ixx="4.79555076898434E-05"
+        ixy="3.72876273613999E-06"
+        ixz="1.86830353072831E-06"
+        iyy="5.19908107946706E-05"
+        iyz="-8.4217366563113E-07"
+        izz="4.10633160418804E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/Link_hip_L.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/Link_hip_L.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="Joint_hip_L"
+    type="revolute">
+    <origin
+      xyz="-0.0042 0.034 -0.02675"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="Link_hip_L" />
+    <axis
+      xyz="-1 0 0" />
+    <limit
+      lower="1"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="Link_thigh_L">
+    <inertial>
+      <origin
+        xyz="-0.0661901139740246 0.0195890511415654 -0.0363916939478563"
+        rpy="0 0 0" />
+      <mass
+        value="0.170879578723294" />
+      <inertia
+        ixx="6.4162155133788E-05"
+        ixy="7.49651138045674E-06"
+        ixz="5.07233140755717E-05"
+        iyy="0.000166442737415131"
+        iyz="4.57380977218762E-06"
+        izz="0.000116262201299517" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/Link_thigh_L.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/Link_thigh_L.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="Joint_thigh_L"
+    type="revolute">
+    <origin
+      xyz="0.04825 0.0228 0"
+      rpy="0 0 0" />
+    <parent
+      link="Link_hip_L" />
+    <child
+      link="Link_thigh_L" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="1"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="Link_calf_L">
+    <inertial>
+      <origin
+        xyz="0.0719963603717523 -0.00640169622311569 -0.0305882134891777"
+        rpy="0 0 0" />
+      <mass
+        value="0.128086429092685" />
+      <inertia
+        ixx="5.34472683908643E-05"
+        ixy="-1.47078532167876E-05"
+        ixz="-4.0746730146017E-05"
+        iyy="0.000168119985873724"
+        iyz="6.2485958797097E-06"
+        izz="0.000132044982810576" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/Link_calf_L.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/Link_calf_L.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="Joint_calf_L"
+    type="revolute">
+    <origin
+      xyz="-0.087045 0.0481 -0.049226"
+      rpy="0 0 0" />
+    <parent
+      link="Link_thigh_L" />
+    <child
+      link="Link_calf_L" />
+    <axis
+      xyz="0 -1 0" />
+    <limit
+      lower="1"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="Link_wheel_L">
+    <inertial>
+      <origin
+        xyz="3.39311911901063E-15 -0.0120962386122594 7.81319453579954E-15"
+        rpy="0 0 0" />
+      <mass
+        value="0.0804975532288186" />
+      <inertia
+        ixx="4.46235421874028E-05"
+        ixy="3.59538833343528E-21"
+        ixz="-1.56362985166664E-20"
+        iyy="7.73629881840056E-05"
+        iyz="-1.396399525941E-20"
+        izz="4.46235421874028E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/Link_wheel_L.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.796078431372549 0.823529411764706 0.937254901960784 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/Link_wheel_L.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="Joint_wheel_L"
+    type="revolute">
+    <origin
+      xyz="0.101241807123502 -0.023 -0.0430127479983269"
+      rpy="0 0 0" />
+    <parent
+      link="Link_calf_L" />
+    <child
+      link="Link_wheel_L" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="1"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="upper_camera_R">
+    <inertial>
+      <origin
+        xyz="-0.00271194513859185 0 -0.000646694307178813"
+        rpy="0 0 0" />
+      <mass
+        value="0.000226150127465967" />
+      <inertia
+        ixx="3.19553521374674E-09"
+        ixy="-1.26317531979311E-25"
+        ixz="1.76678023480942E-10"
+        iyy="2.36239562965014E-09"
+        iyz="-1.93661845414819E-25"
+        izz="1.34994342207503E-09" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/upper_camera_R.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/upper_camera_R.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="upper_camera_R"
+    type="fixed">
+    <origin
+      xyz="0.06777 -0.0263 0.087248"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="upper_camera_R" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="upper_camera_L">
+    <inertial>
+      <origin
+        xyz="-0.00271194513859185 -6.93889390390723E-18 -0.000646694307178813"
+        rpy="0 0 0" />
+      <mass
+        value="0.000226150127465967" />
+      <inertia
+        ixx="3.19553521374674E-09"
+        ixy="-3.9864093103836E-25"
+        ixz="1.76678023480942E-10"
+        iyy="2.36239562965013E-09"
+        iyz="-4.09988400615905E-27"
+        izz="1.34994342207503E-09" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/upper_camera_L.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/upper_camera_L.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="upper_camera_L"
+    type="fixed">
+    <origin
+      xyz="0.06777 0.0263 0.087248"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="upper_camera_L" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="bottom_camera_R">
+    <inertial>
+      <origin
+        xyz="-0.00271194513859187 1.73472347597681E-18 -0.000646694307178813"
+        rpy="0 0 0" />
+      <mass
+        value="0.000226150127465967" />
+      <inertia
+        ixx="3.19553521374674E-09"
+        ixy="-2.05696211074295E-25"
+        ixz="1.76678023480935E-10"
+        iyy="2.36239562965012E-09"
+        iyz="-9.71031009997517E-25"
+        izz="1.34994342207502E-09" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/bottom_camera_R.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/bottom_camera_R.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="bottom_camera_R"
+    type="fixed">
+    <origin
+      xyz="0.084995 -0.0185 0.038482"
+      rpy="0 0.19199 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="bottom_camera_R" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="bottom_camera_L">
+    <inertial>
+      <origin
+        xyz="-0.00271194513859185 0 -0.000646694307178799"
+        rpy="0 0 0" />
+      <mass
+        value="0.000226150127465967" />
+      <inertia
+        ixx="3.19553521374675E-09"
+        ixy="-6.58223700816408E-25"
+        ixz="1.76678023480943E-10"
+        iyy="2.36239562965013E-09"
+        iyz="-8.27900359930112E-25"
+        izz="1.34994342207502E-09" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/bottom_camera_L.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/bottom_camera_L.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="bottom_camera_L"
+    type="fixed">
+    <origin
+      xyz="0.084995 0.0185 0.038482"
+      rpy="0 0.19199 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="bottom_camera_L" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="front_tof_R">
+    <inertial>
+      <origin
+        xyz="-0.00582122475677637 2.77555756156289E-17 0.00319160538284179"
+        rpy="0 0 0" />
+      <mass
+        value="0.0010621773658817" />
+      <inertia
+        ixx="5.8428759270946E-08"
+        ixy="-4.51292808836285E-24"
+        ixz="-6.42126589528815E-09"
+        iyy="2.04647882796642E-08"
+        iyz="6.13146871748463E-24"
+        izz="6.15060470386564E-08" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/front_tof_R.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 0.156862745098039 0 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/front_tof_R.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="front_tof_R"
+    type="fixed">
+    <origin
+      xyz="0.073442 -0.040488 0.035893"
+      rpy="-1.0468E-05 0.40778 -0.57934" />
+    <parent
+      link="base_link" />
+    <child
+      link="front_tof_R" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="front_tof_L">
+    <inertial>
+      <origin
+        xyz="-0.00582122475677639 8.67361737988404E-18 0.00319160538284179"
+        rpy="0 0 0" />
+      <mass
+        value="0.0010621773658817" />
+      <inertia
+        ixx="5.8428759270946E-08"
+        ixy="-1.57143340573605E-23"
+        ixz="-6.42126589528815E-09"
+        iyy="2.04647882796642E-08"
+        iyz="3.36780182112592E-24"
+        izz="6.15060470386564E-08" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/front_tof_L.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 0.156862745098039 0 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/front_tof_L.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="front_tof_L"
+    type="fixed">
+    <origin
+      xyz="0.073442 0.040495 0.035893"
+      rpy="0 0.40776 0.57931" />
+    <parent
+      link="base_link" />
+    <child
+      link="front_tof_L" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="back_tof_R">
+    <inertial>
+      <origin
+        xyz="-0.00582122475677639 1.38777878078145E-17 0.00319160538284179"
+        rpy="0 0 0" />
+      <mass
+        value="0.00106217736588169" />
+      <inertia
+        ixx="5.8428759270946E-08"
+        ixy="1.61666988282573E-24"
+        ixz="-6.42126589528815E-09"
+        iyy="2.04647882796642E-08"
+        iyz="2.25129784602632E-24"
+        izz="6.15060470386564E-08" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/back_tof_R.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 0.156862745098039 0 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/back_tof_R.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="back_tof_R"
+    type="fixed">
+    <origin
+      xyz="-0.086212 -0.020313 0.026245"
+      rpy="0 0.7854 -2.3562" />
+    <parent
+      link="base_link" />
+    <child
+      link="back_tof_R" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="back_tof_L">
+    <inertial>
+      <origin
+        xyz="-0.0058212247567764 -1.38777878078145E-17 0.00319160538284174"
+        rpy="0 0 0" />
+      <mass
+        value="0.00106217736588169" />
+      <inertia
+        ixx="5.84287592709459E-08"
+        ixy="-3.17472242747365E-24"
+        ixz="-6.42126589528813E-09"
+        iyy="2.04647882796642E-08"
+        iyz="-1.30156376303634E-25"
+        izz="6.15060470386563E-08" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/back_tof_L.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 0.156862745098039 0 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://坐姿步侧视图.png/meshes/back_tof_L.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="back_tof_L"
+    type="fixed">
+    <origin
+      xyz="-0.0862125000000004 0.020312499999999 0.026244885463394"
+      rpy="0 0.785398163397441 2.35619449019235" />
+    <parent
+      link="base_link" />
+    <child
+      link="back_tof_L" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+</robot>
