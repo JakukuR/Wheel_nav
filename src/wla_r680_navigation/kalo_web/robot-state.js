@@ -6,6 +6,13 @@
     ['knee_L_Joint', '左膝'], ['knee_R_Joint', '右膝'], ['wheel_L_Joint', '左轮'], ['wheel_R_Joint', '右轮']];
   const DATA_TTL = 500, STATUS_TTL = 1500;
   const finite = a => Array.isArray(a) && a.every(Number.isFinite);
+  // User-confirmed debug display convention: roll/yaw reversed, pitch unchanged.
+  // Conjugation by Ry(pi): q_display = C*q*C^-1 = [-qx, qy, -qz, qw].
+  // This stays a proper rotation and keeps the diagram/quaternion/RPY consistent.
+  // It is not an IMU mounting calibration and is never published back to ROS.
+  function DisplayAttitude(q, rpy) {
+    return { q:q?[-q[0],q[1],-q[2],q[3]]:null, rpy:rpy?[-rpy[0],rpy[1],-rpy[2]]:null };
+  }
   class StateModel {
     constructor() { this.connected = false; this.entries = new Map(); this.rates = new Map(); }
     reset() { this.entries.clear(); this.rates.clear(); this.connected = false; }
@@ -87,10 +94,11 @@
     const degree = value => `${(value*180/Math.PI).toFixed(2)}°`;
     const render = () => {
       const s=model.snapshot(performance.now()), badge=$('robotStateLink');
+      const display=DisplayAttitude(s.q,s.rpy);
       badge.textContent=!s.connected?'桥接未连接':s.imuReady&&s.jointsReady?'姿态与关节在线':s.imuReady?'姿态在线 · 等待关节':s.jointsReady?'关节在线 · 等待姿态':s.hadImu||s.hadJoints?'数据已过期':'等待电控数据';
       badge.className='pill '+(s.imuReady&&s.jointsReady?'live':s.connected?'quiet':'down');
-      ['robotRoll','robotPitch','robotYaw'].forEach((id,i)=>{ $(id).textContent=s.rpy?degree(s.rpy[i]):'—'; });
-      $('robotQuaternion').textContent=s.q?s.q.map(v=>v.toFixed(5)).join(' / '):'— / — / — / —';
+      ['robotRoll','robotPitch','robotYaw'].forEach((id,i)=>{ $(id).textContent=display.rpy?degree(display.rpy[i]):'—'; });
+      $('robotQuaternion').textContent=display.q?display.q.map(v=>v.toFixed(5)).join(' / '):'— / — / — / —';
       $('robotAttitudeEmpty').hidden=s.imuReady;
       $('robotAttitudeEmpty').textContent=s.hadImu?'姿态数据已过期':'等待姿态数据';
       $('robotAttitudeMeta').textContent=s.imuReady?`IMU ${s.imuHz.toFixed(0)} Hz · 帧龄 ${s.imuAge.toFixed(0)} ms`:'IMU — · 帧龄 —';
@@ -101,13 +109,13 @@
       $('robotSourceMeta').textContent=s.status?`姿态来源：${source==='host_mahony'?'电控 Mahony':source==='device_quaternion'?'IMU 设备四元数':source||'等待电控'} · ${s.status.body_frame||'—'}`:'尚未收到状态适配器信息';
       const errors=s.status?[s.status.imu_error,s.status.joint_error].filter(Boolean).join('；'):'';
       $('robotStateNote').textContent=errors||(!s.imuReady&&!s.jointsReady?'等待原电控 IMU 与实测关节反馈；缺数据时不显示零姿态。':'关节帧龄按状态接收时间计算；旋转示意不代表定位或离地高度。');
-      DrawAttitude($('robotAttitudeCanvas'),s.q);
+      DrawAttitude($('robotAttitudeCanvas'),display.q);
     };
     render(); setInterval(render,100);
     return { topics:TOPICS, receive:(topic,msg,recv)=>model.receive(topic,msg,recv,performance.now()),
       reset:()=>{ model.reset(); render(); }, setConnected:up=>{ model.connected=up; render(); } };
   }
-  const api={ StateModel, Rotate, topics:TOPICS };
+  const api={ StateModel, Rotate, DisplayAttitude, topics:TOPICS };
   if (typeof module!=='undefined' && module.exports) module.exports=api;
   if (root && root.document) root.KaloRobotState=Mount(root.document);
 })(typeof window!=='undefined'?window:null);

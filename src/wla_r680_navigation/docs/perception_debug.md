@@ -9,7 +9,8 @@
 页面顶部新增“实时机身状态”：RPY（度）、xyzw 四元数、仅旋转的机身示意、八个实测关节角（度）、实收频率与帧龄、融合来源和在线/缺数据状态。无需先启动相机即可显示。
 
 - 直接读取 `/robot_state/attitude`、`/robot_state/rpy`、`/joint_states` 和 `/robot_state/status`，来源是独立 C++ 状态适配器，复用电控已融合姿态。
-- 显示使用启动航向参考 `imu_start_gravity`，yaw 相对适配器第一次有效姿态归零，roll/pitch 保留重力参考；机身来源 frame 为 `base_Link`。旋转示意不代表 xyz 或离地高度。
+- 数据源使用启动航向参考 `imu_start_gravity`，yaw 相对适配器第一次有效姿态归零，roll/pitch 保留重力参考；机身来源 frame 为 `base_Link`。旋转示意不代表 xyz 或离地高度。
+- 用户实物方向反馈确认后，网页显示约定调整为 `roll_display=-roll`、`pitch_display=pitch`、`yaw_display=-yaw`。显示四元数和旋转示意使用同一个正交换基 `q_display=[-qx,qy,-qz,qw]`（相当于用 Ry(pi) 共轭），保证三个显示结果一致，不只反转文字。此项仅为调试显示方向，不作为 IMU 安装标定，不回写 `/imu/data`、`/robot_state/attitude` 或 `/robot_state/rpy`，也不修改电控模型；下游 SLAM 仍需使用其真实标定外参。
 - 姿态、RPY 与关节 CDR 在浏览器解码，Orin 仍只转发序列化数据。ROS 代码、滤波、模型、零位及控制参数均未修改。
 - IMU 帧龄按源 header 到桥接接收的差值加浏览器等待时间计算，不用浏览器与 Orin 的绝对时钟相减。关节 header 是状态适配器的接收时间，因此关节“接收帧龄”不代表电机硬件采样时延。
 - 消息超过 500 ms、无效四元数、姿态/RPY 时间差超过 30 ms、适配器报告源不可用或连接断开时，相关读数显示 —，不显示默认零值或将旧姿态当实时。状态适配器心跳超过 1.5 s 不再作为当前源状态。

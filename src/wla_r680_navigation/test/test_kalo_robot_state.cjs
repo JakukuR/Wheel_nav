@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const {StateModel, Rotate} = require('../kalo_web/robot-state.js');
+const {StateModel, Rotate, DisplayAttitude} = require('../kalo_web/robot-state.js');
 const data = new StateModel();
 data.connected = true;
 const header = {t:10000,frame:'imu_start_gravity'};
@@ -34,6 +34,18 @@ assert.equal(data.snapshot(110).imuReady,false);
 data.reset();assert.equal(data.snapshot(110).connected,false);assert.equal(data.snapshot(110).hadImu,false);
 const rotated=Rotate([0,0,Math.sin(Math.PI/4),Math.cos(Math.PI/4)],[1,0,0]);
 assert.ok(Math.abs(rotated[0])<1e-12 && Math.abs(rotated[1]-1)<1e-12);
+const FromRpy = ([r,p,y]) => {
+  const sr=Math.sin(r/2),cr=Math.cos(r/2),sp=Math.sin(p/2),cp=Math.cos(p/2),sy=Math.sin(y/2),cy=Math.cos(y/2);
+  return [sr*cp*cy-cr*sp*sy,cr*sp*cy+sr*cp*sy,cr*cp*sy-sr*sp*cy,cr*cp*cy+sr*sp*sy];
+};
+for(const rpy of [[.4,0,0],[0,.3,0],[0,0,-.7],[.3,-.4,1.2],[-.6,.5,-2.4]]) {
+  const source=FromRpy(rpy), display=DisplayAttitude(source,rpy), expected=FromRpy([-rpy[0],rpy[1],-rpy[2]]);
+  assert.deepEqual(display.rpy,[-rpy[0],rpy[1],-rpy[2]]);
+  assert.ok(display.q.every((v,i)=>Math.abs(v-expected[i])<1e-12));
+  assert.ok(Math.abs(Math.hypot(...display.q)-1)<1e-12);
+  assert.deepEqual(source,FromRpy(rpy)); // Source ROS representation must not mutate.
+}
+assert.deepEqual(DisplayAttitude(null,null),{q:null,rpy:null});
 let fixtureCount=0;
 if(process.argv[2]) {
   const source=fs.readFileSync(path.join(__dirname,'../kalo_web/kalo.js'),'utf8');
@@ -55,4 +67,4 @@ if(process.argv[2]) {
     fixtureCount++;
   }
 }
-console.log(JSON.stringify({checks:'freshness, source rejection, invalid quaternion, names, time pairing, disconnect, rotation and ROS CDR',rosFixtures:fixtureCount}));
+console.log(JSON.stringify({checks:'freshness, source rejection, invalid quaternion, names, time pairing, disconnect, display roll/yaw reversal with unchanged pitch, rotation and ROS CDR',rosFixtures:fixtureCount}));
