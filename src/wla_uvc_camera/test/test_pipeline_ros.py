@@ -1,0 +1,60 @@
+"""Synthetic ROS contracts, isolated domain only; no camera or chassis access."""
+import os
+import time
+from types import SimpleNamespace as NS
+import cv2
+import numpy as np
+import pytest
+rclpy=pytest.importorskip('rclpy')
+from std_msgs.msg import Header
+from wla_uvc_camera.pipeline import Pipeline,image,stamp
+from test_stereo import rig_file
+
+pytestmark=pytest.mark.skipif(os.environ.get('ROS_DOMAIN_ID')!='197',reason='requires isolated ROS domain 197')
+
+
+@pytest.fixture
+def pipeline(tmp_path):
+    path,_=rig_file(tmp_path);rclpy.init()
+    node=Pipeline(NS(calibration=str(path),algorithm='sgbm',disparities=64,block_size=9,max_skew_ms=25.))
+    published={k:[] for k in ('color','depth','info')}
+    for name in published:setattr(node,name+'_pub',NS(publish=published[name].append))
+    try:yield node,published
+    finally:node.close();node.destroy_node();rclpy.try_shutdown()
+
+
+def packet(values,frame,ns):
+    header=Header();header.frame_id=frame
+    header.stamp.sec=ns//1_000_000_000;header.stamp.nanosec=ns%1_000_000_000
+    return image(np.repeat(values[:,:,None],3,axis=2),header,'bgr8')
+
+
+def test_metric_depth_keeps_stereo_time_and_rgb_keeps_its_own_time(pipeline):
+    node,out=pipeline
+    rng=np.random.default_rng(7)
+    left=cv2.resize(rng.integers(0,256,(360,640),dtype=np.uint8),(1280,720),interpolation=cv2.INTER_NEAREST)
+    right=np.zeros_like(left);right[:,:-24]=left[:,24:]
+    ns=node.get_clock().now().nanoseconds
+    node.rgb(packet(np.zeros((1080,1920),np.uint8),'dicota_color_optical_frame',ns-5_000_000))
+    node.eye('left',packet(left,'sunplus_left_optical_frame',ns-10_000_000))
+    node.eye('right',packet(right,'sunplus_right_optical_frame',ns-10_000_000))
+    end=time.monotonic()+2
+    while not out['color'] and time.monotonic()<end:time.sleep(.005)
+    assert out['color'] and out['depth'] and out['info']
+    depth=out['depth'][0];color=out['color'][0];info=out['info'][0]
+    assert stamp(depth)==ns-10_000_000 and stamp(color)==ns-5_000_000
+    assert depth.header.frame_id==color.header.frame_id=='dicota_color_optical_frame'
+    assert (depth.width,depth.height,depth.encoding)==(640,480,'16UC1')
+    assert info.k[0]==pytest.approx(1200*4/9) and info.k[2]==pytest.approx(319.5)
+    values=np.frombuffer(depth.data,dtype='<u2');assert np.median(values[values>0])==pytest.approx(2000,abs=30)
+
+
+def test_skewed_stereo_rgb_and_stale_input_cannot_produce_geometry(pipeline):
+    node,out=pipeline;ns=node.get_clock().now().nanoseconds
+    eye=np.zeros((720,1280),np.uint8)
+    node.rgb(packet(np.zeros((1080,1920),np.uint8),'dicota_color_optical_frame',ns-100_000_000))
+    node.eye('left',packet(eye,'sunplus_left_optical_frame',ns))
+    node.eye('right',packet(eye,'sunplus_right_optical_frame',ns))
+    assert node.pending is None and not any(out.values())
+    node.rgb(packet(np.zeros((1080,1920),np.uint8),'dicota_color_optical_frame',ns-1_000_000_000))
+    assert len(node.colors)==1 and not any(out.values())

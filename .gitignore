@@ -37,3 +37,7 @@ node_modules/
 # Versioned person-follow builds (source remains under src).
 /.staging/
 /releases/
+
+# New robot calibration and old-map archive.
+/maps_legacy_r680/
+/calibration_data/

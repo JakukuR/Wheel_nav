@@ -360,3 +360,33 @@ def test_observation_window_full_path_does_not_wait_for_slow_system1(fixture, tm
         assert not errors
     finally:
         exporter.close();receiver.close();runtime.close();node.observation_exporter=None
+
+
+def test_uvc_topics_frames_and_no_fabricated_metric_geometry(fixture):
+    # The existing fixture installs the fake inference runtime, while this node
+    # uses real ROS subscriptions with the new camera profile.
+    _,_,_,_=fixture
+    model=Model()
+    node=module().NavDetector(NS(base_frame='base_Link',device='cpu',imgsz=416,
+        tracker='',hz=30.,idle_hz=30.,
+        color_topic='/camera/processed/color/image_raw',
+        depth_topic='/camera/processed/aligned_depth_to_color/image_raw',
+        camera_info_topic='/camera/processed/color/camera_info',
+        optical_frame='dicota_color_optical_frame'),model)
+    try:
+        topics={s.topic_name for s in node.subscriptions}
+        assert '/camera/processed/color/image_raw' in topics
+        assert '/camera/processed/aligned_depth_to_color/image_raw' in topics
+        assert '/camera/processed/color/camera_info' in topics
+        node.on_image(rgb(node))
+        time.sleep(.03);assert model.calls==0
+        msg=rgb(node);msg.header.frame_id='dicota_color_optical_frame'
+        node.on_image(msg)
+        assert model.entered.wait(1.)
+        batch=dict(stamp_ns=node.ros_ns(),session=node.session,epoch=node.epoch,
+            frame_id=msg.header.frame_id,width=64,height=48,
+            objects=[dict(track_id=7,label='person',confidence=.8,bbox_xyxy=[24,16,48,40])])
+        row=node.project(batch)['objects'][0]
+        assert row['detected'] and row['distance'] is None and row['yaw'] is None
+    finally:
+        node.stop();node.destroy_node()

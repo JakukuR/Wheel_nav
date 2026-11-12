@@ -1,0 +1,25 @@
+{
+  "kalibr_commit": "1f60227442d25e36365ef5f72cd80b9666d73467",
+  "target": {
+    "rows": 6,
+    "cols": 5,
+    "tag_m": 0.03,
+    "spacing_ratio": 0.3,
+    "tag_family": "t36h11",
+    "border_bits": 2
+  },
+  "paper_mm": [
+    297,
+    420
+  ],
+  "tag_border_rectangles_verified": 60,
+  "scale": 1,
+  "sha256": "fb06d0a5c0d3f1d9511d5c6f0d79340e085b533a836ddebbb696ba38221af8b7",
+  "rendered_validation": {
+    "detected": true,
+    "corners": 120,
+    "tags": 30,
+    "corner_indices_complete": true,
+    "validation": "Rendered PDF only; physical print dimensions still need measurement"
+  }
+}

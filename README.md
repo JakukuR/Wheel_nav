@@ -1,3 +1,9 @@
+> **2026-11-12 新机迁移说明**：本副本位于 `onana@192.168.50.1:/home/onana/ros2_ws`。
+> 新硬件为 Sunplus 双目 + DICOTA RGB，相机入口 `robot_camera.sh`，检测入口 `robot_perception.sh`，新入口默认 ROS 域 **0 / Fast DDS**。
+> 下方 R680、D455、域 73 和旧 IP 的内容记录源机架构，不能直接当作新机器人启动说明。
+> 新机尚缺三相机标定、可靠 IMU 数据和 URDF；参见 [标定方案](docs/新机器人三相机与IMU标定方案.md)。
+> 旧地图已归档 `maps_legacy_r680/`；新 `maps/` 不含已验收地图。未启动旧底盘导航入口。
+
 # R680 轮腿机器人工作区
 
 这是 Orin NX 上的 `~/ros2_ws`：ROS 2 Jazzy，CycloneDDS，默认 ROS 域 73。

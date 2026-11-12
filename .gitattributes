@@ -1,1 +1,4 @@
 maps/map-2026-10-08-1/rtabmap.db filter=lfs diff=lfs merge=lfs -text
+
+# Printable vector calibration targets are binary artifacts.
+docs/calibration/*.pdf binary

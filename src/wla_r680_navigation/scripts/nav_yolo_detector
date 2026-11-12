@@ -57,9 +57,9 @@ class NavDetector(Node):
         self.status_pub = self.create_publisher(String, HEALTH_TOPIC, 1)
         self.metrics_pub = self.create_publisher(String, '/r680_nav/perception/timing', 10)
         image_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
-        self.create_subscription(Image, '/r680/d455/color/image_raw', self.on_image, image_qos, raw=True)
-        self.create_subscription(Image, '/r680/d455/aligned_depth_to_color/image_raw', self.on_depth, qos_profile_sensor_data, raw=True)
-        self.create_subscription(CameraInfo, '/r680/d455/color/camera_info', lambda m: self.infos.append(m), qos_profile_sensor_data)
+        self.create_subscription(Image, getattr(args, 'color_topic', '/r680/d455/color/image_raw'), self.on_image, image_qos, raw=True)
+        self.create_subscription(Image, getattr(args, 'depth_topic', '/r680/d455/aligned_depth_to_color/image_raw'), self.on_depth, qos_profile_sensor_data, raw=True)
+        self.create_subscription(CameraInfo, getattr(args, 'camera_info_topic', '/r680/d455/color/camera_info'), lambda m: self.infos.append(m), qos_profile_sensor_data)
         self.observation_exporter = None
         if getattr(args, 'observation_socket', None):
             try:
@@ -137,7 +137,7 @@ class NavDetector(Node):
         frame = as_frame(data)
         stamp, frame_id, height, width = frame_meta(frame)
         if (stamp <= 0 or not -.05 <= (now-stamp)/1e9 <= .3
-                or frame_id != 'd455_color_optical_frame'
+                or frame_id != getattr(self.args, 'optical_frame', 'd455_color_optical_frame')
                 or not 0 < width*height <= 2_000_000):
             return
         with self.condition:
@@ -408,7 +408,11 @@ def main():
                    help='Average the detector input colour over 2x2 pixels, luma kept (raw D455 colour noise lowers person scores)')
     p.add_argument('--hz', type=float, default=float(os.environ.get('WLA_DETECTOR_HZ', 20.)), help='Rate during a follow task')
     p.add_argument('--idle-hz', type=float, default=float(os.environ.get('WLA_DETECTOR_IDLE_HZ', 10.)), help='Rate otherwise')
-    p.add_argument('--base-frame', choices=['r680_mapping_floor', 'base_link'], default='r680_mapping_floor')
+    p.add_argument('--base-frame', default='r680_mapping_floor')
+    p.add_argument('--color-topic', default='/r680/d455/color/image_raw')
+    p.add_argument('--depth-topic', default='/r680/d455/aligned_depth_to_color/image_raw')
+    p.add_argument('--camera-info-topic', default='/r680/d455/color/camera_info')
+    p.add_argument('--optical-frame', default='d455_color_optical_frame')
     p.add_argument('--check-dependencies', action='store_true')
     p.add_argument('--observation-socket', default=None, help='Private same-host observation receiver socket')
     p.add_argument('--observation-sensor-id', default='d455:260922306083')
@@ -419,6 +423,12 @@ def main():
     p.add_argument('--observation-queue-bytes', type=int, default=16_000_000)
     p.add_argument('--observation-ipc-timeout', type=float, default=.15)
     args = p.parse_args()
+    if any(not v or v.startswith('/') or any(c.isspace() for c in v)
+           for v in (args.base_frame,args.optical_frame)):
+        p.error('frame IDs must be nonempty relative frame names')
+    if any(not v.startswith('/') or any(c.isspace() for c in v)
+           for v in (args.color_topic,args.depth_topic,args.camera_info_topic)):
+        p.error('camera topics must be absolute ROS topic names')
     if not (0 < args.idle_hz <= args.hz and math.isfinite(args.hz)):
         p.error('invalid rate: need 0 < idle-hz <= hz')
     if any(not math.isfinite(v) or v<=0 for v in (args.observation_max_age,args.observation_metadata_items,

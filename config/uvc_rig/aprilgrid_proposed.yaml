@@ -1,0 +1,8 @@
+# Proposed new A3 board, NOT a measurement of an existing print.
+# Generate the matching Kalibr Aprilgrid and print at 100 percent.
+# Replace tagSize with measured black tag edge in metres before calibration.
+target_type: aprilgrid
+tagRows: 6
+tagCols: 5
+tagSize: 0.030
+tagSpacing: 0.3

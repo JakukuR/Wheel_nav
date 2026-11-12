@@ -1,0 +1,25 @@
+# Deliberately invalid until nulls are replaced by measured calibration.
+# T_destination_source maps source optical coordinates to destination optical coordinates.
+schema: wla-uvc-rig/v1
+units: m
+cameras:
+  left:
+    width: 1280
+    height: 720
+    model: pinhole-radtan
+    k: null
+    d: null
+  right:
+    width: 1280
+    height: 720
+    model: pinhole-radtan
+    k: null
+    d: null
+  rgb:
+    width: 1920
+    height: 1080
+    model: pinhole-radtan
+    k: null
+    d: null
+T_right_left: null
+T_rgb_left: null
