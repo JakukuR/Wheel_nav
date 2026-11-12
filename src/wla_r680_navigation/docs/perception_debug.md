@@ -2,7 +2,57 @@
 
 只读的感知调试网页。车上只负责转发已经序列化的消息，投影、按时间配对和绘制都在浏览器里完成（WebGL）。不启动 Nav2、定位或运动控制，也不发送跟随任务。
 
-## 启动
+## 新 Orin 实时姿态和关节状态（2026-11-12）
+
+用户确认的网页为 Kalo/ROS 调试台。新机使用域 **0**，访问 `http://192.168.50.1:18081/`。本次也已通过本机 SSH 转发打开 `http://127.0.0.1:18081/`；本机转发依赖 SSH 连接，不是机器人端额外服务。
+
+页面顶部新增“实时机身状态”：RPY（度）、xyzw 四元数、仅旋转的机身示意、八个实测关节角（度）、实收频率与帧龄、融合来源和在线/缺数据状态。无需先启动相机即可显示。
+
+- 直接读取 `/robot_state/attitude`、`/robot_state/rpy`、`/joint_states` 和 `/robot_state/status`，来源是独立 C++ 状态适配器，复用电控已融合姿态。
+- 显示使用启动航向参考 `imu_start_gravity`，yaw 相对适配器第一次有效姿态归零，roll/pitch 保留重力参考；机身来源 frame 为 `base_Link`。旋转示意不代表 xyz 或离地高度。
+- 姿态、RPY 与关节 CDR 在浏览器解码，Orin 仍只转发序列化数据。ROS 代码、滤波、模型、零位及控制参数均未修改。
+- IMU 帧龄按源 header 到桥接接收的差值加浏览器等待时间计算，不用浏览器与 Orin 的绝对时钟相减。关节 header 是状态适配器的接收时间，因此关节“接收帧龄”不代表电机硬件采样时延。
+- 消息超过 500 ms、无效四元数、姿态/RPY 时间差超过 30 ms、适配器报告源不可用或连接断开时，相关读数显示 —，不显示默认零值或将旧姿态当实时。状态适配器心跳超过 1.5 s 不再作为当前源状态。
+- 页面没有发布、服务调用或参数修改接口；实测 foxglove 的 `capabilities=[]`，话题白名单只增加四个状态话题。
+
+当前三项只读服务已运行，已有状态适配器被复用，不需要重复启动。后续重启机器后，三个终端先使用相同环境：
+
+```bash
+cd /home/onana/ros2_ws
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+export ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+```
+
+终端 1（若适配器已经运行则复用）：
+
+```bash
+ros2 run wla_robot_state robot_state_adapter --ros-args --params-file /home/onana/ros2_ws/config/robot_state/new_orin.yaml
+```
+
+终端 2：
+
+```bash
+ros2 run foxglove_bridge foxglove_bridge --ros-args -r __node:=kalo_bridge --params-file /home/onana/ros2_ws/src/wla_r680_navigation/config/kalo_bridge.yaml
+```
+
+终端 3：
+
+```bash
+ros2 run wla_r680_navigation kalo_debug_web --host 0.0.0.0 --port 18081 --base-frame base_Link
+```
+
+这组入口不启动相机、Nav2 或电控。旧 D455 的 debug-camera 入口有历史域/相机检查，不是本轮姿态页的启动方法。
+
+验证：浏览器实际打开页面，看到真机姿态、四元数、八关节数据，约 200 Hz IMU / 20 Hz 关节，页面无控制台错误。Node 状态测试检查数据源否决、过期、断线、无效数值/四元数、重复关节名、跨时刻 RPY 和旋转；另用目标 ROS 的 `serialize_message` 生成四种真实 CDR fixture，逐项核对浏览器解码结果。未向真机域注入模拟传感器消息。
+
+```bash
+node src/wla_r680_navigation/test/test_kalo_robot_state.cjs /path/to/kalo-ros-state-cdr.json
+```
+
+CDR fixture 来自同版本 ROS 的 QuaternionStamped、Vector3Stamped、JointState 和 String；不提供 fixture 参数时仍运行纯状态测试。页面脚本可用 `node --check` 检查，无需改 C++ 构建。
+
+## 旧 D455 感知入口（历史用法）
 
 ```bash
 cd /home/orin/ros2_ws

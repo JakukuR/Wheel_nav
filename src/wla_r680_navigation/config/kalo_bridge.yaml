@@ -7,6 +7,8 @@
     port: 8765
     address: 127.0.0.1
     topic_whitelist:
+      - "^/robot_state/(attitude|rpy|status)$"
+      - "^/joint_states$"
       - "^/r680/debug/color/compressed$"
       - "^/r680/d455/color/camera_info$"
       - "^/tf$"

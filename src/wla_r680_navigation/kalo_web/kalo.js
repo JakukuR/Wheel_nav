@@ -28,6 +28,16 @@ class Cdr {
 }
 
 const decode = {
+  'geometry_msgs/msg/QuaternionStamped': r => ({ header: r.header(), q: r.f64s(4) }),
+  'geometry_msgs/msg/Vector3Stamped': r => ({ header: r.header(), v: r.f64s(3) }),
+  'sensor_msgs/msg/JointState': r => {
+    const header = r.header(), count = r.u32(); if (count > 64) throw new Error('joint_count_limit');
+    const names = Array.from({ length: count }, () => r.str());
+    const array = () => { const n = r.u32(); if (n > 64) throw new Error('joint_array_limit'); return r.f64s(n); };
+    const positions = array(), velocities = array(), efforts = array();
+    if (positions.length !== names.length) throw new Error('joint_size_mismatch');
+    return { header, names, positions, velocities, efforts };
+  },
   'sensor_msgs/msg/CompressedImage': r => ({ header: r.header(), format: r.str(), data: r.bytes() }),
   'sensor_msgs/msg/CameraInfo': r => { const header = r.header(); const height = r.u32(), width = r.u32(); r.str();
     const nd = r.u32(); r.f64s(nd); return { header, height, width, k: r.f64s(9) }; },
@@ -95,7 +105,8 @@ const LAYERS = [
   { id: 'navpoints', label: '导航点云', color: '--sun', topics: ['/r680_nav/d455/points'], ttl: 60, on: true },
   { id: 'navpath', label: '导航路径', color: '--sakura', topics: ['/plan', '/optimal_trajectory'], ttl: 5000, on: true },
 ];
-const ALWAYS = ['/tf', '/tf_static', '/r680_nav/perception/status', '/r680_nav/perception/timing', '/r680/person_follow/status'];
+const ALWAYS = ['/tf', '/tf_static', '/r680_nav/perception/status', '/r680_nav/perception/timing', '/r680/person_follow/status',
+  ...window.KaloRobotState.topics];
 try { const saved = JSON.parse(localStorage.getItem('kalo-layers') || '{}'); for (const l of LAYERS) if (l.id in saved) l.on = saved[l.id]; } catch (e) { /* storage blocked */ }
 
 const store = new Map();   // topic -> [{t, recv, msg}] newest last, ~1.5 s
@@ -154,7 +165,7 @@ function connect() { // same origin: kalo_debug_web relays /ws to the local brid
   const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`, ['foxglove.sdk.v1']);
   ws.binaryType = 'arraybuffer'; bridge.ws = ws;
   ws.onopen = () => { bridge.up = true; setLink(true); };
-  ws.onclose = () => { bridge.up = false; bridge.channels.clear(); bridge.byTopic.clear(); bridge.subs.clear(); setLink(false); setTimeout(connect, 2000); };
+  ws.onclose = () => { bridge.up = false; bridge.channels.clear(); bridge.byTopic.clear(); bridge.subs.clear(); window.KaloRobotState.reset(); setLink(false); setTimeout(connect, 2000); };
   ws.onmessage = ev => {
     if (typeof ev.data === 'string') {
       const m = JSON.parse(ev.data);
@@ -201,6 +212,7 @@ function showHeldFrame() {
     state.imageBitmapPending = false; state.dirtyCam = true; }, () => { state.imageBitmapPending = false; });
 }
 function onMessage(topic, msg, recv) {
+  if (window.KaloRobotState.topics.includes(topic)) { window.KaloRobotState.receive(topic, msg, recv); return; }
   if (topic === '/tf' || topic === '/tf_static') { tf.add(msg); state.dirtyCam = state.dirtyTop = true; return; }
   if (topic === '/r680/d455/color/camera_info') { state.info = msg; return; }
   if (topic === '/r680/debug/color/compressed') {
@@ -404,7 +416,7 @@ function drawTop() {
 }
 
 // ----------------------------------------------------------------- UI ---
-function setLink(up) { const el = $('link'); el.textContent = up ? '已连接 · 推送' : '已断开，正在重连'; el.className = 'pill ' + (up ? 'live' : 'down'); }
+function setLink(up) { const el = $('link'); el.textContent = up ? '已连接 · 推送' : '已断开，正在重连'; el.className = 'pill ' + (up ? 'live' : 'down'); window.KaloRobotState.setConnected(up); }
 function renderChips() {
   const box = $('layers'); if (!box.children.length) for (const l of LAYERS) {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'layer'; b.id = 'layer-' + l.id; b.style.setProperty('--c', css(l.color));

@@ -6,6 +6,7 @@
 <title>Kalo 调试台</title>
 <link rel="icon" href="kalo.jpg">
 <link rel="stylesheet" href="kalo.css">
+<script defer src="robot-state.js"></script>
 <script defer src="kalo.js"></script>
 </head>
 <body>
@@ -19,6 +20,24 @@
   <span class="pill quiet">只读</span>
 </header>
 <main>
+  <section class="panel robot-state" aria-labelledby="robotStateTitle">
+    <div class="robot-state-heading"><div><h2 id="robotStateTitle">实时机身状态</h2><p>启动航向参考 · 姿态与实测关节角</p></div>
+      <span class="pill quiet" id="robotStateLink" role="status">等待连接</span></div>
+    <div class="robot-state-layout">
+      <div class="attitude-view"><canvas id="robotAttitudeCanvas" width="360" height="210" aria-label="机身旋转姿态示意"></canvas><span id="robotAttitudeEmpty">等待姿态数据</span></div>
+      <div class="attitude-values">
+        <div class="rpy-grid"><div><span>Roll · 横滚</span><b id="robotRoll">—</b></div><div><span>Pitch · 俯仰</span><b id="robotPitch">—</b></div><div><span>Yaw · 偏航</span><b id="robotYaw">—</b></div></div>
+        <p class="robot-small" id="robotAttitudeMeta">IMU — · 帧龄 —</p>
+        <div class="quaternion"><span>四元数 · x / y / z / w</span><code id="robotQuaternion">— / — / — / —</code></div>
+        <p class="robot-small" id="robotStateReference">参考 imu_start_gravity · 启动 yaw = 0</p>
+      </div>
+      <div class="joint-values"><div class="joint-heading"><b>实测关节角</b><span class="robot-small" id="robotJointMeta">等待关节数据</span></div>
+        <div class="joint-grid" id="robotJointGrid"></div>
+        <p class="robot-small" id="robotSourceMeta">等待标准状态适配器</p>
+      </div>
+    </div>
+    <p class="robot-state-note" id="robotStateNote">无数据时不显示零姿态；旋转示意不代表定位或离地高度。</p>
+  </section>
   <section class="stage">
     <figure class="panel cam">
       <div class="frame" id="camFrame">

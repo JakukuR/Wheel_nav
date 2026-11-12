@@ -52,7 +52,34 @@ figcaption { display: flex; justify-content: space-between; align-items: center;
 .stat b { display: block; font-size: 21px; font-weight: 800; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .stat span { font-size: 12.5px; color: var(--ink-soft); overflow-wrap: anywhere; }
 .foot { margin: 0; font-size: 12.5px; color: var(--ink-soft); }
+.robot-state { padding: 16px 18px; gap: 12px; }
+.robot-state-heading, .joint-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.robot-state h2 { margin: 0; font-size: 17px; }
+.robot-state-heading p { margin: 2px 0 0; color: var(--ink-soft); font-size: 12px; }
+.robot-state-layout { display: grid; grid-template-columns: minmax(180px,.9fr) minmax(250px,1.15fr) minmax(280px,1.3fr); gap: 18px; align-items: center; }
+.attitude-view { position: relative; border-radius: 15px; background: var(--cloud-2); overflow: hidden; aspect-ratio: 12 / 7; }
+.attitude-view canvas { width: 100%; height: 100%; display: block; }
+.attitude-view span { position: absolute; inset: 0; display: grid; place-items: center; color: var(--ink-soft); font-size: 13px; background: var(--cloud-2); }
+.rpy-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; }
+.rpy-grid span, .quaternion > span { color: var(--ink-soft); font-size: 12px; display: block; }
+.rpy-grid b { display: block; font-size: clamp(20px,2.1vw,29px); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.robot-small { color: var(--ink-soft); font-size: 11.5px; margin: 6px 0; overflow-wrap: anywhere; }
+.quaternion { padding-top: 8px; border-top: 1px solid var(--line); }
+.quaternion code { font-size: 12px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.joint-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 4px 14px; margin-top: 8px; }
+.joint-row { display: flex; justify-content: space-between; gap: 6px; font-size: 12px; }
+.joint-row span { color: var(--ink-soft); }
+.joint-row b { font-variant-numeric: tabular-nums; }
+.robot-state-note { margin: 0; padding-top: 8px; border-top: 1px solid var(--line); color: var(--ink-soft); font-size: 12px; }
 @media (max-width: 860px) {
+  .robot-state-layout { grid-template-columns: minmax(160px,.8fr) minmax(0,1.2fr); }
+  .joint-values { grid-column: 1 / -1; }
   .stage { grid-template-columns: 1fr; }
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 520px) {
+  .robot-state-layout { grid-template-columns: 1fr; gap: 12px; }
+  .attitude-view { max-width: 320px; width: 100%; margin: 0 auto; }
+  .rpy-grid b { font-size: 25px; }
+  .robot-state { padding: 14px; }
 }
