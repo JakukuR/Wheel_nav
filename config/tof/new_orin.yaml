@@ -1,0 +1,5 @@
+tof_serial:
+  ros__parameters:
+    device: /dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_28:84:85:9E:C4:68-if00
+    preview_fov_deg: 45.0
+    stale_after_s: 0.30
