@@ -24,11 +24,12 @@
     <div class="robot-state-heading"><div><h2 id="robotStateTitle">实时机身状态</h2><p>启动航向参考 · 姿态与实测关节角</p></div>
       <span class="pill quiet" id="robotStateLink" role="status">等待连接</span></div>
     <div class="robot-state-layout">
-      <div class="attitude-view"><canvas id="robotAttitudeCanvas" width="360" height="210" aria-label="机身旋转姿态示意"></canvas><span id="robotAttitudeEmpty">等待姿态数据</span></div>
+      <div class="attitude-view"><canvas id="robotAttitudeCanvas" width="760" height="460" aria-label="机身关节、ToF 和相机三维位置"></canvas><span id="robotAttitudeEmpty">等待姿态数据</span></div>
       <div class="attitude-values">
         <div class="rpy-grid"><div><span>Roll · 横滚</span><b id="robotRoll">—</b></div><div><span>Pitch · 俯仰</span><b id="robotPitch">—</b></div><div><span>Yaw · 偏航</span><b id="robotYaw">—</b></div></div>
         <p class="robot-small" id="robotAttitudeMeta">IMU — · 帧龄 —</p>
         <div class="quaternion"><span>显示四元数 · x / y / z / w</span><code id="robotQuaternion">— / — / — / —</code></div>
+        <p class="robot-small" id="robotGroundMeta">等待支撑平面</p>
         <p class="robot-small" id="robotStateReference">启动 yaw = 0 · 显示 Roll / Yaw 反向，Pitch 保持</p>
       </div>
       <div class="joint-values"><div class="joint-heading"><b>实测关节角</b><span class="robot-small" id="robotJointMeta">等待关节数据</span></div>
@@ -55,7 +56,7 @@
       <figcaption>
         <span>俯视 · 车头向上</span>
         <label class="range">视野
-          <select id="range"><option value="4">4 m</option><option value="8" selected>8 m</option><option value="12">12 m</option></select>
+          <select id="range"><option value="2c">2 m 居中</option><option value="4c">4 m 居中</option><option value="4">4 m</option><option value="8" selected>8 m</option><option value="12">12 m</option></select>
         </label>
       </figcaption>
     </figure>

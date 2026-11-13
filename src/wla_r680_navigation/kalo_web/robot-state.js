@@ -1,7 +1,7 @@
 /* Read-only telemetry view. No ROS publications, filtering, position or TF estimates. */
 (function (root) {
   'use strict';
-  const TOPICS = ['/robot_state/attitude', '/robot_state/rpy', '/joint_states', '/robot_state/status'];
+  const TOPICS = ['/robot_state/attitude', '/robot_state/rpy', '/joint_states', '/robot_state/status', '/robot_state/geometry'];
   const JOINTS = [['abad_L_Joint', '左外展'], ['abad_R_Joint', '右外展'], ['hip_L_Joint', '左髋'], ['hip_R_Joint', '右髋'],
     ['knee_L_Joint', '左膝'], ['knee_R_Joint', '右膝'], ['wheel_L_Joint', '左轮'], ['wheel_R_Joint', '右轮']];
   const DATA_TTL = 500, STATUS_TTL = 1500;
@@ -19,7 +19,7 @@
     receive(topic, msg, recv, now) {
       if (!TOPICS.includes(topic)) return;
       let valid = false;
-      if (topic === TOPICS[3]) {
+      if (topic === TOPICS[3] || topic === TOPICS[4]) {
         try { if (typeof msg === 'string') msg = JSON.parse(msg); valid = msg && typeof msg === 'object' && !Array.isArray(msg); } catch (_) { valid = false; }
       } else if (msg && msg.header && Number.isFinite(msg.header.t) && msg.header.t > 0) {
         if (topic === TOPICS[0]) valid = finite(msg.q) && msg.q.length === 4 && Math.abs(Math.hypot(...msg.q) - 1) < .05;
@@ -39,6 +39,8 @@
       const status = this.connected && statusEntry && statusEntry.valid && now - statusEntry.arrived <= STATUS_TTL ? statusEntry.msg : null;
       const age = record => record && record.valid ? record.recv - record.msg.header.t + now - record.arrived : Infinity;
       const current = record => this.connected && record && record.valid && now - record.arrived <= DATA_TTL && age(record) >= -20 && age(record) <= DATA_TTL;
+      const geometryEntry=entry(TOPICS[4]);
+      const geometry=this.connected && geometryEntry && geometryEntry.valid && now-geometryEntry.arrived<=DATA_TTL && geometryEntry.msg.available && Number.isFinite(geometryEntry.msg.stamp) && Math.abs(geometryEntry.recv-geometryEntry.msg.stamp*1000)+now-geometryEntry.arrived<=DATA_TTL ? geometryEntry.msg : null;
       const q = entry(TOPICS[0]), rpy = entry(TOPICS[1]), joints = entry(TOPICS[2]);
       const imuReady = !!(current(q) && (!status || status.attitude_available !== false));
       const rpyReady = !!(imuReady && current(rpy) && Math.abs(q.msg.header.t - rpy.msg.header.t) <= 30);
@@ -47,7 +49,7 @@
         const times = (this.rates.get(topic) || []).filter(t => now - t <= 2000);
         return times.length > 1 && now - times[times.length - 1] <= DATA_TTL ? (times.length - 1) * 1000 / (times[times.length - 1] - times[0] || 1) : 0;
       };
-      return { connected: this.connected, status, imuReady, rpyReady, jointsReady,
+      return { connected: this.connected, status, geometry, imuReady, rpyReady, jointsReady,
         q: imuReady ? q.msg.q : null, rpy: rpyReady ? rpy.msg.v : null, joints: jointsReady ? joints.msg : null,
         imuAge: imuReady ? Math.max(0, age(q)) : null, jointAge: jointsReady ? Math.max(0, age(joints)) : null,
         imuHz: rate(TOPICS[0]), jointHz: rate(TOPICS[2]), hadImu: !!q, hadJoints: !!joints };
@@ -59,32 +61,63 @@
       2*(x*y+z*w)*a+(1-2*(x*x+z*z))*b+2*(y*z-x*w)*c,
       2*(x*z-y*w)*a+2*(y*z+x*w)*b+(1-2*(x*x+y*y))*c];
   }
-  function DrawAttitude(canvas, q) {
-    const ctx = canvas.getContext('2d'); if (!ctx) return;
-    const W = canvas.width, H = canvas.height;
-    ctx.clearRect(0,0,W,H); if (!q) return;
-    const colors = getComputedStyle(document.documentElement);
-    const color = name => colors.getPropertyValue(name).trim();
-    const view = ([x,y,z]) => [.7071*x-.7071*y, -.36*x-.36*y+.86*z, .61*x+.61*y+.51*z];
-    const P = p => { const v = view(p); return [W/2+v[0]*330, H*.57-v[1]*330]; };
-    const line = (a,b,c,width=1) => { const A=P(a), B=P(b); ctx.strokeStyle=c; ctx.lineWidth=width; ctx.beginPath(); ctx.moveTo(...A); ctx.lineTo(...B); ctx.stroke(); };
-    const origin = [0,0,0];
-    for (const [axis, c, label] of [[[.35,0,0], '--sakura','X'],[[0,.35,0], '--mint','Y'],[[0,0,.26],'--azure','Z']]) {
-      line(origin,axis,color(c),1.5); const p=P(axis); ctx.fillStyle=color(c); ctx.font='bold 12px system-ui'; ctx.fillText(label,p[0]+3,p[1]-4);
+  function DrawAttitude(canvas, q, geometry, camera) {
+    const ctx=canvas.getContext('2d');if(!ctx) return;
+    const W=canvas.width,H=canvas.height;ctx.clearRect(0,0,W,H);if(!q) return;
+    const styles=getComputedStyle(document.documentElement), color=n=>styles.getPropertyValue(n).trim();
+    const frames=geometry&&Array.isArray(geometry.frames)?geometry.frames:[];
+    const world=p=>Rotate(q,p), ca=Math.cos(camera.az),sa=Math.sin(camera.az),ce=Math.cos(camera.el),se=Math.sin(camera.el);
+    const view=p=>{const [x,y,z]=world(p);return [ca*x-sa*y,se*(sa*x+ca*y)+ce*z,ce*(sa*x+ca*y)-se*z];};
+    const points=frames.map(f=>view(f.p));points.push(view([0,0,.16]),view([0,0,-.25]));
+    const span=Math.max(.35,...points.map(p=>Math.hypot(p[0],p[1])*2));
+    const scale=Math.min((W-250)/span,(H-85)/span)*camera.zoom;
+    const P=p=>{const v=view(p);return [W*.5+v[0]*scale,H*.43-v[1]*scale];};
+    const line=(a,b,c,width=1,dash=[])=>{ctx.setLineDash(dash);ctx.beginPath();ctx.moveTo(...P(a));ctx.lineTo(...P(b));ctx.strokeStyle=c;ctx.lineWidth=width;ctx.stroke();ctx.setLineDash([]);};
+    const text=(label,p,c,size=11)=>{ctx.font=`${size}px system-ui`;ctx.fillStyle=c;ctx.fillText(label,...p);};
+    const origin=[0,0,0], axes=[[[.18,0,0],'--sakura','X 前'],[[0,.15,0],'--mint','Y 左'],[[0,0,.16],'--azure','Z 上']];
+    const ground=geometry&&geometry.ground;
+    if(ground&&ground.available) {
+      const n=ground.normal,h=ground.offset_m;
+      if(n&&Math.abs(n[2])>.15) {
+        const G=(x,y)=>[x,y,(-h-n[0]*x-n[1]*y)/n[2]];
+        for(let a=-.3;a<=.301;a+=.05){line(G(a,-.3),G(a,.3),color('--line'));line(G(-.3,a),G(.3,a),color('--line'));}
+      }
     }
-    const vertices = [[-.18,-.10,-.045],[.18,-.10,-.045],[.18,.10,-.045],[-.18,.10,-.045],
-      [-.18,-.10,.045],[.18,-.10,.045],[.18,.10,.045],[-.18,.10,.045]].map(p=>Rotate(q,p));
-    const faces = [[0,1,2,3],[4,7,6,5],[0,4,5,1],[1,5,6,2],[2,6,7,3],[3,7,4,0]];
-    faces.sort((a,b)=>a.reduce((s,i)=>s+view(vertices[i])[2],0)-b.reduce((s,i)=>s+view(vertices[i])[2],0));
-    for (const face of faces) {
-      const points=face.map(i=>P(vertices[i])); ctx.beginPath(); ctx.moveTo(...points[0]); points.slice(1).forEach(p=>ctx.lineTo(...p)); ctx.closePath();
-      ctx.globalAlpha=.85; ctx.fillStyle=color('--sky-deep'); ctx.fill(); ctx.globalAlpha=1; ctx.strokeStyle=color('--azure'); ctx.lineWidth=1.6; ctx.stroke();
+    for(const [axis,c,label] of axes){line(origin,axis,color(c),2);const p=P(axis);text(label,[p[0]+3,p[1]-4],color(c));}
+    const corners=[[-.10,-.06,-.025],[.10,-.06,-.025],[.10,.06,-.025],[-.10,.06,-.025],[-.10,-.06,.055],[.10,-.06,.055],[.10,.06,.055],[-.10,.06,.055]];
+    for(const [a,b] of [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]])line(corners[a],corners[b],color('--ink-soft'),1.2);
+    const map=new Map(frames.map(f=>[f.name,f])),jointFrames=frames.filter(f=>f.kind==='joint');
+    const jointNames=new Map(JOINTS);
+    for(const f of jointFrames){const parent=map.get(f.parent);if(parent)line(parent.p,f.p,color('--azure'),4);}
+    const plus=(a,b)=>a.map((v,i)=>v+b[i]);
+    for(const f of frames.filter(f=>f.kind==='wheel')) {
+      const circle=[];for(let i=0;i<=32;i++){const t=i*Math.PI/16;circle.push(plus(f.p,Rotate(f.q,[f.radius*Math.cos(t),f.radius*Math.sin(t),0])));}
+      for(let i=1;i<circle.length;i++)line(circle[i-1],circle[i],color('--ink'),3);
+      line(f.p,circle[0],color('--sun'),2);
     }
-    line(Rotate(q,[0,0,.055]),Rotate(q,[.24,0,.055]),color('--sun'),4);
-    ctx.fillStyle=color('--ink-soft'); ctx.font='12px system-ui'; ctx.fillText('黄色方向为机身前方',12,H-12);
+    const sensorColors={front_tof_R:'--sakura',front_tof_L:'--azure',back_tof_R:'--sun',back_tof_L:'--mint'};
+    const sensors=frames.filter(f=>f.kind==='camera'||f.kind==='tof');
+    for(const f of sensors){const end=plus(f.p,Rotate(f.q,[.065,0,0]));line(f.p,end,color(f.kind==='camera'?'--sun':sensorColors[f.name]||'--mint'),2);}
+    const sensorLabel={upper_camera_R:'上右 RGB',bottom_camera_L:'下左 灰度',bottom_camera_R:'下右 灰度',front_tof_R:'ToF 前右',front_tof_L:'ToF 前左',back_tof_R:'ToF 后右',back_tof_L:'ToF 后左'};
+    for(const f of [...frames].sort((a,b)=>view(a.p)[2]-view(b.p)[2])) {
+      if(f.kind==='wheel')continue;
+      const p=P(f.p),c=color(f.kind==='imu'?'--sakura':f.kind==='camera'?'--sun':f.kind==='tof'?(sensorColors[f.name]||'--mint'):'--azure');
+      ctx.fillStyle=c;ctx.beginPath();ctx.arc(...p,f.kind==='imu'?6:4,0,Math.PI*2);ctx.fill();
+    }
+    const labelColumn=(items,x,start,label,c)=>items.forEach((f,i)=>{const a=P(f.p),y=start+i*23;ctx.strokeStyle=color('--line');ctx.lineWidth=.8;ctx.beginPath();ctx.moveTo(...a);ctx.lineTo(x< W/2?x+85:x-6,y-4);ctx.stroke();text(label(f),[x,y],color(c));});
+    labelColumn(jointFrames,12,40,f=>jointNames.get(f.joint)||f.joint,'--azure');
+    labelColumn(sensors,W-112,40,f=>sensorLabel[f.name]||f.name,'--ink');
+    const p=P(origin);text('IMU / base_Link',[p[0]+7,p[1]+15],color('--sakura'));
+    text(frames.length?'8 关节 · 4 ToF · 3 相机':'等待关节骨架',[12,H-34],color('--ink-soft'),12);
+    text('拖动旋转 · 滚轮缩放 · 黄色轮辐表示轮轴角度',[12,H-14],color('--ink-soft'));
   }
   function Mount(doc) {
     const model = new StateModel(), $ = id => doc.getElementById(id);
+    const camera={az:-.65,el:.55,zoom:1};const canvas=$('robotAttitudeCanvas');let drag=null;
+    canvas.addEventListener('pointerdown',e=>{drag=[e.clientX,e.clientY];canvas.setPointerCapture(e.pointerId);});
+    canvas.addEventListener('pointermove',e=>{if(!drag)return;camera.az+=(e.clientX-drag[0])*.01;camera.el=Math.max(-1.2,Math.min(1.2,camera.el+(e.clientY-drag[1])*.01));drag=[e.clientX,e.clientY];});
+    canvas.addEventListener('pointerup',()=>{drag=null;});canvas.addEventListener('pointercancel',()=>{drag=null;});
+    canvas.addEventListener('wheel',e=>{e.preventDefault();camera.zoom=Math.max(.6,Math.min(2,camera.zoom*Math.exp(-e.deltaY*.001)));},{passive:false});
     for (const [name,label] of JOINTS) {
       const row=doc.createElement('div'); row.className='joint-row'; row.title=name;
       const text=doc.createElement('span'); text.textContent=label;
@@ -108,8 +141,10 @@
       const source=s.status&&s.status.attitude_source;
       $('robotSourceMeta').textContent=s.status?`姿态来源：${source==='host_mahony'?'电控 Mahony':source==='device_quaternion'?'IMU 设备四元数':source||'等待电控'} · ${s.status.body_frame||'—'}`:'尚未收到状态适配器信息';
       const errors=s.status?[s.status.imu_error,s.status.joint_error].filter(Boolean).join('；'):'';
-      $('robotStateNote').textContent=errors||(!s.imuReady&&!s.jointsReady?'等待原电控 IMU 与实测关节反馈；缺数据时不显示零姿态。':'关节帧龄按状态接收时间计算；旋转示意不代表定位或离地高度。');
-      DrawAttitude($('robotAttitudeCanvas'),display.q);
+      $('robotStateNote').textContent=errors||(!s.imuReady&&!s.jointsReady?'等待原电控 IMU 与实测关节反馈；缺数据时不显示零姿态。':'骨架随实测关节更新；传感器使用 CAD 安装位，尚未做光学校准。');
+      const ground=s.geometry&&s.geometry.ground;
+      $('robotGroundMeta').textContent=ground&&ground.available?`轮底支撑平面 · IMU 离平面 ${(ground.offset_m*100).toFixed(1)} cm · 双轮接地假设`:`地面不可用：${ground&&ground.reason||'等待新鲜 IMU 与关节状态'}`;
+      DrawAttitude($('robotAttitudeCanvas'),display.q,s.geometry,camera);
     };
     render(); setInterval(render,100);
     return { topics:TOPICS, receive:(topic,msg,recv)=>model.receive(topic,msg,recv,performance.now()),

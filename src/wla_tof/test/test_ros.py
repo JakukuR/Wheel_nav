@@ -35,9 +35,10 @@ def main():
     master, slave = pty.openpty();path = directory.name+'/device'
     os.symlink(os.ttyname(slave),path)
     rclpy.init();node = Node('tof_pty_test')
-    clouds = [];raw = [];statuses = []
+    clouds = [];raw = [];statuses = [];merged = []
     subscriptions = [
-        node.create_subscription(PointCloud2, '/r680/tof/front_right/points_preview', clouds.append, qos_profile_sensor_data),
+        node.create_subscription(PointCloud2, '/r680/tof/front_right/points', clouds.append, qos_profile_sensor_data),
+        node.create_subscription(PointCloud2, '/r680/tof/points_raw', merged.append, qos_profile_sensor_data),
         node.create_subscription(String, '/r680/tof/front_right/raw', lambda m:raw.append(json.loads(m.data)), qos_profile_sensor_data),
         node.create_subscription(String, '/r680/tof/status', lambda m:statuses.append(json.loads(m.data)), 10)]
     proc = subprocess.Popen([args.executable, '--ros-args', '-p', 'device:='+path], stdout=subprocess.DEVNULL)
@@ -53,12 +54,22 @@ def main():
         wait(lambda:bool(clouds) and bool(raw))
         c = clouds[-1]
         assert (c.width,c.height,c.point_step,c.row_step)==(1,1,20,20)
-        assert c.header.frame_id=='tof_front_right_preview_optical_frame'
+        assert c.header.frame_id=='tof_front_right_optical_frame'
         x,y,z,distance,sigma,zone = struct.unpack('<ffffHH', bytes(c.data))
         expected = math.tan(-.875*math.radians(45)/2)
         assert abs(x-expected)<1e-6 and abs(y-expected)<1e-6
         assert (z,distance,sigma,zone)==(1.,1.,3,0)
         assert raw[-1]['distance_mm'][1]==-1 and len(raw[-1]['status'])==64
+        assert raw[-1]['mount']=='front_right' and raw[-1]['firmware_label']=='front_right'
+        # Merged base-frame cloud, default zero mount pose: base = (z_opt, -x_opt, -y_opt).
+        wait(lambda:any(m.width==1 for m in merged))
+        m = [m for m in merged if m.width==1][-1]
+        assert m.header.frame_id=='base_Link' and m.point_step==24
+        wait(lambda:sum(m.width==1 for m in merged)>=2)
+        stamps={(v.header.stamp.sec,v.header.stamp.nanosec) for v in merged if v.width==1}
+        assert len(stamps)==1, 'merge timer must not restamp an old measurement'
+        bx,by,bz,_,_,_,sid = struct.unpack('<ffffHHB', bytes(m.data)[:21])
+        assert abs(bx-1)<1e-6 and abs(by+expected)<1e-6 and abs(bz+expected)<1e-6 and sid==1
         assert raw[-1]['timestamp_source']=='host_complete_frame_receive_not_exposure'
         os.write(master, packet(2,valid=False))
         wait(lambda:len(raw)>=2 and clouds[-1].width==0)

@@ -83,3 +83,11 @@ figcaption { display: flex; justify-content: space-between; align-items: center;
   .rpy-grid b { font-size: 25px; }
   .robot-state { padding: 14px; }
 }
+
+/* Robot kinematic view: room for labelled joints and all installed sensors. */
+.robot-state-layout { grid-template-columns: minmax(400px,1.7fr) minmax(260px,1fr); }
+.attitude-view { grid-row: span 2; aspect-ratio: 38 / 23; }
+.attitude-view canvas { touch-action: none; cursor: grab; }
+.attitude-view canvas:active { cursor: grabbing; }
+.joint-values { grid-column: 2; }
+@media(max-width:1000px) { .robot-state-layout { grid-template-columns: 1fr; } .attitude-view { grid-row: auto; max-width:none; } .joint-values { grid-column:auto; } }

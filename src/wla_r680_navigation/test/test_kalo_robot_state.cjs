@@ -46,6 +46,13 @@ for(const rpy of [[.4,0,0],[0,.3,0],[0,0,-.7],[.3,-.4,1.2],[-.6,.5,-2.4]]) {
   assert.deepEqual(source,FromRpy(rpy)); // Source ROS representation must not mutate.
 }
 assert.deepEqual(DisplayAttitude(null,null),{q:null,rpy:null});
+// Geometry telemetry must expire independently of an active IMU stream.
+const geomModel=new StateModel();geomModel.connected=true;
+geomModel.receive('/robot_state/geometry',JSON.stringify({available:true,stamp:10,frames:[]}),10003,100);
+assert.ok(geomModel.snapshot(110).geometry);
+assert.equal(geomModel.snapshot(700).geometry,null);
+geomModel.receive('/robot_state/geometry',JSON.stringify({available:false,stamp:10,frames:[]}),10003,110);
+assert.equal(geomModel.snapshot(120).geometry,null);
 let fixtureCount=0;
 if(process.argv[2]) {
   const source=fs.readFileSync(path.join(__dirname,'../kalo_web/kalo.js'),'utf8');

@@ -19,7 +19,7 @@ struct Frame {
 };
 struct Point { float x{}, y{}, z{}, distance{}; uint16_t sigma{}, zone{}; };
 [[nodiscard]] uint32_t Crc32(std::span<const uint8_t> data) noexcept;
-[[nodiscard]] std::vector<Point> PreviewPoints(const Frame& frame, double fov_deg);
+[[nodiscard]] std::vector<Point> PreviewPoints(const Frame& frame, double fov_deg, double min_distance_m=.15, double max_distance_m=4.);
 class Decoder {
  public:
   Decoder() = default;

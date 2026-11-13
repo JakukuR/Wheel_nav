@@ -71,13 +71,14 @@ std::vector<Frame> Decoder::feed(std::span<const uint8_t> data) {
   }
   return frames;
 }
-std::vector<Point> PreviewPoints(const Frame& f,double fov_deg) {
+std::vector<Point> PreviewPoints(const Frame& f,double fov_deg,double min_distance_m,double max_distance_m) {
   if(!std::isfinite(fov_deg) || fov_deg<=0 || fov_deg>=170) throw std::invalid_argument("invalid_preview_fov");
+  if(!std::isfinite(min_distance_m) || !std::isfinite(max_distance_m) || min_distance_m<.02 || min_distance_m>=max_distance_m || max_distance_m>4.) throw std::invalid_argument("invalid_distance_limits");
   std::vector<Point> points;
   const double half=fov_deg*std::numbers::pi/360.;
   for(size_t zone=0;zone<64;++zone) {
     const int distance=f.distance[zone];
-    if(f.targets[zone]==0 || f.status[zone]!=5 || distance<20 || distance>4000) continue;
+    if(f.targets[zone]==0 || f.status[zone]!=5 || double(distance)<min_distance_m*1000 || double(distance)>max_distance_m*1000) continue;
     const double z=distance*.001;
     const double ax=((double(zone%8)+.5)/8*2-1)*half;
     const double ay=((double(zone/8)+.5)/8*2-1)*half;

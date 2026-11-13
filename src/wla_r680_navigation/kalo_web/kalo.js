@@ -48,9 +48,11 @@ const decode = {
     const count = height * width, xyz = new Float32Array(count * 3);
     if (!fields.x || !fields.y || !fields.z || big) return { header, xyz: new Float32Array(0) };
     const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    const sid = fields.sensor_id && fields.sensor_id.type === 2 ? new Uint8Array(count) : null;  // ToF merged cloud
     for (let i = 0; i < count; i++) { const b = i * step;
-      xyz[3 * i] = dv.getFloat32(b + fields.x.offset, true); xyz[3 * i + 1] = dv.getFloat32(b + fields.y.offset, true); xyz[3 * i + 2] = dv.getFloat32(b + fields.z.offset, true); }
-    return { header, xyz };
+      xyz[3 * i] = dv.getFloat32(b + fields.x.offset, true); xyz[3 * i + 1] = dv.getFloat32(b + fields.y.offset, true); xyz[3 * i + 2] = dv.getFloat32(b + fields.z.offset, true);
+      if (sid) sid[i] = dv.getUint8(b + fields.sensor_id.offset); }
+    return { header, xyz, sid };
   },
   'nav_msgs/msg/OccupancyGrid': r => { const header = r.header(); r.stampMs(); const resolution = r.f32(), width = r.u32(), height = r.u32();
     const origin = r.pose(); const n = r.u32(); const data = new Int8Array(r.b.slice(r.o, r.o + n).buffer); return { header, resolution, width, height, origin, data }; },
@@ -103,6 +105,8 @@ const LAYERS = [
   { id: 'grid', label: '障碍栅格', color: '--sun', topics: ['/r680/person_follow/local_obstacles'], ttl: 1000, on: true },
   { id: 'path', label: '跟随路径', color: '--mint', topics: ['/r680/person_follow/local_path'], ttl: 1000, on: true },
   { id: 'navpoints', label: '导航点云', color: '--sun', topics: ['/r680_nav/d455/points'], ttl: 60, on: true },
+  { id: 'tofraw', label: 'ToF 原始预览', color: '--mint', topics: ['/r680/tof/points_raw'], ttl: 300, on: false },
+  { id: 'tof', label: 'ToF 障碍物', color: '--azure', topics: ['/r680/tof/points', '/r680/tof/status', '/r680/tof/ground_status'], ttl: 300, on: true },
   { id: 'navpath', label: '导航路径', color: '--sakura', topics: ['/plan', '/optimal_trajectory'], ttl: 5000, on: true },
 ];
 const ALWAYS = ['/tf', '/tf_static', '/r680_nav/perception/status', '/r680_nav/perception/timing', '/r680/person_follow/status',
@@ -142,6 +146,22 @@ function voxelize(msg) {
   const kept = [...cells.values()].filter(c => c[0] >= 2).sort((a, b) => a[3] - b[3]);
   const out = new Float32Array(kept.length * 4); kept.forEach((c, i) => out.set(c.slice(1), 4 * i));
   return (msg.vox = out);
+}
+
+// ToF merged cloud -> [[mount, xyz]] using /r680/tof/status (sensor_id -> physical mount).
+const TOF_COLORS = { front_left: '--azure', front_right: '--sakura', rear_left: '--mint', rear_right: '--sun' };
+const TOF_LABELS = { front_left: '前左', front_right: '前右', rear_left: '后左', rear_right: '后右' };
+const TOF_FALLBACK = ['front_left', 'front_right', 'rear_left', 'rear_right'];
+function tofMount(sid) { const c = state.tof && (state.tof.channels || []).find(ch => ch.sensor_id === sid); return (c && c.mount) || TOF_FALLBACK[sid]; }
+function tofGroups(msg) {
+  if (msg.tofGroups) return msg.tofGroups;
+  const by = new Map();
+  for (let i = 0; i < msg.xyz.length / 3; i++) { const m = tofMount(msg.sid ? msg.sid[i] : 0); if (!by.has(m)) by.set(m, []); by.get(m).push(msg.xyz[3 * i], msg.xyz[3 * i + 1], msg.xyz[3 * i + 2]); }
+  return (msg.tofGroups = [...by].map(([m, a]) => [m, new Float32Array(a)]));
+}
+function tofLegend() {
+  const ch = (state.tof && state.tof.channels) || [];
+  return Object.keys(TOF_LABELS).map(m => { const c = ch.find(x => x.mount === m); return `${TOF_LABELS[m]}${c ? (c.fresh ? (c.valid_points_last===0?'(0点)':'') : '✕') : '?'}`; }).join(' ');
 }
 
 // -------------------------------------------------------------- bridge ---
@@ -222,6 +242,8 @@ function onMessage(topic, msg, recv) {
   }
   if (topic === '/r680_nav/perception/timing') { try { const j = JSON.parse(msg); if (j.outcome === 'published') { state.timing.push((j.projection_end_ns - j.stamp_ns) / 1e6); if (state.timing.length > 40) state.timing.shift(); } } catch (e) {} return; }
   if (topic === '/r680/person_follow/status') { try { state.follow = JSON.parse(msg); } catch (e) {} return; }
+  if (topic === '/r680/tof/ground_status') { try { state.tofGround = JSON.parse(msg); } catch (e) {} remember(topic, performance.now(), recv, null); return; }
+  if (topic === '/r680/tof/status') { try { state.tof = JSON.parse(msg); } catch (e) {} remember(topic, performance.now(), recv, null); return; }
   if (typeof msg === 'string') { // detections, relative objects, target mask, detector status
     let j; try { j = JSON.parse(msg); } catch (e) { return; }
     const t = typeof j.stamp_ns === 'number' ? j.stamp_ns / 1e6 : recv;
@@ -294,11 +316,11 @@ const cam = (() => {
 // Top-down: robot frame, x forward is up, y left is left.
 const topView = (() => {
   const gl = $('topGl').getContext('webgl2', { premultipliedAlpha: false }); if (!gl) return null;
-  const geo = program(gl, 'layout(location=0) in vec3 a; uniform mat4 T; uniform float s; uniform vec2 S; void main(){ vec4 p=T*vec4(a,1.); vec2 px=vec2(S.x*.5-p.y*s, S.y-28.-p.x*s); gl_Position=vec4(px.x/S.x*2.-1.,1.-px.y/S.y*2.,0.,1.); gl_PointSize=3.; }',
+  const geo = program(gl, 'layout(location=0) in vec3 a; uniform mat4 T; uniform float s; uniform vec2 S; uniform float Oy; uniform float ps; void main(){ vec4 p=T*vec4(a,1.); vec2 px=vec2(S.x*.5-p.y*s, Oy-p.x*s); gl_Position=vec4(px.x/S.x*2.-1.,1.-px.y/S.y*2.,0.,1.); gl_PointSize=ps; }',
     'uniform vec4 c; out vec4 o; void main(){ o=c; }');
-  const grid = program(gl, 'layout(location=0) in vec2 a; uniform mat4 T; uniform vec2 G; uniform float s; uniform vec2 S; out vec2 uv; void main(){ uv=a; vec4 p=T*vec4(a*G,0.,1.); vec2 px=vec2(S.x*.5-p.y*s, S.y-28.-p.x*s); gl_Position=vec4(px.x/S.x*2.-1.,1.-px.y/S.y*2.,0.,1.); }',
+  const grid = program(gl, 'layout(location=0) in vec2 a; uniform mat4 T; uniform vec2 G; uniform float s; uniform vec2 S; uniform float Oy; out vec2 uv; void main(){ uv=a; vec4 p=T*vec4(a*G,0.,1.); vec2 px=vec2(S.x*.5-p.y*s, Oy-p.x*s); gl_Position=vec4(px.x/S.x*2.-1.,1.-px.y/S.y*2.,0.,1.); }',
     'uniform sampler2D g; uniform vec3 free; uniform vec3 occ; in vec2 uv; out vec4 o; void main(){ float v=texture(g,uv).r; if(v<.5/255.) discard; o = v>.6 ? vec4(occ,.75) : vec4(free,.16); }');
-  const vox = program(gl, 'layout(location=0) in vec4 a; uniform mat4 T; uniform float s; uniform vec2 S; uniform vec2 zr; out float h; out float ps; void main(){ vec4 p=T*vec4(a.xyz,1.); h=clamp((a.z-zr.x)/(zr.y-zr.x),0.,1.); vec2 px=vec2(S.x*.5-p.y*s, S.y-28.-p.x*s); gl_Position=vec4(px.x/S.x*2.-1.,1.-px.y/S.y*2.,0.,1.); ps=max(a.w*s,2.); gl_PointSize=ps; }',
+  const vox = program(gl, 'layout(location=0) in vec4 a; uniform mat4 T; uniform float s; uniform vec2 S; uniform vec2 zr; uniform float Oy; out float h; out float ps; void main(){ vec4 p=T*vec4(a.xyz,1.); h=clamp((a.z-zr.x)/(zr.y-zr.x),0.,1.); vec2 px=vec2(S.x*.5-p.y*s, Oy-p.x*s); gl_Position=vec4(px.x/S.x*2.-1.,1.-px.y/S.y*2.,0.,1.); ps=max(a.w*s,2.); gl_PointSize=ps; }',
     RAMP + ' in float h; in float ps; out vec4 o; void main(){ vec2 q=abs(gl_PointCoord-.5)*2.; float edge=step(1.-2.2/ps,max(q.x,q.y)); vec3 c=ramp(h); o=vec4(mix(c,c*.5,edge*.7),.9); }');
   return { gl, geo, grid, vox, buf: gl.createBuffer(), gbuf: gl.createBuffer(), gtex: gl.createTexture() };
 })();
@@ -369,12 +391,13 @@ function drawTop() {
   if (!topView) return;
   const { gl } = topView, canvas = $('topGl'), dpr = Math.min(2, window.devicePixelRatio || 1);
   const size = Math.round(canvas.clientWidth * dpr) || 600; if (canvas.width !== size) { canvas.width = canvas.height = size; $('topOverlay').width = $('topOverlay').height = size; }
-  const S = [size, size], range = Number($('range').value), s = (size - 40) / range;
+  const rv = $('range').value, centred = rv.endsWith('c'), range = parseFloat(rv);
+  const S = [size, size], s = (size - 40) / (centred ? 2 * range : range), Oy = centred ? size / 2 : size - 28;
   gl.viewport(0, 0, size, size); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-  const base = (window.KALO && KALO.base_frame) || 'r680_mapping_floor', on = id => LAYERS.find(l => l.id === id).on;
+  const base = (window.KALO && KALO.base_frame) || 'r680_mapping_floor', on = id => LAYERS.find(l => l.id === id).on, layerNotes = {};
   const pick = topic => latest(topic);
   // metre rings
-  gl.useProgram(topView.geo.p); gl.uniform1f(topView.geo.u.s, s); gl.uniform2fv(topView.geo.u.S, S); gl.uniformMatrix4fv(topView.geo.u.T, false, mat.colMajor(mat.I));
+  gl.useProgram(topView.geo.p); gl.uniform1f(topView.geo.u.s, s); gl.uniform2fv(topView.geo.u.S, S); gl.uniform1f(topView.geo.u.Oy, Oy); gl.uniformMatrix4fv(topView.geo.u.T, false, mat.colMajor(mat.I));
   const ring = []; for (let r = 1; r <= range; r++) for (let a = 0; a <= 64; a++) { const t = a / 64 * Math.PI * 2; ring.push(r * Math.cos(t), r * Math.sin(t), 0); }
   upload(gl, topView.buf, new Float32Array(ring)); attrib(gl, topView.buf, 3); gl.uniform4f(topView.geo.u.c, ...rgb('--ink-soft'), .18);
   for (let r = 0; r < range; r++) gl.drawArrays(gl.LINE_STRIP, r * 65, 65);
@@ -387,18 +410,29 @@ function drawTop() {
       const Tg = mat.mul(T, mat.fromTq(g.origin.p, g.origin.q));
       upload(gl, topView.gbuf, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1])); gl.bindBuffer(gl.ARRAY_BUFFER, topView.gbuf); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
       gl.uniformMatrix4fv(topView.grid.u.T, false, mat.colMajor(Tg)); gl.uniform2f(topView.grid.u.G, g.width * g.resolution, g.height * g.resolution);
-      gl.uniform1f(topView.grid.u.s, s); gl.uniform2fv(topView.grid.u.S, S); gl.uniform3fv(topView.grid.u.free, rgb('--mint')); gl.uniform3fv(topView.grid.u.occ, rgb('--sun'));
+      gl.uniform1f(topView.grid.u.s, s); gl.uniform2fv(topView.grid.u.S, S); gl.uniform1f(topView.grid.u.Oy, Oy); gl.uniform3fv(topView.grid.u.free, rgb('--mint')); gl.uniform3fv(topView.grid.u.occ, rgb('--sun'));
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); } }
   if (on('points')) { const e = pick('/r680/person_follow/depth_obstacles'); const T = e && tf.lookup(base, e.msg.header.frame);
     if (T) { const v = voxelize(e.msg); gl.useProgram(topView.vox.p); upload(gl, topView.buf, v); attrib(gl, topView.buf, 4);
-      gl.uniformMatrix4fv(topView.vox.u.T, false, mat.colMajor(T)); gl.uniform1f(topView.vox.u.s, s); gl.uniform2fv(topView.vox.u.S, S); setRamp(gl, topView.vox.u);
+      gl.uniformMatrix4fv(topView.vox.u.T, false, mat.colMajor(T)); gl.uniform1f(topView.vox.u.s, s); gl.uniform2fv(topView.vox.u.S, S); gl.uniform1f(topView.vox.u.Oy, Oy); setRamp(gl, topView.vox.u);
       gl.drawArrays(gl.POINTS, 0, v.length / 4); } }
-  gl.useProgram(topView.geo.p); gl.uniform1f(topView.geo.u.s, s); gl.uniform2fv(topView.geo.u.S, S);
+  gl.useProgram(topView.geo.p); gl.uniform1f(topView.geo.u.s, s); gl.uniform2fv(topView.geo.u.S, S); gl.uniform1f(topView.geo.u.Oy, Oy);
   for (const [layer, topic, color] of [['navpoints', '/r680_nav/d455/points', '--sun']]) {
     if (!on(layer)) continue; const e = pick(topic); const T = e && tf.lookup(base, e.msg.header.frame); if (!T) continue;
     upload(gl, topView.buf, e.msg.xyz); attrib(gl, topView.buf, 3); gl.uniformMatrix4fv(topView.geo.u.T, false, mat.colMajor(T)); gl.uniform4f(topView.geo.u.c, ...rgb(color), .85);
-    gl.drawArrays(gl.POINTS, 0, e.msg.xyz.length / 3);
+    gl.uniform1f(topView.geo.u.ps, 3); gl.drawArrays(gl.POINTS, 0, e.msg.xyz.length / 3);
   }
+  // ToF: merged cloud in its own frame (base_Link), one colour per physical mount.
+  for (const [layer,topic] of [['tofraw','/r680/tof/points_raw'],['tof','/r680/tof/points']]) { if (!on(layer)) continue;
+    const e = pick(topic); const T = e && tf.lookup(base, e.msg.header.frame);
+    const arrivals=rates.get(topic)||[]; const fresh=arrivals.length && performance.now()-arrivals[arrivals.length-1]<300;
+    if (!fresh || (layer==='tof' && (!state.tofGround || !state.tofGround.filtered_available))) { layerNotes[layer]='不可用 · '+(state.tofGround&&state.tofGround.filter_error||'等待新数据'); continue; }
+    if (!e) layerNotes[layer] = ''; else if (!T) layerNotes[layer] = '缺少 TF';
+    else { const groups = tofGroups(e.msg); let n = 0;
+      for (const [mount, xyz] of groups) { n += xyz.length / 3;
+        upload(gl, topView.buf, xyz); attrib(gl, topView.buf, 3); gl.uniformMatrix4fv(topView.geo.u.T, false, mat.colMajor(T));
+        gl.uniform4f(topView.geo.u.c, ...rgb(TOF_COLORS[mount] || '--ink'), .95); gl.uniform1f(topView.geo.u.ps, 6 * dpr); gl.drawArrays(gl.POINTS, 0, xyz.length / 3); }
+      layerNotes[layer] = `${n} 点 · ${tofLegend()}`; } }
   for (const [layer, topic, color] of [['path', '/r680/person_follow/local_path', '--mint'], ['navpath', '/plan', '--sakura'], ['navpath', '/optimal_trajectory', '--azure']]) {
     if (!on(layer)) continue; const e = latest(topic); const T = e && tf.lookup(base, e.msg.header.frame); if (!T || !e.msg.poses.length) continue;
     upload(gl, topView.buf, new Float32Array(e.msg.poses.flat())); attrib(gl, topView.buf, 3); gl.uniformMatrix4fv(topView.geo.u.T, false, mat.colMajor(T)); gl.uniform4f(topView.geo.u.c, ...rgb(color), 1);
@@ -406,9 +440,10 @@ function drawTop() {
   }
   // overlay: robot and detected objects
   const ctx = $('topOverlay').getContext('2d'); ctx.clearRect(0, 0, size, size);
-  const P = (x, y) => [size / 2 - y * s, size - 28 - x * s];
+  const P = (x, y) => [size / 2 - y * s, Oy - x * s];
   ctx.font = `700 ${12 * dpr}px system-ui, sans-serif`; ctx.fillStyle = css('--ink-soft');
   for (let r = 1; r <= range; r++) { const [px, py] = P(r, 0); ctx.fillText(`${r} m`, px + 4 * dpr, py + 12 * dpr); }
+  state.notes = Object.assign(state.notes || {}, layerNotes);
   if (on('boxes')) { const e = latest('/r680/perception/relative_objects');
     for (const o of (e && e.msg.objects) || []) { if (typeof o.distance !== 'number' || typeof o.yaw !== 'number') continue;
       const [px, py] = P(o.distance * Math.cos(o.yaw), o.distance * Math.sin(o.yaw)); ctx.fillStyle = css(o.label === 'person' ? '--sakura' : '--sun');
@@ -428,7 +463,7 @@ function renderChips() {
       syncSubscriptions(); state.dirtyCam = state.dirtyTop = true; }); box.appendChild(b); }
   for (const l of LAYERS) { const b = $('layer-' + l.id); b.setAttribute('aria-pressed', String(l.on));
     const present = l.topics.some(t => bridge.byTopic.has(t)); b.classList.toggle('absent', !present);
-    const rate = Math.max(...l.topics.map(hz)); const note = (state.notes || {})[l.id];
+    const rate = l.id==='tof'?hz('/r680/tof/points'):Math.max(...l.topics.map(hz)); const note = (state.notes || {})[l.id];
     b.querySelector('small').textContent = !present ? '未发布' : !l.on ? '已退订' : `${rate.toFixed(rate < 10 ? 1 : 0)} Hz${note ? ' · ' + note : ''}`; }
 }
 function renderStats() {

@@ -1,0 +1,308 @@
+{
+  "root": "base_Link",
+  "source_urdf": "/home/onana/wheel_leg_nav20261105_lqr10_cpp/assets/Motor35_WF.urdf",
+  "source_sha256": "ba00f387075a8d7afca4ed1169f7c74ad74918d32fe5d669225063eb22aafa8b",
+  "sensor_geometry": "CAD mounts; base_link/base_Link alignment and optical axes not calibrated",
+  "joints": [
+    {
+      "name": "abad_R_Joint",
+      "parent": "base_Link",
+      "child": "abad_R_Link",
+      "type": "revolute",
+      "xyz": [
+        -0.0242,
+        -0.034,
+        -0.02625
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        1.0,
+        -0.0,
+        -0.0
+      ]
+    },
+    {
+      "name": "hip_R_Joint",
+      "parent": "abad_R_Link",
+      "child": "hip_R_Link",
+      "type": "revolute",
+      "xyz": [
+        0.04825,
+        -0.0228,
+        0.0
+      ],
+      "rpy": [
+        0.0,
+        0.3463507314028842,
+        0.0
+      ],
+      "axis": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "knee_R_Joint",
+      "parent": "hip_R_Link",
+      "child": "knee_R_Link",
+      "type": "revolute",
+      "xyz": [
+        -0.0870446407508196,
+        -0.0481,
+        -0.0492263193481096
+      ],
+      "rpy": [
+        0.0,
+        -0.28083059244223163,
+        0.0
+      ],
+      "axis": [
+        -0.0,
+        -1.0,
+        -0.0
+      ]
+    },
+    {
+      "name": "wheel_R_Joint",
+      "parent": "knee_R_Link",
+      "child": "wheel_R_Link",
+      "type": "continuous",
+      "xyz": [
+        0.101241807123517,
+        0.023,
+        -0.0430127479983258
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        -0.0,
+        1.0,
+        -0.0
+      ]
+    },
+    {
+      "name": "abad_L_Joint",
+      "parent": "base_Link",
+      "child": "abad_L_Link",
+      "type": "revolute",
+      "xyz": [
+        -0.0242,
+        0.034,
+        -0.02625
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        1.0,
+        -0.0,
+        -0.0
+      ]
+    },
+    {
+      "name": "hip_L_Joint",
+      "parent": "abad_L_Link",
+      "child": "hip_L_Link",
+      "type": "revolute",
+      "xyz": [
+        0.04825,
+        0.0228,
+        0.0
+      ],
+      "rpy": [
+        0.0,
+        0.3470123238792908,
+        0.0
+      ],
+      "axis": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "knee_L_Joint",
+      "parent": "hip_L_Link",
+      "child": "knee_L_Link",
+      "type": "revolute",
+      "xyz": [
+        -0.0870446407508083,
+        0.0481,
+        -0.0492263193481165
+      ],
+      "rpy": [
+        0.0,
+        -0.2808305956931605,
+        0.0
+      ],
+      "axis": [
+        -0.0,
+        1.0,
+        -0.0
+      ]
+    },
+    {
+      "name": "wheel_L_Joint",
+      "parent": "knee_L_Link",
+      "child": "wheel_L_Link",
+      "type": "continuous",
+      "xyz": [
+        0.101241807123502,
+        -0.023,
+        -0.0430127479983269
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        -0.0,
+        -1.0,
+        -0.0
+      ]
+    }
+  ],
+  "wheels": [
+    {
+      "link": "wheel_L_Link",
+      "xyz": [
+        -0.0,
+        -0.010000000707805157,
+        -0.0
+      ],
+      "rpy": [
+        1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "radius": 0.04000001229564114,
+      "half_width": 0.016000009828636648
+    },
+    {
+      "link": "wheel_R_Link",
+      "xyz": [
+        -0.0,
+        0.010000000707805157,
+        -0.0
+      ],
+      "rpy": [
+        -1.5707963267948966,
+        0.0,
+        0.0
+      ],
+      "radius": 0.04000001338822466,
+      "half_width": 0.016000009828636648
+    }
+  ],
+  "sensors": [
+    {
+      "name": "upper_camera_R",
+      "xyz": [
+        0.06777,
+        -0.0263,
+        0.087248
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "kind": "camera"
+    },
+    {
+      "name": "bottom_camera_R",
+      "xyz": [
+        0.084995,
+        -0.0185,
+        0.038482
+      ],
+      "rpy": [
+        0.0,
+        0.19199,
+        0.0
+      ],
+      "kind": "camera"
+    },
+    {
+      "name": "bottom_camera_L",
+      "xyz": [
+        0.084995,
+        0.0185,
+        0.038482
+      ],
+      "rpy": [
+        0.0,
+        0.19199,
+        0.0
+      ],
+      "kind": "camera"
+    },
+    {
+      "name": "front_tof_R",
+      "xyz": [
+        0.073442,
+        -0.040488,
+        0.035893
+      ],
+      "rpy": [
+        -1.0468e-05,
+        0.40778,
+        -0.57934
+      ],
+      "kind": "tof"
+    },
+    {
+      "name": "front_tof_L",
+      "xyz": [
+        0.073442,
+        0.040495,
+        0.035893
+      ],
+      "rpy": [
+        0.0,
+        0.40776,
+        0.57931
+      ],
+      "kind": "tof"
+    },
+    {
+      "name": "back_tof_R",
+      "xyz": [
+        -0.086212,
+        -0.020313,
+        0.026245
+      ],
+      "rpy": [
+        0.0,
+        0.7854,
+        -2.3562
+      ],
+      "kind": "tof"
+    },
+    {
+      "name": "back_tof_L",
+      "xyz": [
+        -0.0862125000000004,
+        0.020312499999999,
+        0.026244885463394
+      ],
+      "rpy": [
+        0.0,
+        0.785398163397441,
+        2.35619449019235
+      ],
+      "kind": "tof"
+    }
+  ]
+}
