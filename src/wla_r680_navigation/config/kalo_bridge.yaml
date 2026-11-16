@@ -10,6 +10,7 @@
       - "^/robot_state/(attitude|rpy|status|geometry)$"
       - "^/joint_states$"
       - "^/r680/debug/color/compressed$"
+      - "^/r680/debug/calibration/(left|right|rgb)/compressed$"
       - "^/r680/d455/color/camera_info$"
       - "^/tf$"
       - "^/tf_static$"

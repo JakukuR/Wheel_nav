@@ -1,0 +1,8 @@
+# Physical print confirmed by user on 2026-11-16.
+# Black outer tag edge: 32.5 mm; gap between tags: 9.75 mm.
+# Source PDF: aprilgrid_6x6_800mm_tag90mm.pdf, uniformly reduced print.
+target_type: aprilgrid
+tagCols: 6
+tagRows: 6
+tagSize: 0.0325
+tagSpacing: 0.3
