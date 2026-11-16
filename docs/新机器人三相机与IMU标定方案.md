@@ -7,7 +7,7 @@
 
 | 相机 | 采集模式 | 标定使用的图像 | 用途 |
 |---|---|---|---|
-| Sunplus USB Global Camera | 2560×720 拼接 MJPEG；驱动申请 60 fps，默认发布 30 fps | 左右各 1280×720，来自同一拼接帧 | 双目、SLAM、深度 |
+| Sunplus USB Global Camera | 2560×720 拼接 MJPEG；驱动申请 60 fps，默认发布 30 fps | USB 每半幅 1280×720；物理左右交换、各转正后为 720×1280，来自同一拼接帧 | 双目、SLAM、深度 |
 | DICOTA 4K | 1920×1080 MJPEG，申请 30 fps | 完整 1920×1080 RGB | 彩色检测、与双目深度对齐 |
 
 相机型号和设备格式来自目标机枚举；实际交付帧率应由 ROS 消息时间戳、计数和丢帧统计实测，不能用申请值代替。左右在同一 USB 帧内拆分，共用接收时间戳；左右曝光同步依据用户的硬件说明，仍应通过动态画面检查。RGB 与双目是两台 USB 设备，目前只有各自的主机接收时间，不能认定三路硬件同步。
@@ -18,13 +18,13 @@
 
 ## 2. 准备一块可共同看见的标定板
 
-推荐 Kalibr AprilGrid：**5 列 × 6 行，黑色 tag 外边长 30 mm，tag 间隙 9 mm（比例 0.3）**。图案宽 186 mm、高 225 mm，四周至少留 39 mm 白边，可以放在 A3 上。建议哑光打印并贴在平整硬板上，100% 比例打印，禁用“适应页面”。用尺或卡尺在不同位置测量多个 tag 和整行尺寸，把实测值写入 `config/uvc_rig/aprilgrid_proposed.yaml` 的副本，再作为正式 `target.yaml`。不能把白边或包含间隙的尺寸当成 tagSize。
+当前实际标定板已由用户于 2026-11-16 确认：**6 列 × 6 行，完整黑色 tag 外边长 32.5 mm，tag 间隙 9.75 mm（比例 0.3）**。正式目标配置使用 `config/uvc_rig/aprilgrid_measured_6x6_32p5mm.yaml`；用于 Kalibr 时可复制为 `target.yaml`。图案从最外侧标签黑框边缘到另一侧共 243.75 mm。不要使用文件名里的 90 mm，也不要混用旧 5×6 板的参数。标定板须平整固定，测量 tagSize 时包含黑色外框，不包含白边或标签间隙。
 
 Kalibr 官方建议 AprilGrid，允许部分图案可见，且能消除对称棋盘带来的姿态翻转；官方也明确要求平整、实测打印尺寸和白边。[官方标定板说明](https://github.com/ethz-asl/kalibr/wiki/calibration-targets)
 
-已生成可直接打印的 [A3 AprilGrid PDF](calibration/new_orin_aprilgrid_5x6_30mm_A3.pdf)，使用本机已有的官方 Kalibr 容器（源码提交 `1f602274`），图案未缩放，外层仅排版到 297×420 mm。PDF 矢量 tag 边长、间距和页面尺寸已检查，渲染后由官方检测器识别全部 30 个 tag / 120 个角点。附带 100 mm 核尺线；这不能代替打印后的实测。生成与检测证据见同目录 JSON。
+历史备用板（不是本次实测板）：已生成可打印的 [A3 AprilGrid PDF](calibration/new_orin_aprilgrid_5x6_30mm_A3.pdf)，使用本机已有的官方 Kalibr 容器（源码提交 `1f602274`），图案未缩放，外层仅排版到 297×420 mm。PDF 矢量 tag 边长、间距和页面尺寸已检查，渲染后由官方检测器识别全部 30 个 tag / 120 个角点。附带 100 mm 核尺线；这不能代替打印后的实测。生成与检测证据见同目录 JSON。
 
-本机现有 `kalibr-d455-rsusb:2.58.1-rs2.3.2-headers` Docker 镜像包含官方 Kalibr 求解器，可以离线复用其工具；只用标定程序，不启动它的旧 D455 驱动。目标 Orin 不需要为此安装旧 ROS 1 相机驱动。在容器内生成图案的命令如下（ROS 包脚本通过 `rosrun` 调用）：
+本机现有 `kalibr-d455-rsusb:2.58.1-rs2.3.2-headers` Docker 镜像包含官方 Kalibr 求解器，可以离线复用其工具；只用标定程序，不启动它的旧 D455 驱动。目标 Orin 不需要为此安装旧 ROS 1 相机驱动。以下是历史 5×6 备用板的生成命令（不是当前 6×6 实物配置）（ROS 包脚本通过 `rosrun` 调用）：
 
 ```bash
 rosrun kalibr kalibr_create_target_pdf --h
@@ -146,7 +146,7 @@ SGBM 的视差数 128、窗口 5、深度过滤 0.15–5 m 是初始软件参数
 
 需要取得新鲜原始角速度（rad/s）、线加速度（m/s²）、实际各自采样时间及其时钟来源，检查单调性、dt 分布、批量到达、静止模长、转轴正负和零偏。确认 IMU 驱动已经按真实安装方向旋转数据，才能使用 `base_Link`；单改 frame 字符串没有这个效果。不得复用旧机的 IMU 噪声、DLPF 延迟或时间偏置。
 
-2026-11-12 已导入用户提供的 CAD URDF/CSV，详见 [新机器人传感器坐标关系](新机器人传感器坐标关系.md)。CSV 确认 URDF 根 `base_link` 使用 CAD 的 `base_point`，用户根据四个 ToF 中间且较低的位置确认该基准为 IMU；IMU 原始测量轴仍待核对。用户确认 DICOTA RGB 对应上方 `upper_camera_R`（上左目未安装），Sunplus 同步黑白双目对应下方 `bottom_camera_L/R`，其安装点间距为 37 mm、安装 pitch 约 11°，另有前后左右四个 ToF；七个传感器均以 fixed joint 直接连接机身，不经过活动轮腿。安装点间距不是已标定光学基线，暂未据此开启深度或广播 optical TF。画面左右半幅顺序及实际光心/轴向还需确认。
+2026-11-12 已导入用户提供的 CAD URDF/CSV，详见 [新机器人传感器坐标关系](新机器人传感器坐标关系.md)。CSV 确认 URDF 根 `base_link` 使用 CAD 的 `base_point`，用户根据四个 ToF 中间且较低的位置确认该基准为 IMU；IMU 原始测量轴仍待核对。用户确认 DICOTA RGB 对应上方 `upper_camera_R`（上左目未安装），Sunplus 同步黑白双目对应下方 `bottom_camera_L/R`，其安装点间距为 37 mm、安装 pitch 约 11°，另有前后左右四个 ToF；七个传感器均以 fixed joint 直接连接机身，不经过活动轮腿。安装点间距不是已标定光学基线，暂未据此开启深度或广播 optical TF。2026-11-16 用户确认原半幅左右名称颠倒；已将 USB 右半幅作为物理左目逆时针旋转 90°，USB 左半幅作为物理右目顺时针旋转 90°，输出均为 720×1280。实际光心/机身外参仍待标定，不能从画面转正推断已标定 optical TF。
 
 电控已有的 `base_Link` 与 CAD 的 `base_link` 大小写不同，需在数据轴向明确后统一，不能直接加 identity TF 假定对齐。机身通常 x 前/y 左/z 上，光学坐标 x 右/y 下/z 前；按 [REP-103](https://www.ros.org/reps/rep-0103.html) 对照实物。若实物存在 CAD 未描述的活动云台或不同连杆，不能贯穿所有姿态复用常量外参，需要固定标定/运行姿态或另行设计关节状态与动态 TF 的处理。URDF 提供安装几何和初值，不能替代镜头内参、精确光学外参或时间偏置。不要同时由 URDF 与独立 static TF 节点重复广播同一 child。
 
@@ -194,3 +194,5 @@ ros2 bag record --storage mcap --storage-preset-profile zstd_fast --max-bag-size
 ## 6. 复用电控标准状态接口
 
 用户要求不保留不必要的自建估计。原独立地面估计与位置积分代码已移除，改为只读 C++20 包 `wla_robot_state`：直接复用电控 `/imu/data`，将实测 `q_rad` 转成 `/joint_states`，提供启动航向参考的四元数和 RPY；不改电控模型、不推断 xyz/高度。详见 [新机器人标准状态接口](新机器人标准状态接口.md)。后续由局部跟随/SLAM 使用这些标准输入，并继续完成相机与 IMU 的几何和时间标定。
+
+2026-11-16 标定成像模式更新：当前 `robot_camera.sh` 默认物理左右交换并转正；标定 `image_raw`、CameraInfo 与网页预览统一为左右 720×1280、RGB 1920×1080。转正为无插值像素旋转，保留原捕获时间戳。请使用实测 6×6、32.5 mm 标签、9.75 mm 间隔的 `config/uvc_rig/aprilgrid_measured_6x6_32p5mm.yaml`，不要沿用旧版板尺寸和横幅内参。

@@ -63,7 +63,7 @@ class Pipeline(Node):
             self.publish_color(raw_crop(array(msg),output=self.output),msg.header)
 
     def eye(self,which,msg):
-        if not self.rig or msg.header.frame_id!=f'sunplus_{which}_optical_frame' or (msg.width,msg.height)!=(1280,720) or not self.fresh(msg):return
+        if not self.rig or msg.header.frame_id!=f'sunplus_{which}_optical_frame' or (msg.width,msg.height)!=self.rig.input_size or not self.fresh(msg):return
         key=stamp(msg)
         if key<=self.last_pair:return
         self.pairs.setdefault(key,{})[which]=msg

@@ -6,13 +6,13 @@ import yaml
 from wla_uvc_camera.stereo import crop_matrix,raw_crop,project_depth,load_rig,StereoRig
 
 
-def rig_file(tmp_path):
-    k=[[800.,0.,639.5],[0.,800.,359.5],[0.,0.,1.]]
+def rig_file(tmp_path,size=(1280,720)):
+    k=[[800.,0.,(size[0]-1)/2],[0.,800.,(size[1]-1)/2],[0.,0.,1.]]
     rgb=[[1200.,0.,959.5],[0.,1200.,539.5],[0.,0.,1.]]
     right=np.eye(4);right[0,3]=-.06
     data=dict(schema='wla-uvc-rig/v1',units='m',cameras={
-        'left':dict(width=1280,height=720,k=k,d=[0.]*5,model='pinhole-radtan'),
-        'right':dict(width=1280,height=720,k=k,d=[0.]*5,model='pinhole-radtan'),
+        'left':dict(width=size[0],height=size[1],k=k,d=[0.]*5,model='pinhole-radtan'),
+        'right':dict(width=size[0],height=size[1],k=k,d=[0.]*5,model='pinhole-radtan'),
         'rgb':dict(width=1920,height=1080,k=rgb,d=[0.]*5,model='pinhole-radtan')},
         T_right_left=right.tolist(),T_rgb_left=np.eye(4).tolist())
     p=tmp_path/'fixture.yaml';p.write_text(yaml.safe_dump(data));return p,data
@@ -84,3 +84,19 @@ def test_textured_plane_recovers_two_metre_depth(tmp_path,algorithm,rgb_mode):
     assert valid.size>depth.size*.25
     assert np.median(valid)==pytest.approx(2000,abs=30)
     assert np.median(disparity[disparity>0])==pytest.approx(12.,abs=.15)
+
+
+@pytest.mark.parametrize('algorithm',['sgbm','bm'])
+def test_upright_calibrated_stereo_recovers_metric_depth(tmp_path,algorithm):
+    path,data=rig_file(tmp_path,size=(720,1280));rig=StereoRig(path,algorithm,64,9,rgb_mode='full')
+    assert rig.input_size==(720,1280)
+    rng=np.random.default_rng(8)
+    left=cv2.resize(rng.integers(0,256,(640,360),dtype=np.uint8),rig.input_size,interpolation=cv2.INTER_NEAREST)
+    right=np.zeros_like(left);right[:,:-24]=left[:,24:]
+    depth,_=rig.depth(left,right);valid=depth[depth>0]
+    assert valid.size>depth.size*.25
+    assert np.median(valid)==pytest.approx(2000,abs=40)
+    with pytest.raises(ValueError):rig.depth(left.T,right.T)
+    data['cameras']['right']['width']=1280;data['cameras']['right']['height']=720
+    path.write_text(yaml.safe_dump(data))
+    with pytest.raises(ValueError):load_rig(path)

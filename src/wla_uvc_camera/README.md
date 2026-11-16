@@ -1,6 +1,6 @@
 # 新机 UVC 双目 / RGB 采集与深度
 
-目标：Sunplus 2560×720 拼接双目（左右各 1280×720），DICOTA 1920×1080 RGB，ROS 2 Jazzy。完整流程见工作区 `docs/新机器人三相机与IMU标定方案.md`。
+目标：Sunplus 2560×720 拼接双目（拆分后每路原始 1280×720；按已确认安装方向转正后左右各 720×1280），DICOTA 1920×1080 RGB，ROS 2 Jazzy。完整流程见工作区 `docs/新机器人三相机与IMU标定方案.md`。
 
 - `uvc_camera` 采集 MJPEG，连续读取并保留最新帧；V4L2 使用 3 个驱动缓冲，避免单缓冲造成隔帧丢失。左右来自同一帧，保留同一主机接收时间。
 - `uvc_depth` 默认 `--rgb-mode full`，完整 RGB 等比例缩到 640×360，保留左右视野；`--rgb-mode crop` 保留旧中央 1440×1080 → 640×480 模式用于对照。有真实 rig 标定时去畸变，并按所选模式更新内参和深度投影尺寸。未标定时 `CameraInfo.k[0]==0`，仅输出二维图像。
@@ -36,3 +36,5 @@ cd /home/onana/ros2_ws
 标定文件导出：`PYTHONPATH=src/wla_uvc_camera python3 -m wla_uvc_camera.export cameras-camchain.yaml --output config/uvc_rig/calibrated_v1`。导出目录必须不存在，cam0/1/2 顺序和话题固定为本机左/右/RGB；通过独立验收后设置 `WLA_UVC_CALIBRATION_DIR`，采集器和 pipeline 会加载同一目录的真实标定。
 
 大图像跨进程传输使用 `config/uvc_rig/fastdds_uvc.xml`（128 MiB SHM / 8 MiB 消息）。新脚本只为自己设置 FASTRTPS_DEFAULT_PROFILES_FILE，保留显式覆盖；不改现有电控。默认配置实测曾有右目丢帧，调整后正式入口三路及裁切约 30 Hz。
+
+2026-11-16 物理镜头确认：USB 右半幅为物理左目，逆时针转 90°；USB 左半幅为物理右目，顺时针转 90°。`robot_camera.sh run sunplus/both` 默认带 `--swap-eyes --left-rotation ccw90 --right-rotation cw90`。这些参数先指定物理左右再旋转，`image_raw` 和 CameraInfo 均发布 720×1280。时间戳、完整像素、无镜像保持；DICOTA 不旋转。相机状态话题包含 `output_eyes`，可核对实际加载映射。标定采集、导出及运行须使用同一模式，旧方向标定不可直接沿用；rig 导出、深度节点支持匹配的 720×1280 或旧 1280×720 双目，拒绝左右尺寸不同。网页入口 `/calibration.html`。

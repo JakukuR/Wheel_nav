@@ -10,7 +10,7 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image, CameraInfo
 from std_msgs.msg import String
-from .geometry import split_frame,calibration
+from .geometry import split_frame,calibration,output_size,ROTATIONS
 
 
 class Camera(Node):
@@ -24,7 +24,9 @@ class Camera(Node):
         paths=[args.left_calibration] if args.layout=='mono' else [args.left_calibration,args.right_calibration]
         if args.layout=='side_by_side' and bool(paths[0])!=bool(paths[1]):
             raise ValueError('stereo_calibration_requires_both_eyes')
-        self.calibrations=[calibration(p,width,args.height) for p in paths]
+        self.rotations=[args.left_rotation] if args.layout=='mono' else [args.left_rotation,args.right_rotation]
+        self.output_sizes=[output_size(width,args.height,r) for r in self.rotations]
+        self.calibrations=[calibration(p,*size) for p,size in zip(paths,self.output_sizes)]
         self.frames=[args.name+'_'+eye+'_optical_frame' for eye in eyes]
         self.images=[self.create_publisher(Image,args.prefix+'/'+eye+'/image_raw',qos_profile_sensor_data) for eye in eyes]
         self.infos=[self.create_publisher(CameraInfo,args.prefix+'/'+eye+'/camera_info',qos_profile_sensor_data) for eye in eyes]
@@ -63,7 +65,8 @@ class Camera(Node):
         seq,received,stamp,frame=latest
         if seq==self.last_sequence or time.monotonic()-received>.2:return
         self.last_sequence=seq
-        for i,image in enumerate(split_frame(frame,self.args.layout)):
+        for i,image in enumerate(split_frame(frame,self.args.layout,swap_eyes=self.args.swap_eyes,
+                left_rotation=self.args.left_rotation,right_rotation=self.args.right_rotation)):
             msg=Image();msg.header.stamp.sec=stamp//1000000000;msg.header.stamp.nanosec=stamp%1000000000
             msg.header.frame_id=self.frames[i];msg.height,msg.width=image.shape[:2]
             msg.encoding='bgr8';msg.is_bigendian=False;msg.step=msg.width*3;msg.data=image.tobytes()
@@ -81,6 +84,11 @@ class Camera(Node):
             capture_width=self.args.width,capture_height=self.args.height,frame_sequence=self.sequence,
             frame_age_s=age,fresh=age is not None and age<.2 and not self.failure,
             timestamp_source='host_capture_receive_not_hardware_exposure',
+            swap_eyes=self.args.swap_eyes,
+            output_eyes={eye:dict(capture_region=('full' if self.args.layout=='mono' else
+                (['right_half','left_half'] if self.args.swap_eyes else ['left_half','right_half'])[i]),
+                rotation=self.rotations[i],width=self.output_sizes[i][0],height=self.output_sizes[i][1])
+                for i,eye in enumerate(self.eyes)},
             calibrated=all(self.calibrations),depth_available=False,mount_tf_published_by_this_node=False,
             reason=self.failure or ('ready_raw_only' if latest else 'waiting_for_capture'))
         self.report.publish(String(data=json.dumps(body,allow_nan=False)))
@@ -99,9 +107,13 @@ def main():
     p.add_argument('--width',type=int,required=True);p.add_argument('--height',type=int,required=True)
     p.add_argument('--capture-fps',type=float,default=30.);p.add_argument('--publish-fps',type=float,default=30.)
     p.add_argument('--left-calibration',default='');p.add_argument('--right-calibration',default='')
+    p.add_argument('--swap-eyes',action='store_true',help='USB right half becomes physical left, before rotations')
+    p.add_argument('--left-rotation',choices=ROTATIONS,default='none',help='rotate physical left/color image')
+    p.add_argument('--right-rotation',choices=ROTATIONS,default='none',help='rotate physical right image')
     args=p.parse_args()
     if not(args.width>0 and args.height>0 and 0<args.publish_fps<=args.capture_fps<=120):p.error('invalid size/rate')
     if args.layout=='side_by_side' and args.width%2:p.error('side-by-side width must be even')
+    if args.layout=='mono' and (args.swap_eyes or args.right_rotation!='none'):p.error('mono has no right eye')
     if not args.name.replace('_','').isalnum() or not args.prefix.startswith('/'):p.error('invalid name/prefix')
     rclpy.init(args=[]);node=None
     try:node=Camera(args);rclpy.spin(node)

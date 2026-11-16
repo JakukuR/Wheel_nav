@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 import yaml
-from wla_uvc_camera.geometry import split_frame,calibration
+from wla_uvc_camera.geometry import split_frame,calibration,output_size
 
 
 def test_layout_keeps_exact_left_right_pixels():
@@ -33,3 +33,17 @@ def test_no_calibration_is_explicit_and_wrong_resolution_fails(tmp_path):
 def test_invalid_intrinsics_or_rotation_cannot_be_loaded(tmp_path,field,value):
     data=record();data[field]['data']=value;p=tmp_path/'camera.yaml';p.write_text(yaml.safe_dump(data))
     with pytest.raises(ValueError):calibration(p,640,480)
+
+
+def test_physical_eye_swap_and_opposite_mount_rotations_preserve_all_pixels():
+    frame=np.arange(4*12*3,dtype=np.uint8).reshape(4,12,3)
+    left,right=split_frame(frame,'side_by_side',swap_eyes=True,
+                           left_rotation='ccw90',right_rotation='cw90')
+    assert left.shape==right.shape==(6,4,3)
+    assert np.array_equal(left,np.rot90(frame[:,6:],1))
+    assert np.array_equal(right,np.rot90(frame[:,:6],-1))
+    assert left.flags.c_contiguous and right.flags.c_contiguous
+    assert output_size(1280,720,'ccw90')==(720,1280)
+    assert output_size(1920,1080,'none')==(1920,1080)
+    with pytest.raises(ValueError):split_frame(frame,'mono',swap_eyes=True)
+    with pytest.raises(ValueError):split_frame(frame,'side_by_side',left_rotation='mirror')

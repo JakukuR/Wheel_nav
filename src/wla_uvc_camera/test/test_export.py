@@ -40,3 +40,16 @@ def test_invalid_chain_never_writes_a_runtime_calibration(tmp_path,bad):
     source.write_text(yaml.safe_dump(data));out=tmp_path/'export'
     with pytest.raises(ValueError):export_chain(source,out)
     assert not out.exists()
+
+
+def test_exports_upright_physical_eye_calibration_without_swapping_again(tmp_path):
+    source,data=chain_file(tmp_path)
+    for eye in ('cam0','cam1'):
+        data[eye]['resolution']=[720,1280]
+        data[eye]['intrinsics']=[800.,800.,359.5,639.5]
+    source.write_text(yaml.safe_dump(data));out=tmp_path/'portrait-export'
+    export_chain(source,out)
+    _,right,_,size=load_rig(out/'rig.yaml',include_size=True)
+    assert size==(720,1280) and right[0,3]==pytest.approx(-.06)
+    assert calibration(out/'sunplus_left.yaml',720,1280)['k'][2]==359.5
+    with pytest.raises(ValueError):calibration(out/'sunplus_left.yaml',1280,720)

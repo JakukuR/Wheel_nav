@@ -35,12 +35,16 @@ def rigid(value):
     return t
 
 
-def load_rig(path):
+def load_rig(path, *, include_size=False):
     data=yaml.safe_load(Path(path).read_text())
     if data.get('schema')!='wla-uvc-rig/v1' or data.get('units')!='m':
         raise ValueError('rig_schema_or_units')
+    stereo_size=tuple(data['cameras']['left'][k] for k in ('width','height'))
+    right_size=tuple(data['cameras']['right'][k] for k in ('width','height'))
+    if stereo_size not in ((1280,720),(720,1280)) or right_size!=stereo_size:
+        raise ValueError('stereo_eye_dimensions_must_match_supported_mode')
     cams={}
-    for name,size in [('left',(1280,720)),('right',(1280,720)),('rgb',(1920,1080))]:
+    for name,size in [('left',stereo_size),('right',stereo_size),('rgb',(1920,1080))]:
         c=data['cameras'][name];k=np.asarray(c['k'],float);d=np.asarray(c['d'],float)
         if ((c['width'],c['height'])!=size or k.shape!=(3,3)
                 or not np.isfinite(k).all() or k[0,0]<=0 or k[1,1]<=0
@@ -51,7 +55,7 @@ def load_rig(path):
         cams[name]=(k,d)
     right=rigid(data['T_right_left']);rgb=rigid(data['T_rgb_left'])
     if np.linalg.norm(right[:3,3])<1e-4:raise ValueError('missing_stereo_baseline')
-    return cams,right,rgb
+    return (cams,right,rgb,stereo_size) if include_size else (cams,right,rgb)
 
 
 def project_depth(points, k, transform, size, near=.15, far=5.):
@@ -76,11 +80,11 @@ class StereoRig:
         if algorithm not in ('sgbm','bm') or disparities<16 or disparities%16:
             raise ValueError('invalid_matcher')
         if block<5 or block%2==0 or block>51:raise ValueError('invalid_block_size')
-        cams,right,self.rgb_from_left=load_rig(path)
+        cams,right,self.rgb_from_left,self.input_size=load_rig(path,include_size=True)
         kl,dl=cams['left'];kr,dr=cams['right'];kc,dc=cams['rgb']
         if rgb_mode not in ('full','crop'):raise ValueError('invalid_rgb_mode')
         self.size=(640,360);self.output=(640,360) if rgb_mode=='full' else (640,480)
-        r1,r2,p1,p2,self.q,_,_=cv2.stereoRectify(kl,dl,kr,dr,(1280,720),
+        r1,r2,p1,p2,self.q,_,_=cv2.stereoRectify(kl,dl,kr,dr,self.input_size,
             right[:3,:3],right[:3,3],flags=cv2.CALIB_ZERO_DISPARITY,
             alpha=0,newImageSize=self.size)
         if p2[0,3]>=0 or abs(p2[1,3])>1e-5:
@@ -104,7 +108,7 @@ class StereoRig:
         return cv2.remap(rgb,*self.rgb_maps,cv2.INTER_LINEAR)
 
     def depth(self,left,right):
-        if left.shape[:2]!=(720,1280) or right.shape[:2]!=(720,1280):
+        if left.shape[:2]!=self.input_size[::-1] or right.shape[:2]!=self.input_size[::-1]:
             raise ValueError('raw_stereo_size_changed_recalibration_required')
         l=cv2.remap(left,*self.left_maps,cv2.INTER_LINEAR)
         r=cv2.remap(right,*self.right_maps,cv2.INTER_LINEAR)

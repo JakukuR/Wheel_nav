@@ -1,18 +1,38 @@
 """Image layout and ROS calibration validation, independent of ROS and devices."""
 from pathlib import Path
+import cv2
 import numpy as np
 import yaml
 
 
-def split_frame(frame, layout):
+ROTATIONS={'none':None,'cw90':cv2.ROTATE_90_CLOCKWISE,
+           '180':cv2.ROTATE_180,'ccw90':cv2.ROTATE_90_COUNTERCLOCKWISE}
+
+
+def output_size(width,height,rotation):
+    if rotation not in ROTATIONS:raise ValueError('invalid_eye_rotation')
+    return (height,width) if rotation in ('cw90','ccw90') else (width,height)
+
+
+def split_frame(frame, layout, *, swap_eyes=False,left_rotation='none',right_rotation='none'):
     image=np.asarray(frame)
     if image.ndim!=3 or image.shape[2]!=3 or image.dtype!=np.uint8:
         raise ValueError('camera_requires_uint8_bgr')
-    if layout=='mono':return (np.ascontiguousarray(image),)
-    if layout!='side_by_side' or image.shape[1]%2:
-        raise ValueError('stereo_requires_even_side_by_side_width')
-    mid=image.shape[1]//2
-    return (np.ascontiguousarray(image[:,:mid]),np.ascontiguousarray(image[:,mid:]))
+    for rotation in (left_rotation,right_rotation):
+        if rotation not in ROTATIONS:raise ValueError('invalid_eye_rotation')
+    if layout=='mono':
+        if swap_eyes or right_rotation!='none':raise ValueError('mono_has_no_right_eye')
+        images=(image,)
+    else:
+        if layout!='side_by_side' or image.shape[1]%2:
+            raise ValueError('stereo_requires_even_side_by_side_width')
+        mid=image.shape[1]//2;images=(image[:,:mid],image[:,mid:])
+        if swap_eyes:images=images[::-1]
+    # Rotation is applied AFTER physical-eye assignment. cv2.rotate is a lossless
+    # pixel permutation, not a mirror, interpolation, crop or browser transform.
+    return tuple(np.ascontiguousarray(part) if ROTATIONS[rotation] is None
+                 else cv2.rotate(part,ROTATIONS[rotation])
+                 for part,rotation in zip(images,(left_rotation,right_rotation)))
 
 
 def calibration(path, width, height):

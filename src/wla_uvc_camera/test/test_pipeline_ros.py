@@ -13,10 +13,11 @@ from test_stereo import rig_file
 pytestmark=pytest.mark.skipif(os.environ.get('ROS_DOMAIN_ID')!='197',reason='requires isolated ROS domain 197')
 
 
-@pytest.fixture(params=['crop','full'])
+@pytest.fixture(params=[('crop',(1280,720)),('full',(1280,720)),('crop',(720,1280)),('full',(720,1280))])
 def pipeline(tmp_path,request):
-    path,_=rig_file(tmp_path);rclpy.init()
-    node=Pipeline(NS(calibration=str(path),algorithm='sgbm',disparities=64,block_size=9,max_skew_ms=25.,rgb_mode=request.param))
+    mode,size=request.param
+    path,_=rig_file(tmp_path,size=size);rclpy.init()
+    node=Pipeline(NS(calibration=str(path),algorithm='sgbm',disparities=64,block_size=9,max_skew_ms=25.,rgb_mode=mode))
     published={k:[] for k in ('color','depth','info')}
     for name in published:setattr(node,name+'_pub',NS(publish=published[name].append))
     try:yield node,published
@@ -50,7 +51,7 @@ def test_uncalibrated_default_keeps_full_view_and_no_fake_intrinsics():
 def test_metric_depth_keeps_stereo_time_and_rgb_keeps_its_own_time(pipeline):
     node,out=pipeline
     rng=np.random.default_rng(7)
-    left=cv2.resize(rng.integers(0,256,(360,640),dtype=np.uint8),(1280,720),interpolation=cv2.INTER_NEAREST)
+    left=cv2.resize(rng.integers(0,256,(360,640),dtype=np.uint8),node.rig.input_size,interpolation=cv2.INTER_NEAREST)
     right=np.zeros_like(left);right[:,:-24]=left[:,24:]
     ns=node.get_clock().now().nanoseconds
     node.rgb(packet(np.zeros((1080,1920),np.uint8),'dicota_color_optical_frame',ns-5_000_000))
@@ -72,7 +73,7 @@ def test_metric_depth_keeps_stereo_time_and_rgb_keeps_its_own_time(pipeline):
 
 def test_skewed_stereo_rgb_and_stale_input_cannot_produce_geometry(pipeline):
     node,out=pipeline;ns=node.get_clock().now().nanoseconds
-    eye=np.zeros((720,1280),np.uint8)
+    eye=np.zeros(node.rig.input_size[::-1],np.uint8)
     node.rgb(packet(np.zeros((1080,1920),np.uint8),'dicota_color_optical_frame',ns-100_000_000))
     node.eye('left',packet(eye,'sunplus_left_optical_frame',ns))
     node.eye('right',packet(eye,'sunplus_right_optical_frame',ns))

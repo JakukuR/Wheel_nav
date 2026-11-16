@@ -36,10 +36,10 @@ def export_chain(source,output):
         T_right_left=right.tolist(),T_rgb_left=(rgb_right@right).tolist())
     with tempfile.TemporaryDirectory() as folder:
         temporary=Path(folder)/'rig.yaml';temporary.write_text(yaml.safe_dump(rig,sort_keys=False))
-        cams,_,_=load_rig(temporary)
+        cams,_,_,stereo_size=load_rig(temporary,include_size=True)
         StereoRig(temporary)  # Also check horizontal eye order / disparity sign.
     kl,dl=cams['left'];kr,dr=cams['right'];kc,dc=cams['rgb']
-    r1,r2,p1,p2,_,_,_=cv2.stereoRectify(kl,dl,kr,dr,(1280,720),right[:3,:3],right[:3,3],
+    r1,r2,p1,p2,_,_,_=cv2.stereoRectify(kl,dl,kr,dr,stereo_size,right[:3,:3],right[:3,3],
         flags=cv2.CALIB_ZERO_DISPARITY,alpha=0)
     files={}
     for name,frame,r,p in [('left','sunplus_left',r1,p1),('right','sunplus_right',r2,p2),
