@@ -82,6 +82,7 @@ class Camera(Node):
         age=None if latest is None else time.monotonic()-latest[1]
         body=dict(schema='wla-uvc-camera/v1',device=self.args.device,layout=self.args.layout,
             capture_width=self.args.width,capture_height=self.args.height,frame_sequence=self.sequence,
+            capture_fps_requested=self.args.capture_fps,publish_fps_requested=self.args.publish_fps,
             frame_age_s=age,fresh=age is not None and age<.2 and not self.failure,
             timestamp_source='host_capture_receive_not_hardware_exposure',
             swap_eyes=self.args.swap_eyes,

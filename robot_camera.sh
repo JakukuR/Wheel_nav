@@ -25,10 +25,9 @@ if [[ "$operation" == pipeline ]]; then
 fi
 if [[ "$operation" == run && "${1:-}" == both ]]; then
   shift
-  [[ $# == 0 ]] || { echo 'Use individual run commands for custom camera arguments' >&2;exit 2; }
   source /opt/ros/jazzy/setup.bash
   source "$workspace/install/setup.bash"
-  exec "$workspace/install/wla_uvc_camera/lib/wla_uvc_camera/uvc_cameras" --workspace "$workspace"
+  exec "$workspace/install/wla_uvc_camera/lib/wla_uvc_camera/uvc_cameras" --workspace "$workspace" "$@"
 fi
 [[ "$operation" == run && $# -ge 1 ]] || { echo 'robot_camera.sh probe | run sunplus|dicota|both [camera arguments] | pipeline [depth arguments]' >&2;exit 2; }
 which="$1";shift
@@ -53,4 +52,4 @@ fi
 mkdir -p "$workspace/.runtime"
 exec 9>"$workspace/.runtime/uvc-${which}.lock"
 flock -n 9 || { echo 'This UVC device already has a managed owner' >&2;exit 1; }
-exec ros2 run wla_uvc_camera uvc_camera "${args[@]}" "$@"
+exec "$workspace/install/wla_uvc_camera/lib/wla_uvc_camera/uvc_camera" "${args[@]}" "$@"

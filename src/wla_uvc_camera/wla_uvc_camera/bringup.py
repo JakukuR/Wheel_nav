@@ -9,10 +9,13 @@ from launch.events import Shutdown
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--workspace',required=True);args=p.parse_args()
+    p.add_argument('--workspace',required=True)
+    p.add_argument('--publish-fps',type=float,default=30.)
+    args=p.parse_args()
+    if not 0<args.publish_fps<=30:p.error('publish-fps must be within (0,30]')
     script=Path(args.workspace)/'robot_camera.sh'
     if not script.is_file():p.error('camera wrapper not found')
-    processes=[ExecuteProcess(cmd=[str(script),'run',name],output='screen',
+    processes=[ExecuteProcess(cmd=[str(script),'run',name,'--publish-fps',str(args.publish_fps)],output='screen',
         sigterm_timeout='3',sigkill_timeout='3') for name in ('sunplus','dicota')]
     failures=[]
     def exited(event,context):

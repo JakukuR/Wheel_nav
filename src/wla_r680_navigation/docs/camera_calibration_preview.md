@@ -2,7 +2,7 @@
 
 网页：<http://192.168.50.1:18081/calibration.html>，也可从 Kalo 调试台顶栏进入。
 
-左目与右目来自同一 Sunplus 拼接帧：USB 右半幅为物理左目，USB 左半幅为物理右目；用户调整安装后两路各旋转 180° 转正，当前输出均为 1280×720 横屏；DICOTA RGB 为 1920×1080。三路原始图像配置发布 30 fps。网页单独使用 C++ `kalo_jpeg` 生成完整分辨率 JPEG，限速 10 fps、质量 80；它只供摆板预览，不用于标定计算。三画面独立更新，网页不保证三相机曝光同步。停止更新超过 1.5 秒时会覆盖停帧提示。
+左目与右目来自同一 Sunplus 拼接帧：USB 右半幅为物理左目，USB 左半幅为物理右目；用户调整安装后两路各旋转 180° 转正，当前输出均为 1280×720 横屏；DICOTA RGB 为 1920×1080。日常模式默认发布 30 fps；当前静态标定模式以 4 fps 发布，分辨率与原始采集模式不变。网页单独使用 C++ `kalo_jpeg` 生成完整分辨率 JPEG，限速 10 fps、质量 80；它只供摆板预览，不用于标定计算。三画面独立更新，网页不保证三相机曝光同步。停止更新超过 1.5 秒时会覆盖停帧提示。
 
 ## 启动
 
@@ -24,26 +24,19 @@
 
 ## 录制原始数据
 
-页面不会自动开始录制。采集时固定相机焦距、分辨率和安装位置，慢速移动平整标定板，覆盖画面中央、四角、近远距离和不同倾角；用于三相机外参的帧需要共享板的观测。不要用网页 JPEG 或 YOLO 的缩放图做本次标定。
-
-在车上新的终端执行：
+已准备专用手动入口，详见工作区 `docs/手动录制标定数据.md`。当前静态标定模式为约 4 Hz，网页 JPEG 会随原始图像以约 4 fps 更新。
 
 ```bash
+ssh onana@192.168.50.1
 cd /home/onana/ros2_ws
-source /opt/ros/jazzy/setup.bash
-source install/setup.bash
-export ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-export FASTRTPS_DEFAULT_PROFILES_FILE=/home/onana/ros2_ws/config/uvc_rig/fastdds_uvc.xml
-mkdir -p /home/onana/calibration_data
-ros2 bag record --storage mcap \
-  -o "/home/onana/calibration_data/three_camera_$(date +%Y%m%d_%H%M%S)" \
-  --topics /camera/sunplus/left/image_raw /camera/sunplus/right/image_raw \
-  /camera/dicota/color/image_raw \
-  /camera/sunplus/left/camera_info /camera/sunplus/right/camera_info \
-  /camera/dicota/color/camera_info
+./robot_calibration_record.sh
 ```
 
-按 Ctrl+C 正常结束录制。相机未经标定时 CameraInfo 内参为占位信息，录制它不代表内参已求得。三路未压缩 BGR8 在 30 fps 时约 353 MB/s（约 21 GB/分钟），实际频率与磁盘吞吐应在录制时复查，先短录检查，再正式采集。
+看到“三路已订阅，现在开始摆板”后开始；Ctrl+C 正常结束并等待保存完成。默认 180 秒墙钟上限，也可 `./robot_calibration_record.sh --duration 120`。`--dry-run` 只检查、不录制。输出在 `/home/onana/calibration_data/manual_*_JST/`。
+
+相机未启动时，在单独常驻终端执行 `./robot_camera.sh run both --publish-fps 4`，已有采集进程时不要重复启动。专用入口拒绝高于 5 Hz 的配置，并检查焦点锁定和磁盘预留空间。4 Hz 原始三路约 47 MB/s，3 分钟约 8.5 GB；不再直接使用 30 fps 全量原图连续写盘。
+
+静态采集时固定机器人、相机焦点与安装，每个板姿态停稳约 2 秒；角点与共视检查后再求解。网页 JPEG 不作为标定输入。独立 RGB 的 4 Hz 发布相位需要在停稳段使用合适的近似配对窗口，不能直接套用先前 25 ms 的 30 Hz 抽样统计。相机未经标定时 CameraInfo 为占位信息。
 
 ## 当前模式与验证（2026-11-16）
 
