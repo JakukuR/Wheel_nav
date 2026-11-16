@@ -1,0 +1,13 @@
+{
+  "schema": "wla-kalibr-export/v1",
+  "source_sha256": "31f8f88b9221aeb602d900dff3bebdaefc2ea8bb311245e4f295afd64f1fd8ac",
+  "topics": [
+    "/camera/sunplus/left/image_raw",
+    "/camera/sunplus/right/image_raw",
+    "/camera/dicota/color/image_raw"
+  ],
+  "baseline_m": 0.03680308236134797,
+  "T_rgb_left": "cam2.T_cn_cnm1 @ cam1.T_cn_cnm1",
+  "distortion": "Kalibr [k1,k2,p1,p2] -> OpenCV [k1,k2,p1,p2,0]; k3 fixed at zero in original model",
+  "independent_hardware_acceptance": false
+}

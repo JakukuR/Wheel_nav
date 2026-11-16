@@ -1,7 +1,7 @@
 # 新机器人三相机与 IMU 标定方案
 
 日期：2026-11-12。目标机：`onana@192.168.50.1`，工作区 `/home/onana/ros2_ws`。
-目前没有这套硬件的标定数据。本文件是采集与验收方案，模板中的数值不能当作标定结果。
+2026-11-16 更新：已用两组实际数据完成初版三相机联合标定，结果位于 `config/uvc_rig/calibrated_20261116`；本文件同时保留采集与验收方案。模板仍不能当作实测标定，初版参数不等于已通过独立距离验收。
 
 ## 1. 固定硬件与工作模式
 
@@ -113,30 +113,30 @@ export WLA_UVC_CALIBRATION_DIR=/home/onana/ros2_ws/config/uvc_rig/calibrated_202
 
 ## 4. 深度生成、RGB 裁切与对齐
 
-顺序为：原始左右图 → 双目校正 → BM/SGBM 视差 → 米制三维点 → RGB 光学坐标 → 去畸变并裁切的 RGB 像素。第一版匹配分辨率 640×360，以 SGBM 为默认，BM 可用于对比。没有真实标定文件时，节点只输出 RGB 裁切与零内参 CameraInfo，不发布深度测量。
+顺序为：原始左右图 → 双目校正 → BM/SGBM 视差 → 米制三维点 → RGB 光学坐标 → 去畸变并裁切的 RGB 像素。当前实时处理为 C++20 `wla_uvc_depth/uvc_depth_cpp`。第一版匹配分辨率 640×360，以 SGBM 为默认，BM 可用于对比。没有真实标定文件时，节点只输出 RGB 裁切与零内参 CameraInfo，不发布深度测量。
 
-RGB 先按完整 1920×1080 标定；运行时默认 `--rgb-mode full`，完整视野等比例缩到 640×360。对照旧方案可用 `--rgb-mode crop`，中央取 `(x=240,y=0,w=1440,h=1080)`，缩到 640×480。处理后 `CameraInfo` 用相同去畸变、裁切和缩放更新，深度按所选模式投影到同一网格；不能沿用完整 RGB 的 K。实现包含 resize 像素中心修正：`cx' = sx*(cx-x+0.5)-0.5`，cy 同理。全幅模式有 x=y=0、sx=sy=1/3。YOLOE 的内部补边不写回 ROS 图像或 CameraInfo。[OpenCV 投影与标定说明](https://docs.opencv.org/4.x/d9/d0c/group__calib3d.html)
+2026-11-16 本次实测按用户要求显式使用 `--rgb-mode crop`。RGB 先按完整 1920×1080 标定；公共入口默认 `--rgb-mode full`，完整视野等比例缩到 640×360。对照旧方案可用 `--rgb-mode crop`，中央取 `(x=240,y=0,w=1440,h=1080)`，缩到 640×480。处理后 `CameraInfo` 用相同去畸变、裁切和缩放更新，深度按所选模式投影到同一网格；不能沿用完整 RGB 的 K。实现包含 resize 像素中心修正：`cx' = sx*(cx-x+0.5)-0.5`，cy 同理。全幅模式有 x=y=0、sx=sy=1/3。YOLOE 的内部补边不写回 ROS 图像或 CameraInfo。[OpenCV 投影与标定说明](https://docs.opencv.org/4.x/d9/d0c/group__calib3d.html)
 
 ```bash
-# 常规采集：左右/RGB 默认各发布 30 Hz；实际性能需测量。
+cd /home/onana/ros2_ws
+export WLA_UVC_CALIBRATION_DIR=$PWD/config/uvc_rig/calibrated_20261116
+# 只在尚未有原始采集进程时启动；否则不要重复占用相机。
 ./robot_camera.sh run both
-
-# 另一个终端，无标定：可先接 2D YOLO，不能获得距离。
-./robot_camera.sh pipeline
-
-# 有真实 rig.yaml 后，用此命令替代上一个 pipeline。
-./robot_camera.sh pipeline --calibration /home/onana/ros2_ws/config/uvc_rig/rig.yaml \
-  --algorithm sgbm --disparities 128 --block-size 5 --max-skew-ms 25
-# 对比算法：--algorithm bm
-
-# 第三个终端，单独启动检测，不启动底盘或 Agent 运动任务。
-./robot_perception.sh check
-./robot_perception.sh run
+# 另一个终端，同样设置上述环境变量；SGBM 为默认，本次明确使用中央裁切。
+./robot_camera.sh pipeline --rgb-mode crop --algorithm sgbm \
+  --disparities 128 --block-size 5 --max-skew-ms 25 --max-rate 10
+# 用 --algorithm bm 替换后对比，不同时启动两个 pipeline。
+# 不传 calibration/环境变量时仅二维；显式传入损坏或不存在的标定则报错退出。
+# 网页服务只在尚未启动时运行 ./robot_debug_web.sh run；另开终端：
+./robot_depth_view.sh
+# 浏览器打开 http://192.168.50.1:18081/depth.html
 ```
 
 输出 `/camera/processed/color/image_raw`、`color/camera_info` 和经标定后才有的 `aligned_depth_to_color/image_raw`。深度 `16UC1`，单位毫米、0 为无效，图像默认 640×360（crop 模式 640×480），坐标轴为 RGB optical；多点投到同一像素取最近 Z，空洞不伪造测量。RGB 保留自身接收时刻，深度保留双目接收时刻。25 ms 是当前主机时间近似配对的工程初值，35 ms 是现有检测器的配对上限；这不能证明曝光同步，移动物体仍可能错位。若动态验收不通过，应接硬触发或可靠曝光时间戳，而非修改 stamp 假装同步。
 
 SGBM 的视差数 128、窗口 5、深度过滤 0.15–5 m 是初始软件参数，不是这套硬件的已验收性能或量程。根据实际 fx、基线、最近距离和实测耗时再调整。远距误差近似随 `Z²/(fx*B)` 增长，不应承诺未测的远距精度或深度 30 fps。无纹理、反光、遮挡和 RGB 超出双目共同视场的区域应保留无效深度。
+
+2026-11-16 实测和 C++ 测试见 [C++双目深度与RGB对齐](C++双目深度与RGB对齐_20261116.md)。双目三维点先在校正左目坐标中，必须经 `R1.T` 还原为原始左目 optical，再乘 `T_rgb_left`。本次初版基线 36.803 mm；CameraInfo 已使用裁切后的 K 和零畸变系数，未沿用完整 RGB 的 K。黑色/零值保留无效，不做孔洞填充。
 
 ## 5. 第二轮：IMU、相机与机身坐标/时间标定
 
@@ -189,7 +189,7 @@ ros2 bag record --storage mcap --storage-preset-profile zstd_fast --max-bag-size
 4. 测量两台相机同时运行时的丢帧、时间差分布、CPU/GPU、深度耗时、端到端延迟和十分钟稳定性。SGBM CPU 输出帧率可能低于相机 30 Hz，先保留新鲜帧丢弃积压，之后根据实测决定 C++/GPU 优化。
 5. 交付真实 `rig.yaml`、CameraInfo、IMU 噪声/时间外参、URDF/TF关系、采集模式清单、原始数据哈希、拟合报告、独立验收报告。更换镜头/安装位/驱动时间戳策略后重新核验。
 
-尚缺标定板实物数据、三路采集集、可靠 IMU 数据和新机 URDF；在这些完成前，不宣称已经替代 D455 的完整 RGB-D/VIO 功能，也不启动旧底盘导航链路。
+已收到实测标定板尺寸、三路采集集和新机 URDF，并完成初版三相机标定。仍需相机—IMU 几何/时间标定、实测距离及长期稳定性验收；初版留出重投影 RMS 约 1.20/1.45/1.72 px、双目校正纵向 P95 约 1.33 px，尚未达到本节初始筛查目标。目前只用于深度联调，不认定完整 RGB-D/VIO 已验收，不启动底盘导航或跟随运动。
 
 ## 6. 复用电控标准状态接口
 

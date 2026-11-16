@@ -21,7 +21,7 @@ if [[ "$operation" == pipeline ]]; then
   flock -n 9 || { echo 'A processed camera pipeline already owns the output topics' >&2;exit 1; }
   args=()
   [[ -z "${WLA_UVC_CALIBRATION_DIR:-}" ]] || args+=(--calibration "$WLA_UVC_CALIBRATION_DIR/rig.yaml")
-  exec ros2 run wla_uvc_camera uvc_depth "${args[@]}" "$@"
+  exec "$workspace/install/wla_uvc_depth/lib/wla_uvc_depth/uvc_depth_cpp" "${args[@]}" "$@"
 fi
 if [[ "$operation" == run && "${1:-}" == both ]]; then
   shift

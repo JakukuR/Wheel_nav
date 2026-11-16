@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>wla_uvc_depth</name><version>0.1.0</version>
+  <description>Native C++ calibrated UVC stereo matching and RGB-aligned depth.</description>
+  <maintainer email="1330367040@qq.com">jakukur</maintainer><license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend><depend>rcl_interfaces</depend><depend>sensor_msgs</depend><depend>std_msgs</depend>
+  <depend>libopencv-dev</depend><depend>yaml-cpp</depend><depend>nlohmann_json</depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>
