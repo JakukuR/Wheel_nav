@@ -33,7 +33,7 @@ fi
 [[ "$operation" == run && $# -ge 1 ]] || { echo 'robot_camera.sh probe | run sunplus|dicota|both [camera arguments] | pipeline [depth arguments]' >&2;exit 2; }
 which="$1";shift
 case "$which" in
-  sunplus) args=(--name sunplus --prefix /camera/sunplus --device "$sunplus" --layout side_by_side --swap-eyes --left-rotation ccw90 --right-rotation cw90 --width 2560 --height 720 --capture-fps 60 --publish-fps 30) ;;
+  sunplus) args=(--name sunplus --prefix /camera/sunplus --device "$sunplus" --layout side_by_side --swap-eyes --left-rotation 180 --right-rotation 180 --width 2560 --height 720 --capture-fps 60 --publish-fps 30) ;;
   dicota) args=(--name dicota --prefix /camera/dicota --device "$dicota" --layout mono --width 1920 --height 1080 --capture-fps 30 --publish-fps 30) ;;
   *) echo 'Choose sunplus or dicota' >&2;exit 2 ;;
 esac

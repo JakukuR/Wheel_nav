@@ -4,14 +4,14 @@ schema: wla-uvc-rig/v1
 units: m
 cameras:
   left:
-    width: 720
-    height: 1280
+    width: 1280
+    height: 720
     model: pinhole-radtan
     k: null
     d: null
   right:
-    width: 720
-    height: 1280
+    width: 1280
+    height: 720
     model: pinhole-radtan
     k: null
     d: null
