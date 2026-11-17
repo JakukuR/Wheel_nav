@@ -5,6 +5,7 @@ from multiprocessing import get_context
 from copy import deepcopy
 import json
 import math
+import os
 import signal
 import threading
 import time
@@ -560,6 +561,12 @@ class FollowEngine:
                         self._coverage_recovery(key,stamp_ns(msg),valid_until)
                         continue
                     raise ValueError('insufficient_depth_coverage')
+                l4_clearance = None
+                if os.environ.get('KALO_L4_CLEARANCE', '1') == '1':
+                    from .l4_clearance import packet_from_depth as l4_packet_from_depth, with_controller_prior
+                    l4_clearance = l4_packet_from_depth(depth, info.k, r, trans, pose,
+                        stamp_ns=stamp_ns(msg), pose_stamp_ns=stamp_ns(msg), follow_session=self.follow_session,
+                        reference_generation=key[-1], transport_generation=transport_generation)
                 if self.p['depth_speckle_max_px']>0:
                     depth=drop_depth_speckles(depth,self.p['depth_speckle_max_px'],self.p['depth_speckle_diff_m'])
                 # Transform measurements at acquisition time, but control from
@@ -769,6 +776,16 @@ class FollowEngine:
                         observation_to_result_ms=(self.now_ns()/1e9-obs_stamp)*1000.,
                         processing_ms=(time.monotonic()-processing_started)*1000.),
                     compute_ms=(time.monotonic()-begun)*1000.,pose=np.asarray(control_pose),control_stamp_ns=int(control_stamp*1e9))
+                if l4_clearance is not None:
+                    prior = result.get('local_free_prior') if self.p['local_assumed_free_radius_m'] > 0 else result.get('startup_prior')
+                    if (prior is None and not result.get('startup_prior_consumed', False)
+                            and self.p['startup_clear_radius_m'] > 0 and self.p['local_assumed_free_radius_m'] == 0):
+                        prior = dict(source='existing_mode3_startup_policy',
+                            center_odom=np.asarray(pose[:2]).tolist(), radius_m=self.p['startup_clear_radius_m'],
+                            reference_generation=key[-1], state='pending_native_activation')
+                    if prior is not None:
+                        prior = dict(prior, reference_generation=key[-1])
+                    result['l4_clearance'] = with_controller_prior(l4_clearance, prior)
                 with self.guard:
                     self.computation_diagnostic=dict(key=key,control_stamp_s=control_stamp,
                         depth_stamp_ns=stamp_ns(msg),target_mask=deepcopy(mask_status),
@@ -1139,6 +1156,10 @@ class FollowEngine:
                     pose_source='LocalMotion wheel-twist integration; not global localization'),
                 actual_published_command=dict(linear_mps=float(actual[0]),angular_rps=float(actual[1])),
                 diagnostics=detail)
+            if self.map_result is not None and self.map_result.get('l4_clearance') is not None:
+                state['l4_clearance'] = self.map_result['l4_clearance']
+                if len(json.dumps(state, allow_nan=False).encode()) > 110000:
+                    state['l4_clearance'] = dict(status='unavailable', reason='worker_status_budget_exceeded')
             # The hybrid worker forwards this dict without parsing the text back.
             self.last_status=state
             self.status_pub.publish(String(data=json.dumps(state,allow_nan=False)))
