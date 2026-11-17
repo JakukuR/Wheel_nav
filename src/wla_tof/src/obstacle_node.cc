@@ -58,6 +58,7 @@ class ObstacleNode final:public rclcpp::Node {
     if(m_imus.empty()) throw std::invalid_argument("missing_imu");
     const auto it=std::min_element(m_imus.begin(),m_imus.end(),[stamp](const auto& a,const auto& b){return std::abs(a.stamp-stamp)<std::abs(b.stamp-stamp);});
     if(!fresh(it->stamp) || std::abs(it->stamp-stamp)>m_maxSkew) throw std::invalid_argument("stale_or_skewed_imu");
+    m_geometryImuStamp=it->stamp;
     return {m_geometry->evaluate(m_positions,it->q,m_support,m_maxDifference),it->q};
   }
   void filter(const sensor_msgs::msg::PointCloud2& input) {
@@ -92,6 +93,8 @@ class ObstacleNode final:public rclcpp::Node {
     try {
       const auto [state,q]=geometryAt(m_jointStamp);const auto& g=state.ground;
       geometry["available"]=true;geometry["frames"]=state.frames;
+      geometry["joint_stamp"]=m_jointStamp;geometry["imu_stamp"]=m_geometryImuStamp;
+      geometry["source_stamp"]=std::min(m_jointStamp,m_geometryImuStamp);
       geometry["ground"]={{"available",g.available},{"normal",{g.normal.x(),g.normal.y(),g.normal.z()}},{"offset_m",g.available?Json(g.offset):Json(nullptr)},
         {"wheel_heights_m",g.wheelHeights},{"reason",g.reason}};
       status["ground"]=geometry["ground"];status["geometry_available"]=true;m_error.clear();
@@ -101,7 +104,7 @@ class ObstacleNode final:public rclcpp::Node {
   }
   Json m_model;std::unique_ptr<RobotGeometry> m_geometry;std::map<std::string,double> m_positions;std::deque<ImuSample> m_imus;
   std::string m_support,m_error,m_filterError="waiting_for_cloud";
-  double m_jointStamp{},m_lastFilter{},m_minHeight{},m_maxHeight{},m_maxAge{},m_maxSkew{},m_maxDifference{};
+  double m_jointStamp{},m_geometryImuStamp{},m_lastFilter{},m_minHeight{},m_maxHeight{},m_maxAge{},m_maxSkew{},m_maxDifference{};
   size_t m_inputPoints{},m_outputPoints{},m_groundRemoved{},m_highRemoved{};
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr m_cloudPub;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr m_statePub,m_statusPub;

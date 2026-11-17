@@ -31,6 +31,7 @@ def main():
         wait(lambda:bool(gs) and not gs[-1]['available'],False)
         wait(lambda:bool(gs) and gs[-1]['available'])
         g=gs[-1];assert len(g['frames'])==18 and g['ground']['available'];h=g['ground']['offset_m']
+        assert g['source_stamp']==min(g['joint_stamp'],g['imu_stamp']) and 0 <= g['stamp']-g['source_stamp'] < .2
         cloud=PointCloud2();cloud.header.frame_id='base_Link';cloud.height=1;cloud.width=3;cloud.point_step=24;cloud.row_step=72
         cloud.fields=[PointField(name=k,offset=o,datatype=d,count=1) for k,o,d in [('x',0,7),('y',4,7),('z',8,7),('distance_m',12,7),('sigma_mm',16,4),('zone',18,4),('sensor_id',20,2)]]
         cloud.data=b''.join(struct.pack('<ffffHHB3x',.5,0,z,1.,3,i,i) for i,z in enumerate([.01-h,.1-h,.6-h]))
