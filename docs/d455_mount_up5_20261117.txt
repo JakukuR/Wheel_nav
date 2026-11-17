@@ -1,0 +1,7 @@
+D455上仰5°修正，2026-11-17
+用户纠正实际安装角为相对底盘上仰5°，取代之前15°。
+已更新r680_mapping_floor -> d455_link安装TF，RPY=(0,-5°,0)，q(xyzw)=(0,-0.043619387365336,0,0.999048221581858)，XYZ保留(0.184428484,0.059803590,0.501660007)m。
+所有Nav启动/独立调试入口、cuVSLAM配置及C++默认值一致；OpenVINS D455内部IMU分支的T_imu_base更新，底盘IMU分支的相机外参更新，内参/双目相对几何及D455内部相机-IMU几何保留。配置SHA256已同步。Agent安装测量与矩阵已改5°，geometry_gate_passed保持false。
+相机服务r680-camera-maintenance-20261117已重启；Kalo保持active。实时TF机身pitch=-5°，RGB光轴仰角+5.099275616°。4秒RGB与对齐深度均约29.96-29.97Hz，640x480。
+验证：现有Agent几何/场景5项通过，Nav配置一致性2项通过；离线矩阵链/摘要/语法检查通过。未重新测量XYZ或做新地面拟合，未启动VIO或执行运动测试。未安装cuVSLAM，源码默认值未编译。
+历史15°记录不改写。改前备份、geometry.json、changes.json、verification.json、runtime.json、frame_check.json与提交记录保存在/home/orin/Wheel_Legged_Agent/output/d455-up5-20261117/。

@@ -8,8 +8,8 @@ cuvslam_validation:
     wheel_odom_topic: /r680_vio_test/wheel_odom
     base_frame: r680_mapping_floor
     camera_link_frame: d455_link
-    # User-specified +15 deg body elevation with inherited XYZ from navigation bringup; no new TF is broadcast.
-    base_from_camera_link: [0.184428484, 0.059803590, 0.501660007, 0.000000000000000, -0.130526192220052, 0.000000000000000, 0.991444861373810]
+    # User-specified +5 deg body elevation with inherited XYZ from navigation bringup; no new TF is broadcast.
+    base_from_camera_link: [0.184428484, 0.059803590, 0.501660007, 0.000000000000000, -0.043619387365336, 0.000000000000000, 0.999048221581858]
     odom_frame: cuvslam_validation_odom
     output_topic: /r680_vio_test/odom
     status_topic: /r680_vio_test/status

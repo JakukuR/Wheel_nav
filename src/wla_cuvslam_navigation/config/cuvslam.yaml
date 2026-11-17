@@ -9,7 +9,7 @@ cuvslam_odometry:
     base_frame: r680_mapping_floor
     camera_link_frame: d455_link
     # Driver owns optical TF; this node owns odom -> base only.
-    base_from_camera_link: [0.184428484, 0.059803590, 0.501660007, 0.000000000000000, -0.130526192220052, 0.000000000000000, 0.991444861373810]
+    base_from_camera_link: [0.184428484, 0.059803590, 0.501660007, 0.000000000000000, -0.043619387365336, 0.000000000000000, 0.999048221581858]
     odom_frame: d455_floor_odom
     output_topic: /d455_slam/odom
     status_topic: /r680_nav/vio_status

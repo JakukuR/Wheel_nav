@@ -13,9 +13,9 @@
     0.002956390979817337
   ],
   "config_sha256": {
-    "frontend.yaml": "48e2d67e3d16c31d8c0d89dc4ed82366c42fd705acd5ad167509234c75c762a3",
+    "frontend.yaml": "c6fc407f8fc67f9f1e429579d2a7d9f9d57046a4f67eb71db6d9885bd0846695",
     "estimator_config.yaml": "ed81ae3bfcb2c51d96c8d6f8081a8169308bd35368dde3c114614feb9acd7429",
-    "kalibr_imu_chain.yaml": "c6e4b276efc125ec4a5b3ed5a1c92a3d520fb5b4d4d29f79ae24dbf2cd3c96b6",
+    "kalibr_imu_chain.yaml": "a2da018493c1626bf267792aaa039831a7b5630b86b54792fb6c805fa79fa03c",
     "kalibr_imucam_chain.yaml": "fad1a2d8775e05651cd6684186fc6a63a51acb7fd8533621748bc7221688a12f"
   },
   "estimator_reference": {
@@ -38,7 +38,8 @@
     "Old 20261013_manifest.yaml is historical; do not regenerate this updated configuration from that manifest.",
     "Commissioning status retained pending independent VIO validation; online calibration drift is a diagnostic hypothesis, not an established cause.",
     "2026-10-19: enable DEBUG feature-update diagnostics after observed VIO divergence; calibration numeric values unchanged. Capture synchronized raw stereo/IMU and wheel odometry before further tuning.",
-    "2026-11-17: apply user-declared +15 deg camera body elevation; translation inherited. Old mount validation superseded. Historical 20261013 manifests retain original evidence; do not regenerate active configuration from them."
+    "2026-11-17: apply user-declared +15 deg camera body elevation; translation inherited. Old mount validation superseded. Historical 20261013 manifests retain original evidence; do not regenerate active configuration from them.",
+    "2026-11-17: apply user-declared +5 deg camera body elevation; translation inherited. Old mount validation superseded. Historical 20261013 manifests retain original evidence; do not regenerate active configuration from them."
   ],
   "validation": {
     "offline_kalibr_fit_checked": true,
@@ -52,11 +53,11 @@
   },
   "mount_change_20261117": {
     "date": "2026-11-17",
-    "source": "user specified upward 15 degrees relative to chassis",
+    "source": "user specified upward 5 degrees relative to chassis",
     "body_frame": "d455_link",
     "parent": "r680_mapping_floor",
-    "body_pitch_rad": -0.2617993877991494,
-    "body_elevation_deg": 15.0,
+    "body_pitch_rad": -0.08726646259971647,
+    "body_elevation_deg": 5.0,
     "translation_policy": "retain previous d455_link xyz; not remeasured",
     "old_geometry_validation_applies": false
   }

@@ -21,14 +21,14 @@ def launch_pose(path):
 
 
 class CameraMountConfiguration(unittest.TestCase):
-    def test_chassis_mount_forward_axis_is_up_fifteen_degrees(self):
+    def test_chassis_mount_forward_axis_is_up_five_degrees(self):
         pose = launch_pose(SRC / 'wla_r680_navigation/launch/d455_camera.launch.py')
         x, y, z, w = pose[3:]
         forward = [1 - 2*(y*y + z*z), 2*(x*y + w*z), 2*(x*z - w*y)]
         self.assertAlmostEqual(sum(v*v for v in pose[3:]), 1., places=12)
-        self.assertAlmostEqual(forward[0], math.cos(math.radians(15)), places=12)
+        self.assertAlmostEqual(forward[0], math.cos(math.radians(5)), places=12)
         self.assertAlmostEqual(forward[1], 0., places=12)
-        self.assertAlmostEqual(forward[2], math.sin(math.radians(15)), places=12)
+        self.assertAlmostEqual(forward[2], math.sin(math.radians(5)), places=12)
         for actual, expected in zip(pose[:3], [.184428484, .059803590, .501660007]):
             self.assertAlmostEqual(actual, expected, places=12)
 
