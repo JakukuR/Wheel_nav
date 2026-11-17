@@ -38,14 +38,14 @@ Image Message(const cv::Mat& a,const std_msgs::msg::Header& h,const std::string&
   for(int y=0;y<a.rows;++y)std::memcpy(m.data.data()+size_t(y)*m.step,a.ptr(y),m.step);
   return m;
 }
-struct Args {std::string engine,rig,model="cfast",plugin,device;double rate=10;bool color=true;};
+struct Args {std::string engine,rig,model="cfast",plugin,device;double rate=10,previewRate=2;bool color=true;};
 Args Parse(const std::vector<std::string>& args){
   Args a;for(size_t i=1;i<args.size();++i){
     const auto key=args[i];if(key=="--no-color"){a.color=false;continue;}
-    if(i+1==args.size())throw std::runtime_error("uvc_stereo_trt --model light_ess|ess|las2_s|las2_m|lightstereo_s|cfast --engine file [--plugin lib] --calibration rig.yaml [--max-rate 10] [--direct-camera device] [--no-color]");
-    const auto v=args[++i];if(key=="--model")a.model=v;else if(key=="--plugin")a.plugin=v;else if(key=="--engine")a.engine=v;else if(key=="--calibration")a.rig=v;else if(key=="--direct-camera")a.device=v;else if(key=="--max-rate")a.rate=std::stod(v);else throw std::runtime_error("unknown_option:"+key);
+    if(i+1==args.size())throw std::runtime_error("uvc_stereo_trt --model light_ess|ess|las2_s|las2_m|lightstereo_s|cfast --engine file [--plugin lib] --calibration rig.yaml [--max-rate 10] [--preview-rate 2] [--direct-camera device] [--no-color]");
+    const auto v=args[++i];if(key=="--model")a.model=v;else if(key=="--plugin")a.plugin=v;else if(key=="--engine")a.engine=v;else if(key=="--calibration")a.rig=v;else if(key=="--direct-camera")a.device=v;else if(key=="--max-rate")a.rate=std::stod(v);else if(key=="--preview-rate")a.previewRate=std::stod(v);else throw std::runtime_error("unknown_option:"+key);
   }
-  if(a.engine.empty()||a.rig.empty()||!std::isfinite(a.rate)||a.rate<=0||a.rate>30)throw std::runtime_error("invalid_stereo_arguments");
+  if(a.engine.empty()||a.rig.empty()||!std::isfinite(a.rate)||a.rate<=0||a.rate>30||!std::isfinite(a.previewRate)||a.previewRate<=0||a.previewRate>30)throw std::runtime_error("invalid_stereo_arguments");
   return a;
 }
 Options GeometryOptions(const StereoEngine& engine){Options o;o.algorithm="none";o.rgbMode="full";
@@ -150,10 +150,10 @@ class StereoNode final:public rclcpp::Node {
       next=Clock::now()+std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1./m_args.rate));
       if(!pair||!fresh(pair->left)||!fresh(pair->right))continue;
       try{
-        const auto start=Clock::now();StereoInference prediction;double decodeMs=0;
+        const auto start=Clock::now();const auto previewPeriod=std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1./m_args.previewRate));StereoInference prediction;double decodeMs=0;
         const bool alignRequested=m_aligned->get_subscription_count()||m_alignedPreview->get_subscription_count()||m_alignedInfo->get_subscription_count();
         const bool needPoints=alignRequested||m_colored->get_subscription_count()||m_points->get_subscription_count();
-        const bool needLeft=m_leftPreview->get_subscription_count()&&Clock::now()-m_lastLeftPreview>std::chrono::milliseconds(450);
+        const bool needLeft=m_leftPreview->get_subscription_count()&&start>=m_nextLeftPreview;
         const bool needDisparity=m_disparity->get_subscription_count();
         if(pair->jpeg){const auto decodeStart=Clock::now();auto packed=cv::imdecode(pair->jpeg->bytes,cv::IMREAD_GRAYSCALE);decodeMs=std::chrono::duration<double,std::milli>(Clock::now()-decodeStart).count();prediction=m_engine.inferPacked(packed,needPoints,needLeft,needDisparity);}
         else{auto [l,r]=m_geometry.rectify(Array(pair->left),Array(pair->right));prediction=m_engine.infer(l,r);}
@@ -171,9 +171,9 @@ class StereoNode final:public rclcpp::Node {
         if(!fresh(pair->left))continue;
         m_depth->publish(Message(depth,h,"16UC1"));
         sensor_msgs::msg::CameraInfo info;info.header=h;info.width=depth.cols;info.height=depth.rows;info.distortion_model="plumb_bob";info.d.assign(5,0.);const auto& p=m_geometry.leftP();for(int y=0;y<3;++y)for(int x=0;x<3;++x){info.k[y*3+x]=p.at<double>(y,x);info.p[y*4+x]=p.at<double>(y,x);info.r[y*3+x]=y==x?1:0;}m_info->publish(info);
-        if(!prediction.leftRect.empty()&&m_leftPreview->get_subscription_count()&&Clock::now()-m_lastLeftPreview>std::chrono::milliseconds(450)){m_leftPreview->publish(Message(prediction.leftRect,h,"bgr8"));m_lastLeftPreview=Clock::now();}
+        if(!prediction.leftRect.empty()&&needLeft){m_leftPreview->publish(Message(prediction.leftRect,h,"bgr8"));m_nextLeftPreview=start+previewPeriod;}
         if(!prediction.disparity.empty()&&m_disparity->get_subscription_count()&&fresh(pair->left))m_disparity->publish(Message(prediction.disparity,h,"32FC1"));
-        if(m_preview->get_subscription_count()&&Clock::now()-m_lastDepthPreview>std::chrono::milliseconds(450)){m_lastDepthPreview=Clock::now();cv::Mat gray,preview;depth.convertTo(gray,CV_8U,-255./5000,255);cv::applyColorMap(gray,preview,cv::COLORMAP_TURBO);preview.setTo(0,depth==0);if(fresh(pair->left))m_preview->publish(Message(preview,h,"bgr8"));}
+        if(m_preview->get_subscription_count()&&start>=m_nextDepthPreview){m_nextDepthPreview=start+previewPeriod;cv::Mat gray,preview;depth.convertTo(gray,CV_8U,-255./5000,255);cv::applyColorMap(gray,preview,cv::COLORMAP_TURBO);preview.setTo(0,depth==0);if(fresh(pair->left))m_preview->publish(Message(preview,h,"bgr8"));}
         const auto rgb=m_colored->get_subscription_count()?colorFor(Stamp(pair->left->header)):Msg{};
         // Spatial registration is independent of RGB delivery. Preserve the depth timestamp;
         // RGB detection consumers perform their own timestamp pairing before using it.
@@ -185,7 +185,7 @@ class StereoNode final:public rclcpp::Node {
           const auto& k=m_geometry.colorK();for(int y=0;y<3;++y)for(int x=0;x<3;++x){ci.k[y*3+x]=k.at<double>(y,x);ci.p[y*4+x]=k.at<double>(y,x);ci.r[y*3+x]=y==x?1:0;}
           if(fresh(pair->left))m_alignedInfo->publish(ci);
           if(m_aligned->get_subscription_count()&&fresh(pair->left))m_aligned->publish(Message(aligned,ah,"16UC1"));
-          if(m_alignedPreview->get_subscription_count()&&Clock::now()-m_lastAlignedPreview>std::chrono::milliseconds(450)){m_lastAlignedPreview=Clock::now();cv::Mat gray,preview;aligned.convertTo(gray,CV_8U,-255./5000,255);cv::applyColorMap(gray,preview,cv::COLORMAP_TURBO);preview.setTo(0,aligned==0);if(fresh(pair->left))m_alignedPreview->publish(Message(preview,ah,"bgr8"));}
+          if(m_alignedPreview->get_subscription_count()&&start>=m_nextAlignedPreview){m_nextAlignedPreview=start+previewPeriod;cv::Mat gray,preview;aligned.convertTo(gray,CV_8U,-255./5000,255);cv::applyColorMap(gray,preview,cv::COLORMAP_TURBO);preview.setTo(0,aligned==0);if(fresh(pair->left))m_alignedPreview->publish(Message(preview,ah,"bgr8"));}
         }
         if(!points.empty())cloud(points,pair->left,aligned.empty()?Msg{}:rgb,aligned);
         std::lock_guard lock(m_mutex);++m_count;m_last=Clock::now();m_failure.clear();m_metrics={{"alignment_wait_ms",0.},{"aligned_depth_requested",alignRequested},{"aligned_depth_available",!aligned.empty()},{"host_points_downloaded",bool(pair->jpeg)&&needPoints},{"gpu_ms",prediction.gpuMs},{"decode_ms",decodeMs},{"pipeline_ms",std::chrono::duration<double,std::milli>(Clock::now()-start).count()},{"valid_depth_fraction",double(valid)/depth.total()},{"stereo_stamp_ns",Stamp(pair->left->header)},{"rgb_color_available",bool(rgb)},{"rgb_stamp_ns",rgb?Stamp(rgb->header):0},{"host_rgb_skew_ms",rgb?(Stamp(rgb->header)-Stamp(pair->left->header))*1e-6:0.}};
@@ -201,12 +201,12 @@ class StereoNode final:public rclcpp::Node {
     const bool temperatures_available=bool(cpu>>cpu_temp)&&bool(gpu>>gpu_temp);cpu_temp*=.001;gpu_temp*=.001;
     // Temperature is telemetry only; system thermal management remains in control.
     std::lock_guard lock(m_mutex);const bool fresh=m_count&&std::chrono::duration<double>(Clock::now()-m_last).count()<.5&&m_failure.empty()&&!m_captureFailed;
-    Json j={{"schema","wla-stereo-network/v1"},{"direct_capture",!m_args.device.empty()},{"gpu_preprocessing",!m_args.device.empty()},{"capture_failed",m_captureFailed},{"thermal_paused",false},{"application_thermal_pause_enabled",false},{"temperature_available",temperatures_available},{"cpu_c",cpu_temp},{"gpu_c",gpu_temp},{"thermal_stop_c",nullptr},{"backend","cpp_tensorrt"},{"model",m_engine.settings().name},{"model_key",m_args.model},{"confidence_threshold",m_engine.settings().confidenceThreshold},{"engine",m_args.engine},{"calibration_file",m_args.rig},{"depth_source","synchronized_lower_stereo"},{"rgb_role","detection_separate_optional_coloring"},{"aligned_depth_time_basis","stereo_capture_rgb_consumer_must_pair"},{"classical_matcher_enabled",false},{"matching_width",m_engine.settings().content.width},{"matching_height",m_engine.settings().content.height},{"output_width",m_geometry.rectifiedSize().width},{"output_height",m_geometry.rectifiedSize().height},{"network_width",m_engine.networkSize().width},{"network_height",m_engine.networkSize().height},{"padding_top",m_engine.settings().padTop},{"padding_bottom",m_engine.settings().padBottom},{"near_m",.15},{"far_m",5},{"depth_fresh",fresh},{"depth_frames",m_count},{"max_rate",m_args.rate},{"timestamp_source",m_args.device.empty()?"host_receive_stereo_pair_shared_stamp":m_kernelStamp?"v4l2_monotonic_not_verified_exposure":"host_dequeue_not_exposure"},{"color_sync","approximate_host_receive_25ms_not_hardware_exposure"},{"point_cloud_frame","sunplus_left_optical_frame"},{"point_cloud_stride",2},{"ground_filter_enabled",false},{"obstacle_control_connected",false},{"metrics",m_metrics},{"reason",!m_failure.empty()?m_failure:fresh?"experimental_calibrated_stereo":"waiting_for_fresh_stereo"}};
+    Json j={{"schema","wla-stereo-network/v1"},{"direct_capture",!m_args.device.empty()},{"gpu_preprocessing",!m_args.device.empty()},{"capture_failed",m_captureFailed},{"thermal_paused",false},{"application_thermal_pause_enabled",false},{"temperature_available",temperatures_available},{"cpu_c",cpu_temp},{"gpu_c",gpu_temp},{"thermal_stop_c",nullptr},{"backend","cpp_tensorrt"},{"model",m_engine.settings().name},{"model_key",m_args.model},{"confidence_threshold",m_engine.settings().confidenceThreshold},{"engine",m_args.engine},{"calibration_file",m_args.rig},{"depth_source","synchronized_lower_stereo"},{"rgb_role","detection_separate_optional_coloring"},{"aligned_depth_time_basis","stereo_capture_rgb_consumer_must_pair"},{"classical_matcher_enabled",false},{"matching_width",m_engine.settings().content.width},{"matching_height",m_engine.settings().content.height},{"output_width",m_geometry.rectifiedSize().width},{"output_height",m_geometry.rectifiedSize().height},{"network_width",m_engine.networkSize().width},{"network_height",m_engine.networkSize().height},{"padding_top",m_engine.settings().padTop},{"padding_bottom",m_engine.settings().padBottom},{"near_m",.15},{"far_m",5},{"depth_fresh",fresh},{"depth_frames",m_count},{"max_rate",m_args.rate},{"preview_max_rate",m_args.previewRate},{"timestamp_source",m_args.device.empty()?"host_receive_stereo_pair_shared_stamp":m_kernelStamp?"v4l2_monotonic_not_verified_exposure":"host_dequeue_not_exposure"},{"color_sync","approximate_host_receive_25ms_not_hardware_exposure"},{"point_cloud_frame","sunplus_left_optical_frame"},{"point_cloud_stride",2},{"ground_filter_enabled",false},{"obstacle_control_connected",false},{"metrics",m_metrics},{"reason",!m_failure.empty()?m_failure:fresh?"experimental_calibrated_stereo":"waiting_for_fresh_stereo"}};
     std_msgs::msg::String msg;msg.data=j.dump();m_status->publish(msg);
   }
   std::atomic_bool m_captureClosed{false};
   bool m_kernelStamp=false,m_captureFailed=false;
-  std::unique_ptr<DirectCapture> m_capture;std::thread m_captureWorker;Clock::time_point m_lastLeftPreview{},m_lastDepthPreview{},m_lastAlignedPreview{};
+  std::unique_ptr<DirectCapture> m_capture;std::thread m_captureWorker;Clock::time_point m_nextLeftPreview{},m_nextDepthPreview{},m_nextAlignedPreview{};
   Args m_args;Calibration m_calibration;StereoEngine m_engine;Core m_geometry;
   std::mutex m_mutex;std::condition_variable m_condition;std::thread m_worker;bool m_closed=false;
   std::map<int64_t,std::array<Msg,2>> m_pairs;std::optional<Pair> m_pending;std::deque<Msg> m_colors;

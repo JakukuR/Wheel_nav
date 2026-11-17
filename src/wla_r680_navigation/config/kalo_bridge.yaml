@@ -11,6 +11,7 @@
       - "^/joint_states$"
       - "^/r680/debug/color/compressed$"
       - "^/camera/stereo/status$"
+      - "^/r680/debug/stereo/field$"
       - "^/r680/debug/stereo/(depth|aligned)/compressed$"
       - "^/camera/processed/status$"
       - "^/r680/debug/depth/(color|disparity|aligned)/compressed$"
