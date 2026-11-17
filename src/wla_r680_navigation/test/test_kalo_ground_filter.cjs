@@ -1,0 +1,3 @@
+const assert=require('node:assert/strict');const {valid}=require('../kalo_web/ground-filter-lite.js');
+const j={schema:'stereo-ground-filter/v1',frame:'sunplus_left_rect_optical_frame',temporal_fusion:false,navigation_connected:false,available:true,stamp:1,compute_ms:1,points_mm:[[1,2,3,2]],plane:{angle_to_support_deg:0,offset_delta_m:0,prior_residual_m:0,rms_m:0,inlier_ratio:.5}};
+assert(valid(j));assert(!valid({...j,frame:'wrong'}));assert(!valid({...j,points_mm:[[1,2,NaN,2]]}));assert(!valid({...j,points_mm:[[1,2,3,9]]}));assert(valid({...j,available:false}));console.log('ground-filter frontend contract passed');

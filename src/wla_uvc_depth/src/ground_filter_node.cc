@@ -1,10 +1,8 @@
-#include "wla_uvc_depth/ground_map.h"
+#include "wla_uvc_depth/ground_filter.h"
 #include <chrono>
 #include <cmath>
 #include <cstring>
 #include <deque>
-#include <geometry_msgs/msg/transform_stamped.hpp>
-#include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nlohmann/json.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
@@ -14,7 +12,6 @@
 #include <std_msgs/msg/string.hpp>
 #include <tf2/LinearMath/Matrix3x3.h>
 #include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_broadcaster.h>
 #include <tf2_ros/transform_listener.h>
 namespace wla::uvc {
 using Json = nlohmann::json;
@@ -52,18 +49,15 @@ struct Support {
   cv::Matx33d cameraR;
 };
 } // namespace
-class GroundMapNode final : public rclcpp::Node {
+class GroundFilterNode final : public rclcpp::Node {
 public:
-  GroundMapNode()
-      : Node("stereo_ground_map"), tf_(get_clock()), listener_(tf_),
-        broadcaster_(*this) {
+  GroundFilterNode()
+      : Node("stereo_ground_filter"), tf_(get_clock()), listener_(tf_) {
     const auto qos = rclcpp::SensorDataQoS().keep_last(1);
     json_ = create_publisher<std_msgs::msg::String>(
-        "/r680/debug/stereo/ground_map", qos);
-    grid_ = create_publisher<nav_msgs::msg::OccupancyGrid>(
-        "/r680/debug/stereo/ground_map/grid", rclcpp::QoS(1).reliable());
+        "/r680/debug/stereo/ground_filter", qos);
     cloud_ = create_publisher<sensor_msgs::msg::PointCloud2>(
-        "/r680/debug/stereo/ground_map/obstacles", qos);
+        "/camera/stereo/points_ground_filtered", qos);
     depthSub_ = create_subscription<sensor_msgs::msg::Image>(
         "/camera/stereo/depth/image_raw", qos,
         [this](sensor_msgs::msg::Image::ConstSharedPtr m) { depth_ = m; });
@@ -122,9 +116,11 @@ private:
     const double age = now().seconds() - t;
     return std::isfinite(t) && t > 0 && age >= -.02 && age <= limit;
   }
-  void publish(const GroundMap &g, double stamp, Json extra) {
-    Json j = {{"schema", "stereo-ground-map/v1"},
-              {"frame", "stereo_local_ground_preview"},
+  void publish(const GroundFilter &g, double stamp, Json extra,
+               const cv::Matx33d &cameraR = cv::Matx33d::eye(),
+               const cv::Vec3d &cameraT = cv::Vec3d()) {
+    Json j = {{"schema", "stereo-ground-filter/v1"},
+              {"frame", "sunplus_left_rect_optical_frame"},
               {"stamp", stamp},
               {"available", g.available},
               {"reason", g.reason},
@@ -132,11 +128,8 @@ private:
               {"navigation_connected", false},
               {"geometry_calibrated", false},
               {"ground_removed", g.available},
-              {"width", g.width},
-              {"height", g.height},
-              {"resolution_m", g.resolution},
-              {"origin_m", {g.x0, g.y0}},
-              {"classes", g.classes}};
+              {"filter_band_m", .015},
+              {"visual_coordinates", "fitted_plane_view_not_tf"}};
     j["plane"] = {{"normal_base", {g.normal[0], g.normal[1], g.normal[2]}},
                   {"offset_m", g.offset},
                   {"angle_to_support_deg", g.angleDeg},
@@ -151,10 +144,13 @@ private:
     Json points = Json::array();
     auto add = [&](const std::vector<cv::Vec3f> &p, int cls) {
       const size_t stride = std::max(size_t(1), (p.size() + 1599) / 1600);
-      for (size_t i = 0; i < p.size(); i += stride)
-        points.push_back({int(std::lround(p[i][0] * 1000)),
-                          int(std::lround(p[i][1] * 1000)),
-                          int(std::lround(p[i][2] * 1000)), cls});
+      for (size_t i = 0; i < p.size(); i += stride) {
+        auto q = g.bodyToPlane * cv::Vec3d(p[i]);
+        q[2] += g.offset;
+        points.push_back({int(std::lround(q[0] * 1000)),
+                          int(std::lround(q[1] * 1000)),
+                          int(std::lround(q[2] * 1000)), cls});
+      }
     };
     if (g.available) {
       add(g.ground, 1);
@@ -165,64 +161,36 @@ private:
     std_msgs::msg::String msg;
     msg.data = j.dump();
     json_->publish(msg);
-    nav_msgs::msg::OccupancyGrid map;
-    map.header.frame_id = "stereo_local_ground_preview";
-    map.header.stamp = rclcpp::Time(int64_t(stamp * 1e9));
-    map.info.resolution = g.resolution;
-    map.info.width = g.width;
-    map.info.height = g.height;
-    map.info.origin.position.x = g.x0;
-    map.info.origin.position.y = g.y0;
-    map.info.origin.orientation.w = 1;
-    map.data = g.occupancy;
-    grid_->publish(map);
-    if (g.available) {
-      const auto r = g.bodyToMap.t();
-      tf2::Matrix3x3 matrix(r(0, 0), r(0, 1), r(0, 2), r(1, 0), r(1, 1),
-                            r(1, 2), r(2, 0), r(2, 1), r(2, 2));
-      tf2::Quaternion q;
-      matrix.getRotation(q);
-      geometry_msgs::msg::TransformStamped t;
-      t.header = map.header;
-      t.header.frame_id = "base_Link";
-      t.child_frame_id = map.header.frame_id;
-      const auto p = -g.normal * g.offset;
-      t.transform.translation.x = p[0];
-      t.transform.translation.y = p[1];
-      t.transform.translation.z = p[2];
-      t.transform.rotation.x = q.x();
-      t.transform.rotation.y = q.y();
-      t.transform.rotation.z = q.z();
-      t.transform.rotation.w = q.w();
-      broadcaster_.sendTransform(t);
-      if (cloud_->get_subscription_count()) {
-        sensor_msgs::msg::PointCloud2 pc;
-        pc.header = map.header;
-        sensor_msgs::PointCloud2Modifier mod(pc);
-        mod.setPointCloud2FieldsByString(1, "xyz");
-        mod.resize(g.obstacles.size() + g.uncertain.size());
+    if (cloud_->get_subscription_count()) {
+      sensor_msgs::msg::PointCloud2 pc;
+      pc.header.frame_id = "sunplus_left_rect_optical_frame";
+      pc.header.stamp = rclcpp::Time(int64_t(stamp * 1e9));
+      if (g.available)
+        pc.header.stamp = depth_->header.stamp;
+      sensor_msgs::PointCloud2Modifier mod(pc);
+      mod.setPointCloud2FieldsByString(1, "xyz");
+      mod.resize(g.available ? g.obstacles.size() + g.uncertain.size() : 0);
+      if (g.available) {
         sensor_msgs::PointCloud2Iterator<float> x(pc, "x"), y(pc, "y"),
             z(pc, "z");
         for (const auto *points : {&g.obstacles, &g.uncertain})
           for (const auto &p : *points) {
-            *x = p[0];
-            *y = p[1];
-            *z = p[2];
+            const auto q = cameraR.t() * (cv::Vec3d(p) - cameraT);
+            *x = q[0];
+            *y = q[1];
+            *z = q[2];
             ++x;
             ++y;
             ++z;
           }
-        cloud_->publish(pc);
       }
+      cloud_->publish(pc);
     }
   }
   void tick() {
-    if (!json_->get_subscription_count() && !grid_->get_subscription_count() &&
-        !cloud_->get_subscription_count())
+    if (!json_->get_subscription_count() && !cloud_->get_subscription_count())
       return;
-    GroundMap invalid;
-    invalid.occupancy.assign(6400, -1);
-    invalid.classes.assign(6400, 0);
+    GroundFilter invalid;
     auto fail = [&](const char *s) {
       invalid.reason = s;
       publish(invalid, now().seconds(), Json::object());
@@ -309,7 +277,7 @@ private:
                             (v - k.k[5]) * z / k.k[4], z);
           points.push_back({r * c + s->t, v > d.height * .45});
         }
-      const auto g = MakeGroundMap(points, s->n, s->h);
+      const auto g = MakeGroundFilter(points, s->n, s->h);
       if (!fresh(stamp, .30)) {
         fail("processing_exceeded_freshness");
         return;
@@ -322,7 +290,8 @@ private:
                {"support_skew_ms", skew * 1000},
                {"source_age_ms", (now().seconds() - stamp) * 1000},
                {"camera_mount_source", "SW_mount_with_standard_optical_axis_"
-                                       "convention_not_hand_eye_calibrated"}});
+                                       "convention_not_hand_eye_calibrated"}},
+              r, s->t);
     } catch (const std::exception &e) {
       fail(e.what());
     }
@@ -332,14 +301,12 @@ private:
   std::deque<Support> support_;
   tf2_ros::Buffer tf_;
   tf2_ros::TransformListener listener_;
-  tf2_ros::TransformBroadcaster broadcaster_;
   sensor_msgs::msg::Image::ConstSharedPtr depth_;
   sensor_msgs::msg::CameraInfo::ConstSharedPtr info_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depthSub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr infoSub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr supportSub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr json_;
-  rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr grid_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
@@ -347,9 +314,9 @@ private:
 int main(int argc, char **argv) {
   rclcpp::init(argc, argv);
   try {
-    rclcpp::spin(std::make_shared<wla::uvc::GroundMapNode>());
+    rclcpp::spin(std::make_shared<wla::uvc::GroundFilterNode>());
   } catch (const std::exception &e) {
-    RCLCPP_FATAL(rclcpp::get_logger("ground_map"), "%s", e.what());
+    RCLCPP_FATAL(rclcpp::get_logger("ground_filter"), "%s", e.what());
     rclcpp::shutdown();
     return 1;
   }

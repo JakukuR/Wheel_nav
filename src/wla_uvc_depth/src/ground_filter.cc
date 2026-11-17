@@ -1,13 +1,12 @@
-#include "wla_uvc_depth/ground_map.h"
+#include "wla_uvc_depth/ground_filter.h"
 #include <algorithm>
 #include <cmath>
 #include <random>
 namespace wla::uvc {
-GroundMap MakeGroundMap(const std::vector<GroundPoint> &points,
-                        const cv::Vec3d &priorNormal, double priorOffset) {
-  GroundMap out;
-  out.occupancy.assign(out.width * out.height, -1);
-  out.classes.assign(out.width * out.height, 0);
+GroundFilter MakeGroundFilter(const std::vector<GroundPoint> &points,
+                              const cv::Vec3d &priorNormal,
+                              double priorOffset) {
+  GroundFilter out;
   auto fail = [&](const char *s) {
     out.reason = s;
     return out;
@@ -101,45 +100,20 @@ GroundMap MakeGroundMap(const std::vector<GroundPoint> &points,
   if (cv::norm(x) < .9)
     return fail("invalid_heading_projection");
   const auto ex = x / cv::norm(x), ey = n.cross(ex);
-  out.bodyToMap =
+  out.bodyToPlane =
       cv::Matx33d(ex[0], ex[1], ex[2], ey[0], ey[1], ey[2], n[0], n[1], n[2]);
-  std::vector<int> groundHits(out.classes.size(), 0);
   for (const auto &input : points) {
-    auto p = out.bodyToMap * input.body;
-    p[2] += out.offset;
-    const int xcell = int(std::floor((p[0] - out.x0) / out.resolution)),
-              ycell = int(std::floor((p[1] - out.y0) / out.resolution));
-    if (xcell < 0 || ycell < 0 || xcell >= out.width || ycell >= out.height)
-      continue;
-    const size_t i = ycell * out.width + xcell;
-    const auto q = cv::Vec3f(p);
-    if (std::abs(p[2]) <= .015) {
-      ++groundHits[i];
+    const double height = n.dot(input.body) + out.offset;
+    const auto q = cv::Vec3f(input.body);
+    if (std::abs(height) <= .015)
       out.ground.push_back(q);
-    } else if (p[2] >= .03) {
-      out.classes[i] = 2;
+    else if (height >= .03)
       out.obstacles.push_back(q);
-    } // Keep overhead surfaces: no assumed vehicle envelope yet.
-    else if (p[2] <= -.03) {
-      if (out.classes[i] != 2)
-        out.classes[i] = 3;
-      out.uncertain.push_back(q);
-    } else {
-      if (out.classes[i] < 2)
-        out.classes[i] = 4;
-      out.uncertain.push_back(q);
-    }
-  }
-  for (size_t i = 0; i < out.classes.size(); ++i) {
-    if (out.classes[i] >= 2)
-      out.occupancy[i] = 100;
-    else if (groundHits[i] >= 3) {
-      out.classes[i] = 1;
-      out.occupancy[i] = 0;
-    }
+    else
+      out.uncertain.push_back(q); // Keep low, below-plane and ambiguous points.
   }
   out.available = true;
-  out.reason = "single_frame_ground_obstacle_preview";
+  out.reason = "single_frame_plane_height_filter";
   return out;
 }
 } // namespace wla::uvc
