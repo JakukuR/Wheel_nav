@@ -98,3 +98,12 @@ WLA_DEPTH_SOURCE=classical可恢复原processed对齐深度入口。检测、跟
 运行时 /tf 无发布者，/tf_static 仅有 sunplus_left_optical_frame → sunplus_left_rect_optical_frame；状态适配器明确报告 tf_published=false。已有 SW 安装坐标尚未通过 ROS TF 供深度消费者查询。
 
 腿部来源保持电控 Motor35_WF.urdf。SW 两侧首关节原点为 (-0.0042, ±0.034, -0.02675) m，电控为 (-0.0242, ±0.034, -0.02625) m；该差异不能独立证明根坐标的平移，也可能来自模型结构修订。用户“腿部以电控为准”不等于确认两个根坐标相同或确认 20 mm 平移。保持两份源数据，等待确认 CAD base_point 与电控 base_Link 的原点/轴向关系，不补 identity 或推测平移。安装 frame 至光学 frame 的轴向、光心定义及已有三相机标定组合仍须核对，网页显示的 Roll/Yaw 反向约定不参与 TF。
+
+## 2026-11-17 IMU 原点依据补核（更新上节待确认项）
+
+继续检查现用电控部署目录 /home/onana/wheel_leg_nav20261105_lqr10_cpp，已找到既有依据，无需再次要求用户确认原点：
+- SW 原始 CSV 根 base_link 的 Coordinate System 为 base_point；既有安装记录及用户说明将其定位为 IMU。
+- 电控 PERCEPTION_ZJU2026.md 明确记录用户已确认 IMU 位于当前 URDF base_Link 原点 [0,0,0]，不是质心。
+- 当前 PID 3390 使用 config/hardware.orin.yaml；本次启动 reports/powered_20261117_152253_boot/hardware_config.yaml 保存相同配置：base_frame=base_Link、state_estimation.imu_position_base_m=[0,0,0]、imu_to_base_xyzw=[0,0,0,1]。源码解析上述位置和旋转字段，并非仅未使用的备注。
+
+据此，两边的原点定义均为 IMU，取消“还需用户确认原点”的阻塞；不根据腿部关节差值添加 x=-20 mm / z=+0.5 mm。腿部继续以电控 URDF 为准，相机安装位置保留 SW 数值。单位旋转是现用电控的 IMU 轴向配置证据，不冒充新的实物轴向/光心标定。相机安装 frame 至 optical frame 的转换与导航地面参考系仍是独立接入项，本轮仅确认并记录来源，未发布新的相机 TF 或启动运动。
