@@ -1,0 +1,15 @@
+{
+  "model": "LAS2-M",
+  "engine": "models/stereo_candidates/las2_m_fp16.engine",
+  "width": 640,
+  "height": 384,
+  "content_width": 640,
+  "content_height": 360,
+  "pad_top": 12,
+  "pad_bottom": 12,
+  "input_left": "left",
+  "input_right": "right",
+  "output_disparity": "disparity",
+  "normalization": "raw_rgb",
+  "bf_640": 17.288570242494362
+}

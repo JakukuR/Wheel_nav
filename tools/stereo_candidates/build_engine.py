@@ -1,7 +1,15 @@
-"""Bounded offline FP16 TensorRT build. Does not start cameras or alter power settings."""
-import argparse,json,subprocess,time,signal
+"""Bounded offline FP16 build; no camera, power-mode or clock changes.
+
+TensorRT 10.16.2 on the tested Orin NX fails LAS2 at optimization levels
+0/1/2 with a KTM/CASK missing-base-shader assertion. Level 3 with the
+normal tactic budget builds S and M; validate output before deployment. Do not
+replace it with level 0 just to shorten build time. Optional timing cache
+amortizes the first build. Thermal pauses can affect tactic timing; measure
+actual inference after restoring the board's normal operating settings.
+"""
+import argparse,json,subprocess,time,signal,os
 from pathlib import Path
-p=argparse.ArgumentParser();p.add_argument('--onnx',type=Path,required=True);p.add_argument('--engine',type=Path,required=True);p.add_argument('--plugin',type=Path);p.add_argument('--report',type=Path,required=True);p.add_argument('--trtexec',default='/usr/src/tensorrt/bin/trtexec');a=p.parse_args()
+p=argparse.ArgumentParser();p.add_argument('--onnx',type=Path,required=True);p.add_argument('--engine',type=Path,required=True);p.add_argument('--plugin',type=Path);p.add_argument('--report',type=Path,required=True);p.add_argument('--optimization-level',type=int,default=3);p.add_argument('--max-tactics',type=int,default=-1);p.add_argument('--timing-cache',type=Path);p.add_argument('--trtexec',default='/usr/src/tensorrt/bin/trtexec');a=p.parse_args()
 if not a.onnx.is_file():p.error('ONNX does not exist')
 if a.engine.exists():p.error('Output already exists; choose a new file to preserve the previous engine')
 if a.plugin and not a.plugin.is_file():p.error('Plugin does not exist')
@@ -10,8 +18,10 @@ start=temperatures()
 # Observed throttling is ~99C. These are explicit test budgets, not sensor accuracy limits.
 if max(start)>90:p.error(f'Cooling required before build: {start}')
 a.engine.parent.mkdir(parents=True,exist_ok=True);a.report.parent.mkdir(parents=True,exist_ok=True)
-cmd=[a.trtexec,'--onnx='+str(a.onnx.resolve()),'--saveEngine='+str(a.engine.resolve()),'--fp16','--builderOptimizationLevel=0','--memPoolSize=workspace:1024M','--profilingVerbosity=detailed','--skipInference']
+cmd=[a.trtexec,'--onnx='+str(a.onnx.resolve()),'--saveEngine='+str(a.engine.resolve()),'--fp16','--builderOptimizationLevel='+str(a.optimization_level),'--maxTactics='+str(a.max_tactics),'--memPoolSize=workspace:1024M','--profilingVerbosity=detailed','--skipInference']
+if a.timing_cache:cmd+=['--timingCacheFile='+str(a.timing_cache.resolve())]
 if a.plugin:cmd+=['--staticPlugins='+str(a.plugin.resolve())]
+paused=False
 rows=[];reason='completed';started=time.monotonic()
 with a.report.with_suffix('.log').open('w') as log:
  child=subprocess.Popen(cmd,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
@@ -19,11 +29,17 @@ with a.report.with_suffix('.log').open('w') as log:
   while child.poll() is None:
    available=int(next(s.split()[1] for s in Path('/proc/meminfo').read_text().splitlines() if s.startswith('MemAvailable:')))
    row={'seconds':time.monotonic()-started,'temperature_c':temperatures(),'available_memory_kib':available};rows.append(row)
-   if max(row['temperature_c'])>=97 or available<1500000 or row['seconds']>600:
+   if max(row['temperature_c'])>=97 or available<1500000 or row['seconds']>1800:
     reason='temperature_abort' if max(row['temperature_c'])>=97 else 'memory_abort' if available<1500000 else 'build_timeout';break
-   time.sleep(1)
+   if not paused and (row['temperature_c'][0]>=94 or row['temperature_c'][1]>=90):
+    os.killpg(child.pid,signal.SIGSTOP);paused=True
+   elif paused and row['temperature_c'][0]<=90 and row['temperature_c'][1]<=84:
+    os.killpg(child.pid,signal.SIGCONT);paused=False
+   row['paused']=paused
+   time.sleep(.1)
  finally:
   if child.poll() is None:
+   if paused:os.killpg(child.pid,signal.SIGCONT)
    child.send_signal(signal.SIGINT)
    try:child.wait(timeout=5)
    except subprocess.TimeoutExpired:child.kill();child.wait()

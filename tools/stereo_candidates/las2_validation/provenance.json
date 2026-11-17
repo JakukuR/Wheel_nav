@@ -1,0 +1,13 @@
+{
+  "upstream": "https://github.com/TomTomTommi/LiteAnyStereo",
+  "commit": "8c97bd4c4da3712c2ac60003a23201dfdb5935f4",
+  "weights_m_source": "https://huggingface.co/tomtomtommi/LiteAnyStereoV2/resolve/main/LAS2_M.pth",
+  "files": {
+    "outputs/stereo_candidates_20261117/las2/LAS2_S.pth": "dda5ad5495710466f7e5c5a2dff395223893ef68a17d57d88e7ea7dfbb9d08e1",
+    "outputs/stereo_candidates_20261117/las2/las2_s_640x384.onnx": "c785f93976d3f1ddc654885f0a9d6f73019160fa0fa9ad00b3d822fe9eaee61e",
+    "outputs/las2_fp16_repair_20261117/checkpoints/LAS2_M.pth": "c41b61efce9b36e6b8b38b580421cd20cc9e84a47f0f45361767281938f69696",
+    "outputs/las2_fp16_repair_20261117/las2_m_640x384.onnx": "6cf8dea67d5d3db9da80876c391d6be9ccb32247e44fd4c897b018022df6b6eb",
+    "outputs/las2_fp16_repair_20261117/las2_s_384x288.onnx": "077d3127c0604eb6aab1a371a3f4507041badc5c421dd2b01080157ebd1e4534",
+    "outputs/las2_fp16_repair_20261117/las2_m_384x288.onnx": "1f5e537b44d6cf7b23436c9317857bd9276a7d1ea4a3df73c1ba41ab22e68b86"
+  }
+}

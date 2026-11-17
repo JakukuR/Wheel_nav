@@ -1,0 +1,341 @@
+{
+  "date": "2026-11-17",
+  "hardware": "Jetson Orin NX 16GB Super",
+  "software": "JetPack 7.2-b187; CUDA13.2; TensorRT10.16.2.10",
+  "fix": {
+    "builderOptimizationLevel": 3,
+    "maxTactics": -1,
+    "fp16": true,
+    "workspace_MiB": 1024
+  },
+  "conditions": "640x384 per eye; recorded rectified 640x360 padded 12 rows each side; batch 1; CPU = process CPU time / wall time, 100%=one core; offline excludes camera, rectification, ROS and point clouds; numerical comparison is not depth ground-truth accuracy",
+  "tests": {
+    "test_s640": {
+      "spec": {
+        "model": "LAS2-S",
+        "engine": "/home/onana/las2_fp16_repair_20261117/las2_s_640x384_fp16_opt3.engine",
+        "width": 640,
+        "height": 384,
+        "content_width": 640,
+        "content_height": 360,
+        "pad_top": 12,
+        "pad_bottom": 12,
+        "input_left": "left",
+        "input_right": "right",
+        "output_disparity": "disparity",
+        "normalization": "raw_rgb",
+        "bf_640": 17.288570242494362
+      },
+      "cases": [
+        {
+          "case": "recorded",
+          "accuracy": {
+            "finite": true,
+            "mean_abs_px": 0.024318885058164597,
+            "p99_abs_px": 0.1300116443634034,
+            "max_abs_px": 0.31172943115234375,
+            "fraction_over_1px": 0.0,
+            "pass": true
+          },
+          "gpu_median_ms": 13.527359962463379,
+          "gpu_p95_ms": 13.815423583984375,
+          "wall_median_ms": 20.382274,
+          "wall_p95_ms": 21.4354322,
+          "cpu_one_core_percent": 12.498136520791554,
+          "achieved_hz": 9.9233642103714,
+          "engine_bytes": 15206612,
+          "context_bytes": 35528704,
+          "max_temperature_c": 92.406
+        },
+        {
+          "case": "Explorer_HD2K_SN28883284_20-18-09",
+          "accuracy": {
+            "finite": true,
+            "mean_abs_px": 0.012232993729412556,
+            "p99_abs_px": 0.05285365104675299,
+            "max_abs_px": 0.164459228515625,
+            "fraction_over_1px": 0.0,
+            "pass": true
+          },
+          "gpu_median_ms": 13.42848014831543,
+          "gpu_p95_ms": 13.69950556755066,
+          "wall_median_ms": 20.3165795,
+          "wall_p95_ms": 20.82888515,
+          "cpu_one_core_percent": 12.48398588403465,
+          "achieved_hz": 9.928017721606944,
+          "engine_bytes": 15206612,
+          "context_bytes": 35528704,
+          "max_temperature_c": 92.875
+        },
+        {
+          "case": "Explorer_HD2K_SN28883284_20-41-07",
+          "accuracy": {
+            "finite": true,
+            "mean_abs_px": 0.009146965108811855,
+            "p99_abs_px": 0.03215030670166019,
+            "max_abs_px": 0.0593414306640625,
+            "fraction_over_1px": 0.0,
+            "pass": true
+          },
+          "gpu_median_ms": 13.555376052856445,
+          "gpu_p95_ms": 13.812249803543091,
+          "wall_median_ms": 20.559804,
+          "wall_p95_ms": 21.135752450000002,
+          "cpu_one_core_percent": 12.47907232584237,
+          "achieved_hz": 9.936200017391531,
+          "engine_bytes": 15206612,
+          "context_bytes": 35528704,
+          "max_temperature_c": 91.968
+        }
+      ]
+    },
+    "test_m640": {
+      "spec": {
+        "model": "LAS2-M",
+        "engine": "/home/onana/las2_fp16_repair_20261117/las2_m_640x384_fp16_opt3.engine",
+        "width": 640,
+        "height": 384,
+        "content_width": 640,
+        "content_height": 360,
+        "pad_top": 12,
+        "pad_bottom": 12,
+        "input_left": "left",
+        "input_right": "right",
+        "output_disparity": "disparity",
+        "normalization": "raw_rgb",
+        "bf_640": 17.288570242494362
+      },
+      "cases": [
+        {
+          "case": "recorded",
+          "accuracy": {
+            "finite": true,
+            "mean_abs_px": 0.029768699780106544,
+            "p99_abs_px": 0.10125076293945323,
+            "max_abs_px": 0.5757331848144531,
+            "fraction_over_1px": 0.0,
+            "pass": true
+          },
+          "gpu_median_ms": 20.363408088684082,
+          "gpu_p95_ms": 20.72263460159302,
+          "wall_median_ms": 27.751413499999998,
+          "wall_p95_ms": 28.77492495,
+          "cpu_one_core_percent": 16.47563717414409,
+          "achieved_hz": 9.909748393837221,
+          "engine_bytes": 30458628,
+          "context_bytes": 35682304,
+          "max_temperature_c": 96.437
+        },
+        {
+          "case": "Explorer_HD2K_SN28883284_20-18-09",
+          "accuracy": {
+            "finite": true,
+            "mean_abs_px": 0.013213397935032845,
+            "p99_abs_px": 0.13976696014404322,
+            "max_abs_px": 0.282470703125,
+            "fraction_over_1px": 0.0,
+            "pass": true
+          },
+          "gpu_median_ms": 20.4486722946167,
+          "gpu_p95_ms": 20.741536998748778,
+          "wall_median_ms": 27.879023,
+          "wall_p95_ms": 28.62380125,
+          "cpu_one_core_percent": 16.001262860797972,
+          "achieved_hz": 9.917298035165178,
+          "engine_bytes": 30458628,
+          "context_bytes": 35682304,
+          "max_temperature_c": 93.031
+        },
+        {
+          "case": "Explorer_HD2K_SN28883284_20-41-07",
+          "accuracy": {
+            "finite": true,
+            "mean_abs_px": 0.008687751367688179,
+            "p99_abs_px": 0.034908323287963894,
+            "max_abs_px": 0.08489418029785156,
+            "fraction_over_1px": 0.0,
+            "pass": true
+          },
+          "gpu_median_ms": 20.351088523864746,
+          "gpu_p95_ms": 20.787772846221923,
+          "wall_median_ms": 27.177961,
+          "wall_p95_ms": 28.0301017,
+          "cpu_one_core_percent": 15.232995627871414,
+          "achieved_hz": 9.929015068453976,
+          "engine_bytes": 30458628,
+          "context_bytes": 35682304,
+          "max_temperature_c": 92.687
+        }
+      ]
+    },
+    "test_m640_7hz_auto": {
+      "spec": {
+        "model": "LAS2-M",
+        "engine": "/home/onana/las2_fp16_repair_20261117/las2_m_640x384_fp16_opt3.engine",
+        "width": 640,
+        "height": 384,
+        "content_width": 640,
+        "content_height": 360,
+        "pad_top": 12,
+        "pad_bottom": 12,
+        "input_left": "left",
+        "input_right": "right",
+        "output_disparity": "disparity",
+        "normalization": "raw_rgb",
+        "bf_640": 17.288570242494362
+      },
+      "cases": [
+        {
+          "case": "recorded",
+          "accuracy": {
+            "finite": true,
+            "mean_abs_px": 0.029768699780106544,
+            "p99_abs_px": 0.10125076293945323,
+            "max_abs_px": 0.5757331848144531,
+            "fraction_over_1px": 0.0,
+            "pass": true
+          },
+          "gpu_median_ms": 20.413328170776367,
+          "gpu_p95_ms": 20.791124629974366,
+          "wall_median_ms": 27.247151000000002,
+          "wall_p95_ms": 28.264780849999998,
+          "cpu_one_core_percent": 11.035701673120801,
+          "achieved_hz": 6.961642436885147,
+          "engine_bytes": 30458628,
+          "context_bytes": 35682304,
+          "max_temperature_c": 94.937
+        }
+      ]
+    }
+  },
+  "fan_modes": {
+    "test_s640": "automatic",
+    "test_m640": "temporary maximum PWM255",
+    "test_m640_7hz_auto": "automatic"
+  },
+  "limitations": [
+    "M 10Hz automatic fan run aborted at CPU97.5C after24.5s. Background motor process restarted during tests; thermal load is not attributable solely to inference.",
+    "M engine emits TensorRT device-model warning despite same GPU UUID for build and inference. Numerical validation passed.",
+    "Short tests only; no long-term thermal or metric depth accuracy acceptance.",
+    "384x288 ONNX files in provenance are export-validated only, not GPU benchmarked."
+  ],
+  "installed_sha256": {
+    "models/stereo_candidates/las2_s_fp16.engine": "ac60735b55d35cad251da1bde4aca3f339952274c755b3648106b6107e88fbf3",
+    "models/stereo_candidates/las2_m_fp16.engine": "d8fd7e8ab5b82510400945ffb97a69f1e25218cda70a79400b9382af381500a2",
+    "models/stereo_candidates/las2_m_640x384.onnx": "6cf8dea67d5d3db9da80876c391d6be9ccb32247e44fd4c897b018022df6b6eb"
+  },
+  "engine_inspection": {
+    "s": {
+      "layer_count": 319,
+      "output_formats": {
+        "Float": 11,
+        "Half": 306,
+        "Int32": 4
+      }
+    },
+    "m": {
+      "layer_count": 526,
+      "output_formats": {
+        "Float": 84,
+        "Half": 440,
+        "Int32": 4
+      }
+    }
+  },
+  "installed_engine_smoke_tests": {
+    "s": {
+      "spec": {
+        "model": "LAS2-S",
+        "engine": "/home/onana/ros2_ws/models/stereo_candidates/las2_s_fp16.engine",
+        "width": 640,
+        "height": 384,
+        "content_width": 640,
+        "content_height": 360,
+        "pad_top": 12,
+        "pad_bottom": 12,
+        "input_left": "left",
+        "input_right": "right",
+        "output_disparity": "disparity",
+        "normalization": "raw_rgb",
+        "bf_640": 17.288570242494362
+      },
+      "cases": [
+        {
+          "case": "recorded",
+          "accuracy": {
+            "finite": true,
+            "mean_abs_px": 0.024318885058164597,
+            "p99_abs_px": 0.1300116443634034,
+            "max_abs_px": 0.31172943115234375,
+            "fraction_over_1px": 0.0,
+            "pass": true
+          },
+          "gpu_median_ms": 13.478511810302734,
+          "gpu_p95_ms": 13.720657682418823,
+          "wall_median_ms": 20.8902185,
+          "wall_p95_ms": 21.30632645,
+          "cpu_one_core_percent": 12.888648225899857,
+          "achieved_hz": 9.923428542973848,
+          "engine_bytes": 15206612,
+          "context_bytes": 35528704,
+          "max_temperature_c": 92.531
+        }
+      ]
+    },
+    "m": {
+      "spec": {
+        "model": "LAS2-M",
+        "engine": "/home/onana/ros2_ws/models/stereo_candidates/las2_m_fp16.engine",
+        "width": 640,
+        "height": 384,
+        "content_width": 640,
+        "content_height": 360,
+        "pad_top": 12,
+        "pad_bottom": 12,
+        "input_left": "left",
+        "input_right": "right",
+        "output_disparity": "disparity",
+        "normalization": "raw_rgb",
+        "bf_640": 17.288570242494362
+      },
+      "cases": [
+        {
+          "case": "recorded",
+          "accuracy": {
+            "finite": true,
+            "mean_abs_px": 0.029768699780106544,
+            "p99_abs_px": 0.10125076293945323,
+            "max_abs_px": 0.5757331848144531,
+            "fraction_over_1px": 0.0,
+            "pass": true
+          },
+          "gpu_median_ms": 20.469951629638672,
+          "gpu_p95_ms": 20.66274070739746,
+          "wall_median_ms": 27.2316625,
+          "wall_p95_ms": 27.46228815,
+          "cpu_one_core_percent": 14.81381164989204,
+          "achieved_hz": 9.945893523667976,
+          "engine_bytes": 30458628,
+          "context_bytes": 35682304,
+          "max_temperature_c": 90.531
+        }
+      ]
+    }
+  },
+  "restoration": {
+    "fan": {
+      "original_pwm": "198",
+      "nvfancontrol_pid": 1566,
+      "start": 1794894668.6856763,
+      "restored": true,
+      "end": 1794894768.7099872
+    },
+    "build_clock": {
+      "original_max_freq": "1173000000",
+      "build_max_freq": 612000000,
+      "start": 1794893741.02946,
+      "restored": true,
+      "end": 1794894526.2474055
+    }
+  }
+}
