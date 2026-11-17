@@ -15,6 +15,15 @@ CALIBRATION = 'floor_tf_sampling_candidate_v1'
 BANDS = {'low': (.08, .25), 'middle': (.25, .45), 'high': (.45, .65)}
 
 
+def current_packet(raw, mapped):
+    """A successful old map must not hide a newer raw acquisition/coverage failure."""
+    if mapped is None:
+        return raw
+    if raw is None or mapped.get('depth_stamp_ns', 0) >= raw.get('depth_stamp_ns', 0):
+        return mapped
+    return raw
+
+
 def packet_from_depth(depth, k, rotation, translation, pose, *, stamp_ns, pose_stamp_ns,
                       follow_session, reference_generation, transport_generation):
     """Project unmasked, unfiltered first returns in the measured wheel reference."""

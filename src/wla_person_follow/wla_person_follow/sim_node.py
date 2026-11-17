@@ -1169,10 +1169,11 @@ class FollowEngine:
                     pose_source='LocalMotion wheel-twist integration; not global localization'),
                 actual_published_command=dict(linear_mps=float(actual[0]),angular_rps=float(actual[1])),
                 diagnostics=detail)
-            if self.raw_l4_clearance is not None:
-                state['l4_clearance'] = self.raw_l4_clearance
-            if self.map_result is not None and self.map_result.get('l4_clearance') is not None:
-                state['l4_clearance'] = self.map_result['l4_clearance']
+            from .l4_clearance import current_packet
+            l4_packet = current_packet(self.raw_l4_clearance,
+                self.map_result.get('l4_clearance') if self.map_result else None)
+            if l4_packet is not None:
+                state['l4_clearance'] = l4_packet
                 if len(json.dumps(state, allow_nan=False).encode()) > 110000:
                     state['l4_clearance'] = dict(status='unavailable', reason='worker_status_budget_exceeded')
             # The hybrid worker forwards this dict without parsing the text back.
