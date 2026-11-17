@@ -1,0 +1,13 @@
+D455上仰15°配置更新，2026-11-17
+
+用户最终确认并要求：D455相对底盘上仰15°。本轮将d455_link相对r680_mapping_floor的roll/pitch/yaw设为0/-15°/0，XYZ沿用(0.184428484,0.059803590,0.501660007)m。四元数xyzw=(0,-0.130526192220052,0,0.991444861373810)。SDK内部变换不变，RGB光轴实际仰角约15.09927°。
+
+已统一Nav相机/导航/独立调试启动入口、两套cuVSLAM配置及C++默认值。OpenVINS D455内部IMU分支更新T_imu_base与前端/IMU配置；底盘IMU分支更新相机相对IMU的变换，底盘IMU的base关系不变。配置摘要已同步。历史20261013 manifest及原始Kalibr数据保留，不用于重建当前安装配置。
+
+Agent安装测量记录更新为上仰15°；原d455.floor-fit.json完整归档于/home/orin/Wheel_Legged_Agent/output/d455-up15-20261117/before/agent/deploy/r680/。活动JSON保存新安装矩阵并标记geometry_gate_passed=false，状态为user_specified_mount_not_floor_fitted。旧地面拟合发布器和依赖geometry_gate_passed的旧工具会拒绝使用该未重拟合文件；当前Nav固定TF不依赖这个标志。未沿用旧采样通过状态。
+
+相机已通过r680-camera-maintenance-20261117.service重启。启动后第一次立即check早于相机准备完成而失败；随后check通过，TF实读机身pitch=-15.000000°、RGB光轴仰角+15.099272°，4秒彩色120帧、对齐深度121帧，约30Hz，640x480。Kalo保持active。
+
+验证：现有Agent安装几何/场景5项通过；新增Nav配置一致性2项通过（已注册CMake）；离线矩阵链、相机内参/内部IMU关系保留、底盘IMU关系保留、双目相对几何、配置SHA256、Python语法校验通过。cuVSLAM源代码默认值已更新，但该包本机未安装，本轮未编译或启动VIO；OpenVINS未启动。未执行运动测试、重新测量XYZ或进行新地面标定，真实空间精度未验收。
+
+完整备份、changes.json、geometry.json、verification.json及实时TF/图像采样位于/home/orin/Wheel_Legged_Agent/output/d455-up15-20261117/。

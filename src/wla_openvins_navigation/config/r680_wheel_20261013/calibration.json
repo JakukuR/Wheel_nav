@@ -10,7 +10,20 @@
   "config_sha256": {
     "frontend.yaml": "60be35a7b8d998f7ad929df6f214a31af3858d7b230d1c864735853c318eb37e",
     "estimator_config.yaml": "c18e5b65a4227720ab1ba6486c669f34c4995382c9d2d34f80aafcf3aee4e7f5",
-    "kalibr_imucam_chain.yaml": "c6124e219cf2b23372f55e1df690d491176afddd579553b65b5fe4e755fbd3be",
+    "kalibr_imucam_chain.yaml": "e65f9af781ae9f62349e0fd7685800477a92b97dfae6b274e1f18d2cafcded91",
     "kalibr_imu_chain.yaml": "839b9dbd7258ffaeba377d320b514528c85554c6efdb52b37ed1430a2dbf97a6"
-  }
+  },
+  "mount_change_20261117": {
+    "date": "2026-11-17",
+    "source": "user specified upward 15 degrees relative to chassis",
+    "body_frame": "d455_link",
+    "parent": "r680_mapping_floor",
+    "body_pitch_rad": -0.2617993877991494,
+    "body_elevation_deg": 15.0,
+    "translation_policy": "retain previous d455_link xyz; not remeasured",
+    "old_geometry_validation_applies": false
+  },
+  "notes": [
+    "2026-11-17: apply user-declared +15 deg camera body elevation; translation inherited. Old mount validation superseded. Historical 20261013 manifests retain original evidence; do not regenerate active configuration from them."
+  ]
 }

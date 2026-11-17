@@ -211,6 +211,8 @@ if(BUILD_TESTING)
     ENVIRONMENT "ROS_DOMAIN_ID=196;ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST;RMW_IMPLEMENTATION=rmw_cyclonedds_cpp;KALO_LIB=${CMAKE_INSTALL_PREFIX}/lib/${PROJECT_NAME}"
     RUN_SERIAL TRUE TIMEOUT 45)
   ament_add_pytest_test(test_raw_image test/test_raw_image.py)
+  add_test(NAME camera_mount_configuration COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_camera_mount_configuration.py)
   add_test(NAME debug_standalone_plan COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/test/test_debug_standalone.py)
   ament_add_pytest_test(test_perception_geometry test/test_perception_geometry.py)

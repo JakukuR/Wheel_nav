@@ -2,7 +2,7 @@
 
 Color and depth aligned to color are always on at 640x480x30, the profile
 every consumer uses. The infrared stereo pair (cuVSLAM / OpenVINS) and the
-IMU are optional. The camera also owns the measured mount edge
+IMU are optional. The camera also owns the configured mount edge
 r680_mapping_floor -> d455_link (mount:=false when another process publishes
 it); navigation, mapping and the debug entry then skip their own copy.
 """
@@ -66,13 +66,13 @@ def camera(context):
 
 
 def generate_launch_description():
-    # Same measured mounting transform as bringup.launch.py (publish_mount_tf).
+    # User-specified +15 degree body elevation; XYZ matches bringup.launch.py.
     mount = Node(
         package='tf2_ros', executable='static_transform_publisher',
         name='r680_d455_floor_mount', condition=IfCondition(LaunchConfiguration('mount')),
         arguments=['--x', '0.184428484', '--y', '0.059803590', '--z', '0.501660007',
-                   '--qx', '0.000096773', '--qy', '0.077125800',
-                   '--qz', '-0.000560247', '--qw', '0.997021207',
+                   '--qx', '0.000000000000000', '--qy', '-0.130526192220052',
+                   '--qz', '0.000000000000000', '--qw', '0.991444861373810',
                    '--frame-id', 'r680_mapping_floor', '--child-frame-id', 'd455_link'])
     return LaunchDescription([
         DeclareLaunchArgument('infra', default_value='false', choices=['true', 'false'],

@@ -93,7 +93,7 @@ public:
     base_ = declare_parameter<std::string>("base_frame", "r680_mapping_floor");
     camera_link_ = declare_parameter<std::string>("camera_link_frame", "d455_link");
     camera_mount_ = from_array(declare_parameter<std::vector<double>>("base_from_camera_link",
-      {0.184428484, 0.059803590, 0.501660007, 0.000096773, 0.077125800, -0.000560247, 0.997021207}));
+      {0.184428484, 0.059803590, 0.501660007, 0.000000000000000, -0.130526192220052, 0.000000000000000, 0.991444861373810}));
     odom_ = declare_parameter<std::string>("odom_frame", "d455_floor_odom");
     expected_imu_frame_ = declare_parameter<std::string>("expected_imu_frame", "gyro_link");
     statistics_path_ = declare_parameter<std::string>("statistics_path", "/tmp/cuvslam_validation_statistics.json");
