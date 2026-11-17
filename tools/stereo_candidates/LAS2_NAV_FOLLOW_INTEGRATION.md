@@ -88,3 +88,13 @@ WLA_DEPTH_SOURCE=classical可恢复原processed对齐深度入口。检测、跟
 移除不必要的RGB等待后，20秒观测收到原生深度100帧、RGB网格深度99帧，约5Hz，彩色图约20Hz。两路均为640×360/16UC1，各自frame与CameraInfo一致；深度节点CPU单核等效均值13.09%，最后一帧处理32.35ms（包括一次CPU空间投影，不代表全部RGB采集开销）。先前47/99配对率是中间等待方案的失败证据，不作为最终结果。
 
 用户进一步确认只有三相机间标定，没有相机—IMU/机身外参。真实检查仍无相机到r680_mapping_floor的TF、无/wheel/odom_50hz发布者。感知消费接口与隔离跟随剔除验证完成，实际导航/跟随就绪仍受这些接口限制。RGB采集/校正与LAS2输入、只读网页已恢复；没有启动YOLO/人物跟随任务或导航控制。
+
+## 2026-11-17 主 debug 机身坐标复核
+
+用户再次确认有准确的 SW 导出传感器安装关系，并指定腿部以当前电控程序为准。这里需要区分已有 CAD 机身安装外参和未接通的运行时 TF；不能将后者表述成所有机身外参都缺失。
+
+主页面机身状态使用 /robot_state/geometry JSON，不是订阅完整 TF 树。换电后 robot_state_adapter 和 tof_obstacles 未运行，本轮恢复这两个只读状态/几何节点，未启动电机控制、导航或跟随。6 秒采样收到 121 个 geometry 和 61 个 status；IMU、实测关节及几何均 available，支撑平面 offset 约 0.1248 m（沿用原有双轮平地假设，不是独立高度测量）。证据位于 .runtime/las2_nav_follow_integration/body_geometry_audit.json。
+
+运行时 /tf 无发布者，/tf_static 仅有 sunplus_left_optical_frame → sunplus_left_rect_optical_frame；状态适配器明确报告 tf_published=false。已有 SW 安装坐标尚未通过 ROS TF 供深度消费者查询。
+
+腿部来源保持电控 Motor35_WF.urdf。SW 两侧首关节原点为 (-0.0042, ±0.034, -0.02675) m，电控为 (-0.0242, ±0.034, -0.02625) m；该差异不能独立证明根坐标的平移，也可能来自模型结构修订。用户“腿部以电控为准”不等于确认两个根坐标相同或确认 20 mm 平移。保持两份源数据，等待确认 CAD base_point 与电控 base_Link 的原点/轴向关系，不补 identity 或推测平移。安装 frame 至光学 frame 的轴向、光心定义及已有三相机标定组合仍须核对，网页显示的 Roll/Yaw 反向约定不参与 TF。
