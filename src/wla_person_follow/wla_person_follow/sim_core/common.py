@@ -1,8 +1,12 @@
 from dataclasses import dataclass
 import numpy as np
 
-# User-specified circular chassis footprint, in metres.
-ROBOT_RADIUS_M = .19
+# User-confirmed chassis: x forward (length), y left (width), metres.
+ROBOT_LENGTH_M = .29
+ROBOT_WIDTH_M = .22
+# Existing circular planner uses the enclosing circle, including turns.
+ROBOT_RADIUS_M = float(np.hypot(ROBOT_LENGTH_M, ROBOT_WIDTH_M) / 2)
+ROBOT_FOOTPRINT_DESCRIPTION = "0.29m long x 0.22m wide; conservative circular sweeps"
 
 def wrap(a):
     return np.arctan2(np.sin(a), np.cos(a))

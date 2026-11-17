@@ -1,6 +1,7 @@
 #ifndef WLA_FOLLOW_INCLUDE_WLA_FOLLOW_ROLLING_MAP_H
 #define WLA_FOLLOW_INCLUDE_WLA_FOLLOW_ROLLING_MAP_H
 
+#include <wla_follow/robot_geometry.h>
 #include <array>
 #include <cstdint>
 #include <memory>
@@ -37,7 +38,7 @@ public:
         double m_resolution{.1};
         int m_size{120};
         double m_ttl{12.};
-        double m_robotRadius{.19};
+        double m_robotRadius{kRobotRadiusM};
         double m_targetClearTtl{.5};
     };
 

@@ -1,6 +1,7 @@
 #ifndef WLA_FOLLOW_INCLUDE_WLA_FOLLOW_FOLLOW_CORE_H
 #define WLA_FOLLOW_INCLUDE_WLA_FOLLOW_FOLLOW_CORE_H
 
+#include <wla_follow/robot_geometry.h>
 #include <array>
 #include <cstdint>
 #include <memory>
@@ -126,7 +127,7 @@ public:
     {
         double m_mapResolution{.1};
         int m_mapSize{120};
-        double m_robotRadius{.19};
+        double m_robotRadius{kRobotRadiusM};
         double m_sweepRadius{0.};  // approach_goal.SWEEP_RADIUS
         Tuning m_tuning;           // SimulationEngine's Tuning()
     };

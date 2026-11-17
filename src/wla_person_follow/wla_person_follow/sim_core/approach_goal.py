@@ -3,11 +3,11 @@ import numpy as np
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import dijkstra
 from scipy.spatial import cKDTree
-from .common import rotation
+from .common import rotation, ROBOT_LENGTH_M, ROBOT_WIDTH_M, ROBOT_FOOTPRINT_DESCRIPTION
 
-# The former object approach used this rectangular body. A circumscribed
-# circle is used for path sweeps, including rotation; gap reporting uses the box.
-HALF_LENGTH = HALF_WIDTH = .24
+# Circle for sweeps (including turns); rectangle for surface clearance.
+HALF_LENGTH = ROBOT_LENGTH_M / 2
+HALF_WIDTH = ROBOT_WIDTH_M / 2
 SWEEP_RADIUS = float(np.hypot(HALF_LENGTH, HALF_WIDTH))
 DESIRED_GAP = .15
 # Route search margin around the robot-object box.
@@ -155,5 +155,5 @@ class ApproachGoal:
             stable_s=now-self.stable_since,
             reason='nearest_reachable_local_position' if p['fallback'] else 'object_clearance_goal',
             scope='current_rolling_map_connected_known_free',
-            footprint='0.48m square; conservative circular sweeps',
+            footprint=ROBOT_FOOTPRINT_DESCRIPTION,
             requested_clearance_m=DESIRED_GAP)

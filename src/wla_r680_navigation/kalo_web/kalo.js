@@ -8,6 +8,7 @@ const css = name => getComputedStyle(document.documentElement).getPropertyValue(
 const rgb = name => { const c = document.createElement('canvas').getContext('2d'); c.fillStyle = css(name); const h = c.fillStyle;
   return h.startsWith('#') ? [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255) : [0.5, 0.5, 0.5]; };
 const utf8 = new TextDecoder();
+const ROBOT_LENGTH_M = .29, ROBOT_WIDTH_M = .22; // x forward, y left; user dimensions
 
 // ---------------------------------------------------------------- CDR ---
 // Plain CDR after a 4-byte encapsulation header; alignment is relative to the payload.
@@ -449,8 +450,10 @@ function drawTop() {
       const [px, py] = P(o.distance * Math.cos(o.yaw), o.distance * Math.sin(o.yaw)); ctx.fillStyle = css(o.label === 'person' ? '--sakura' : '--sun');
       ctx.beginPath(); ctx.arc(px, py, 7 * dpr, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = css('--ink'); ctx.fillText(`${o.label} ${o.distance.toFixed(1)} m`, px + 10 * dpr, py + 4 * dpr); } }
   const [rx, ry] = P(0, 0); ctx.fillStyle = css('--azure'); ctx.strokeStyle = css('--ink'); ctx.lineWidth = 2 * dpr;
-  ctx.beginPath(); ctx.roundRect(rx - 14 * dpr, ry - 16 * dpr, 28 * dpr, 32 * dpr, 9 * dpr); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = css('--sun'); ctx.beginPath(); ctx.moveTo(rx, ry - 28 * dpr); ctx.lineTo(rx - 7 * dpr, ry - 18 * dpr); ctx.lineTo(rx + 7 * dpr, ry - 18 * dpr); ctx.fill();
+  const bodyWidth = ROBOT_WIDTH_M * s, bodyLength = ROBOT_LENGTH_M * s;
+  ctx.beginPath(); ctx.rect(rx - bodyWidth / 2, ry - bodyLength / 2, bodyWidth, bodyLength); ctx.fill(); ctx.stroke();
+  const front = ry - bodyLength / 2;
+  ctx.fillStyle = css('--sun'); ctx.beginPath(); ctx.moveTo(rx, front - 10 * dpr); ctx.lineTo(rx - 5 * dpr, front - 2 * dpr); ctx.lineTo(rx + 5 * dpr, front - 2 * dpr); ctx.fill();
 }
 
 // ----------------------------------------------------------------- UI ---

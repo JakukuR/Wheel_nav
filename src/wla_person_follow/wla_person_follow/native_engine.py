@@ -16,7 +16,7 @@ here, and FollowCore.commit applies the limit and records the command.
 from dataclasses import replace
 import numpy as np
 from .sim_core.approach_goal import DESIRED_GAP, SWEEP_RADIUS
-from .sim_core.common import Tuning
+from .sim_core.common import Tuning, ROBOT_FOOTPRINT_DESCRIPTION
 from .native_map import NativeRollingDepthMap
 from .neupan_follower import TRACKED_STATES as NEUPAN_STATES
 try:
@@ -205,7 +205,7 @@ class NativeFollowEngine:
         if approach is not None:
             approach.update(reason='nearest_reachable_local_position' if approach['fallback'] else 'object_clearance_goal',
                             scope='current_rolling_map_connected_known_free',
-                            footprint='0.48m square; conservative circular sweeps',
+                            footprint=ROBOT_FOOTPRINT_DESCRIPTION,
                             requested_clearance_m=DESIRED_GAP)
             diagnostic = {k: (v.tolist() if isinstance(v, np.ndarray) else v) for k, v in approach.items() if k != 'path'}
         command, path, neupan_status = r['command'], r['path'], None

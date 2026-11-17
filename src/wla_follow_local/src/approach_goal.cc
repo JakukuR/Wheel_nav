@@ -20,8 +20,8 @@ using detail::BlasNorm2;
 using detail::MapView;
 using detail::RowNorm2;
 
-constexpr double HALF_LENGTH = .24;
-constexpr double HALF_WIDTH = .24;
+constexpr double HALF_LENGTH = kRobotLengthM / 2.;
+constexpr double HALF_WIDTH = kRobotWidthM / 2.;
 constexpr double DESIRED_GAP = .15;
 constexpr double PLAN_MARGIN_M = 1.2;
 constexpr double ROUTE_CELL_M = .1;

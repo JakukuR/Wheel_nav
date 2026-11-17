@@ -11,7 +11,7 @@ Selected by numeric_backend like the map and tracking; never falls back.
 """
 import numpy as np
 from .sim_core.approach_goal import ApproachGoal, DESIRED_GAP
-from .sim_core.common import Tuning
+from .sim_core.common import Tuning, ROBOT_FOOTPRINT_DESCRIPTION
 from .sim_core.hybrid_controller import HybridFollower
 from .native_tracking import check_backend, reference_functions
 try:
@@ -142,6 +142,6 @@ class NativeApproachGoal:
             return None
         report.update(reason='nearest_reachable_local_position' if report['fallback'] else 'object_clearance_goal',
                       scope='current_rolling_map_connected_known_free',
-                      footprint='0.48m square; conservative circular sweeps',
+                      footprint=ROBOT_FOOTPRINT_DESCRIPTION,
                       requested_clearance_m=DESIRED_GAP)
         return report

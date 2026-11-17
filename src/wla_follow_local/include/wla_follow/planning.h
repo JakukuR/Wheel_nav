@@ -1,6 +1,7 @@
 #ifndef WLA_FOLLOW_INCLUDE_WLA_FOLLOW_PLANNING_H
 #define WLA_FOLLOW_INCLUDE_WLA_FOLLOW_PLANNING_H
 
+#include <wla_follow/robot_geometry.h>
 #include <array>
 #include <cstdint>
 #include <memory>
@@ -23,14 +24,14 @@ struct Tuning
     double m_maxW{.9};
     double m_accel{.65};
     double m_yawAccel{3.};
-    double m_radius{.19};
+    double m_radius{kRobotRadiusM};
     double m_margin{.10};
     double m_referenceCornerM{.35};
     double m_marginWeight{400.};
-    double m_desiredGap{.19 + .28 + .73};
+    double m_desiredGap{kRobotRadiusM + .28 + .73};
     double m_targetRadius{.28};
-    double m_targetStopGap{.19 + .28 + .69};
-    double m_targetHardGap{.19 + .28 + .10};
+    double m_targetStopGap{kRobotRadiusM + .28 + .69};
+    double m_targetHardGap{kRobotRadiusM + .28 + .10};
     double m_targetClearanceMax{.50};
     double m_cameraHalfAngle{0.6747409422235527};
     double m_fovEdgeMargin{.05};

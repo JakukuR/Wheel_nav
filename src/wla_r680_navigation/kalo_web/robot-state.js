@@ -84,7 +84,8 @@
       }
     }
     for(const [axis,c,label] of axes){line(origin,axis,color(c),2);const p=P(axis);text(label,[p[0]+3,p[1]-4],color(c));}
-    const corners=[[-.10,-.06,-.025],[.10,-.06,-.025],[.10,.06,-.025],[-.10,.06,-.025],[-.10,-.06,.055],[.10,-.06,.055],[.10,.06,.055],[-.10,.06,.055]];
+    const halfLength=.145,halfWidth=.11; // 29 cm long x 22 cm wide; original height/origin
+    const corners=[[-halfLength,-halfWidth,-.025],[halfLength,-halfWidth,-.025],[halfLength,halfWidth,-.025],[-halfLength,halfWidth,-.025],[-halfLength,-halfWidth,.055],[halfLength,-halfWidth,.055],[halfLength,halfWidth,.055],[-halfLength,halfWidth,.055]];
     for(const [a,b] of [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]])line(corners[a],corners[b],color('--ink-soft'),1.2);
     const map=new Map(frames.map(f=>[f.name,f])),jointFrames=frames.filter(f=>f.kind==='joint');
     const jointNames=new Map(JOINTS);
