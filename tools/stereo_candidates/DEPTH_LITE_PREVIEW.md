@@ -11,3 +11,7 @@
 进程与证据：/home/onana/ros2_ws/.runtime/stereo_minimal_preview_20261117/。本次没有测单路预览长时热稳定性。
 
 复查12s收到15张可解码深度JPEG，发现后约1.67FPS（5Hz输入与2Hz编码节流的采样间隔）；末帧depth_fresh=true、有效深度83.94%、CPU88.875°C/GPU85.718°C，严格实时检查通过。期间未调整置信度或深度范围。
+
+## LAS2 原图对照更新
+
+后续已将此页改为两路预览（左目原图+深度，各限2Hz），消除固定Light ESS标题和5Hz说明。最新LAS2-S实机预览、解码限频、温控及验证数据见 `src/wla_uvc_depth/STEREO_NETWORK.md` 的LAS2网页预览节；当前PID及日志在 `.runtime/las2_web_preview_20261117/`。本文件上面的单路Light ESS记录仅为历史。

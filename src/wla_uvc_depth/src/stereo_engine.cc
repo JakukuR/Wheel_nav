@@ -22,13 +22,13 @@ StereoModel ModelSettings(const std::string& key,cv::Size network){
     s.network=key=="light_ess"?cv::Size(480,288):cv::Size(960,576);s.content=s.network;
     s.left="input_left";s.right="input_right";s.disparity="output_left";s.confidence="output_conf";
     s.normalization="minus_one_one";s.confidenceThreshold=.4F;
-  }else if(key=="cfast"||key=="las2_s"||key=="lightstereo_s"){
-    s.name=key=="cfast"?"C-Fast-FoundationStereo":key=="las2_s"?"LAS2-S":"LightStereo-S General";
+  }else if(key=="cfast"||key=="las2_s"||key=="las2_m"||key=="lightstereo_s"){
+    s.name=key=="cfast"?"C-Fast-FoundationStereo":key=="las2_s"?"LAS2-S FP16":key=="las2_m"?"LAS2-M FP16":"LightStereo-S General";
     s.network=network.area()?network:cv::Size(640,384);
     if(s.network!=cv::Size(640,384)&&(key!="cfast"||s.network!=cv::Size(320,192)))throw std::runtime_error("unsupported_stereo_network_resolution");
     s.content={s.network.width,s.network.width*360/640};s.padTop=(s.network.height-s.content.height)/2;s.padBottom=s.padTop;
     s.left=key=="cfast"?"left_image":"left";s.right=key=="cfast"?"right_image":"right";s.disparity="disparity";
-    s.normalization=key=="las2_s"?"raw_rgb":"imagenet";
+    s.normalization=(key=="las2_s"||key=="las2_m")?"raw_rgb":"imagenet";
   }else throw std::runtime_error("unknown_stereo_model:"+key);
   if(network.area()&&network!=s.network)throw std::runtime_error("model_network_size_mismatch");
   return s;
@@ -86,6 +86,7 @@ struct StereoEngine::Impl {
   }
 };
 StereoEngine::StereoEngine(const std::string& path,const std::string& key,const std::string& plugin):m_impl(std::make_unique<Impl>()){
+  Cuda(cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync));
   auto& p=*m_impl;p.model=ModelSettings(key);
   if(!plugin.empty()){p.plugin=dlopen(plugin.c_str(),RTLD_NOW|RTLD_GLOBAL);if(!p.plugin)throw std::runtime_error(dlerror());}
   else if(!p.model.confidence.empty())throw std::runtime_error("ESS_requires_matching_plugin_library");

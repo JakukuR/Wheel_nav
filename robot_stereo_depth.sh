@@ -17,9 +17,9 @@ ess="$workspace/models/dnn_stereo_disparity_v4.1.0_onnx_trt10.16"
 case "$model" in
  light_ess) engine="$ess/light_ess_fp16.engine";plugin=(--plugin "$ess/plugins/aarch64/ess_plugins.so");;
  ess) engine="$ess/ess_fp16.engine";plugin=(--plugin "$ess/plugins/aarch64/ess_plugins.so");;
- las2_s|lightstereo_s) engine="$workspace/models/stereo_candidates/${model}_fp16.engine";;
+ las2_s|las2_m|lightstereo_s) engine="$workspace/models/stereo_candidates/${model}_fp16.engine";;
  cfast) engine="$workspace/models/depth_comparison/c_fast_stereo_192x320_fp32.engine";;
- *) echo 'Models: light_ess (default), ess, las2_s, lightstereo_s, cfast' >&2;exit 2;;
+ *) echo 'Models: light_ess (default), ess, las2_s, las2_m, lightstereo_s, cfast' >&2;exit 2;;
 esac
 mkdir -p "$workspace/.runtime"
 exec 9>"$workspace/.runtime/uvc-stereo-network.lock"

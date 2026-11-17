@@ -13,12 +13,12 @@ int main(){try{
     Require(std::abs(input[2*plane]-(-.406F)/.225F)<1e-6,"blue channel normalization");
     Require(input[0]==input[plane-1],"replicated pad preserves boundary content");
   }
-  for(const std::string key:{"light_ess","ess","las2_s","lightstereo_s"}){
+  for(const std::string key:{"light_ess","ess","las2_s","las2_m","lightstereo_s"}){
     const auto model=wla::uvc::ModelSettings(key);const auto input=wla::uvc::StereoInput(bgr,model);const size_t plane=model.network.area();
     Require(input.size()==plane*3,"model CHW shape");
     if(key=="light_ess"||key=="ess"){
       Require(std::abs(input[0]-1.F)<1e-6&&std::abs(input[2*plane]+1.F)<1e-6,"ESS RGB minus-one-one normalization");
-    }else if(key=="las2_s")Require(input[0]==255.F&&input[2*plane]==0.F,"LAS2 raw RGB normalization");
+    }else if(key=="las2_s"||key=="las2_m")Require(input[0]==255.F&&input[2*plane]==0.F,"LAS2 raw RGB normalization");
     cv::Mat output(model.network,CV_32F,cv::Scalar(8.F*model.content.width/640.F));
     cv::Mat confidence(model.network,CV_32F,cv::Scalar(1));
     const auto d=wla::uvc::StereoOutput(output,confidence,model);

@@ -2,7 +2,7 @@
 
 当前默认是 **Light ESS FP16**，替换此前的C-Fast-FoundationStereo FP32实验。四类候选的实测、失败日志、依赖和来源见 [候选实验记录](../../tools/stereo_candidates/README.md)。
 
-节点 `wla_uvc_depth/uvc_stereo_trt` 使用C++20、TensorRT10.16、CUDA13.2、ROS Jazzy/domain0。没有启用跟随、SLAM、YOLO或运动；没有修改电控模型。VPI SGM目前是离线对照，LAS2/LightStereo的本机FP16构建失败，没有自动切换为FP32。
+节点 `wla_uvc_depth/uvc_stereo_trt` 使用C++20、TensorRT10.16、CUDA13.2、ROS Jazzy/domain0。没有启用跟随、SLAM、YOLO或运动；没有修改电控模型。VPI SGM目前是离线对照，LAS2-S/M 的 FP16 已修复并可通过 --model las2_s/las2_m 启动；LightStereo 仍保留构建失败状态，没有自动切换为FP32。
 
 ## 图像、几何与过滤
 
@@ -12,7 +12,7 @@
 |---|---|---|---|
 | `light_ess`（默认） | 完整视野resize480×288 | RGB，(pixel−127.5)/127.5，CHW | 置信度≥0.4；视差resize640×360并乘640/480 |
 | `ess` | 完整视野resize960×576 | 同上 | 同置信度；视差缩回640×360并乘640/960 |
-| `las2_s` | 640×360上下各补12行→640×384 | RGB0–255，内部归一化 | 去填充；尚无可用FP16 engine |
+| `las2_s` / `las2_m` | 640×360上下各补12行→640×384 | RGB0–255，内部归一化 | 去填充；已验证本机FP16 engine |
 | `lightstereo_s` | 同上 | RGB/255与ImageNet mean/std | 去填充；尚无可用FP16 engine |
 | `cfast`（历史显式选项） | 320×180上下各补6行→320×192 | ImageNet mean/std | 去填充、放大视差×2；不会默认启动 |
 
@@ -81,3 +81,21 @@ cd /home/onana/ros2_ws
 车上日志`.runtime/stereo_candidate_live/{sample_final,preview_final}.log`与`final_guard.json`为最终真实相机证据；`.runtime/stereo_live/{result,preview_check}.json`为该轮数据副本；`.runtime/stereo_ros_test_{light_ess,ess}.json`为独立域契约测试。离线原始结果和构建失败见`tools/stereo_candidates/README.md`。不要用旧轮PID或旧缓存图判定仍在运行。
 
 历史FFS的FP32与失败FP16日志留在`.runtime/stereo_reference/`、`.runtime/stereo_health_20261117/`及本机`outputs/fast_stereo_20261116`、`outputs/stereo_quantization_20261117`；它不再是默认活动网络。语音服务曾随重启自启，本轮已按此前要求停止，没有禁用开机启动。
+
+## LAS2 网页预览（2026-11-17 后续）
+
+LAS2-S/M 采用相同的 raw RGB、640×384 输入和640×360输出契约。CUDA 使用阻塞同步等待，避免主机轮询占用。默认模型保持 Light ESS；网页试运行显式选择 LAS2-S。
+
+```bash
+./robot_camera.sh run sunplus --capture-fps 60 --decode-fps 15 --publish-fps 15
+./robot_stereo_depth.sh --model las2_s --max-rate 7 --no-color
+./robot_debug_web.sh run
+```
+
+`depth-lite.html` 改为左目原图与深度并排显示，模型名称读取 `/camera/stereo/status`，不再写死 Light ESS/5Hz。左目原图1280×720，深度是校正后的640×360，两者边缘视野不同。两个 kalo_jpeg 分别将 `/camera/sunplus/left/image_raw` 和 `/camera/stereo/depth/preview` 编码到 `/r680/debug/calibration/left/compressed` 和 `/r680/debug/stereo/depth/compressed`，各限2Hz、质量70。网页低帧率不等于深度推理帧率。
+
+用户已要求风扇常态满速（PWM255）；97°C锁定暂停门禁保留。原图与深度仅用于观察，不连接运动控制。运行命令、PID、日志和实测记录位于 `.runtime/las2_web_preview_20261117/`；历史“运行停止/自动风扇”记录不代表本轮现状。
+
+初轮实机全帧解码在10Hz和7Hz均触发97°C保护；相机请求30FPS但V4L2回读仍60FPS。因此新增可选 `--decode-fps`（默认0保持原行为）：持续grab排空压缩帧，只按上限retrieve解码，不积压旧帧。当前预览设15FPS解码/发布、7Hz深度。帧时间仍为主机解码完成接收时间，不冒充曝光时间。
+
+本轮验证：两项C++几何/输入契约及两项解码限频回归测试通过。20秒实际相机测试收到135帧深度（约6.73Hz）、左目JPEG38帧（1.91Hz）、深度JPEG34帧（1.69Hz）；40次状态均 depth_fresh=true，最高CPU95.218°C/GPU89.750°C。浏览器目视确认原图与LAS2-S深度同时更新、没有过期覆盖。约一分钟进程CPU累计均值：采集31.3%、深度24.5%（单核等效，非峰值，非整板占用）。未声称长期热稳定或实距精度验收；达到97°C仍自动暂停。LAS2-M已接入模型选择及契约测试，但本轮网页实机展示的是S。

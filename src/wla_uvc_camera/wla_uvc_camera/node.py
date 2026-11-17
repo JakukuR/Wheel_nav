@@ -50,8 +50,21 @@ class Camera(Node):
         self.create_timer(.5,self.status)
 
     def read(self):
+        next_decode=0.
         while not self.closed.is_set():
-            ok,frame=self.capture.read();received=time.monotonic();stamp=self.get_clock().now().nanoseconds
+            if self.args.decode_fps:
+                # Drain compressed V4L2 buffers continuously; only retrieve()
+                # performs MJPEG decoding. Never sleep with queued old frames.
+                ok=self.capture.grab()
+                if not ok:
+                    self.failure='capture_failed';self.closed.set();return
+                now=time.monotonic()
+                if now<next_decode:continue
+                next_decode=now+1/self.args.decode_fps
+                ok,frame=self.capture.retrieve()
+            else:
+                ok,frame=self.capture.read()
+            received=time.monotonic();stamp=self.get_clock().now().nanoseconds
             if not ok:
                 self.failure='capture_failed';self.closed.set();return
             if frame.shape!=(self.args.height,self.args.width,3):
@@ -83,6 +96,7 @@ class Camera(Node):
         body=dict(schema='wla-uvc-camera/v1',device=self.args.device,layout=self.args.layout,
             capture_width=self.args.width,capture_height=self.args.height,frame_sequence=self.sequence,
             capture_fps_requested=self.args.capture_fps,publish_fps_requested=self.args.publish_fps,
+            decode_fps_limit=self.args.decode_fps,
             frame_age_s=age,fresh=age is not None and age<.2 and not self.failure,
             timestamp_source='host_capture_receive_not_hardware_exposure',
             swap_eyes=self.args.swap_eyes,
@@ -107,12 +121,14 @@ def main():
     p.add_argument('--prefix',required=True);p.add_argument('--layout',choices=['mono','side_by_side'],required=True)
     p.add_argument('--width',type=int,required=True);p.add_argument('--height',type=int,required=True)
     p.add_argument('--capture-fps',type=float,default=30.);p.add_argument('--publish-fps',type=float,default=30.)
+    p.add_argument('--decode-fps',type=float,default=0.,help='Optional MJPEG decode limit; 0 decodes every captured frame')
     p.add_argument('--left-calibration',default='');p.add_argument('--right-calibration',default='')
     p.add_argument('--swap-eyes',action='store_true',help='USB right half becomes physical left, before rotations')
     p.add_argument('--left-rotation',choices=ROTATIONS,default='none',help='rotate physical left/color image')
     p.add_argument('--right-rotation',choices=ROTATIONS,default='none',help='rotate physical right image')
     args=p.parse_args()
     if not(args.width>0 and args.height>0 and 0<args.publish_fps<=args.capture_fps<=120):p.error('invalid size/rate')
+    if not 0<=args.decode_fps<=args.capture_fps:p.error('invalid decode rate')
     if args.layout=='side_by_side' and args.width%2:p.error('side-by-side width must be even')
     if args.layout=='mono' and (args.swap_eyes or args.right_rotation!='none'):p.error('mono has no right eye')
     if not args.name.replace('_','').isalnum() or not args.prefix.startswith('/'):p.error('invalid name/prefix')

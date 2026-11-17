@@ -40,7 +40,7 @@ struct Args {std::string engine,rig,model="cfast",plugin;double rate=10;bool col
 Args Parse(const std::vector<std::string>& args){
   Args a;for(size_t i=1;i<args.size();++i){
     const auto key=args[i];if(key=="--no-color"){a.color=false;continue;}
-    if(i+1==args.size())throw std::runtime_error("uvc_stereo_trt --model light_ess|ess|las2_s|lightstereo_s|cfast --engine file [--plugin lib] --calibration rig.yaml [--max-rate 10] [--no-color]");
+    if(i+1==args.size())throw std::runtime_error("uvc_stereo_trt --model light_ess|ess|las2_s|las2_m|lightstereo_s|cfast --engine file [--plugin lib] --calibration rig.yaml [--max-rate 10] [--no-color]");
     const auto v=args[++i];if(key=="--model")a.model=v;else if(key=="--plugin")a.plugin=v;else if(key=="--engine")a.engine=v;else if(key=="--calibration")a.rig=v;else if(key=="--max-rate")a.rate=std::stod(v);else throw std::runtime_error("unknown_option:"+key);
   }
   if(a.engine.empty()||a.rig.empty()||!std::isfinite(a.rate)||a.rate<=0||a.rate>15)throw std::runtime_error("invalid_stereo_arguments");
