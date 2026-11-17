@@ -77,3 +77,9 @@ build/wla_uvc_depth/packed_pipeline_test models/stereo_candidates/las2_s_fp16.en
 恢复原GPU频率后，最终运行上述direct-camera命令的`--max-rate 10`版本。60秒实机检查通过：深度9.952Hz、点云9.899Hz，CPU单核等效均值14.31%，处理P50/P95为21.63/22.55ms，最高94.25°C，113/113状态有效。左右JPEG各约2Hz。节点PID95498仅供本轮溯源，不应作为以后停止进程的依据。
 
 点云订阅回调的源龄P50/P95/P99为46.36/57.14/344.98ms；尾部出现超过300ms的接收延迟。节点发布前的300ms源龄检查不保证DDS传输与接收队列延迟；导航消费者必须另外验证时间戳、丢弃过期帧，并验证有负载条件下端到端时效。当前保留10Hz观察档位及97°C保护，一分钟通过不代表长期热稳定认证。
+
+## 用户指定移除应用层温度暂停（2026-11-17 后续）
+
+按用户明确要求，uvc_stereo_trt取消97°C应用层锁定暂停，采集、推理和新鲜度判断不再受该锁控制。保留CPU/GPU温度遥测，状态字段thermal_paused固定false，application_thermal_pause_enabled为false，thermal_stop_c为null。源龄、相机故障与几何有效性检查保持。Jetson系统热策略及trip point未修改，风扇仍为PWM255。前文有关97°C停流的测量与运行说明为历史记录，不再描述当前节点行为。本次重启保持现有5Hz档位，没有据此宣称持续20Hz通过。
+
+修改后重编译及3项CTest通过；20秒实机检查收到98帧深度和98帧点云，均约4.98Hz，xyz有限，状态确认application_thermal_pause_enabled=false、thermal_stop_c=null。本轮未进行超过97°C的强制升温测试。证据：.runtime/las2_pipeline_opt_20261117/application_thermal_removed.json。

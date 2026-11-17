@@ -1,5 +1,7 @@
 # 原生C++同步双目深度（2026-11-17）
 
+**最新变更：按用户明确要求，已移除网络深度节点的97°C应用层锁定暂停。温度仅用于状态显示；Jetson系统热保护和满速风扇不变。以下实测中的热暂停是历史行为。**
+
 当前默认是 **Light ESS FP16**，替换此前的C-Fast-FoundationStereo FP32实验。四类候选的实测、失败日志、依赖和来源见 [候选实验记录](../../tools/stereo_candidates/README.md)。
 
 节点 `wla_uvc_depth/uvc_stereo_trt` 使用C++20、TensorRT10.16、CUDA13.2、ROS Jazzy/domain0。没有启用跟随、SLAM、YOLO或运动；没有修改电控模型。VPI SGM目前是离线对照，LAS2-S/M 的 FP16 已修复并可通过 --model las2_s/las2_m 启动；LightStereo 仍保留构建失败状态，没有自动切换为FP32。

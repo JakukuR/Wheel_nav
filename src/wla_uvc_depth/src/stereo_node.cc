@@ -91,7 +91,7 @@ class StereoNode final:public rclcpp::Node {
   struct Pair {Msg left,right;std::shared_ptr<JpegFrame> jpeg;};
   void capture(){
     try{while(!m_captureClosed.load()){
-      auto frame=m_capture->latest();if(!frame||m_thermalPause.load())continue;
+      auto frame=m_capture->latest();if(!frame)continue;
       const auto age=std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count()-frame->monotonicNs;
       if(age<0||age>300000000)continue;
       auto header=std::make_shared<Image>();header->header.stamp=rclcpp::Time(now().nanoseconds()-age);header->header.frame_id="sunplus_left_optical_frame";
@@ -100,7 +100,7 @@ class StereoNode final:public rclcpp::Node {
   }
   bool fresh(const Msg& m)const{const auto age=(now().nanoseconds()-Stamp(m->header))*1e-9;return Stamp(m->header)>0&&age>=-.05&&age<=.3;}
   void receive(const Msg& m,int eye){
-    if(m_thermalPause.load()||!fresh(m)||m->encoding!="bgr8")return;
+    if(!fresh(m)||m->encoding!="bgr8")return;
     const std::array<std::string,3> frames={"sunplus_left_optical_frame","sunplus_right_optical_frame","dicota_color_optical_frame"};
     if(m->header.frame_id!=frames[eye]||m->width!=(eye==2?640U:1280U)||m->height!=(eye==2?360U:720U))return;
     std::lock_guard lock(m_mutex);if(eye==2){m_colors.push_back(m);while(m_colors.size()>8)m_colors.pop_front();return;}
@@ -144,7 +144,7 @@ class StereoNode final:public rclcpp::Node {
       std::optional<Pair> pair;{std::unique_lock lock(m_mutex);m_condition.wait(lock,[this]{return m_closed||m_pending.has_value();});if(m_closed)return;
         if(Clock::now()<next){m_condition.wait_until(lock,next,[this]{return m_closed;});if(m_closed)return;}pair=std::move(m_pending);m_pending.reset();}
       next=Clock::now()+std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1./m_args.rate));
-      if(m_thermalPause.load()||!pair||!fresh(pair->left)||!fresh(pair->right))continue;
+      if(!pair||!fresh(pair->left)||!fresh(pair->right))continue;
       try{
         const auto start=Clock::now();StereoInference prediction;double decodeMs=0;
         if(pair->jpeg){const auto decodeStart=Clock::now();auto packed=cv::imdecode(pair->jpeg->bytes,cv::IMREAD_GRAYSCALE);decodeMs=std::chrono::duration<double,std::milli>(Clock::now()-decodeStart).count();prediction=m_engine.inferPacked(packed);}
@@ -179,12 +179,12 @@ class StereoNode final:public rclcpp::Node {
   void status(){
     double cpu_temp=0,gpu_temp=0;std::ifstream cpu("/sys/class/thermal/thermal_zone0/temp"),gpu("/sys/class/thermal/thermal_zone1/temp");
     const bool temperatures_available=bool(cpu>>cpu_temp)&&bool(gpu>>gpu_temp);cpu_temp*=.001;gpu_temp*=.001;
-    if(temperatures_available&&std::max(cpu_temp,gpu_temp)>=97.)m_thermalPause.store(true);
-    std::lock_guard lock(m_mutex);const bool fresh=!m_thermalPause.load()&&m_count&&std::chrono::duration<double>(Clock::now()-m_last).count()<.5&&m_failure.empty()&&!m_captureFailed;
-    Json j={{"schema","wla-stereo-network/v1"},{"direct_capture",!m_args.device.empty()},{"gpu_preprocessing",!m_args.device.empty()},{"capture_failed",m_captureFailed},{"thermal_paused",m_thermalPause.load()},{"temperature_available",temperatures_available},{"cpu_c",cpu_temp},{"gpu_c",gpu_temp},{"thermal_stop_c",97},{"backend","cpp_tensorrt"},{"model",m_engine.settings().name},{"model_key",m_args.model},{"confidence_threshold",m_engine.settings().confidenceThreshold},{"engine",m_args.engine},{"calibration_file",m_args.rig},{"depth_source","synchronized_lower_stereo"},{"rgb_role","optional_coloring_only"},{"classical_matcher_enabled",false},{"matching_width",m_engine.settings().content.width},{"matching_height",m_engine.settings().content.height},{"output_width",640},{"output_height",360},{"network_width",m_engine.networkSize().width},{"network_height",m_engine.networkSize().height},{"padding_top",m_engine.settings().padTop},{"padding_bottom",m_engine.settings().padBottom},{"near_m",.15},{"far_m",5},{"depth_fresh",fresh},{"depth_frames",m_count},{"max_rate",m_args.rate},{"timestamp_source",m_args.device.empty()?"host_receive_stereo_pair_shared_stamp":m_kernelStamp?"v4l2_monotonic_not_verified_exposure":"host_dequeue_not_exposure"},{"color_sync","approximate_host_receive_25ms_not_hardware_exposure"},{"point_cloud_frame","sunplus_left_optical_frame"},{"point_cloud_stride",2},{"ground_filter_enabled",false},{"obstacle_control_connected",false},{"metrics",m_metrics},{"reason",m_thermalPause.load()?"thermal_pause_restart_after_cooling":!m_failure.empty()?m_failure:fresh?"experimental_calibrated_stereo":"waiting_for_fresh_stereo"}};
+    // Temperature is telemetry only; system thermal management remains in control.
+    std::lock_guard lock(m_mutex);const bool fresh=m_count&&std::chrono::duration<double>(Clock::now()-m_last).count()<.5&&m_failure.empty()&&!m_captureFailed;
+    Json j={{"schema","wla-stereo-network/v1"},{"direct_capture",!m_args.device.empty()},{"gpu_preprocessing",!m_args.device.empty()},{"capture_failed",m_captureFailed},{"thermal_paused",false},{"application_thermal_pause_enabled",false},{"temperature_available",temperatures_available},{"cpu_c",cpu_temp},{"gpu_c",gpu_temp},{"thermal_stop_c",nullptr},{"backend","cpp_tensorrt"},{"model",m_engine.settings().name},{"model_key",m_args.model},{"confidence_threshold",m_engine.settings().confidenceThreshold},{"engine",m_args.engine},{"calibration_file",m_args.rig},{"depth_source","synchronized_lower_stereo"},{"rgb_role","optional_coloring_only"},{"classical_matcher_enabled",false},{"matching_width",m_engine.settings().content.width},{"matching_height",m_engine.settings().content.height},{"output_width",640},{"output_height",360},{"network_width",m_engine.networkSize().width},{"network_height",m_engine.networkSize().height},{"padding_top",m_engine.settings().padTop},{"padding_bottom",m_engine.settings().padBottom},{"near_m",.15},{"far_m",5},{"depth_fresh",fresh},{"depth_frames",m_count},{"max_rate",m_args.rate},{"timestamp_source",m_args.device.empty()?"host_receive_stereo_pair_shared_stamp":m_kernelStamp?"v4l2_monotonic_not_verified_exposure":"host_dequeue_not_exposure"},{"color_sync","approximate_host_receive_25ms_not_hardware_exposure"},{"point_cloud_frame","sunplus_left_optical_frame"},{"point_cloud_stride",2},{"ground_filter_enabled",false},{"obstacle_control_connected",false},{"metrics",m_metrics},{"reason",!m_failure.empty()?m_failure:fresh?"experimental_calibrated_stereo":"waiting_for_fresh_stereo"}};
     std_msgs::msg::String msg;msg.data=j.dump();m_status->publish(msg);
   }
-  std::atomic_bool m_thermalPause{false},m_captureClosed{false};
+  std::atomic_bool m_captureClosed{false};
   bool m_kernelStamp=false,m_captureFailed=false;
   std::unique_ptr<DirectCapture> m_capture;std::thread m_captureWorker;Clock::time_point m_lastLeftPreview{};
   Args m_args;Calibration m_calibration;Core m_geometry;StereoEngine m_engine;
