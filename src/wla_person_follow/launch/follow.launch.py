@@ -13,7 +13,7 @@ import yaml
 TERRAIN_PREFIX='/r680/person_follow/terrain'
 
 
-def terrain_nodes():
+def terrain_nodes(depth_source='d455'):
     """Follow's own slope/step analysis (wla_terrain_analysis) on follow-only topics,
     so it never collides with Nav2's terrain or depth_to_points outputs."""
     path=Path(get_package_share_directory('wla_terrain_analysis'))/'config'/'terrain_analysis.yaml'
@@ -23,6 +23,8 @@ def terrain_nodes():
         output_topic=TERRAIN_PREFIX+'/points',safety_output_topic=TERRAIN_PREFIX+'/points_safety',
         clearing_output_topic=TERRAIN_PREFIX+'/clearing',terrain_map_topic=TERRAIN_PREFIX+'/map',
         blocked_cells_topic=TERRAIN_PREFIX+'/blocked_cells')
+    if depth_source in ('las2','las2_rgb'):
+        analysis.update(depth_topic='/camera/stereo/depth/image_raw',camera_info_topic='/camera/stereo/depth/camera_info')
     return [Node(package='wla_terrain_analysis',executable='terrain_odometry',name='terrain_odometry_follow',
                  output='screen',parameters=[odom]),
             Node(package='wla_terrain_analysis',executable='terrain_analysis',name='terrain_analysis_follow',
@@ -45,11 +47,18 @@ def launch_backend(context):
     elif value('yaw_rate_source')!='wheel':
         raise ValueError('yaw_rate_source:=imu requires transport:=cpp')
     cmd+=['-p','depth_speckle_max_px:='+value('depth_speckle'),'-p','grid_route_planner:='+value('grid_route'),'-p','numeric_backend:='+value('numeric_backend'),'-p','target_person_filter:='+value('person_filter'),'-p','local_planner:='+value('local_planner'),'-p','output_mode:='+value('output_mode'),'-p','direct_topic:='+value('direct_topic'),'-p','reid_enabled:='+value('enable_reid')]
+    depth_source=value('depth_source')
+    if depth_source=='las2':
+        cmd+=['-p','depth_topic:=/camera/stereo/depth/image_raw',
+              '-p','camera_info_topic:=/camera/stereo/depth/camera_info']
+    elif depth_source=='las2_rgb':
+        cmd+=['-p','depth_topic:=/camera/stereo/aligned_depth_to_color/image_raw',
+              '-p','camera_info_topic:=/camera/stereo/aligned_depth_to_color/camera_info']
     terrain=value('terrain')=='true'
     if terrain:cmd+=['-p','terrain_topic:='+TERRAIN_PREFIX+'/points']
     proc=ExecuteProcess(cmd=cmd,output='screen')
     actions=[proc,RegisterEventHandler(OnProcessExit(target_action=proc,on_exit=[EmitEvent(event=Shutdown(reason='person backend exited'))]))]
-    if terrain:actions+=terrain_nodes()
+    if terrain:actions+=terrain_nodes(depth_source)
     actions.append(ExecuteProcess(cmd=[value('python'),'-m','wla_person_follow.status_recorder',
         '--directory',value('diagnostic_log_directory')],output='screen'))
     return actions
@@ -58,6 +67,7 @@ def launch_backend(context):
 def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('diagnostic_log_directory',default_value=str(Path.home()/'ros2_ws/.runtime/follow-diagnostics')),
+        DeclareLaunchArgument('depth_source',default_value='d455',choices=['d455','las2','las2_rgb']),
         DeclareLaunchArgument('transport',default_value='cpp'),
         DeclareLaunchArgument('python',default_value=os.environ.get('WLA_FOLLOW_PYTHON','/usr/bin/python3')),
         DeclareLaunchArgument('config',default_value=''),

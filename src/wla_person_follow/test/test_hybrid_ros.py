@@ -118,7 +118,7 @@ def hybrid(tmp_path,request):
                     revision=states[-1].get('geometry_binding') if states else None
                     resolved=revision['resolved_id'] if revision else 'hybrid:0:1'
                     pm.publish(String(data=json.dumps(dict(schema='wla-target-mask/v1',stamp_ns=ns,depth_stamp_ns=ns,
-                        session='hybrid',epoch=0,frame_id='hybrid_optical',width=64,height=48,target_id=resolved,
+                        session='hybrid',epoch=0,frame_id=settings.get('mask_frame','hybrid_optical'),width=64,height=48,target_id=resolved,
                         requested_target_id=resolved,target_revision=revision['revision'] if revision else 0,
                         target_present=resolved in self.detected_ids,request_id=self.request,bits=bits,bbox_xyxy=[16.,6.,47.,44.]))))
                     if full_chain and time.monotonic()>=self.next_feature:
@@ -308,3 +308,16 @@ def test_terrain_cloud_replaces_the_flat_floor_height_filter(hybrid):
     pts=read_points_numpy(f.clouds[-1],field_names=('x','y','z'))
     # The follow map is marked from the terrain kerb, not the synthetic 2 m depth wall.
     assert len(pts) and np.all(np.abs(pts[:,0]-1.)<.05) and np.all(np.abs(pts[:,2]-.08)<.01)
+
+
+@pytest.mark.parametrize('hybrid',[{'mask_frame':'rgb_optical'}],indirect=True)
+def test_rgb_mask_is_not_applied_to_native_depth(hybrid):
+    f=hybrid;f.run_task('native-depth')
+    f.pump(.2)
+    masks=[s.get('target_mask',{}) for s in f.states]
+    accepted=[m for m in masks if m.get('fallback')=='tracked_position_cylinder']
+    assert accepted, f.states[-1]
+    assert all(not m.get('applied') for m in accepted)
+    assert any(m.get('fallback_removed_obstacle_points',0)>0 for m in accepted), accepted
+    assert f.clouds and any(c.width>0 for c in f.clouds), 'non-target obstacles must remain'
+    assert f.call('stop','native-depth').accepted

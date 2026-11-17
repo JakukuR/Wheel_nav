@@ -154,7 +154,7 @@ void StereoEngine::configurePacked(const std::array<cv::Mat,4>& maps,const cv::M
  Cuda(cudaMallocHost(&p.pinned,640*384*sizeof(float)+640*360*(3*sizeof(float)+sizeof(uint16_t)+3)));
  p.configured=true;
 }
-StereoInference StereoEngine::inferPacked(const cv::Mat& raw){
+StereoInference StereoEngine::inferPacked(const cv::Mat& raw,bool hostPoints,bool hostPreview,bool hostDisparity){
  auto& p=*m_impl;if(!p.configured||raw.size()!=cv::Size(2560,720)||(raw.type()!=CV_8UC1&&raw.type()!=CV_8UC3)||!raw.isContinuous())throw std::runtime_error("invalid_packed_input");
  const size_t plane=640*360,network=640*384;auto* host=static_cast<uint8_t*>(p.pinned);
  float* disparity=reinterpret_cast<float*>(host);float* points=reinterpret_cast<float*>(host+network*4);auto* depth=reinterpret_cast<uint16_t*>(host+network*4+plane*12);auto* preview=host+network*4+plane*14;
@@ -162,11 +162,18 @@ StereoInference StereoEngine::inferPacked(const cv::Mat& raw){
  PrepareStereo(p.packed,raw.channels(),p.maps,static_cast<float*>(p.left),static_cast<float*>(p.right),p.preview,p.stream);Cuda(cudaGetLastError());
  Cuda(cudaEventRecord(p.begin,p.stream));if(!p.context->enqueueV3(p.stream))throw std::runtime_error("stereo_enqueue_failed");Cuda(cudaEventRecord(p.end,p.stream));
  ReprojectStereo(static_cast<float*>(p.output),p.geometry,p.points,p.depth,p.stream);Cuda(cudaGetLastError());
- Cuda(cudaMemcpyAsync(disparity,p.output,network*4,cudaMemcpyDeviceToHost,p.stream));Cuda(cudaMemcpyAsync(points,p.points,plane*12,cudaMemcpyDeviceToHost,p.stream));Cuda(cudaMemcpyAsync(depth,p.depth,plane*2,cudaMemcpyDeviceToHost,p.stream));Cuda(cudaMemcpyAsync(preview,p.preview,plane*3,cudaMemcpyDeviceToHost,p.stream));
+ if(hostDisparity)Cuda(cudaMemcpyAsync(disparity,p.output,network*4,cudaMemcpyDeviceToHost,p.stream));
+ if(hostPoints)Cuda(cudaMemcpyAsync(points,p.points,plane*12,cudaMemcpyDeviceToHost,p.stream));
+ Cuda(cudaMemcpyAsync(depth,p.depth,plane*2,cudaMemcpyDeviceToHost,p.stream));
+ if(hostPreview)Cuda(cudaMemcpyAsync(preview,p.preview,plane*3,cudaMemcpyDeviceToHost,p.stream));
  Cuda(cudaStreamSynchronize(p.stream));float ms=0;Cuda(cudaEventElapsedTime(&ms,p.begin,p.end));
  // Views belong to this engine and remain valid until the next inference.
- StereoInference result;result.disparity=cv::Mat(360,640,CV_32F,disparity+12*640);result.gpuMs=ms;
- result.points=cv::Mat(360,640,CV_32FC3,points);result.depth=cv::Mat(360,640,CV_16U,depth);result.leftRect=cv::Mat(360,640,CV_8UC3,preview);return result;
+ StereoInference result;result.gpuMs=ms;
+ if(hostDisparity)result.disparity=cv::Mat(360,640,CV_32F,disparity+12*640);
+ if(hostPoints)result.points=cv::Mat(360,640,CV_32FC3,points);
+ result.depth=cv::Mat(360,640,CV_16U,depth);
+ if(hostPreview)result.leftRect=cv::Mat(360,640,CV_8UC3,preview);
+ return result;
 }
 std::array<std::vector<float>,2> StereoEngine::packedInputs()const{
  auto& p=*m_impl;if(!p.configured)throw std::runtime_error("packed_geometry_not_configured");std::array<std::vector<float>,2> out;

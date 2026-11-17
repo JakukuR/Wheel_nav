@@ -27,7 +27,7 @@ class StereoEngine {
   [[nodiscard]] const StereoModel& settings() const noexcept;
   [[nodiscard]] StereoInference infer(const cv::Mat& left,const cv::Mat& right);
   void configurePacked(const std::array<cv::Mat,4>& maps,const cv::Mat& q,const cv::Mat& leftR);
-  [[nodiscard]] StereoInference inferPacked(const cv::Mat& usbPacked);
+  [[nodiscard]] StereoInference inferPacked(const cv::Mat& usbPacked, bool hostPoints=true, bool hostPreview=true, bool hostDisparity=true);
   // Diagnostic copy of fused model input, for comparison with the CPU reference.
   [[nodiscard]] std::array<std::vector<float>,2> packedInputs() const;
  private:

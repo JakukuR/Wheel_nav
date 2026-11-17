@@ -14,7 +14,10 @@ int main(int argc,char** argv){
  try{
   cv::setNumThreads(1);const std::filesystem::path out=argv[4];std::filesystem::create_directories(out);
   std::shared_ptr<wla::uvc::JpegFrame> frame;
-  {wla::uvc::DirectCapture camera(argv[3]);const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+  if(std::filesystem::is_regular_file(argv[3])){
+   frame=std::make_shared<wla::uvc::JpegFrame>();std::ifstream saved(argv[3],std::ios::binary);
+   frame->bytes.assign(std::istreambuf_iterator<char>(saved),{});
+  }else{wla::uvc::DirectCapture camera(argv[3]);const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
    while(std::chrono::steady_clock::now()<deadline&&!frame)frame=camera.latest();}
   if(!frame)throw std::runtime_error("no_camera_frame");
   std::ofstream jpeg(out/"packed.jpg",std::ios::binary);jpeg.write(reinterpret_cast<const char*>(frame->bytes.data()),frame->bytes.size());jpeg.close();
@@ -42,6 +45,11 @@ int main(int argc,char** argv){
    report[name]=row;std::cout<<name<<": "<<row.dump()<<'\n';
    if(inputMax!=0||dispMax>.001||xyzMax>.0001||mismatch||depthMax>1)throw std::runtime_error("packed_contract_mismatch:"+name);
   }
+  const auto full=engine.inferPacked(gray).depth.clone();
+  const auto minimal=engine.inferPacked(gray,false,false,false);
+  if(!minimal.points.empty()||!minimal.leftRect.empty()||!minimal.disparity.empty()||cv::norm(full,minimal.depth,cv::NORM_INF)!=0)
+    throw std::runtime_error("demand_driven_depth_contract_mismatch");
+  report["depth_only_download_matches_full"]=true;
   std::ofstream(out/"contract.json")<<report.dump(2)<<'\n';
  }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}return 0;
 }

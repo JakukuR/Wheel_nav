@@ -87,7 +87,7 @@ public:
     const auto visualization_topic = declare_parameter<std::string>(
       "visualization_output_topic", "/r680_nav/d455/points_viz");
 
-    const auto qos = rclcpp::SensorDataQoS();
+    const auto qos = rclcpp::SensorDataQoS().keep_last(1);
     info_sub_ = create_subscription<sensor_msgs::msg::CameraInfo>(
       info_topic, qos, [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr msg) {
         if (msg->k[0] > 0.0 && msg->k[4] > 0.0) {camera_info_ = msg;}
@@ -234,7 +234,19 @@ private:
       return;
     }
     const auto info = camera_info_;
-    if (!info || info->width != image->width || info->height != image->height) {return;}
+    if (!info || info->width != image->width || info->height != image->height ||
+      info->header.frame_id != image->header.frame_id || image->header.frame_id.empty()) {return;}
+    const auto image_stamp = rclcpp::Time(image->header.stamp).nanoseconds();
+    const double age = (this->now().nanoseconds() - image_stamp) * 1e-9;
+    const double info_skew = std::abs(rclcpp::Time(info->header.stamp).nanoseconds() - image_stamp) * 1e-9;
+    if (image_stamp <= 0 || age < -.05 || age > .30 || info_skew > .25 ||
+      image->is_bigendian || image->width == 0 || image->height == 0 ||
+      uint64_t(image->width) * image->height > 2000000) {return;}
+    const uint64_t bytes_per_pixel = image->encoding == "32FC1" ? 4 : 2;
+    if (image->step < uint64_t(image->width) * bytes_per_pixel ||
+      image->data.size() < uint64_t(image->step) * image->height) {return;}
+    for (const auto value : info->k) if (!std::isfinite(value)) {return;}
+    if (info->k[0] <= 0 || info->k[4] <= 0) {return;}
     if (image->encoding != sensor_msgs::image_encodings::TYPE_16UC1 &&
       image->encoding != sensor_msgs::image_encodings::MONO16 &&
       image->encoding != sensor_msgs::image_encodings::TYPE_32FC1)
@@ -247,10 +259,10 @@ private:
     geometry_msgs::msg::TransformStamped optical_to_base;
     try {
       optical_to_base = tf_buffer_.lookupTransform(
-        target_frame_, image->header.frame_id, tf2::TimePointZero);
+        target_frame_, image->header.frame_id, rclcpp::Time(image->header.stamp));
     } catch (const tf2::TransformException & error) {
       RCLCPP_WARN_THROTTLE(
-        get_logger(), *get_clock(), 2000, "waiting for static D455 transform %s <- %s: %s",
+        get_logger(), *get_clock(), 2000, "waiting for depth transform %s <- %s: %s",
         target_frame_.c_str(), image->header.frame_id.c_str(), error.what());
       return;
     }

@@ -86,7 +86,7 @@ class TerrainAnalysisNode : public rclcpp::Node {
         });
     depth_sub_ = create_subscription<sensor_msgs::msg::Image>(
         declare_parameter<std::string>("depth_topic", "/r680/d455/aligned_depth_to_color/image_raw"),
-        rclcpp::SensorDataQoS(), [this](sensor_msgs::msg::Image::ConstSharedPtr m) { on_depth(*m); });
+        rclcpp::SensorDataQoS().keep_last(1), [this](sensor_msgs::msg::Image::ConstSharedPtr m) { on_depth(*m); });
   }
 
  private:
@@ -110,8 +110,15 @@ class TerrainAnalysisNode : public rclcpp::Node {
   void on_depth(const sensor_msgs::msg::Image &image) {
     const double t = seconds(image.header.stamp);
     if (t - last_ < period_ || !info_ || info_->width != image.width || info_->height != image.height) return;
+    const double age=now().seconds()-t;
+    if(t<=0||age<-.05||age>.30||info_->header.frame_id!=image.header.frame_id||
+       image.header.frame_id.empty()||std::abs(seconds(info_->header.stamp)-t)>.25||
+       image.is_bigendian||!image.width||!image.height||uint64_t(image.width)*image.height>2000000)return;
+    for(double value:info_->k)if(!std::isfinite(value))return;
+    if(info_->k[0]<=0||info_->k[4]<=0)return;
     const bool mm = image.encoding == "16UC1" || image.encoding == "mono16";
     if (!mm && image.encoding != "32FC1") return;
+    if(image.step<uint64_t(image.width)*(mm?2:4)||image.data.size()<uint64_t(image.step)*image.height)return;
     Pose pose;
     if (!pose_at(t, pose)) {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "no attitude-valid terrain odometry near the depth stamp");
@@ -119,7 +126,7 @@ class TerrainAnalysisNode : public rclcpp::Node {
     }
     geometry_msgs::msg::TransformStamped tf;
     try {
-      tf = tf_->lookupTransform(base_, image.header.frame_id, tf2::TimePointZero);  // rigid mount
+      tf = tf_->lookupTransform(base_, image.header.frame_id, rclcpp::Time(image.header.stamp));
     } catch (const tf2::TransformException &e) {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "camera mount TF: %s", e.what());
       return;

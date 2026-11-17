@@ -60,6 +60,7 @@ class StereoNode final:public rclcpp::Node {
     m_info=create_publisher<sensor_msgs::msg::CameraInfo>("/camera/stereo/depth/camera_info",qos);
     m_points=create_publisher<sensor_msgs::msg::PointCloud2>("/camera/stereo/points",qos);
     m_colored=create_publisher<sensor_msgs::msg::PointCloud2>("/camera/stereo/points_color",qos);
+    m_alignedInfo=create_publisher<sensor_msgs::msg::CameraInfo>("/camera/stereo/aligned_depth_to_color/camera_info",qos);
     m_aligned=create_publisher<Image>("/camera/stereo/aligned_depth_to_color/image_raw",qos);
     m_alignedPreview=create_publisher<Image>("/camera/stereo/aligned_depth_to_color/preview",qos);
     m_status=create_publisher<std_msgs::msg::String>("/camera/stereo/status",1);
@@ -68,12 +69,14 @@ class StereoNode final:public rclcpp::Node {
     m_right=create_subscription<Image>("/camera/sunplus/right/image_raw",qos,[this](Msg m){receive(m,1);});
     }else{m_engine.configurePacked(m_geometry.rectifyMaps(),m_geometry.reprojectionMatrix(),m_geometry.leftR());m_capture=std::make_unique<DirectCapture>(m_args.device);}
     if(m_args.color){
-      m_rgb=create_subscription<Image>("/camera/processed/color/image_raw",qos,[this](Msg m){receive(m,2);});
       m_rgbInfo=create_subscription<sensor_msgs::msg::CameraInfo>("/camera/processed/color/camera_info",qos,[this](sensor_msgs::msg::CameraInfo::ConstSharedPtr m){
         if(m->width!=640||m->height!=360||m->header.frame_id!="dicota_color_optical_frame"||m->distortion_model!="plumb_bob"||m->d.size()!=5)return;
         for(double d:m->d)if(d!=0.)return;
         const auto& k=m_geometry.colorK();for(int y=0;y<3;++y)for(int x=0;x<3;++x)if(!std::isfinite(m->k[y*3+x])||std::abs(m->k[y*3+x]-k.at<double>(y,x))>1e-5)return;
         std::lock_guard lock(m_mutex);m_rgbInfos[Stamp(m->header)]=m;while(m_rgbInfos.size()>10)m_rgbInfos.erase(m_rgbInfos.begin());
+        if(!m_rgb){auto header=std::make_shared<Image>();header->header=m->header;header->width=m->width;header->height=m->height;
+          m_colors.push_back(header);while(m_colors.size()>10)m_colors.pop_front();}
+
       });
     }
     // Internal rectification only; no changes to the robot's CAD/control/mount TF.
@@ -112,11 +115,10 @@ class StereoNode final:public rclcpp::Node {
   }
   Msg colorFor(int64_t stamp){
     std::lock_guard lock(m_mutex);Msg best;int64_t delta=25000001;
-    for(const auto& m:m_colors){const auto d=std::abs(Stamp(m->header)-stamp);if(d<delta&&fresh(m)&&m_rgbInfos.count(Stamp(m->header))){best=m;delta=d;}}
-    return best;
+    for(const auto& m:m_colors){const auto d=std::abs(Stamp(m->header)-stamp);if(d<delta&&fresh(m)&&m_rgbInfos.count(Stamp(m->header))){best=m;delta=d;}}return best;
   }
-  void cloud(const cv::Mat& points,const Msg& left,const Msg& rgb){
-    const bool color=rgb&&m_colored->get_subscription_count();
+  void cloud(const cv::Mat& points,const Msg& left,const Msg& rgb,const cv::Mat& aligned){
+    const bool color=rgb&&!rgb->data.empty()&&m_colored->get_subscription_count();
     const bool plain=m_points->get_subscription_count();if(!plain&&!color)return;
     sensor_msgs::msg::PointCloud2 msg;msg.header=left->header;msg.height=1;msg.is_dense=true;
     sensor_msgs::PointCloud2Modifier modify(msg);
@@ -126,7 +128,7 @@ class StereoNode final:public rclcpp::Node {
     modify.resize(size_t((points.rows+1)/2)*((points.cols+1)/2));size_t count=0;
     const auto& k=m_geometry.colorK();const cv::Matx44d t(m_calibration.rgbFromLeft);
     const cv::Mat image=color?Array(rgb):cv::Mat();
-    const auto zbuffer=color?ProjectDepth(points,k,m_calibration.rgbFromLeft,{640,360}):cv::Mat();
+    const auto& zbuffer=aligned;
     for(int y=0;y<points.rows;y+=2)for(int x=0;x<points.cols;x+=2){
       const auto p=points.at<cv::Vec3f>(y,x);if(!std::isfinite(p[0])||!std::isfinite(p[1])||!std::isfinite(p[2])||p[2]<.15F||p[2]>5.F)continue;
       auto* row=msg.data.data()+count*msg.point_step;std::memcpy(row,p.val,12);
@@ -147,11 +149,15 @@ class StereoNode final:public rclcpp::Node {
       if(!pair||!fresh(pair->left)||!fresh(pair->right))continue;
       try{
         const auto start=Clock::now();StereoInference prediction;double decodeMs=0;
-        if(pair->jpeg){const auto decodeStart=Clock::now();auto packed=cv::imdecode(pair->jpeg->bytes,cv::IMREAD_GRAYSCALE);decodeMs=std::chrono::duration<double,std::milli>(Clock::now()-decodeStart).count();prediction=m_engine.inferPacked(packed);}
+        const bool alignRequested=m_aligned->get_subscription_count()||m_alignedPreview->get_subscription_count()||m_alignedInfo->get_subscription_count();
+        const bool needPoints=alignRequested||m_colored->get_subscription_count()||m_points->get_subscription_count();
+        const bool needLeft=m_leftPreview->get_subscription_count()&&Clock::now()-m_lastLeftPreview>std::chrono::milliseconds(450);
+        const bool needDisparity=m_disparity->get_subscription_count();
+        if(pair->jpeg){const auto decodeStart=Clock::now();auto packed=cv::imdecode(pair->jpeg->bytes,cv::IMREAD_GRAYSCALE);decodeMs=std::chrono::duration<double,std::milli>(Clock::now()-decodeStart).count();prediction=m_engine.inferPacked(packed,needPoints,needLeft,needDisparity);}
         else{auto [l,r]=m_geometry.rectify(Array(pair->left),Array(pair->right));prediction=m_engine.infer(l,r);}
-        auto points=prediction.points.empty()?m_geometry.pointsFromDisparity(prediction.disparity):prediction.points;
+        auto points=pair->jpeg?prediction.points:m_geometry.pointsFromDisparity(prediction.disparity);
         if(!fresh(pair->left)||!fresh(pair->right)){std::lock_guard lock(m_mutex);m_failure="inference_exceeded_300ms_source_age";continue;}
-        auto rgb=colorFor(Stamp(pair->left->header));auto h=pair->left->header;h.frame_id="sunplus_left_rect_optical_frame";
+        auto h=pair->left->header;h.frame_id="sunplus_left_rect_optical_frame";
         cv::Mat depth;size_t valid=0;
         if(!prediction.depth.empty()){depth=prediction.depth;valid=cv::countNonZero(depth);}
         else{
@@ -164,24 +170,36 @@ class StereoNode final:public rclcpp::Node {
         m_depth->publish(Message(depth,h,"16UC1"));
         sensor_msgs::msg::CameraInfo info;info.header=h;info.width=640;info.height=360;info.distortion_model="plumb_bob";info.d.assign(5,0.);const auto& p=m_geometry.leftP();for(int y=0;y<3;++y)for(int x=0;x<3;++x){info.k[y*3+x]=p.at<double>(y,x);info.p[y*4+x]=p.at<double>(y,x);info.r[y*3+x]=y==x?1:0;}m_info->publish(info);
         if(!prediction.leftRect.empty()&&m_leftPreview->get_subscription_count()&&Clock::now()-m_lastLeftPreview>std::chrono::milliseconds(450)){m_leftPreview->publish(Message(prediction.leftRect,h,"bgr8"));m_lastLeftPreview=Clock::now();}
-        if(m_disparity->get_subscription_count()&&fresh(pair->left))m_disparity->publish(Message(prediction.disparity,h,"32FC1"));
+        if(!prediction.disparity.empty()&&m_disparity->get_subscription_count()&&fresh(pair->left))m_disparity->publish(Message(prediction.disparity,h,"32FC1"));
         if(m_preview->get_subscription_count()){cv::Mat gray,preview;depth.convertTo(gray,CV_8U,-255./5000,255);cv::applyColorMap(gray,preview,cv::COLORMAP_TURBO);preview.setTo(0,depth==0);if(fresh(pair->left))m_preview->publish(Message(preview,h,"bgr8"));}
-        if(m_aligned->get_subscription_count()||m_alignedPreview->get_subscription_count()){
-          auto aligned=ProjectDepth(points,m_geometry.colorK(),m_calibration.rgbFromLeft,{640,360});auto ah=pair->left->header;ah.frame_id="dicota_color_optical_frame";
+        const auto rgb=m_colored->get_subscription_count()?colorFor(Stamp(pair->left->header)):Msg{};
+        // Spatial registration is independent of RGB delivery. Preserve the depth timestamp;
+        // RGB detection consumers perform their own timestamp pairing before using it.
+        const bool needAligned=alignRequested||(rgb&&m_colored->get_subscription_count());
+        cv::Mat aligned;
+        if(needAligned){
+          aligned=ProjectDepth(points,m_geometry.colorK(),m_calibration.rgbFromLeft,{640,360});auto ah=pair->left->header;ah.frame_id="dicota_color_optical_frame";
+          sensor_msgs::msg::CameraInfo ci;ci.header=ah;ci.width=640;ci.height=360;ci.distortion_model="plumb_bob";ci.d.assign(5,0.);
+          const auto& k=m_geometry.colorK();for(int y=0;y<3;++y)for(int x=0;x<3;++x){ci.k[y*3+x]=k.at<double>(y,x);ci.p[y*4+x]=k.at<double>(y,x);ci.r[y*3+x]=y==x?1:0;}
+          if(fresh(pair->left))m_alignedInfo->publish(ci);
           if(m_aligned->get_subscription_count()&&fresh(pair->left))m_aligned->publish(Message(aligned,ah,"16UC1"));
           if(m_alignedPreview->get_subscription_count()){cv::Mat gray,preview;aligned.convertTo(gray,CV_8U,-255./5000,255);cv::applyColorMap(gray,preview,cv::COLORMAP_TURBO);preview.setTo(0,aligned==0);if(fresh(pair->left))m_alignedPreview->publish(Message(preview,ah,"bgr8"));}
         }
-        cloud(points,pair->left,rgb);
-        std::lock_guard lock(m_mutex);++m_count;m_last=Clock::now();m_failure.clear();m_metrics={{"gpu_ms",prediction.gpuMs},{"decode_ms",decodeMs},{"pipeline_ms",std::chrono::duration<double,std::milli>(Clock::now()-start).count()},{"valid_depth_fraction",double(valid)/depth.total()},{"stereo_stamp_ns",Stamp(pair->left->header)},{"rgb_color_available",bool(rgb)},{"rgb_stamp_ns",rgb?Stamp(rgb->header):0},{"host_rgb_skew_ms",rgb?(Stamp(rgb->header)-Stamp(pair->left->header))*1e-6:0.}};
+        if(!points.empty())cloud(points,pair->left,aligned.empty()?Msg{}:rgb,aligned);
+        std::lock_guard lock(m_mutex);++m_count;m_last=Clock::now();m_failure.clear();m_metrics={{"alignment_wait_ms",0.},{"aligned_depth_requested",alignRequested},{"aligned_depth_available",!aligned.empty()},{"host_points_downloaded",bool(pair->jpeg)&&needPoints},{"gpu_ms",prediction.gpuMs},{"decode_ms",decodeMs},{"pipeline_ms",std::chrono::duration<double,std::milli>(Clock::now()-start).count()},{"valid_depth_fraction",double(valid)/depth.total()},{"stereo_stamp_ns",Stamp(pair->left->header)},{"rgb_color_available",bool(rgb)},{"rgb_stamp_ns",rgb?Stamp(rgb->header):0},{"host_rgb_skew_ms",rgb?(Stamp(rgb->header)-Stamp(pair->left->header))*1e-6:0.}};
       }catch(const std::exception& e){std::lock_guard lock(m_mutex);m_failure=e.what();RCLCPP_ERROR_THROTTLE(get_logger(),*get_clock(),2000,"%s",e.what());}
     }
   }
   void status(){
+    // RGB pixels are only needed by optional colored-cloud consumers.
+    if(m_args.color&&m_colored->get_subscription_count()&&!m_rgb)
+      m_rgb=create_subscription<Image>("/camera/processed/color/image_raw",rclcpp::SensorDataQoS().keep_last(1),[this](Msg m){receive(m,2);});
+    else if(m_rgb&&!m_colored->get_subscription_count())m_rgb.reset();
     double cpu_temp=0,gpu_temp=0;std::ifstream cpu("/sys/class/thermal/thermal_zone0/temp"),gpu("/sys/class/thermal/thermal_zone1/temp");
     const bool temperatures_available=bool(cpu>>cpu_temp)&&bool(gpu>>gpu_temp);cpu_temp*=.001;gpu_temp*=.001;
     // Temperature is telemetry only; system thermal management remains in control.
     std::lock_guard lock(m_mutex);const bool fresh=m_count&&std::chrono::duration<double>(Clock::now()-m_last).count()<.5&&m_failure.empty()&&!m_captureFailed;
-    Json j={{"schema","wla-stereo-network/v1"},{"direct_capture",!m_args.device.empty()},{"gpu_preprocessing",!m_args.device.empty()},{"capture_failed",m_captureFailed},{"thermal_paused",false},{"application_thermal_pause_enabled",false},{"temperature_available",temperatures_available},{"cpu_c",cpu_temp},{"gpu_c",gpu_temp},{"thermal_stop_c",nullptr},{"backend","cpp_tensorrt"},{"model",m_engine.settings().name},{"model_key",m_args.model},{"confidence_threshold",m_engine.settings().confidenceThreshold},{"engine",m_args.engine},{"calibration_file",m_args.rig},{"depth_source","synchronized_lower_stereo"},{"rgb_role","optional_coloring_only"},{"classical_matcher_enabled",false},{"matching_width",m_engine.settings().content.width},{"matching_height",m_engine.settings().content.height},{"output_width",640},{"output_height",360},{"network_width",m_engine.networkSize().width},{"network_height",m_engine.networkSize().height},{"padding_top",m_engine.settings().padTop},{"padding_bottom",m_engine.settings().padBottom},{"near_m",.15},{"far_m",5},{"depth_fresh",fresh},{"depth_frames",m_count},{"max_rate",m_args.rate},{"timestamp_source",m_args.device.empty()?"host_receive_stereo_pair_shared_stamp":m_kernelStamp?"v4l2_monotonic_not_verified_exposure":"host_dequeue_not_exposure"},{"color_sync","approximate_host_receive_25ms_not_hardware_exposure"},{"point_cloud_frame","sunplus_left_optical_frame"},{"point_cloud_stride",2},{"ground_filter_enabled",false},{"obstacle_control_connected",false},{"metrics",m_metrics},{"reason",!m_failure.empty()?m_failure:fresh?"experimental_calibrated_stereo":"waiting_for_fresh_stereo"}};
+    Json j={{"schema","wla-stereo-network/v1"},{"direct_capture",!m_args.device.empty()},{"gpu_preprocessing",!m_args.device.empty()},{"capture_failed",m_captureFailed},{"thermal_paused",false},{"application_thermal_pause_enabled",false},{"temperature_available",temperatures_available},{"cpu_c",cpu_temp},{"gpu_c",gpu_temp},{"thermal_stop_c",nullptr},{"backend","cpp_tensorrt"},{"model",m_engine.settings().name},{"model_key",m_args.model},{"confidence_threshold",m_engine.settings().confidenceThreshold},{"engine",m_args.engine},{"calibration_file",m_args.rig},{"depth_source","synchronized_lower_stereo"},{"rgb_role","detection_separate_optional_coloring"},{"aligned_depth_time_basis","stereo_capture_rgb_consumer_must_pair"},{"classical_matcher_enabled",false},{"matching_width",m_engine.settings().content.width},{"matching_height",m_engine.settings().content.height},{"output_width",640},{"output_height",360},{"network_width",m_engine.networkSize().width},{"network_height",m_engine.networkSize().height},{"padding_top",m_engine.settings().padTop},{"padding_bottom",m_engine.settings().padBottom},{"near_m",.15},{"far_m",5},{"depth_fresh",fresh},{"depth_frames",m_count},{"max_rate",m_args.rate},{"timestamp_source",m_args.device.empty()?"host_receive_stereo_pair_shared_stamp":m_kernelStamp?"v4l2_monotonic_not_verified_exposure":"host_dequeue_not_exposure"},{"color_sync","approximate_host_receive_25ms_not_hardware_exposure"},{"point_cloud_frame","sunplus_left_optical_frame"},{"point_cloud_stride",2},{"ground_filter_enabled",false},{"obstacle_control_connected",false},{"metrics",m_metrics},{"reason",!m_failure.empty()?m_failure:fresh?"experimental_calibrated_stereo":"waiting_for_fresh_stereo"}};
     std_msgs::msg::String msg;msg.data=j.dump();m_status->publish(msg);
   }
   std::atomic_bool m_captureClosed{false};
@@ -192,7 +210,7 @@ class StereoNode final:public rclcpp::Node {
   std::map<int64_t,std::array<Msg,2>> m_pairs;std::optional<Pair> m_pending;std::deque<Msg> m_colors;
   std::map<int64_t,sensor_msgs::msg::CameraInfo::ConstSharedPtr> m_rgbInfos;int64_t m_lastPair=0;uint64_t m_count=0;Clock::time_point m_last{};std::string m_failure;Json m_metrics=Json::object();
   rclcpp::Publisher<Image>::SharedPtr m_depth,m_disparity,m_preview,m_aligned,m_alignedPreview,m_leftPreview;
-  rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr m_info;rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr m_points,m_colored;
+  rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr m_info,m_alignedInfo;rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr m_points,m_colored;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr m_status;rclcpp::Subscription<Image>::SharedPtr m_left,m_right,m_rgb;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr m_rgbInfo;rclcpp::TimerBase::SharedPtr m_timer;std::unique_ptr<tf2_ros::StaticTransformBroadcaster> m_tf;
 };

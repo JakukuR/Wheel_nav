@@ -357,6 +357,11 @@ def generate_launch_description():
             ('odom', '/wheel/odom'),
             ('imu/data_raw', '/wheel/imu/data_raw')])
 
+    las2_obstacles = EqualsSubstitution(LaunchConfiguration('obstacle_depth_source'), 'las2')
+    obstacle_inputs = {
+        'depth_topic': IfElseSubstitution(las2_obstacles, '/camera/stereo/depth/image_raw', '/r680/d455/aligned_depth_to_color/image_raw'),
+        'camera_info_topic': IfElseSubstitution(las2_obstacles, '/camera/stereo/depth/camera_info', '/r680/d455/color/camera_info'),
+    }
     # terrain_analysis:=true replaces depth_to_points (same output topics; z is the
     # height above the local ground plane, so ramps <= 20 deg are not obstacles).
     use_terrain = PythonExpression(["'", start_nav2, "' == 'true' and '", terrain_analysis, "' == 'true'"])
@@ -364,14 +369,14 @@ def generate_launch_description():
         package='wla_r680_navigation', executable='depth_to_points',
         name='r680_d455_depth_to_points', output='screen',
         condition=IfCondition(PythonExpression(["'", start_nav2, "' == 'true' and '", terrain_analysis, "' != 'true'"])),
-        parameters=[str(config / 'd455_points.yaml')])
+        parameters=[str(config / 'd455_points.yaml'), obstacle_inputs])
     terrain_config = PathJoinSubstitution([FindPackageShare('wla_terrain_analysis'), 'config', 'terrain_analysis.yaml'])
     terrain_odometry = Node(
         package='wla_terrain_analysis', executable='terrain_odometry', name='terrain_odometry',
         output='screen', condition=IfCondition(use_terrain), parameters=[terrain_config])
     terrain_points = Node(
         package='wla_terrain_analysis', executable='terrain_analysis', name='terrain_analysis',
-        output='screen', condition=IfCondition(use_terrain), parameters=[terrain_config])
+        output='screen', condition=IfCondition(use_terrain), parameters=[terrain_config, obstacle_inputs])
 
     scan_converter = Node(
         package='wla_r680_navigation', executable='point_to_scan',
@@ -570,6 +575,8 @@ def generate_launch_description():
         DeclareLaunchArgument('start_chassis', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('start_nav2', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('obstacle_scan', default_value='false', choices=['true', 'false']),
+        DeclareLaunchArgument('obstacle_depth_source', default_value='d455', choices=['d455', 'las2'],
+            description='Obstacle/terrain depth only; does not change localization, TF or start LAS2.'),
         DeclareLaunchArgument('terrain_analysis', default_value='false', choices=['true', 'false']),
         DeclareLaunchArgument('start_dynamic_obstacles', default_value='true', choices=['true', 'false']),
         DeclareLaunchArgument('start_navigation_servers', default_value='true', choices=['true', 'false']),
