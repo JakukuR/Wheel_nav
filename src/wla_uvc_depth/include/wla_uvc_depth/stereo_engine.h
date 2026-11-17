@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <array>
 namespace wla::uvc {
 struct StereoModel {
   std::string key,name,left,right,disparity,confidence,normalization;
@@ -15,7 +16,7 @@ struct StereoModel {
 [[nodiscard]] std::vector<float> StereoInput(const cv::Mat& image,cv::Size network_size={640,384});
 // Outputs are disparity in rectified 640x360 pixels, never metres. No filling of invalid confidence holes.
 [[nodiscard]] cv::Mat StereoOutput(const cv::Mat& disparity,const cv::Mat& confidence,const StereoModel& model);
-struct StereoInference {cv::Mat disparity;double gpuMs=0.;};
+struct StereoInference {cv::Mat disparity;double gpuMs=0.;cv::Mat points,depth,leftRect;double prepareMs=0.,postMs=0.;};
 class StereoEngine {
  public:
   explicit StereoEngine(const std::string& path,const std::string& model="cfast",const std::string& plugin="");
@@ -25,6 +26,10 @@ class StereoEngine {
   [[nodiscard]] cv::Size networkSize() const noexcept;
   [[nodiscard]] const StereoModel& settings() const noexcept;
   [[nodiscard]] StereoInference infer(const cv::Mat& left,const cv::Mat& right);
+  void configurePacked(const std::array<cv::Mat,4>& maps,const cv::Mat& q,const cv::Mat& leftR);
+  [[nodiscard]] StereoInference inferPacked(const cv::Mat& usbPacked);
+  // Diagnostic copy of fused model input, for comparison with the CPU reference.
+  [[nodiscard]] std::array<std::vector<float>,2> packedInputs() const;
  private:
   struct Impl;std::unique_ptr<Impl> m_impl;
 };

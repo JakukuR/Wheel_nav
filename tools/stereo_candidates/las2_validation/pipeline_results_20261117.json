@@ -1,0 +1,368 @@
+{
+  "platform": "Orin NX16GB Super / JP7.2 / CUDA13.2 / TRT10.16.2.10",
+  "model": "LAS2-S FP16",
+  "input_wh": [
+    640,
+    384
+  ],
+  "output_wh": [
+    640,
+    360
+  ],
+  "gpu_hz_original_min_max": [
+    1173000000,
+    1173000000
+  ],
+  "quantiles_order": [
+    "p50",
+    "p95",
+    "p99"
+  ],
+  "cpu_scope": "single-core-equivalent mean for depth process including capture; excludes preview encoders, measurement subscriber, other workloads",
+  "timing_notes": "Hz computed between first/last received frame; duration includes startup. Processing quantiles from 0.5s status sampling. Source age measured at subscriber callback, not exposure timestamp. No claim of sustained 20Hz or navigation acceptance.",
+  "contract": {
+    "jpeg_color_vs_gray_max": 0.0,
+    "random_color": {
+      "depth_max_mm": 0,
+      "disparity_max_px": 0.0,
+      "finite_mask_mismatch": 0,
+      "input_max": 0.0,
+      "input_mean": 0.0,
+      "valid_points_compared": 230399,
+      "xyz_max_m": 4.76837158203125e-07
+    },
+    "real_color": {
+      "depth_max_mm": 0,
+      "disparity_max_px": 0.0,
+      "finite_mask_mismatch": 0,
+      "input_max": 0.0,
+      "input_mean": 0.0,
+      "valid_points_compared": 220797,
+      "xyz_max_m": 9.5367431640625e-07
+    },
+    "real_gray": {
+      "depth_max_mm": 0,
+      "disparity_max_px": 0.0,
+      "finite_mask_mismatch": 0,
+      "input_max": 0.0,
+      "input_mean": 0.0,
+      "valid_points_compared": 220797,
+      "xyz_max_m": 9.5367431640625e-07
+    }
+  },
+  "live20_original": {
+    "duration_s": 30.003578838000067,
+    "stop_reason": "completed",
+    "process_cpu_one_core_percent": 25.796922566441147,
+    "streams": {
+      "depth": {
+        "count": 542,
+        "hz": 19.86235658206254
+      },
+      "points": {
+        "count": 540,
+        "hz": 19.824422373478605
+      },
+      "jpeg": {
+        "count": 53,
+        "hz": 1.9971216990473557
+      },
+      "left": {
+        "count": 37,
+        "hz": 1.2949311336600167
+      }
+    },
+    "latest_status": {
+      "backend": "cpp_tensorrt",
+      "calibration_file": "/home/onana/ros2_ws/config/uvc_rig/calibrated_20261116/rig.yaml",
+      "capture_failed": false,
+      "classical_matcher_enabled": false,
+      "color_sync": "approximate_host_receive_25ms_not_hardware_exposure",
+      "confidence_threshold": 0.0,
+      "cpu_c": 94.812,
+      "depth_frames": 548,
+      "depth_fresh": true,
+      "depth_source": "synchronized_lower_stereo",
+      "direct_capture": true,
+      "engine": "/home/onana/ros2_ws/models/stereo_candidates/las2_s_fp16.engine",
+      "far_m": 5,
+      "gpu_c": 94.0,
+      "gpu_preprocessing": true,
+      "ground_filter_enabled": false,
+      "matching_height": 360,
+      "matching_width": 640,
+      "max_rate": 20.0,
+      "metrics": {
+        "decode_ms": 4.528169,
+        "gpu_ms": 12.81283187866211,
+        "host_rgb_skew_ms": 0.0,
+        "pipeline_ms": 21.096173,
+        "rgb_color_available": false,
+        "rgb_stamp_ns": 0,
+        "stereo_stamp_ns": 1794897414164566404,
+        "valid_depth_fraction": 1.0
+      },
+      "model": "LAS2-S FP16",
+      "model_key": "las2_s",
+      "near_m": 0.15,
+      "network_height": 384,
+      "network_width": 640,
+      "obstacle_control_connected": false,
+      "output_height": 360,
+      "output_width": 640,
+      "padding_bottom": 12,
+      "padding_top": 12,
+      "point_cloud_frame": "sunplus_left_optical_frame",
+      "point_cloud_stride": 2,
+      "reason": "experimental_calibrated_stereo",
+      "rgb_role": "optional_coloring_only",
+      "schema": "wla-stereo-network/v1",
+      "temperature_available": true,
+      "thermal_paused": false,
+      "thermal_stop_c": 97,
+      "timestamp_source": "v4l2_monotonic_not_verified_exposure"
+    },
+    "fresh_status_count": 55,
+    "status_count": 55,
+    "max_temperature_c": 96.718,
+    "point_age_ms_quantiles": [
+      47.728917499999994,
+      56.05279719999999,
+      149.8265129100007
+    ],
+    "gpu_ms_quantiles": [
+      12.950943946838379,
+      13.147337341308594,
+      13.240854320526124
+    ],
+    "pipeline_ms_quantiles": [
+      21.391361,
+      22.3022924,
+      106.52616792000016
+    ],
+    "decode_ms_quantiles": [
+      4.549726,
+      4.6626718,
+      4.7589274
+    ],
+    "point_count": 57600,
+    "finite_xyz": true,
+    "point_frame": "sunplus_left_optical_frame"
+  },
+  "live20_gpu_cap816mhz": {
+    "duration_s": 34.82432616400001,
+    "stop_reason": "thermal_pause",
+    "process_cpu_one_core_percent": 25.987581087370835,
+    "streams": {
+      "depth": {
+        "count": 637,
+        "hz": 19.46166808904364
+      },
+      "points": {
+        "count": 634,
+        "hz": 19.36888050547442
+      },
+      "jpeg": {
+        "count": 65,
+        "hz": 1.9795000276358086
+      },
+      "left": {
+        "count": 43,
+        "hz": 1.2910184702598186
+      }
+    },
+    "latest_status": {
+      "backend": "cpp_tensorrt",
+      "calibration_file": "/home/onana/ros2_ws/config/uvc_rig/calibrated_20261116/rig.yaml",
+      "capture_failed": false,
+      "classical_matcher_enabled": false,
+      "color_sync": "approximate_host_receive_25ms_not_hardware_exposure",
+      "confidence_threshold": 0.0,
+      "cpu_c": 97.562,
+      "depth_frames": 637,
+      "depth_fresh": false,
+      "depth_source": "synchronized_lower_stereo",
+      "direct_capture": true,
+      "engine": "/home/onana/ros2_ws/models/stereo_candidates/las2_s_fp16.engine",
+      "far_m": 5,
+      "gpu_c": 93.718,
+      "gpu_preprocessing": true,
+      "ground_filter_enabled": false,
+      "matching_height": 360,
+      "matching_width": 640,
+      "max_rate": 20.0,
+      "metrics": {
+        "decode_ms": 4.535045,
+        "gpu_ms": 17.466848373413086,
+        "host_rgb_skew_ms": 0.0,
+        "pipeline_ms": 26.567969,
+        "rgb_color_available": false,
+        "rgb_stamp_ns": 0,
+        "stereo_stamp_ns": 1794897549988318507,
+        "valid_depth_fraction": 1.0
+      },
+      "model": "LAS2-S FP16",
+      "model_key": "las2_s",
+      "near_m": 0.15,
+      "network_height": 384,
+      "network_width": 640,
+      "obstacle_control_connected": false,
+      "output_height": 360,
+      "output_width": 640,
+      "padding_bottom": 12,
+      "padding_top": 12,
+      "point_cloud_frame": "sunplus_left_optical_frame",
+      "point_cloud_stride": 2,
+      "reason": "thermal_pause_restart_after_cooling",
+      "rgb_role": "optional_coloring_only",
+      "schema": "wla-stereo-network/v1",
+      "temperature_available": true,
+      "thermal_paused": true,
+      "thermal_stop_c": 97,
+      "timestamp_source": "v4l2_monotonic_not_verified_exposure"
+    },
+    "fresh_status_count": 65,
+    "status_count": 67,
+    "max_temperature_c": 97.562,
+    "point_age_ms_quantiles": [
+      51.720458,
+      59.792896150000004,
+      143.8240306599997
+    ],
+    "gpu_ms_quantiles": [
+      17.32931137084961,
+      17.517335891723633,
+      17.584134578704834
+    ],
+    "pipeline_ms_quantiles": [
+      26.03812,
+      27.194557500000002,
+      28.77820065
+    ],
+    "decode_ms_quantiles": [
+      4.5945965,
+      5.0164765,
+      5.11916055
+    ],
+    "point_count": 57600,
+    "finite_xyz": true,
+    "point_frame": "sunplus_left_optical_frame"
+  },
+  "live10_final": {
+    "duration_s": 60.00989275899974,
+    "stop_reason": "completed",
+    "process_cpu_one_core_percent": 14.314306533586914,
+    "streams": {
+      "depth": {
+        "count": 559,
+        "hz": 9.952091546779176
+      },
+      "points": {
+        "count": 556,
+        "hz": 9.89905936054792
+      },
+      "jpeg": {
+        "count": 114,
+        "hz": 1.9940693011653305
+      },
+      "left": {
+        "count": 111,
+        "hz": 1.9760520844883827
+      }
+    },
+    "latest_status": {
+      "backend": "cpp_tensorrt",
+      "calibration_file": "/home/onana/ros2_ws/config/uvc_rig/calibrated_20261116/rig.yaml",
+      "capture_failed": false,
+      "classical_matcher_enabled": false,
+      "color_sync": "approximate_host_receive_25ms_not_hardware_exposure",
+      "confidence_threshold": 0.0,
+      "cpu_c": 91.75,
+      "depth_frames": 576,
+      "depth_fresh": true,
+      "depth_source": "synchronized_lower_stereo",
+      "direct_capture": true,
+      "engine": "/home/onana/ros2_ws/models/stereo_candidates/las2_s_fp16.engine",
+      "far_m": 5,
+      "gpu_c": 89.468,
+      "gpu_preprocessing": true,
+      "ground_filter_enabled": false,
+      "matching_height": 360,
+      "matching_width": 640,
+      "max_rate": 10.0,
+      "metrics": {
+        "decode_ms": 4.539955,
+        "gpu_ms": 13.022496223449707,
+        "host_rgb_skew_ms": 0.0,
+        "pipeline_ms": 21.286608,
+        "rgb_color_available": false,
+        "rgb_stamp_ns": 0,
+        "stereo_stamp_ns": 1794897943109538932,
+        "valid_depth_fraction": 1.0
+      },
+      "model": "LAS2-S FP16",
+      "model_key": "las2_s",
+      "near_m": 0.15,
+      "network_height": 384,
+      "network_width": 640,
+      "obstacle_control_connected": false,
+      "output_height": 360,
+      "output_width": 640,
+      "padding_bottom": 12,
+      "padding_top": 12,
+      "point_cloud_frame": "sunplus_left_optical_frame",
+      "point_cloud_stride": 2,
+      "reason": "experimental_calibrated_stereo",
+      "rgb_role": "optional_coloring_only",
+      "schema": "wla-stereo-network/v1",
+      "temperature_available": true,
+      "thermal_paused": false,
+      "thermal_stop_c": 97,
+      "timestamp_source": "v4l2_monotonic_not_verified_exposure"
+    },
+    "fresh_status_count": 113,
+    "status_count": 113,
+    "max_temperature_c": 94.25,
+    "point_age_ms_quantiles": [
+      46.359555,
+      57.14499325,
+      344.9805016500025
+    ],
+    "gpu_ms_quantiles": [
+      13.016768455505371,
+      13.285036659240722,
+      13.312032089233398
+    ],
+    "pipeline_ms_quantiles": [
+      21.632183,
+      22.547227,
+      22.9433516
+    ],
+    "decode_ms_quantiles": [
+      4.561959,
+      5.216443,
+      5.546985319999999
+    ],
+    "point_count": 57600,
+    "finite_xyz": true,
+    "point_frame": "sunplus_left_optical_frame"
+  },
+  "gpu_restoration": {
+    "original": {
+      "min_freq": "1173000000",
+      "max_freq": "1173000000"
+    },
+    "test_min": 306000000,
+    "test_max": 816000000,
+    "restored": true
+  },
+  "ctest": {
+    "passed": 3,
+    "failed": 0,
+    "tests": [
+      "geometry_matching_projection",
+      "stereo_input_contract",
+      "stereo_gpu_invalid_geometry"
+    ]
+  }
+}

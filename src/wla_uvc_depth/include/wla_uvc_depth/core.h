@@ -43,6 +43,7 @@ class Core {
   [[nodiscard]] const cv::Mat& leftP() const noexcept { return m_p1; }
   [[nodiscard]] const cv::Mat& rightP() const noexcept { return m_p2; }
   [[nodiscard]] const cv::Mat& reprojectionMatrix() const noexcept { return m_q; }
+  [[nodiscard]] std::array<cv::Mat,4> rectifyMaps() const { return {m_lx,m_ly,m_rx,m_ry}; }
  private:
   Calibration m_calibration;
   Options m_options;

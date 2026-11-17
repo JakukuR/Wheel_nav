@@ -24,6 +24,12 @@ esac
 mkdir -p "$workspace/.runtime"
 exec 9>"$workspace/.runtime/uvc-stereo-network.lock"
 flock -n 9 || { echo 'A stereo network already owns the output topics' >&2;exit 1; }
+for arg in "${args[@]}";do
+ if [[ "$arg" == --direct-camera ]];then
+  exec 8>"$workspace/.runtime/uvc-sunplus.lock"
+  flock -n 8 || { echo 'Sunplus camera already has an owner' >&2;exit 1; }
+ fi
+done
 exec "$workspace/install/wla_uvc_depth/lib/wla_uvc_depth/uvc_stereo_trt" \
  --model "$model" --engine "$engine" "${plugin[@]}" \
  --calibration "${WLA_UVC_CALIBRATION_DIR:-$workspace/config/uvc_rig/calibrated_20261116}/rig.yaml" --max-rate 5 "${args[@]}"
