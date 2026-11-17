@@ -1,0 +1,88 @@
+{
+  "samples": [
+    {
+      "elapsed_s": 0,
+      "pwm": 255,
+      "rpm": 4711
+    },
+    {
+      "elapsed_s": 5,
+      "pwm": 255,
+      "rpm": 4706
+    },
+    {
+      "elapsed_s": 10,
+      "pwm": 255,
+      "rpm": 4707
+    },
+    {
+      "elapsed_s": 15,
+      "pwm": 255,
+      "rpm": 4701
+    },
+    {
+      "elapsed_s": 20,
+      "pwm": 255,
+      "rpm": 4704
+    },
+    {
+      "elapsed_s": 25,
+      "pwm": 255,
+      "rpm": 4701
+    },
+    {
+      "elapsed_s": 30,
+      "pwm": 255,
+      "rpm": 4700
+    }
+  ],
+  "service": "ActiveState=active\nSubState=exited\nUnitFileState=enabled\n",
+  "thermal_zones": {
+    "thermal_zone2": {
+      "type": "cv0-thermal",
+      "mode": "enabled",
+      "policy": "step_wise"
+    },
+    "thermal_zone0": {
+      "type": "cpu-thermal",
+      "mode": "enabled",
+      "policy": "step_wise"
+    },
+    "thermal_zone7": {
+      "type": "soc2-thermal",
+      "mode": "enabled",
+      "policy": "step_wise"
+    },
+    "thermal_zone5": {
+      "type": "soc0-thermal",
+      "mode": "enabled",
+      "policy": "step_wise"
+    },
+    "thermal_zone3": {
+      "type": "cv1-thermal",
+      "mode": "enabled",
+      "policy": "step_wise"
+    },
+    "thermal_zone1": {
+      "type": "gpu-thermal",
+      "mode": "enabled",
+      "policy": "step_wise"
+    },
+    "thermal_zone8": {
+      "type": "tj-thermal",
+      "mode": "enabled",
+      "policy": "user_space"
+    },
+    "thermal_zone6": {
+      "type": "soc1-thermal",
+      "mode": "enabled",
+      "policy": "step_wise"
+    },
+    "thermal_zone4": {
+      "type": "cv2-thermal",
+      "mode": "enabled",
+      "policy": "step_wise"
+    }
+  },
+  "reboot_tested": false
+}
