@@ -48,10 +48,12 @@ Args Parse(const std::vector<std::string>& args){
   if(a.engine.empty()||a.rig.empty()||!std::isfinite(a.rate)||a.rate<=0||a.rate>30)throw std::runtime_error("invalid_stereo_arguments");
   return a;
 }
-Options GeometryOptions(){Options o;o.algorithm="none";o.rgbMode="full";return o;}
+Options GeometryOptions(const StereoEngine& engine){Options o;o.algorithm="none";o.rgbMode="full";
+  if(engine.settings().key=="las2_s"||engine.settings().key=="las2_m")o.rectifiedSize=engine.settings().content;
+  return o;}
 class StereoNode final:public rclcpp::Node {
  public:
-  explicit StereoNode(Args args):Node("uvc_stereo_network"),m_args(std::move(args)),m_calibration(LoadCalibration(m_args.rig)),m_geometry(m_calibration,GeometryOptions()),m_engine(m_args.engine,m_args.model,m_args.plugin){
+  explicit StereoNode(Args args):Node("uvc_stereo_network"),m_args(std::move(args)),m_calibration(LoadCalibration(m_args.rig)),m_engine(m_args.engine,m_args.model,m_args.plugin),m_geometry(m_calibration,GeometryOptions(m_engine)){
     cv::setNumThreads(1);const auto qos=rclcpp::SensorDataQoS().keep_last(2);
     m_depth=create_publisher<Image>("/camera/stereo/depth/image_raw",qos);
     m_disparity=create_publisher<Image>("/camera/stereo/disparity/image_raw",qos);
@@ -161,17 +163,17 @@ class StereoNode final:public rclcpp::Node {
         cv::Mat depth;size_t valid=0;
         if(!prediction.depth.empty()){depth=prediction.depth;valid=cv::countNonZero(depth);}
         else{
-        depth=cv::Mat(360,640,CV_16U,cv::Scalar(0));
+        depth=cv::Mat(m_geometry.rectifiedSize(),CV_16U,cv::Scalar(0));
         const cv::Matx33d rr(m_geometry.leftR());
-        for(int y=0;y<360;++y)for(int x=0;x<640;++x){const auto p=points.at<cv::Vec3f>(y,x);if(!std::isfinite(p[0])||!std::isfinite(p[1])||!std::isfinite(p[2])||p[2]<.15||p[2]>5)continue;const auto rect=rr*cv::Vec3d(p);if(rect[2]>=.15&&rect[2]<=5){depth.at<uint16_t>(y,x)=uint16_t(std::nearbyint(rect[2]*1000));++valid;}}
+        for(int y=0;y<depth.rows;++y)for(int x=0;x<depth.cols;++x){const auto p=points.at<cv::Vec3f>(y,x);if(!std::isfinite(p[0])||!std::isfinite(p[1])||!std::isfinite(p[2])||p[2]<.15||p[2]>5)continue;const auto rect=rr*cv::Vec3d(p);if(rect[2]>=.15&&rect[2]<=5){depth.at<uint16_t>(y,x)=uint16_t(std::nearbyint(rect[2]*1000));++valid;}}
         }
         if(!valid)throw std::runtime_error("no_valid_stereo_depth");
         if(!fresh(pair->left))continue;
         m_depth->publish(Message(depth,h,"16UC1"));
-        sensor_msgs::msg::CameraInfo info;info.header=h;info.width=640;info.height=360;info.distortion_model="plumb_bob";info.d.assign(5,0.);const auto& p=m_geometry.leftP();for(int y=0;y<3;++y)for(int x=0;x<3;++x){info.k[y*3+x]=p.at<double>(y,x);info.p[y*4+x]=p.at<double>(y,x);info.r[y*3+x]=y==x?1:0;}m_info->publish(info);
+        sensor_msgs::msg::CameraInfo info;info.header=h;info.width=depth.cols;info.height=depth.rows;info.distortion_model="plumb_bob";info.d.assign(5,0.);const auto& p=m_geometry.leftP();for(int y=0;y<3;++y)for(int x=0;x<3;++x){info.k[y*3+x]=p.at<double>(y,x);info.p[y*4+x]=p.at<double>(y,x);info.r[y*3+x]=y==x?1:0;}m_info->publish(info);
         if(!prediction.leftRect.empty()&&m_leftPreview->get_subscription_count()&&Clock::now()-m_lastLeftPreview>std::chrono::milliseconds(450)){m_leftPreview->publish(Message(prediction.leftRect,h,"bgr8"));m_lastLeftPreview=Clock::now();}
         if(!prediction.disparity.empty()&&m_disparity->get_subscription_count()&&fresh(pair->left))m_disparity->publish(Message(prediction.disparity,h,"32FC1"));
-        if(m_preview->get_subscription_count()){cv::Mat gray,preview;depth.convertTo(gray,CV_8U,-255./5000,255);cv::applyColorMap(gray,preview,cv::COLORMAP_TURBO);preview.setTo(0,depth==0);if(fresh(pair->left))m_preview->publish(Message(preview,h,"bgr8"));}
+        if(m_preview->get_subscription_count()&&Clock::now()-m_lastDepthPreview>std::chrono::milliseconds(450)){m_lastDepthPreview=Clock::now();cv::Mat gray,preview;depth.convertTo(gray,CV_8U,-255./5000,255);cv::applyColorMap(gray,preview,cv::COLORMAP_TURBO);preview.setTo(0,depth==0);if(fresh(pair->left))m_preview->publish(Message(preview,h,"bgr8"));}
         const auto rgb=m_colored->get_subscription_count()?colorFor(Stamp(pair->left->header)):Msg{};
         // Spatial registration is independent of RGB delivery. Preserve the depth timestamp;
         // RGB detection consumers perform their own timestamp pairing before using it.
@@ -183,7 +185,7 @@ class StereoNode final:public rclcpp::Node {
           const auto& k=m_geometry.colorK();for(int y=0;y<3;++y)for(int x=0;x<3;++x){ci.k[y*3+x]=k.at<double>(y,x);ci.p[y*4+x]=k.at<double>(y,x);ci.r[y*3+x]=y==x?1:0;}
           if(fresh(pair->left))m_alignedInfo->publish(ci);
           if(m_aligned->get_subscription_count()&&fresh(pair->left))m_aligned->publish(Message(aligned,ah,"16UC1"));
-          if(m_alignedPreview->get_subscription_count()){cv::Mat gray,preview;aligned.convertTo(gray,CV_8U,-255./5000,255);cv::applyColorMap(gray,preview,cv::COLORMAP_TURBO);preview.setTo(0,aligned==0);if(fresh(pair->left))m_alignedPreview->publish(Message(preview,ah,"bgr8"));}
+          if(m_alignedPreview->get_subscription_count()&&Clock::now()-m_lastAlignedPreview>std::chrono::milliseconds(450)){m_lastAlignedPreview=Clock::now();cv::Mat gray,preview;aligned.convertTo(gray,CV_8U,-255./5000,255);cv::applyColorMap(gray,preview,cv::COLORMAP_TURBO);preview.setTo(0,aligned==0);if(fresh(pair->left))m_alignedPreview->publish(Message(preview,ah,"bgr8"));}
         }
         if(!points.empty())cloud(points,pair->left,aligned.empty()?Msg{}:rgb,aligned);
         std::lock_guard lock(m_mutex);++m_count;m_last=Clock::now();m_failure.clear();m_metrics={{"alignment_wait_ms",0.},{"aligned_depth_requested",alignRequested},{"aligned_depth_available",!aligned.empty()},{"host_points_downloaded",bool(pair->jpeg)&&needPoints},{"gpu_ms",prediction.gpuMs},{"decode_ms",decodeMs},{"pipeline_ms",std::chrono::duration<double,std::milli>(Clock::now()-start).count()},{"valid_depth_fraction",double(valid)/depth.total()},{"stereo_stamp_ns",Stamp(pair->left->header)},{"rgb_color_available",bool(rgb)},{"rgb_stamp_ns",rgb?Stamp(rgb->header):0},{"host_rgb_skew_ms",rgb?(Stamp(rgb->header)-Stamp(pair->left->header))*1e-6:0.}};
@@ -199,13 +201,13 @@ class StereoNode final:public rclcpp::Node {
     const bool temperatures_available=bool(cpu>>cpu_temp)&&bool(gpu>>gpu_temp);cpu_temp*=.001;gpu_temp*=.001;
     // Temperature is telemetry only; system thermal management remains in control.
     std::lock_guard lock(m_mutex);const bool fresh=m_count&&std::chrono::duration<double>(Clock::now()-m_last).count()<.5&&m_failure.empty()&&!m_captureFailed;
-    Json j={{"schema","wla-stereo-network/v1"},{"direct_capture",!m_args.device.empty()},{"gpu_preprocessing",!m_args.device.empty()},{"capture_failed",m_captureFailed},{"thermal_paused",false},{"application_thermal_pause_enabled",false},{"temperature_available",temperatures_available},{"cpu_c",cpu_temp},{"gpu_c",gpu_temp},{"thermal_stop_c",nullptr},{"backend","cpp_tensorrt"},{"model",m_engine.settings().name},{"model_key",m_args.model},{"confidence_threshold",m_engine.settings().confidenceThreshold},{"engine",m_args.engine},{"calibration_file",m_args.rig},{"depth_source","synchronized_lower_stereo"},{"rgb_role","detection_separate_optional_coloring"},{"aligned_depth_time_basis","stereo_capture_rgb_consumer_must_pair"},{"classical_matcher_enabled",false},{"matching_width",m_engine.settings().content.width},{"matching_height",m_engine.settings().content.height},{"output_width",640},{"output_height",360},{"network_width",m_engine.networkSize().width},{"network_height",m_engine.networkSize().height},{"padding_top",m_engine.settings().padTop},{"padding_bottom",m_engine.settings().padBottom},{"near_m",.15},{"far_m",5},{"depth_fresh",fresh},{"depth_frames",m_count},{"max_rate",m_args.rate},{"timestamp_source",m_args.device.empty()?"host_receive_stereo_pair_shared_stamp":m_kernelStamp?"v4l2_monotonic_not_verified_exposure":"host_dequeue_not_exposure"},{"color_sync","approximate_host_receive_25ms_not_hardware_exposure"},{"point_cloud_frame","sunplus_left_optical_frame"},{"point_cloud_stride",2},{"ground_filter_enabled",false},{"obstacle_control_connected",false},{"metrics",m_metrics},{"reason",!m_failure.empty()?m_failure:fresh?"experimental_calibrated_stereo":"waiting_for_fresh_stereo"}};
+    Json j={{"schema","wla-stereo-network/v1"},{"direct_capture",!m_args.device.empty()},{"gpu_preprocessing",!m_args.device.empty()},{"capture_failed",m_captureFailed},{"thermal_paused",false},{"application_thermal_pause_enabled",false},{"temperature_available",temperatures_available},{"cpu_c",cpu_temp},{"gpu_c",gpu_temp},{"thermal_stop_c",nullptr},{"backend","cpp_tensorrt"},{"model",m_engine.settings().name},{"model_key",m_args.model},{"confidence_threshold",m_engine.settings().confidenceThreshold},{"engine",m_args.engine},{"calibration_file",m_args.rig},{"depth_source","synchronized_lower_stereo"},{"rgb_role","detection_separate_optional_coloring"},{"aligned_depth_time_basis","stereo_capture_rgb_consumer_must_pair"},{"classical_matcher_enabled",false},{"matching_width",m_engine.settings().content.width},{"matching_height",m_engine.settings().content.height},{"output_width",m_geometry.rectifiedSize().width},{"output_height",m_geometry.rectifiedSize().height},{"network_width",m_engine.networkSize().width},{"network_height",m_engine.networkSize().height},{"padding_top",m_engine.settings().padTop},{"padding_bottom",m_engine.settings().padBottom},{"near_m",.15},{"far_m",5},{"depth_fresh",fresh},{"depth_frames",m_count},{"max_rate",m_args.rate},{"timestamp_source",m_args.device.empty()?"host_receive_stereo_pair_shared_stamp":m_kernelStamp?"v4l2_monotonic_not_verified_exposure":"host_dequeue_not_exposure"},{"color_sync","approximate_host_receive_25ms_not_hardware_exposure"},{"point_cloud_frame","sunplus_left_optical_frame"},{"point_cloud_stride",2},{"ground_filter_enabled",false},{"obstacle_control_connected",false},{"metrics",m_metrics},{"reason",!m_failure.empty()?m_failure:fresh?"experimental_calibrated_stereo":"waiting_for_fresh_stereo"}};
     std_msgs::msg::String msg;msg.data=j.dump();m_status->publish(msg);
   }
   std::atomic_bool m_captureClosed{false};
   bool m_kernelStamp=false,m_captureFailed=false;
-  std::unique_ptr<DirectCapture> m_capture;std::thread m_captureWorker;Clock::time_point m_lastLeftPreview{};
-  Args m_args;Calibration m_calibration;Core m_geometry;StereoEngine m_engine;
+  std::unique_ptr<DirectCapture> m_capture;std::thread m_captureWorker;Clock::time_point m_lastLeftPreview{},m_lastDepthPreview{},m_lastAlignedPreview{};
+  Args m_args;Calibration m_calibration;StereoEngine m_engine;Core m_geometry;
   std::mutex m_mutex;std::condition_variable m_condition;std::thread m_worker;bool m_closed=false;
   std::map<int64_t,std::array<Msg,2>> m_pairs;std::optional<Pair> m_pending;std::deque<Msg> m_colors;
   std::map<int64_t,sensor_msgs::msg::CameraInfo::ConstSharedPtr> m_rgbInfos;int64_t m_lastPair=0;uint64_t m_count=0;Clock::time_point m_last{};std::string m_failure;Json m_metrics=Json::object();

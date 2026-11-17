@@ -37,7 +37,20 @@ int main() {
     const auto metric=network_geometry.pointsFromDisparity(disparity);
     Require(std::abs(metric.at<cv::Vec3f>(180,320)[2]-2.F)<.01F,"network disparity to 2m without RGB");
     Require(!std::isfinite(metric.at<cv::Vec3f>(0,0)[0])&&!std::isfinite(metric.at<cv::Vec3f>(0,1)[0]),"invalid network disparity rejected");
-    bool disabled=false;try{network_geometry.depth(cv::Mat(720,1280,CV_8U),cv::Mat(720,1280,CV_8U));}catch(const std::exception&){disabled=true;}
+    native.rectifiedSize={384,216};Core low(Synthetic(),native);
+    cv::Mat lowDisp(216,384,CV_32F,cv::Scalar(12));
+    auto lowPoints=low.pointsFromDisparity(lowDisp);
+    Require(std::abs(lowPoints.at<cv::Vec3f>(108,192)[2]-2.F)<.01F,"384 disparity maintains 2m scale");
+    Require(std::abs(low.leftP().at<double>(0,0)/network_geometry.leftP().at<double>(0,0)-.6)<1e-10,"scaled focal length");
+    // Same 3-D point reprojects through both P matrices with pixel-centre scaling.
+    for(const auto& sample:std::vector<cv::Vec3d>{{.3,.2,1.},{-.4,-.2,2.},{0.,0.,4.}}){
+      auto project=[&](const Core& c){const auto& p=c.leftP();return cv::Vec3d(p.at<double>(0,0)*sample[0]/sample[2]+p.at<double>(0,2),p.at<double>(1,1)*sample[1]/sample[2]+p.at<double>(1,2),-c.rightP().at<double>(0,3)/sample[2]);};
+      const auto highPixel=project(network_geometry),lowPixel=project(low);
+      Require(std::abs(lowPixel[0]-(highPixel[0]+.5)*.6+.5)<1e-9&&std::abs(lowPixel[1]-(highPixel[1]+.5)*.6+.5)<1e-9,"same field of view and pixel centres");
+      cv::Mat homogeneous=low.reprojectionMatrix()*(cv::Mat_<double>(4,1)<<lowPixel[0],lowPixel[1],lowPixel[2],1.);
+      for(int axis=0;axis<3;++axis)Require(std::abs(homogeneous.at<double>(axis)/homogeneous.at<double>(3)-sample[axis])<1e-9,"scaled Q matches independently projected XYZ");
+    }
+    bool disabled=false;try{(void)network_geometry.depth(cv::Mat(720,1280,CV_8U),cv::Mat(720,1280,CV_8U));}catch(const std::exception&){disabled=true;}
     Require(disabled,"none algorithm cannot execute classical matcher");
     const auto real=LoadCalibration(FIXTURE);Core measured(real);Require(measured.outputSize()==cv::Size(640,480),"measured rig supported");
     cv::Mat left(720,1280,CV_8U);cv::RNG rng(7);rng.fill(left,cv::RNG::UNIFORM,0,256);

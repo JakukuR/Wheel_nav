@@ -29,6 +29,14 @@ int main(){try{
     confidence.setTo(1.F);output.setTo(0.F);
     Require(cv::countNonZero(wla::uvc::StereoOutput(output,confidence,model))==0,"zero disparity remains invalid");
   }
+  const auto small=wla::uvc::ModelSettings("las2_s",{384,288});
+  Require(small.content==cv::Size(384,216)&&small.padTop==36&&small.padBottom==36,"16:9 content with symmetric padding");
+  cv::Mat nativeImage(216,384,CV_8UC3,cv::Scalar(0,127,255));
+  auto smallInput=wla::uvc::StereoInput(nativeImage,small);
+  Require(smallInput.size()==384*288*3&&smallInput[0]==255.F,"native LAS2 input accepted");
+  cv::Mat smallOutput(288,384,CV_32F,cv::Scalar(12));smallOutput.rowRange(0,36).setTo(999);smallOutput.rowRange(252,288).setTo(999);
+  const auto nativeDisp=wla::uvc::StereoOutput(smallOutput,{},small,{384,216});
+  Require(nativeDisp.size()==cv::Size(384,216)&&cv::norm(nativeDisp-12,cv::NORM_INF)==0,"padding removed without scaling native disparity");
   auto ess=wla::uvc::ModelSettings("light_ess");cv::Mat holes(ess.network,CV_32F,cv::Scalar(10.F)),conf(ess.network,CV_32F,cv::Scalar(1.F));
   conf(cv::Rect(200,100,20,20)).setTo(.1F);
   const auto hole=wla::uvc::StereoOutput(holes,conf,ess);

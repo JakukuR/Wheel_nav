@@ -26,7 +26,7 @@ StereoModel ModelSettings(const std::string& key,cv::Size network){
   }else if(key=="cfast"||key=="las2_s"||key=="las2_m"||key=="lightstereo_s"){
     s.name=key=="cfast"?"C-Fast-FoundationStereo":key=="las2_s"?"LAS2-S FP16":key=="las2_m"?"LAS2-M FP16":"LightStereo-S General";
     s.network=network.area()?network:cv::Size(640,384);
-    if(s.network!=cv::Size(640,384)&&(key!="cfast"||s.network!=cv::Size(320,192)))throw std::runtime_error("unsupported_stereo_network_resolution");
+    if(s.network!=cv::Size(640,384)&&!((key=="las2_s"||key=="las2_m")&&s.network==cv::Size(384,288))&&(key!="cfast"||s.network!=cv::Size(320,192)))throw std::runtime_error("unsupported_stereo_network_resolution");
     s.content={s.network.width,s.network.width*360/640};s.padTop=(s.network.height-s.content.height)/2;s.padBottom=s.padTop;
     s.left=key=="cfast"?"left_image":"left";s.right=key=="cfast"?"right_image":"right";s.disparity="disparity";
     s.normalization=(key=="las2_s"||key=="las2_m")?"raw_rgb":"imagenet";
@@ -35,7 +35,7 @@ StereoModel ModelSettings(const std::string& key,cv::Size network){
   return s;
 }
 std::vector<float> StereoInput(const cv::Mat& image,const StereoModel& s){
-  if(image.size()!=cv::Size(640,360)||(image.type()!=CV_8UC1&&image.type()!=CV_8UC3))throw std::runtime_error("stereo_input_requires_rectified_640x360");
+  if((image.size()!=cv::Size(640,360)&&image.size()!=s.content)||(image.type()!=CV_8UC1&&image.type()!=CV_8UC3))throw std::runtime_error("stereo_input_requires_rectified_640x360");
   cv::Mat rgb,padded;cv::cvtColor(image,rgb,image.channels()==1?cv::COLOR_GRAY2RGB:cv::COLOR_BGR2RGB);
   if(rgb.size()!=s.content)cv::resize(rgb,rgb,s.content,0,0,s.key=="cfast"?cv::INTER_AREA:cv::INTER_LINEAR);
   cv::copyMakeBorder(rgb,padded,s.padTop,s.padBottom,0,0,cv::BORDER_REPLICATE);
@@ -51,7 +51,8 @@ std::vector<float> StereoInput(const cv::Mat& image,const StereoModel& s){
   return result;
 }
 std::vector<float> StereoInput(const cv::Mat& image,cv::Size size){return StereoInput(image,ModelSettings("cfast",size));}
-cv::Mat StereoOutput(const cv::Mat& output,const cv::Mat& confidence,const StereoModel& s){
+cv::Mat StereoOutput(const cv::Mat& output,const cv::Mat& confidence,const StereoModel& s,cv::Size outputSize){
+  if(outputSize.width<=0||outputSize.height<=0)throw std::runtime_error("invalid_output_size");
   if(output.type()!=CV_32FC1||output.size()!=s.network||(!confidence.empty()&&(confidence.type()!=CV_32FC1||confidence.size()!=s.network))||(!s.confidence.empty()&&confidence.empty()))throw std::runtime_error("invalid_stereo_output_shape");
   const cv::Rect roi(0,s.padTop,s.content.width,s.content.height);cv::Mat d=output(roi).clone(),valid(s.content,CV_32F);
   for(int y=0;y<d.rows;++y)for(int x=0;x<d.cols;++x){
@@ -59,9 +60,9 @@ cv::Mat StereoOutput(const cv::Mat& output,const cv::Mat& confidence,const Stere
     const bool ok=std::isfinite(value)&&value>0&&std::isfinite(c)&&c>=s.confidenceThreshold;
     valid.at<float>(y,x)=ok?1.F:0.F;if(!ok)value=0;
   }
-  if(d.size()!=cv::Size(640,360)){
-    cv::resize(d,d,{640,360},0,0,cv::INTER_LINEAR);d*=640.F/s.content.width;
-    cv::resize(valid,valid,{640,360},0,0,cv::INTER_LINEAR);
+  if(d.size()!=outputSize){
+    cv::resize(d,d,outputSize,0,0,cv::INTER_LINEAR);d*=float(outputSize.width)/s.content.width;
+    cv::resize(valid,valid,outputSize,0,0,cv::INTER_LINEAR);
     // All contributing source neighbours must be valid; interpolation must not fill holes.
     d.setTo(0,valid<.999F);
   }
@@ -74,7 +75,7 @@ struct StereoEngine::Impl {
   cudaStream_t stream=nullptr;cudaEvent_t begin=nullptr,end=nullptr;
   void* left=nullptr;void* right=nullptr;void* output=nullptr;void* confidence=nullptr;
   uint8_t* packed=nullptr;float* maps=nullptr;float* points=nullptr;uint16_t* depth=nullptr;uint8_t* preview=nullptr;
-  void* pinned=nullptr;GpuGeometry geometry{};bool configured=false;
+  void* pinned=nullptr;GpuGeometry geometry{};GpuLayout layout{};bool configured=false;
   ~Impl(){
     if(stream)cudaStreamSynchronize(stream);
     context.reset();engine.reset();runtime.reset();
@@ -110,7 +111,7 @@ StereoEngine::StereoEngine(const std::string& path,const std::string& key,const 
     if(p.engine->getTensorDataType(name)!=nvinfer1::DataType::kFLOAT||(!input&&n!=p.model.disparity&&n!=p.model.confidence)||(p.engine->getTensorIOMode(name)==nvinfer1::TensorIOMode::kINPUT)!=input)throw std::runtime_error("unexpected_stereo_engine_IO");
   }
   p.context.reset(p.engine->createExecutionContext());if(!p.context)throw std::runtime_error("stereo_context_failed");
-  if(key=="cfast"){
+  if(key=="cfast"||key=="las2_s"||key=="las2_m"){
     auto d=p.engine->getTensorShape(p.model.left.c_str());if(d.nbDims!=4)throw std::runtime_error("invalid_stereo_profile");
     if(d.d[2]<0||d.d[3]<0)d=p.engine->getProfileShape(p.model.left.c_str(),0,nvinfer1::OptProfileSelector::kOPT);
     p.model=ModelSettings(key,{int(d.d[3]),int(d.d[2])});
@@ -140,28 +141,30 @@ StereoInference StereoEngine::infer(const cv::Mat& left,const cv::Mat& right){
   Cuda(cudaMemcpyAsync(padded.data,p.output,plane*sizeof(float),cudaMemcpyDeviceToHost,p.stream));
   if(p.confidence){confidence.create(size,CV_32F);Cuda(cudaMemcpyAsync(confidence.data,p.confidence,plane*sizeof(float),cudaMemcpyDeviceToHost,p.stream));}
   Cuda(cudaStreamSynchronize(p.stream));float ms=0;Cuda(cudaEventElapsedTime(&ms,p.begin,p.end));
-  StereoInference result;result.disparity=StereoOutput(padded,confidence,p.model);result.gpuMs=ms;return result;
+  StereoInference result;result.disparity=StereoOutput(padded,confidence,p.model,(p.model.key=="las2_s"||p.model.key=="las2_m")?p.model.content:cv::Size(640,360));result.gpuMs=ms;return result;
 }
 void StereoEngine::configurePacked(const std::array<cv::Mat,4>& maps,const cv::Mat& q,const cv::Mat& leftR){
  auto& p=*m_impl;if(p.configured)throw std::runtime_error("packed_geometry_already_configured");
- if((p.model.key!="las2_s"&&p.model.key!="las2_m")||p.model.network!=cv::Size(640,384))throw std::runtime_error("packed_path_requires_LAS2_640x384");
- for(const auto& m:maps)if(m.size()!=cv::Size(640,360)||m.type()!=CV_32F||!m.isContinuous())throw std::runtime_error("invalid_rectify_maps");
+ if(p.model.key!="las2_s"&&p.model.key!="las2_m")throw std::runtime_error("packed_path_requires_LAS2");
+ const size_t plane=p.model.content.area(),network=p.model.network.area();
+ p.layout={p.model.content.width,p.model.content.height,p.model.network.height,p.model.padTop};
+ for(const auto& m:maps)if(m.size()!=p.model.content||m.type()!=CV_32F||!m.isContinuous())throw std::runtime_error("invalid_rectify_maps");
  if(q.size()!=cv::Size(4,4)||q.type()!=CV_64F||leftR.size()!=cv::Size(3,3)||leftR.type()!=CV_64F)throw std::runtime_error("invalid_gpu_geometry");
- Cuda(cudaMalloc(reinterpret_cast<void**>(&p.maps),4*640*360*sizeof(float)));for(int i=0;i<4;++i)Cuda(cudaMemcpy(p.maps+i*640*360,maps[i].data,640*360*sizeof(float),cudaMemcpyHostToDevice));
+ Cuda(cudaMalloc(reinterpret_cast<void**>(&p.maps),4*plane*sizeof(float)));for(int i=0;i<4;++i)Cuda(cudaMemcpy(p.maps+i*plane,maps[i].data,plane*sizeof(float),cudaMemcpyHostToDevice));
  for(int y=0;y<4;++y)for(int x=0;x<4;++x)p.geometry.q[y*4+x]=q.at<double>(y,x);
  for(int y=0;y<3;++y)for(int x=0;x<3;++x)p.geometry.inverseR[y*3+x]=leftR.at<double>(x,y);
- Cuda(cudaMalloc(reinterpret_cast<void**>(&p.packed),2560*720*3));Cuda(cudaMalloc(reinterpret_cast<void**>(&p.points),640*360*3*sizeof(float)));Cuda(cudaMalloc(reinterpret_cast<void**>(&p.depth),640*360*sizeof(uint16_t)));Cuda(cudaMalloc(reinterpret_cast<void**>(&p.preview),640*360*3));
- Cuda(cudaMallocHost(&p.pinned,640*384*sizeof(float)+640*360*(3*sizeof(float)+sizeof(uint16_t)+3)));
+ Cuda(cudaMalloc(reinterpret_cast<void**>(&p.packed),2560*720*3));Cuda(cudaMalloc(reinterpret_cast<void**>(&p.points),plane*3*sizeof(float)));Cuda(cudaMalloc(reinterpret_cast<void**>(&p.depth),plane*sizeof(uint16_t)));Cuda(cudaMalloc(reinterpret_cast<void**>(&p.preview),plane*3));
+ Cuda(cudaMallocHost(&p.pinned,network*sizeof(float)+plane*(3*sizeof(float)+sizeof(uint16_t)+3)));
  p.configured=true;
 }
 StereoInference StereoEngine::inferPacked(const cv::Mat& raw,bool hostPoints,bool hostPreview,bool hostDisparity){
  auto& p=*m_impl;if(!p.configured||raw.size()!=cv::Size(2560,720)||(raw.type()!=CV_8UC1&&raw.type()!=CV_8UC3)||!raw.isContinuous())throw std::runtime_error("invalid_packed_input");
- const size_t plane=640*360,network=640*384;auto* host=static_cast<uint8_t*>(p.pinned);
+ const size_t plane=p.model.content.area(),network=p.model.network.area();auto* host=static_cast<uint8_t*>(p.pinned);
  float* disparity=reinterpret_cast<float*>(host);float* points=reinterpret_cast<float*>(host+network*4);auto* depth=reinterpret_cast<uint16_t*>(host+network*4+plane*12);auto* preview=host+network*4+plane*14;
  Cuda(cudaMemcpyAsync(p.packed,raw.data,raw.total()*raw.elemSize(),cudaMemcpyHostToDevice,p.stream));
- PrepareStereo(p.packed,raw.channels(),p.maps,static_cast<float*>(p.left),static_cast<float*>(p.right),p.preview,p.stream);Cuda(cudaGetLastError());
+ PrepareStereo(p.packed,raw.channels(),p.maps,static_cast<float*>(p.left),static_cast<float*>(p.right),p.preview,p.stream,p.layout);Cuda(cudaGetLastError());
  Cuda(cudaEventRecord(p.begin,p.stream));if(!p.context->enqueueV3(p.stream))throw std::runtime_error("stereo_enqueue_failed");Cuda(cudaEventRecord(p.end,p.stream));
- ReprojectStereo(static_cast<float*>(p.output),p.geometry,p.points,p.depth,p.stream);Cuda(cudaGetLastError());
+ ReprojectStereo(static_cast<float*>(p.output),p.geometry,p.points,p.depth,p.stream,p.layout);Cuda(cudaGetLastError());
  if(hostDisparity)Cuda(cudaMemcpyAsync(disparity,p.output,network*4,cudaMemcpyDeviceToHost,p.stream));
  if(hostPoints)Cuda(cudaMemcpyAsync(points,p.points,plane*12,cudaMemcpyDeviceToHost,p.stream));
  Cuda(cudaMemcpyAsync(depth,p.depth,plane*2,cudaMemcpyDeviceToHost,p.stream));
@@ -169,15 +172,15 @@ StereoInference StereoEngine::inferPacked(const cv::Mat& raw,bool hostPoints,boo
  Cuda(cudaStreamSynchronize(p.stream));float ms=0;Cuda(cudaEventElapsedTime(&ms,p.begin,p.end));
  // Views belong to this engine and remain valid until the next inference.
  StereoInference result;result.gpuMs=ms;
- if(hostDisparity)result.disparity=cv::Mat(360,640,CV_32F,disparity+12*640);
- if(hostPoints)result.points=cv::Mat(360,640,CV_32FC3,points);
- result.depth=cv::Mat(360,640,CV_16U,depth);
- if(hostPreview)result.leftRect=cv::Mat(360,640,CV_8UC3,preview);
+ if(hostDisparity)result.disparity=cv::Mat(p.model.content,CV_32F,disparity+p.model.padTop*p.model.network.width);
+ if(hostPoints)result.points=cv::Mat(p.model.content,CV_32FC3,points);
+ result.depth=cv::Mat(p.model.content,CV_16U,depth);
+ if(hostPreview)result.leftRect=cv::Mat(p.model.content,CV_8UC3,preview);
  return result;
 }
 std::array<std::vector<float>,2> StereoEngine::packedInputs()const{
  auto& p=*m_impl;if(!p.configured)throw std::runtime_error("packed_geometry_not_configured");std::array<std::vector<float>,2> out;
- for(int i=0;i<2;++i){out[i].resize(640*384*3);Cuda(cudaMemcpy(out[i].data(),i?p.right:p.left,out[i].size()*sizeof(float),cudaMemcpyDeviceToHost));}return out;
+ for(int i=0;i<2;++i){out[i].resize(p.model.network.area()*3);Cuda(cudaMemcpy(out[i].data(),i?p.right:p.left,out[i].size()*sizeof(float),cudaMemcpyDeviceToHost));}return out;
 }
 
 }

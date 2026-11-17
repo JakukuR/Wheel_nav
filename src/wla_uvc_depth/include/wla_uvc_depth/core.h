@@ -15,6 +15,7 @@ struct Calibration {
 struct Options {
   std::string algorithm="sgbm", rgbMode="crop";
   int disparities=128, block=5;
+  cv::Size rectifiedSize{640,360};
   double nearM=.15, farM=5.;
 };
 struct Result { cv::Mat depth, disparity, left, right; };
@@ -37,6 +38,7 @@ class Core {
   [[nodiscard]] Result depth(const cv::Mat& left,const cv::Mat& right);
   [[nodiscard]] const cv::Mat& colorK() const noexcept { return m_colorK; }
   [[nodiscard]] cv::Size outputSize() const noexcept { return m_output; }
+  [[nodiscard]] cv::Size rectifiedSize() const noexcept { return m_options.rectifiedSize; }
   [[nodiscard]] cv::Size stereoSize() const noexcept { return m_calibration.cameras[0].size; }
   [[nodiscard]] const cv::Mat& leftR() const noexcept { return m_r1; }
   [[nodiscard]] const cv::Mat& rightR() const noexcept { return m_r2; }

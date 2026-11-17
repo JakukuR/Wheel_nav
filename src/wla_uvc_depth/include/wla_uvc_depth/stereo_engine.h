@@ -14,8 +14,8 @@ struct StereoModel {
 [[nodiscard]] std::vector<float> StereoInput(const cv::Mat& image,const StereoModel& model);
 // Compatibility for the original C-Fast profile.
 [[nodiscard]] std::vector<float> StereoInput(const cv::Mat& image,cv::Size network_size={640,384});
-// Outputs are disparity in rectified 640x360 pixels, never metres. No filling of invalid confidence holes.
-[[nodiscard]] cv::Mat StereoOutput(const cv::Mat& disparity,const cv::Mat& confidence,const StereoModel& model);
+// Outputs are disparity in the requested rectified pixel grid, never metres. No filling of invalid confidence holes.
+[[nodiscard]] cv::Mat StereoOutput(const cv::Mat& disparity,const cv::Mat& confidence,const StereoModel& model,cv::Size output_size={640,360});
 struct StereoInference {cv::Mat disparity;double gpuMs=0.;cv::Mat points,depth,leftRect;double prepareMs=0.,postMs=0.;};
 class StereoEngine {
  public:

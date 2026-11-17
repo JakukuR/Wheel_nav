@@ -107,3 +107,7 @@ WLA_DEPTH_SOURCE=classical可恢复原processed对齐深度入口。检测、跟
 - 当前 PID 3390 使用 config/hardware.orin.yaml；本次启动 reports/powered_20261117_152253_boot/hardware_config.yaml 保存相同配置：base_frame=base_Link、state_estimation.imu_position_base_m=[0,0,0]、imu_to_base_xyzw=[0,0,0,1]。源码解析上述位置和旋转字段，并非仅未使用的备注。
 
 据此，两边的原点定义均为 IMU，取消“还需用户确认原点”的阻塞；不根据腿部关节差值添加 x=-20 mm / z=+0.5 mm。腿部继续以电控 URDF 为准，相机安装位置保留 SW 数值。单位旋转是现用电控的 IMU 轴向配置证据，不冒充新的实物轴向/光心标定。相机安装 frame 至 optical frame 的转换与导航地面参考系仍是独立接入项，本轮仅确认并记录来源，未发布新的相机 TF 或启动运动。
+
+## 后续分辨率与频率更新
+
+2026-11-17 用户要求保持原生画面比例并尽量达到20Hz后，新增384×216有效深度、384×288网络padding配置，当前LAS2-S运行20Hz，旧640档保留。含RGB对齐的120秒实测原生/对齐均19.975Hz，详见 [低分辨率与20Hz实测](LAS2_384_20HZ.md)。本节更新本文早先640×360/5Hz的运行状态描述；相机/机身TF和完整导航运动的边界不因此改变。

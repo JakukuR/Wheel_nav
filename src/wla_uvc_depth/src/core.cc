@@ -89,13 +89,23 @@ Core::Core(Calibration calibration,Options options):m_calibration(std::move(cali
   if((m_options.rgbMode!="crop"&&m_options.rgbMode!="full")||(m_options.algorithm!="sgbm"&&m_options.algorithm!="bm"&&m_options.algorithm!="none")||
     m_options.disparities<16||m_options.disparities>=640||m_options.disparities%16||m_options.block<5||m_options.block>51||m_options.block%2==0||
     !std::isfinite(m_options.nearM)||!std::isfinite(m_options.farM)||m_options.nearM<=0||m_options.farM<=m_options.nearM||m_options.farM>65.)throw std::runtime_error("invalid_matcher_or_range");
+  if(m_options.rectifiedSize!=cv::Size(640,360) && (m_options.rectifiedSize!=cv::Size(384,216)||m_options.algorithm!="none"))throw std::runtime_error("unsupported_rectified_size");
   m_output=m_options.rgbMode=="crop"?cv::Size(640,480):cv::Size(640,360);
   const auto& cl=m_calibration.cameras[0];const auto& cr=m_calibration.cameras[1];const auto& cc=m_calibration.cameras[2];
   const auto& t=m_calibration.rightFromLeft;Rigid(t);Rigid(m_calibration.rgbFromLeft);
   cv::stereoRectify(cl.k,cl.d,cr.k,cr.d,cl.size,t(cv::Rect(0,0,3,3)),t(cv::Rect(3,0,1,3)),m_r1,m_r2,m_p1,m_p2,m_q,cv::CALIB_ZERO_DISPARITY,0.,{640,360});
   if(m_p2.at<double>(0,3)>=0||std::abs(m_p2.at<double>(1,3))>1e-5)throw std::runtime_error("requires_horizontal_positive_disparity_check_eye_order");
-  cv::initUndistortRectifyMap(cl.k,cl.d,m_r1,m_p1,{640,360},CV_32FC1,m_lx,m_ly);
-  cv::initUndistortRectifyMap(cr.k,cr.d,m_r2,m_p2,{640,360},CV_32FC1,m_rx,m_ry);
+  // Pixel-centre preserving resize of the established rectified camera. Q consumes
+  // disparity in the NEW pixel grid; never reuse the old focal length with it.
+  if(m_options.rectifiedSize!=cv::Size(640,360)){
+    const double s=m_options.rectifiedSize.width/640.;
+    cv::Mat a=(cv::Mat_<double>(3,3)<<s,0,(s-1)*.5,0,s,(s-1)*.5,0,0,1);
+    m_p1=a*m_p1;m_p2=a*m_p2;
+    cv::Mat back=(cv::Mat_<double>(4,4)<<1/s,0,0,(1/s-1)*.5,0,1/s,0,(1/s-1)*.5,0,0,1/s,0,0,0,0,1);
+    m_q=m_q*back;
+  }
+  cv::initUndistortRectifyMap(cl.k,cl.d,m_r1,m_p1,m_options.rectifiedSize,CV_32FC1,m_lx,m_ly);
+  cv::initUndistortRectifyMap(cr.k,cr.d,m_r2,m_p2,m_options.rectifiedSize,CV_32FC1,m_rx,m_ry);
   m_colorK=CropMatrix(m_output)*cc.k;
   cv::initUndistortRectifyMap(cc.k,cc.d,cv::Mat::eye(3,3,CV_64F),m_colorK,m_output,CV_32FC1,m_cx,m_cy);
   if(m_options.algorithm=="sgbm")m_matcher=cv::StereoSGBM::create(0,m_options.disparities,m_options.block,8*m_options.block*m_options.block,
@@ -112,7 +122,7 @@ std::pair<cv::Mat,cv::Mat> Core::rectify(const cv::Mat& left,const cv::Mat& righ
   cv::remap(left,l,m_lx,m_ly,cv::INTER_LINEAR);cv::remap(right,r,m_rx,m_ry,cv::INTER_LINEAR);return {l,r};
 }
 cv::Mat Core::pointsFromDisparity(const cv::Mat& disparity) const {
-  if(disparity.type()!=CV_32F||disparity.size()!=cv::Size(640,360))throw std::runtime_error("requires_640x360_float_disparity_pixels");
+  if(disparity.type()!=CV_32F||disparity.size()!=m_options.rectifiedSize)throw std::runtime_error("requires_native_rectified_float_disparity_pixels");
   cv::Mat points;cv::reprojectImageTo3D(disparity,points,m_q);
   const cv::Mat inverse_matrix=m_r1.t();const cv::Matx33d inverse_rotation(inverse_matrix);
   for(int r=0;r<points.rows;++r)for(int c=0;c<points.cols;++c) {

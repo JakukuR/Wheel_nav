@@ -6,9 +6,12 @@ source "$workspace/install/setup.bash"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}" RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
 export FASTRTPS_DEFAULT_PROFILES_FILE="${FASTRTPS_DEFAULT_PROFILES_FILE:-$workspace/config/uvc_rig/fastdds_uvc.xml}"
 model="${WLA_STEREO_MODEL:-light_ess}"
+profile="${WLA_STEREO_PROFILE:-640x384}"
 args=()
 while (($#));do
- if [[ "$1" == --model ]];then
+ if [[ "$1" == --profile ]];then
+  [[ $# -ge 2 ]] || { echo "--profile requires a value" >&2;exit 2; };profile="$2";shift 2
+ elif [[ "$1" == --model ]];then
   [[ $# -ge 2 ]] || { echo '--model requires a value' >&2;exit 2; };model="$2";shift 2
  else args+=("$1");shift;fi
 done
@@ -21,6 +24,10 @@ case "$model" in
  cfast) engine="$workspace/models/depth_comparison/c_fast_stereo_192x320_fp32.engine";;
  *) echo 'Models: light_ess (default), ess, las2_s, las2_m, lightstereo_s, cfast' >&2;exit 2;;
 esac
+if [[ "$profile" != 640x384 ]];then
+ [[ "$profile" == 384x288 && ( "$model" == las2_s || "$model" == las2_m ) ]] || { echo 'Unsupported model/profile' >&2;exit 2; }
+ engine="$workspace/models/stereo_candidates/${model}_${profile}_fp16.engine"
+fi
 mkdir -p "$workspace/.runtime"
 exec 9>"$workspace/.runtime/uvc-stereo-network.lock"
 flock -n 9 || { echo 'A stereo network already owns the output topics' >&2;exit 1; }

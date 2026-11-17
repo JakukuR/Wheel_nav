@@ -25,8 +25,8 @@ int main(int argc,char** argv){
   cv::Mat grayBgr;cv::cvtColor(gray,grayBgr,cv::COLOR_GRAY2BGR);
   Json report;report["jpeg_color_vs_gray_max"]=cv::norm(raw,grayBgr,cv::NORM_INF);
   wla::uvc::Options options;options.algorithm="none";options.rgbMode="full";
-  wla::uvc::Core core(wla::uvc::LoadCalibration(argv[2]),options);
-  wla::uvc::StereoEngine engine(argv[1],"las2_s");engine.configurePacked(core.rectifyMaps(),core.reprojectionMatrix(),core.leftR());
+  wla::uvc::StereoEngine engine(argv[1],"las2_s");options.rectifiedSize=engine.settings().content;
+  wla::uvc::Core core(wla::uvc::LoadCalibration(argv[2]),options);engine.configurePacked(core.rectifyMaps(),core.reprojectionMatrix(),core.leftR());
   cv::Mat pattern(720,2560,CV_8UC3);cv::RNG rng(8192);rng.fill(pattern,cv::RNG::UNIFORM,0,256);
   for(const auto& [name,packed]:std::vector<std::pair<std::string,cv::Mat>>{{"real_color",raw},{"real_gray",gray},{"random_color",pattern}}){
    cv::Mat left,right;cv::flip(packed(cv::Rect(1280,0,1280,720)),left,-1);cv::flip(packed(cv::Rect(0,0,1280,720)),right,-1);
@@ -35,7 +35,7 @@ int main(int argc,char** argv){
    double inputMax=0,inputSum=0;size_t inputCount=0;
    for(int eye=0;eye<2;++eye){auto expected=wla::uvc::StereoInput(eye?rect.second:rect.first,engine.settings());for(size_t i=0;i<expected.size();++i){double d=std::abs(expected[i]-inputs[eye][i]);inputMax=std::max(inputMax,d);inputSum+=d;++inputCount;}}
    const auto referencePoints=core.pointsFromDisparity(got.disparity);double xyzMax=0;size_t mismatch=0,valid=0;int depthMax=0;
-   for(int y=0;y<360;++y)for(int x=0;x<640;++x){auto a=referencePoints.at<cv::Vec3f>(y,x),b=got.points.at<cv::Vec3f>(y,x);if(std::isfinite(a[0])!=std::isfinite(b[0]))++mismatch;
+   for(int y=0;y<got.depth.rows;++y)for(int x=0;x<got.depth.cols;++x){auto a=referencePoints.at<cv::Vec3f>(y,x),b=got.points.at<cv::Vec3f>(y,x);if(std::isfinite(a[0])!=std::isfinite(b[0]))++mismatch;
     if(std::isfinite(a[0])&&std::isfinite(b[0])&&a[2]>=.15&&a[2]<=5){for(int c=0;c<3;++c)xyzMax=std::max(xyzMax,double(std::abs(a[c]-b[c])));++valid;}
     uint16_t expected=0;if(std::isfinite(a[0])&&std::isfinite(a[1])&&std::isfinite(a[2])&&a[2]>=.15&&a[2]<=5){cv::Vec3d z=cv::Matx33d(core.leftR())*cv::Vec3d(a);if(z[2]>=.15&&z[2]<=5)expected=uint16_t(std::nearbyint(z[2]*1000));}
     depthMax=std::max(depthMax,std::abs(int(expected)-int(got.depth.at<uint16_t>(y,x))));
@@ -45,7 +45,11 @@ int main(int argc,char** argv){
    report[name]=row;std::cout<<name<<": "<<row.dump()<<'\n';
    if(inputMax!=0||dispMax>.001||xyzMax>.0001||mismatch||depthMax>1)throw std::runtime_error("packed_contract_mismatch:"+name);
   }
-  const auto full=engine.inferPacked(gray).depth.clone();
+  const auto capture=engine.inferPacked(gray);
+  cv::imwrite((out/"left_rect.png").string(),capture.leftRect);cv::imwrite((out/"depth_mm.png").string(),capture.depth);
+  std::ofstream disparity(out/"disparity.bin",std::ios::binary);disparity.write(reinterpret_cast<const char*>(capture.disparity.data),capture.disparity.total()*sizeof(float));disparity.close();
+  report["width"]=capture.depth.cols;report["height"]=capture.depth.rows;
+  const auto full=capture.depth.clone();
   const auto minimal=engine.inferPacked(gray,false,false,false);
   if(!minimal.points.empty()||!minimal.leftRect.empty()||!minimal.disparity.empty()||cv::norm(full,minimal.depth,cv::NORM_INF)!=0)
     throw std::runtime_error("demand_driven_depth_contract_mismatch");
