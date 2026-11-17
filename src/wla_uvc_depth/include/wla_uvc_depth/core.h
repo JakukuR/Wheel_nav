@@ -4,6 +4,7 @@
 #include <opencv2/calib3d.hpp>
 #include <array>
 #include <string>
+#include <utility>
 
 namespace wla::uvc {
 struct Camera { cv::Mat k, d; cv::Size size; };
@@ -31,6 +32,8 @@ class Core {
   Core& operator=(Core&&)=delete;
   ~Core()=default;
   [[nodiscard]] cv::Mat color(const cv::Mat& rgb) const;
+  [[nodiscard]] std::pair<cv::Mat,cv::Mat> rectify(const cv::Mat& left,const cv::Mat& right) const;
+  [[nodiscard]] cv::Mat pointsFromDisparity(const cv::Mat& disparity) const;
   [[nodiscard]] Result depth(const cv::Mat& left,const cv::Mat& right);
   [[nodiscard]] const cv::Mat& colorK() const noexcept { return m_colorK; }
   [[nodiscard]] cv::Size outputSize() const noexcept { return m_output; }

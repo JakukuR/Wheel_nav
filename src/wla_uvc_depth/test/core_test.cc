@@ -32,6 +32,13 @@ int main() {
     Require(depth.at<uint16_t>(50,50)==2000,"RGB optical transform");
     auto invalid=Synthetic();invalid.rightFromLeft.at<double>(0,3)=.1;bool rejected=false;
     try{Core core(invalid);}catch(const std::exception&){rejected=true;}Require(rejected,"reject swapped positive-disparity order");
+    Options native;native.algorithm="none";native.rgbMode="full";Core network_geometry(Synthetic(),native);
+    cv::Mat disparity(360,640,CV_32F,cv::Scalar(20));disparity.at<float>(0,0)=0;disparity.at<float>(0,1)=std::numeric_limits<float>::quiet_NaN();
+    const auto metric=network_geometry.pointsFromDisparity(disparity);
+    Require(std::abs(metric.at<cv::Vec3f>(180,320)[2]-2.F)<.01F,"network disparity to 2m without RGB");
+    Require(!std::isfinite(metric.at<cv::Vec3f>(0,0)[0])&&!std::isfinite(metric.at<cv::Vec3f>(0,1)[0]),"invalid network disparity rejected");
+    bool disabled=false;try{network_geometry.depth(cv::Mat(720,1280,CV_8U),cv::Mat(720,1280,CV_8U));}catch(const std::exception&){disabled=true;}
+    Require(disabled,"none algorithm cannot execute classical matcher");
     const auto real=LoadCalibration(FIXTURE);Core measured(real);Require(measured.outputSize()==cv::Size(640,480),"measured rig supported");
     cv::Mat left(720,1280,CV_8U);cv::RNG rng(7);rng.fill(left,cv::RNG::UNIFORM,0,256);
     cv::Mat right=cv::Mat::zeros(left.size(),left.type());left(cv::Rect(40,0,1240,720)).copyTo(right(cv::Rect(0,0,1240,720)));

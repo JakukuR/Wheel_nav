@@ -73,3 +73,7 @@ python3 src/wla_uvc_depth/test/compare_python.py --workspace "$PWD" --output .ru
 ```
 
 原始证据保存在 `.runtime/uvc_depth_validation/{ros,reference,live_sgbm_final,live_bm}/` 以及 `.runtime/uvc_depth_*log`；本机备份目录为 `outputs/uvc_depth_cpp_20261116`。测试不构成机器人运动安全验收。
+
+## 双目网络实验
+
+原生 TensorRT 双目网络、RGB 仅染色、启动命令和实测边界见 [STEREO_NETWORK.md](STEREO_NETWORK.md)。

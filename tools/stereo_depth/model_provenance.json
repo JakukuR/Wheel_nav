@@ -1,0 +1,65 @@
+{
+  "model": "NVIDIA C-Fast-FoundationStereo bp2",
+  "source": "https://huggingface.co/nvidia/c-fast-foundationstereo",
+  "onnx_url": "https://huggingface.co/nvidia/c-fast-foundationstereo/resolve/main/onnx/c_fast_foundationstereo_bp2_dynbatch_dynhw.onnx",
+  "onnx_sha256": "2c79bbb274dc0aef687a8732b987077e9e3aa26ff9dd653141cda48c57dad5d3",
+  "engine_sha256": "16601a62eb68bc3741726b361a1b100394671d7a054632dcd575aee24efdfc12",
+  "engine_file": "models/depth_comparison/c_fast_stereo_192x320_fp32.engine",
+  "engine_build_host": "onana@192.168.50.1",
+  "tensorrt": "10.16.2",
+  "cuda": "13.2",
+  "precision": "float32_IO_TF32_allowed_no_FP16",
+  "input_names": [
+    "left_image",
+    "right_image"
+  ],
+  "input_shape": [
+    1,
+    3,
+    192,
+    320
+  ],
+  "output_name": "disparity",
+  "output_shape": [
+    1,
+    1,
+    192,
+    320
+  ],
+  "output_unit": "pixels_at_network_resolution",
+  "content_size": [
+    320,
+    180
+  ],
+  "padding": {
+    "top": 6,
+    "bottom": 6,
+    "mode": "replicate"
+  },
+  "normalize": {
+    "channel_order": "RGB",
+    "scale": 0.00392156862745098,
+    "mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "std": [
+      0.229,
+      0.224,
+      0.225
+    ]
+  },
+  "measurement_source": "lower_synchronized_monochrome_stereo",
+  "rgb_role": "optional_coloring_only",
+  "live_test": {
+    "rate_limit_hz": 2,
+    "measured_hz": 2.02,
+    "duration_s": 25,
+    "depth_cloud_colored_frames_each": 50,
+    "gpu_max_frequency_hz": 612000000,
+    "later_thermal_pause_c": 97
+  },
+  "distance_accuracy_validated": false,
+  "ground_or_control_connected": false
+}

@@ -86,7 +86,7 @@ cv::Mat ProjectDepth(const cv::Mat& points,const cv::Mat& k,const cv::Mat& trans
   return depth;
 }
 Core::Core(Calibration calibration,Options options):m_calibration(std::move(calibration)),m_options(std::move(options)) {
-  if((m_options.rgbMode!="crop"&&m_options.rgbMode!="full")||(m_options.algorithm!="sgbm"&&m_options.algorithm!="bm")||
+  if((m_options.rgbMode!="crop"&&m_options.rgbMode!="full")||(m_options.algorithm!="sgbm"&&m_options.algorithm!="bm"&&m_options.algorithm!="none")||
     m_options.disparities<16||m_options.disparities>=640||m_options.disparities%16||m_options.block<5||m_options.block>51||m_options.block%2==0||
     !std::isfinite(m_options.nearM)||!std::isfinite(m_options.farM)||m_options.nearM<=0||m_options.farM<=m_options.nearM||m_options.farM>65.)throw std::runtime_error("invalid_matcher_or_range");
   m_output=m_options.rgbMode=="crop"?cv::Size(640,480):cv::Size(640,360);
@@ -100,23 +100,38 @@ Core::Core(Calibration calibration,Options options):m_calibration(std::move(cali
   cv::initUndistortRectifyMap(cc.k,cc.d,cv::Mat::eye(3,3,CV_64F),m_colorK,m_output,CV_32FC1,m_cx,m_cy);
   if(m_options.algorithm=="sgbm")m_matcher=cv::StereoSGBM::create(0,m_options.disparities,m_options.block,8*m_options.block*m_options.block,
     32*m_options.block*m_options.block,1,0,12,100,2,cv::StereoSGBM::MODE_SGBM);
-  else {
+  else if(m_options.algorithm=="bm") {
     auto bm=cv::StereoBM::create(m_options.disparities,m_options.block);bm->setUniquenessRatio(12);bm->setSpeckleWindowSize(100);bm->setSpeckleRange(2);bm->setDisp12MaxDiff(1);m_matcher=bm;
   }
 }
 cv::Mat Core::color(const cv::Mat& rgb) const {
   CheckImage(rgb,{1920,1080});cv::Mat result;cv::remap(rgb,result,m_cx,m_cy,cv::INTER_LINEAR);return result;
 }
+std::pair<cv::Mat,cv::Mat> Core::rectify(const cv::Mat& left,const cv::Mat& right) const {
+  CheckImage(left,stereoSize());CheckImage(right,stereoSize());cv::Mat l,r;
+  cv::remap(left,l,m_lx,m_ly,cv::INTER_LINEAR);cv::remap(right,r,m_rx,m_ry,cv::INTER_LINEAR);return {l,r};
+}
+cv::Mat Core::pointsFromDisparity(const cv::Mat& disparity) const {
+  if(disparity.type()!=CV_32F||disparity.size()!=cv::Size(640,360))throw std::runtime_error("requires_640x360_float_disparity_pixels");
+  cv::Mat points;cv::reprojectImageTo3D(disparity,points,m_q);
+  const cv::Mat inverse_matrix=m_r1.t();const cv::Matx33d inverse_rotation(inverse_matrix);
+  for(int r=0;r<points.rows;++r)for(int c=0;c<points.cols;++c) {
+    auto& p=points.at<cv::Vec3f>(r,c);const float d=disparity.at<float>(r,c);
+    if(!std::isfinite(d)||d<=0||!std::isfinite(p[2])||p[2]<=0)p=cv::Vec3f(std::numeric_limits<float>::quiet_NaN(),0,0);
+    else p=cv::Vec3f(inverse_rotation*cv::Vec3d(p));
+  }
+  return points;
+}
 Result Core::depth(const cv::Mat& left,const cv::Mat& right) {
-  CheckImage(left,stereoSize());CheckImage(right,stereoSize());Result result;
-  cv::remap(left,result.left,m_lx,m_ly,cv::INTER_LINEAR);cv::remap(right,result.right,m_rx,m_ry,cv::INTER_LINEAR);
+  if(!m_matcher)throw std::runtime_error("classical_matcher_disabled");
+  auto pair=rectify(left,right);Result result;result.left=pair.first;result.right=pair.second;
   if(result.left.channels()==3)cv::cvtColor(result.left,result.left,cv::COLOR_BGR2GRAY);
   if(result.right.channels()==3)cv::cvtColor(result.right,result.right,cv::COLOR_BGR2GRAY);
   cv::Mat raw;m_matcher->compute(result.left,result.right,raw);raw.convertTo(result.disparity,CV_32F,1./16.);
+  // Keep the established double precision classical projection for its regression reference.
   cv::Mat rectified_points,points;cv::reprojectImageTo3D(result.disparity,rectified_points,m_q);
   rectified_points.convertTo(points,CV_64FC3);
-  const cv::Mat inverse_matrix=m_r1.t();
-  const cv::Matx33d inverse_rotation(inverse_matrix);
+  const cv::Mat inverse_matrix=m_r1.t();const cv::Matx33d inverse_rotation(inverse_matrix);
   for(int r=0;r<points.rows;++r)for(int c=0;c<points.cols;++c) {
     auto& p=points.at<cv::Vec3d>(r,c);
     if(result.disparity.at<float>(r,c)<=0||!std::isfinite(p[2])||p[2]<=0)p=cv::Vec3d(std::numeric_limits<double>::quiet_NaN(),0,0);

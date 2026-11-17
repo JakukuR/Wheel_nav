@@ -35,11 +35,12 @@ Image Message(const cv::Mat& array,const std_msgs::msg::Header& header,const std
   for(int i=0;i<array.rows;++i)std::memcpy(m.data.data()+static_cast<size_t>(i)*m.step,array.ptr(i),m.step);
   return m;
 }
-struct Arguments {std::string calibration;Options options;double skewMs=25.,maxRate=10.;};
+struct Arguments {std::string calibration;Options options;double skewMs=25.,maxRate=10.;bool rgbOnly=false;};
 Arguments Parse(const std::vector<std::string>& args) {
   Arguments a;a.options.rgbMode="full"; // Preserve the existing public pipeline default.
   for(size_t i=1;i<args.size();++i) {
     const auto key=args[i];
+    if(key=="--rgb-only"){a.rgbOnly=true;continue;}
     if(key=="--help")throw std::runtime_error("uvc_depth_cpp --calibration rig.yaml --rgb-mode crop|full --algorithm sgbm|bm --disparities 128 --block-size 5 --max-skew-ms 25 --max-rate 10");
     if(i+1==args.size())throw std::runtime_error("missing_option_value: "+key);
     const auto value=args[++i];
@@ -62,6 +63,7 @@ class Pipeline final:public rclcpp::Node {
     m_args.calibration=declare_parameter("calibration_file",m_args.calibration,d);
     m_args.options.rgbMode=declare_parameter("rgb_mode",m_args.options.rgbMode,d);
     m_args.options.algorithm=declare_parameter("algorithm",m_args.options.algorithm,d);
+    m_args.rgbOnly=declare_parameter("rgb_only",m_args.rgbOnly,d);
     m_args.options.disparities=declare_parameter("disparities",m_args.options.disparities,d);
     m_args.options.block=declare_parameter("block_size",m_args.options.block,d);
     m_args.options.nearM=declare_parameter("near_m",.15,d);m_args.options.farM=declare_parameter("far_m",5.,d);
@@ -81,8 +83,10 @@ class Pipeline final:public rclcpp::Node {
     m_rightPub=create_publisher<Image>("/camera/processed/right/image_rect",qos);
     m_statusPub=create_publisher<std_msgs::msg::String>("/camera/processed/status",1);
     m_rgbSub=create_subscription<Image>("/camera/dicota/color/image_raw",qos,[this](Msg m){receive(std::move(m),2);});
-    m_leftSub=create_subscription<Image>("/camera/sunplus/left/image_raw",qos,[this](Msg m){receive(std::move(m),0);});
-    m_rightSub=create_subscription<Image>("/camera/sunplus/right/image_raw",qos,[this](Msg m){receive(std::move(m),1);});
+    if(!m_args.rgbOnly) {
+      m_leftSub=create_subscription<Image>("/camera/sunplus/left/image_raw",qos,[this](Msg m){receive(std::move(m),0);});
+      m_rightSub=create_subscription<Image>("/camera/sunplus/right/image_raw",qos,[this](Msg m){receive(std::move(m),1);});
+    }
     m_timer=create_wall_timer(std::chrono::milliseconds(500),[this]{status();});
     m_worker=std::thread([this]{work();});
     RCLCPP_INFO(get_logger(),"native C++ %s, calibration=%s, RGB=%dx%d, match=640x360",m_args.options.algorithm.c_str(),m_args.calibration.empty()?"missing (2D only)":m_args.calibration.c_str(),m_output.width,m_output.height);
@@ -105,7 +109,7 @@ class Pipeline final:public rclcpp::Node {
     } else if(m_core&&Stamp(m)>m_lastPair) {
       m_pairs[Stamp(m)][eye]=m;while(m_pairs.size()>6)m_pairs.erase(m_pairs.begin());
     }
-    if(!m_core)return;
+    if(!m_core||m_args.rgbOnly)return;
     for(auto it=m_pairs.rbegin();it!=m_pairs.rend();++it) {
       if(!it->second[0]||!it->second[1])continue;
       Msg rgb;int64_t best=INT64_MAX;
@@ -166,13 +170,13 @@ class Pipeline final:public rclcpp::Node {
     const bool color_fresh=m_colorCount&&std::chrono::duration<double>(n-m_lastColor).count()<.3;
     const bool depth_fresh=m_depthCount&&std::chrono::duration<double>(n-m_lastDepth).count()<.3&&m_failure.empty();
     Json j={{"schema","wla-uvc-depth/v1"},{"backend","cpp_opencv"},{"calibrated",bool(m_core)},{"calibration_file",m_args.calibration},
-      {"algorithm",m_args.options.algorithm},{"rgb_mode",m_args.options.rgbMode},{"color_width",m_output.width},{"color_height",m_output.height},
-      {"matching_width",640},{"matching_height",360},{"depth_enabled",bool(m_core)},{"color_fresh",color_fresh},{"depth_fresh",depth_fresh},
+      {"algorithm",m_args.rgbOnly?"rgb_only":m_args.options.algorithm},{"rgb_only",m_args.rgbOnly},{"rgb_mode",m_args.options.rgbMode},{"color_width",m_output.width},{"color_height",m_output.height},
+      {"matching_width",640},{"matching_height",360},{"depth_enabled",bool(m_core)&&!m_args.rgbOnly},{"color_fresh",color_fresh},{"depth_fresh",depth_fresh},
       {"max_host_skew_ms",m_args.skewMs},{"max_rate",m_args.maxRate},{"near_m",m_args.options.nearM},{"far_m",m_args.options.farM},
       {"depth_encoding","16UC1_mm_zero_invalid"},{"timestamp_source","host_capture_receive_not_hardware_exposure"},
       {"cross_camera_sync","approximate_host_receive"},{"mount_tf_published_by_this_node",false},
       {"color_frames",m_colorCount},{"depth_frames",m_depthCount},{"metrics",m_metrics},
-      {"reason",!m_failure.empty()?m_failure:!m_core?"missing_calibration_2d_only":!m_depthCount?"waiting_for_synced_frames":!depth_fresh?"stale_depth":"calibrated_software_only"}};
+      {"reason",!m_failure.empty()?m_failure:m_args.rgbOnly?"stereo_disabled_RGB_only":!m_core?"missing_calibration_2d_only":!m_depthCount?"waiting_for_synced_frames":!depth_fresh?"stale_depth":"calibrated_software_only"}};
     std_msgs::msg::String message;message.data=j.dump();m_statusPub->publish(message);
   }
   Arguments m_args;cv::Size m_output;std::unique_ptr<Core> m_core;
