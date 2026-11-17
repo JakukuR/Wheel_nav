@@ -13,6 +13,26 @@ int main(){try{
     Require(std::abs(input[2*plane]-(-.406F)/.225F)<1e-6,"blue channel normalization");
     Require(input[0]==input[plane-1],"replicated pad preserves boundary content");
   }
+  for(const std::string key:{"light_ess","ess","las2_s","lightstereo_s"}){
+    const auto model=wla::uvc::ModelSettings(key);const auto input=wla::uvc::StereoInput(bgr,model);const size_t plane=model.network.area();
+    Require(input.size()==plane*3,"model CHW shape");
+    if(key=="light_ess"||key=="ess"){
+      Require(std::abs(input[0]-1.F)<1e-6&&std::abs(input[2*plane]+1.F)<1e-6,"ESS RGB minus-one-one normalization");
+    }else if(key=="las2_s")Require(input[0]==255.F&&input[2*plane]==0.F,"LAS2 raw RGB normalization");
+    cv::Mat output(model.network,CV_32F,cv::Scalar(8.F*model.content.width/640.F));
+    cv::Mat confidence(model.network,CV_32F,cv::Scalar(1));
+    const auto d=wla::uvc::StereoOutput(output,confidence,model);
+    Require(d.size()==cv::Size(640,360)&&std::abs(d.at<float>(180,320)-8.F)<1e-5,"disparity resize uses horizontal pixel scale");
+    confidence.setTo(.1F);output.setTo(12.F);
+    const auto masked=wla::uvc::StereoOutput(output,confidence,model);
+    if(!model.confidence.empty())Require(cv::countNonZero(masked)==0,"ESS low-confidence depth remains invalid");
+    confidence.setTo(1.F);output.setTo(0.F);
+    Require(cv::countNonZero(wla::uvc::StereoOutput(output,confidence,model))==0,"zero disparity remains invalid");
+  }
+  auto ess=wla::uvc::ModelSettings("light_ess");cv::Mat holes(ess.network,CV_32F,cv::Scalar(10.F)),conf(ess.network,CV_32F,cv::Scalar(1.F));
+  conf(cv::Rect(200,100,20,20)).setTo(.1F);
+  const auto hole=wla::uvc::StereoOutput(holes,conf,ess);
+  Require(hole.at<float>(137,280)==0.F&&hole.at<float>(40,40)>0,"confidence holes are not filled by resize");
   bool rejected=false;try{auto bad=wla::uvc::StereoInput(cv::Mat(480,640,CV_8UC3));(void)bad;}catch(const std::exception&){rejected=true;}
   Require(rejected,"uncalibrated input dimensions rejected");
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}std::cout<<"stereo input contract passed\n";return 0;}

@@ -21,7 +21,12 @@ node.create_subscription(CompressedImage,'/test/stereo/depth/compressed',lambda 
 node.create_subscription(String,'/camera/stereo/status',lambda m:status.append(json.loads(m.data)),1)
 images=[cv2.imread(str(ROOT/'.runtime'/f'{name}.png')) for name in ('left','right')]
 if any(a is None or a.shape!=(720,1280,3) for a in images):raise RuntimeError('missing full-resolution reference stereo pair')
-cmd=[str(ROOT/'install/wla_uvc_depth/lib/wla_uvc_depth/uvc_stereo_trt'),'--engine',str(ROOT/'models/depth_comparison/c_fast_stereo_192x320_fp32.engine'),'--calibration',str(ROOT/'config/uvc_rig/calibrated_20261116/rig.yaml'),'--max-rate','2']
+model=os.environ.get('WLA_STEREO_TEST_MODEL','light_ess')
+ess=ROOT/'models/dnn_stereo_disparity_v4.1.0_onnx_trt10.16'
+paths={'light_ess':ess/'light_ess_fp16.engine','ess':ess/'ess_fp16.engine','cfast':ROOT/'models/depth_comparison/c_fast_stereo_192x320_fp32.engine'}
+cmd=[str(ROOT/'install/wla_uvc_depth/lib/wla_uvc_depth/uvc_stereo_trt'),'--model',model,'--engine',str(paths[model]),'--calibration',str(ROOT/'config/uvc_rig/calibrated_20261116/rig.yaml'),'--max-rate','2']
+if model in ('light_ess','ess'):cmd+=['--plugin',str(ess/'plugins/aarch64/ess_plugins.so')]
+
 log=(ROOT/'.runtime/stereo_ros_test.log').open('w')
 jpeg_processes.append(subprocess.Popen([str(ROOT/'install/wla_r680_navigation/lib/wla_r680_navigation/kalo_jpeg'),'--ros-args','-r','__node:=contract_depth_jpeg','-p','input_topic:=/camera/stereo/depth/preview','-p','output_topic:=/test/stereo/depth/compressed','-p','max_rate:=5.0'],stdout=log,stderr=subprocess.STDOUT,start_new_session=True))
 proc=subprocess.Popen(cmd,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
@@ -56,7 +61,7 @@ try:
  baseline=len(seen);pump(2,'mismatch');assert len(seen)==baseline,'mismatched stereo timestamps accepted'
  pump(2,'stale');assert len(seen)==baseline,'stale source accepted'
  result={'depth_jpeg_frames':len(previews),'depth_without_rgb_passed':True,'coloring_passed':True,'colored_clouds':len(colored),'depth_frames':len(seen),'cloud_frames':len(clouds),'last_cloud_points':c.width,'valid_depth_fraction':float(np.count_nonzero(z)/z.size),'exact_pairing_passed':True,'stale_rejection_passed':True,'status':status[-1] if status else {}}
- (ROOT/'.runtime/stereo_ros_test.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result))
+ (ROOT/f'.runtime/stereo_ros_test_{model}.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result))
 finally:
  os.killpg(proc.pid,signal.SIGINT)
  try:proc.wait(timeout=5)

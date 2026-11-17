@@ -36,12 +36,12 @@ Image Message(const cv::Mat& a,const std_msgs::msg::Header& h,const std::string&
   for(int y=0;y<a.rows;++y)std::memcpy(m.data.data()+size_t(y)*m.step,a.ptr(y),m.step);
   return m;
 }
-struct Args {std::string engine,rig;double rate=10;bool color=true;};
+struct Args {std::string engine,rig,model="cfast",plugin;double rate=10;bool color=true;};
 Args Parse(const std::vector<std::string>& args){
   Args a;for(size_t i=1;i<args.size();++i){
     const auto key=args[i];if(key=="--no-color"){a.color=false;continue;}
-    if(i+1==args.size())throw std::runtime_error("uvc_stereo_trt --engine file --calibration rig.yaml [--max-rate 10] [--no-color]");
-    const auto v=args[++i];if(key=="--engine")a.engine=v;else if(key=="--calibration")a.rig=v;else if(key=="--max-rate")a.rate=std::stod(v);else throw std::runtime_error("unknown_option:"+key);
+    if(i+1==args.size())throw std::runtime_error("uvc_stereo_trt --model light_ess|ess|las2_s|lightstereo_s|cfast --engine file [--plugin lib] --calibration rig.yaml [--max-rate 10] [--no-color]");
+    const auto v=args[++i];if(key=="--model")a.model=v;else if(key=="--plugin")a.plugin=v;else if(key=="--engine")a.engine=v;else if(key=="--calibration")a.rig=v;else if(key=="--max-rate")a.rate=std::stod(v);else throw std::runtime_error("unknown_option:"+key);
   }
   if(a.engine.empty()||a.rig.empty()||!std::isfinite(a.rate)||a.rate<=0||a.rate>15)throw std::runtime_error("invalid_stereo_arguments");
   return a;
@@ -49,7 +49,7 @@ Args Parse(const std::vector<std::string>& args){
 Options GeometryOptions(){Options o;o.algorithm="none";o.rgbMode="full";return o;}
 class StereoNode final:public rclcpp::Node {
  public:
-  explicit StereoNode(Args args):Node("uvc_stereo_network"),m_args(std::move(args)),m_calibration(LoadCalibration(m_args.rig)),m_geometry(m_calibration,GeometryOptions()),m_engine(m_args.engine){
+  explicit StereoNode(Args args):Node("uvc_stereo_network"),m_args(std::move(args)),m_calibration(LoadCalibration(m_args.rig)),m_geometry(m_calibration,GeometryOptions()),m_engine(m_args.engine,m_args.model,m_args.plugin){
     cv::setNumThreads(1);const auto qos=rclcpp::SensorDataQoS().keep_last(2);
     m_depth=create_publisher<Image>("/camera/stereo/depth/image_raw",qos);
     m_disparity=create_publisher<Image>("/camera/stereo/disparity/image_raw",qos);
@@ -159,7 +159,7 @@ class StereoNode final:public rclcpp::Node {
     const bool temperatures_available=bool(cpu>>cpu_temp)&&bool(gpu>>gpu_temp);cpu_temp*=.001;gpu_temp*=.001;
     if(temperatures_available&&std::max(cpu_temp,gpu_temp)>=97.)m_thermalPause.store(true);
     std::lock_guard lock(m_mutex);const bool fresh=!m_thermalPause.load()&&m_count&&std::chrono::duration<double>(Clock::now()-m_last).count()<.5&&m_failure.empty();
-    Json j={{"schema","wla-stereo-network/v1"},{"thermal_paused",m_thermalPause.load()},{"temperature_available",temperatures_available},{"cpu_c",cpu_temp},{"gpu_c",gpu_temp},{"thermal_stop_c",97},{"backend","cpp_tensorrt"},{"model","C-Fast-FoundationStereo"},{"engine",m_args.engine},{"calibration_file",m_args.rig},{"depth_source","synchronized_lower_stereo"},{"rgb_role","optional_coloring_only"},{"classical_matcher_enabled",false},{"matching_width",m_engine.networkSize().width},{"matching_height",m_engine.networkSize().width*360/640},{"output_width",640},{"output_height",360},{"network_width",m_engine.networkSize().width},{"network_height",m_engine.networkSize().height},{"padding_top",m_engine.networkSize().width/640.*12},{"padding_bottom",m_engine.networkSize().width/640.*12},{"near_m",.15},{"far_m",5},{"depth_fresh",fresh},{"depth_frames",m_count},{"max_rate",m_args.rate},{"timestamp_source","host_receive_stereo_pair_shared_stamp"},{"color_sync","approximate_host_receive_25ms_not_hardware_exposure"},{"point_cloud_frame","sunplus_left_optical_frame"},{"point_cloud_stride",2},{"ground_filter_enabled",false},{"obstacle_control_connected",false},{"metrics",m_metrics},{"reason",m_thermalPause.load()?"thermal_pause_restart_after_cooling":!m_failure.empty()?m_failure:fresh?"experimental_calibrated_stereo":"waiting_for_fresh_stereo"}};
+    Json j={{"schema","wla-stereo-network/v1"},{"thermal_paused",m_thermalPause.load()},{"temperature_available",temperatures_available},{"cpu_c",cpu_temp},{"gpu_c",gpu_temp},{"thermal_stop_c",97},{"backend","cpp_tensorrt"},{"model",m_engine.settings().name},{"model_key",m_args.model},{"confidence_threshold",m_engine.settings().confidenceThreshold},{"engine",m_args.engine},{"calibration_file",m_args.rig},{"depth_source","synchronized_lower_stereo"},{"rgb_role","optional_coloring_only"},{"classical_matcher_enabled",false},{"matching_width",m_engine.settings().content.width},{"matching_height",m_engine.settings().content.height},{"output_width",640},{"output_height",360},{"network_width",m_engine.networkSize().width},{"network_height",m_engine.networkSize().height},{"padding_top",m_engine.settings().padTop},{"padding_bottom",m_engine.settings().padBottom},{"near_m",.15},{"far_m",5},{"depth_fresh",fresh},{"depth_frames",m_count},{"max_rate",m_args.rate},{"timestamp_source","host_receive_stereo_pair_shared_stamp"},{"color_sync","approximate_host_receive_25ms_not_hardware_exposure"},{"point_cloud_frame","sunplus_left_optical_frame"},{"point_cloud_stride",2},{"ground_filter_enabled",false},{"obstacle_control_connected",false},{"metrics",m_metrics},{"reason",m_thermalPause.load()?"thermal_pause_restart_after_cooling":!m_failure.empty()?m_failure:fresh?"experimental_calibrated_stereo":"waiting_for_fresh_stereo"}};
     std_msgs::msg::String msg;msg.data=j.dump();m_status->publish(msg);
   }
   std::atomic_bool m_thermalPause{false};

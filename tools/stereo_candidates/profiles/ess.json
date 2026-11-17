@@ -1,0 +1,18 @@
+{
+  "model": "Full ESS",
+  "engine": "models/dnn_stereo_disparity_v4.1.0_onnx_trt10.16/ess_fp16.engine",
+  "plugin": "models/dnn_stereo_disparity_v4.1.0_onnx_trt10.16/plugins/aarch64/ess_plugins.so",
+  "width": 960,
+  "height": 576,
+  "content_width": 960,
+  "content_height": 576,
+  "pad_top": 0,
+  "pad_bottom": 0,
+  "input_left": "input_left",
+  "input_right": "input_right",
+  "output_disparity": "output_left",
+  "output_confidence": "output_conf",
+  "confidence_threshold": 0.4,
+  "normalization": "minus_one_one",
+  "bf_640": 17.288570242494362
+}

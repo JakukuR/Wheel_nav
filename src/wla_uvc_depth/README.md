@@ -1,5 +1,7 @@
 # C++ 双目深度与 RGB 对齐（2026-11-16）
 
+> 2026-11-17：当前默认深度实验为 Light ESS FP16，启动、网页和最新状态见 [STEREO_NETWORK.md](STEREO_NETWORK.md)。下文为保留的 OpenCV BM/SGBM 独立基线记录；其三栏旧页面描述不代表当前五栏双目网络页面。两条深度链路不要并行运行。
+
 当前已在 Orin 运行原生 C++20 `wla_uvc_depth/uvc_depth_cpp`：双目校正 640×360 → BM/SGBM → 米制三维点 → 原始左目 optical → RGB optical → 去畸变裁切后的 RGB 网格。本轮无电机、跟随任务、导航或 TF 发布。标定是初版，实际距离精度尚未用尺测量验收。
 
 ## 启动与停止
