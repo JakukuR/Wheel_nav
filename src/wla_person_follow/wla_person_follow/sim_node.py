@@ -156,6 +156,7 @@ class FollowEngine:
         self.done = False
         self.result = None
         self.map_result = None
+        self.raw_l4_clearance = None
         self.map_frame = None  # newest map frame a control-rate replan may use
         self.terrain_clouds = deque(maxlen=6)  # (stamp_ns, frame_id, base-frame obstacle points)
         self.last_plan_at = -math.inf
@@ -556,17 +557,27 @@ class FollowEngine:
                 depth=depth_meters(msg)
                 valid=np.isfinite(depth)&(depth>=self.p['depth_min_m'])&(depth<=self.p['depth_max_m'])
                 h,w=valid.shape;front=valid[int(h*.35):max(int(h*.8),int(h*.35)+1),int(w*.3):max(int(w*.7),int(w*.3)+1)]
-                if np.mean(valid)<self.p['camera_min_valid_fraction'] or not front.size or np.mean(front)<self.p['camera_front_min_valid_fraction']:
-                    if person and active:
-                        self._coverage_recovery(key,stamp_ns(msg),valid_until)
-                        continue
-                    raise ValueError('insufficient_depth_coverage')
                 l4_clearance = None
                 if os.environ.get('KALO_L4_CLEARANCE', '1') == '1':
                     from .l4_clearance import packet_from_depth as l4_packet_from_depth, with_controller_prior
                     l4_clearance = l4_packet_from_depth(depth, info.k, r, trans, pose,
                         stamp_ns=stamp_ns(msg), pose_stamp_ns=stamp_ns(msg), follow_session=self.follow_session,
                         reference_generation=key[-1], transport_generation=transport_generation)
+                    prior = None
+                    if self.p['local_assumed_free_radius_m'] > 0:
+                        prior = dict(source='operator_assumed_robot_free', state='continuous',
+                            center_odom=np.asarray(pose[:2]).tolist(), radius_m=self.p['local_assumed_free_radius_m'],
+                            reference_generation=key[-1])
+                    l4_clearance['native_coverage'] = dict(valid_fraction=float(np.mean(valid)),
+                        front_fraction=float(np.mean(front)) if front.size else 0.,
+                        valid_min=self.p['camera_min_valid_fraction'],
+                        front_min=self.p['camera_front_min_valid_fraction'])
+                    self.raw_l4_clearance = with_controller_prior(l4_clearance, prior)
+                if np.mean(valid)<self.p['camera_min_valid_fraction'] or not front.size or np.mean(front)<self.p['camera_front_min_valid_fraction']:
+                    if person and active:
+                        self._coverage_recovery(key,stamp_ns(msg),valid_until)
+                        continue
+                    raise ValueError('insufficient_depth_coverage')
                 if self.p['depth_speckle_max_px']>0:
                     depth=drop_depth_speckles(depth,self.p['depth_speckle_max_px'],self.p['depth_speckle_diff_m'])
                 # Transform measurements at acquisition time, but control from
@@ -784,8 +795,10 @@ class FollowEngine:
                             center_odom=np.asarray(pose[:2]).tolist(), radius_m=self.p['startup_clear_radius_m'],
                             reference_generation=key[-1], state='pending_native_activation')
                     if prior is not None:
-                        prior = dict(prior, reference_generation=key[-1])
-                    result['l4_clearance'] = with_controller_prior(l4_clearance, prior)
+                        prior = dict(prior)
+                        prior.setdefault('reference_generation', key[-1])
+                    result['l4_clearance'] = with_controller_prior(l4_clearance, prior,
+                        grid=result['grid'], map_lower=result['map_lower'], resolution=result['resolution'])
                 with self.guard:
                     self.computation_diagnostic=dict(key=key,control_stamp_s=control_stamp,
                         depth_stamp_ns=stamp_ns(msg),target_mask=deepcopy(mask_status),
@@ -1156,6 +1169,8 @@ class FollowEngine:
                     pose_source='LocalMotion wheel-twist integration; not global localization'),
                 actual_published_command=dict(linear_mps=float(actual[0]),angular_rps=float(actual[1])),
                 diagnostics=detail)
+            if self.raw_l4_clearance is not None:
+                state['l4_clearance'] = self.raw_l4_clearance
             if self.map_result is not None and self.map_result.get('l4_clearance') is not None:
                 state['l4_clearance'] = self.map_result['l4_clearance']
                 if len(json.dumps(state, allow_nan=False).encode()) > 110000:

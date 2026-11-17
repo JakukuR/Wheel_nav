@@ -19,7 +19,7 @@ def packet_from_depth(depth, k, rotation, translation, pose, *, stamp_ns, pose_s
                       follow_session, reference_generation, transport_generation):
     """Project unmasked, unfiltered first returns in the measured wheel reference."""
     size, cell = 30, .05
-    origin = np.asarray(pose[:2], dtype=float)-size*cell/2
+    origin = np.floor((np.asarray(pose[:2], dtype=float)-size*cell/2)/cell)*cell
     data = np.asarray(depth, dtype=float)[::8, ::8]
     v, u = np.indices(data.shape)
     z = data.ravel()
@@ -64,10 +64,22 @@ def packet_from_depth(depth, k, rotation, translation, pose, *, stamp_ns, pose_s
         obstacle_returns_unmasked=True, floor_hits=floor, measured_clear=measured, blocked=blocked)
 
 
-def with_controller_prior(packet, prior):
+def with_controller_prior(packet, prior, *, grid=None, map_lower=None, resolution=None):
     """Preserve the controller's declared prior without promoting it to a measurement."""
     result = dict(packet)
     result['controller_prior'] = prior
+    if grid is not None and resolution == packet['cell_m']:
+        width = packet['width']
+        offset = np.rint(np.asarray(packet['origin_xy'])/resolution).astype(int)-np.asarray(map_lower, dtype=int)
+        indices = np.indices((width, width)).reshape(2, -1).T
+        native = indices+offset
+        valid = ((native >= 0) & (native < np.asarray(grid).shape)).all(1)
+        indices, native = indices[valid], native[valid]
+        values = np.asarray(grid)[native[:, 0], native[:, 1]]
+        result['controller_map'] = dict(source='native_mode3_local_grid_mixed',
+            origin_xy=packet['origin_xy'], cell_m=resolution, depth_stamp_ns=packet['depth_stamp_ns'],
+            reference_generation=packet['reference_generation'],
+            free=indices[values == 0].tolist(), blocked=indices[values == 100].tolist())
     if len(json.dumps(result, separators=(',', ':')).encode()) > 40000:
         return dict(status='unavailable', reason='clearance_packet_budget_exceeded',
                     depth_stamp_ns=packet['depth_stamp_ns'])
