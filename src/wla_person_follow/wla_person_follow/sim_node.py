@@ -157,6 +157,8 @@ class FollowEngine:
         self.result = None
         self.map_result = None
         self.raw_l4_clearance = None
+        from .l4_clearance import ObservedObstacles
+        self.l4_obstacle_memory = ObservedObstacles()
         self.map_frame = None  # newest map frame a control-rate replan may use
         self.terrain_clouds = deque(maxlen=6)  # (stamp_ns, frame_id, base-frame obstacle points)
         self.last_plan_at = -math.inf
@@ -754,6 +756,13 @@ class FollowEngine:
                 mask_status['target_ghost_radius_m']=self.p['target_ghost_clear_radius_m']
                 mask_status['target_ghost_clear_enabled']=self.p['target_ghost_clear_enabled']
                 mask_status['target_ghost_clear_ttl_s']=self.p['target_ghost_clear_ttl_s']
+                # Keep repeated raw obstacles in the same wheel reference both
+                # while observing at rest and across mode3 request replacement.
+                if l4_clearance is not None and (not active or mode == MODE_POINT_GOAL):
+                    self.l4_obstacle_memory.update(l4_clearance, keep_radius_m=4.)
+                    retained = self.l4_obstacle_memory.marks()
+                    if len(retained):
+                        packet['marking_points_odom'] = np.vstack((packet['marking_points_odom'], retained))
                 frontend_ms=(time.monotonic()-frontend_begun)*1000.
                 packets=[(stamp,packet)]
                 # Optional anonymous ToF points: no packets or inferred clear
@@ -815,7 +824,8 @@ class FollowEngine:
                         prior = dict(prior)
                         prior.setdefault('reference_generation', key[-1])
                     result['l4_clearance'] = with_controller_prior(l4_clearance, prior,
-                        grid=result['grid'], map_lower=result['map_lower'], resolution=result['resolution'], cloud=packet)
+                        grid=result['grid'], map_lower=result['map_lower'], resolution=result['resolution'], cloud=packet,
+                        observed_free=result['observed_free'])
                 with self.guard:
                     self.computation_diagnostic=dict(key=key,control_stamp_s=control_stamp,
                         depth_stamp_ns=stamp_ns(msg),target_mask=deepcopy(mask_status),

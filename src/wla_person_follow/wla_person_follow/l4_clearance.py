@@ -16,6 +16,58 @@ CALIBRATION = 'floor_tf_sampling_candidate_v1'
 BANDS = {'low': (.08, .25), 'middle': (.25, .45), 'high': (.45, .65)}
 
 
+class ObservedObstacles:
+    """Remember repeated unmasked hits in the wheel frame through task changes.
+
+    Missing returns, a map TTL, or one ray over a low obstacle cannot clear a hit.
+    Retire it only after consecutive floor and height-band evidence for that cell.
+    """
+
+    def __init__(self):
+        self.reference = None
+        self.stamp = 0
+        self.blocked = set()
+        self.previous_hits = set()
+        self.clears = {}
+
+    def update(self, packet, *, keep_radius_m):
+        reference = (packet['follow_session'], packet['reference_generation'],
+                     packet['calibration_sha256'], packet['cell_m'])
+        if reference != self.reference:
+            self.__init__()
+            self.reference = reference
+        if packet['depth_stamp_ns'] <= self.stamp:
+            return
+        if packet['depth_stamp_ns']-self.stamp > 450_000_000:
+            self.previous_hits.clear()
+            self.clears.clear()
+        self.stamp = packet['depth_stamp_ns']
+        cell = packet['cell_m']
+        x, y = (round(v/cell) for v in packet['origin_xy'])
+
+        def world(values):
+            return {(x+i, y+j) for i, j in values}
+
+        hits = world(packet['blocked'])
+        clear = world(packet['floor_hits'])
+        for band in BANDS:
+            clear.intersection_update(world(packet['measured_clear'][band]))
+        self.blocked.update(hits & self.previous_hits)
+        self.previous_hits = hits
+        self.clears = {q: self.clears.get(q, 0)+1 for q in (self.blocked & clear)-hits}
+        px, py = packet['observed_pose'][:2]
+        self.blocked = {q for q in self.blocked if self.clears.get(q, 0) < 3
+                        and abs((q[0]+.5)*cell-px) <= keep_radius_m
+                        and abs((q[1]+.5)*cell-py) <= keep_radius_m}
+
+    def marks(self):
+        if self.reference is None:
+            return np.empty((0, 3))
+        cell = self.reference[-1]
+        return np.asarray([((x+.5)*cell, (y+.5)*cell, .15)
+                           for x, y in sorted(self.blocked)], dtype=float).reshape(-1, 3)
+
+
 def current_packet(raw, mapped):
     """A successful old map must not hide a newer raw acquisition/coverage failure."""
     if mapped is None:
@@ -92,7 +144,8 @@ def packet_from_depth(depth, k, rotation, translation, pose, *, stamp_ns, pose_s
         obstacle_returns_unmasked=True, floor_hits=floor, measured_clear=measured, blocked=blocked)
 
 
-def with_controller_prior(packet, prior, *, grid=None, map_lower=None, resolution=None, cloud=None):
+def with_controller_prior(packet, prior, *, grid=None, map_lower=None, resolution=None, cloud=None,
+                          observed_free=None):
     """Preserve the controller's declared prior without promoting it to a measurement."""
     result = dict(packet)
     result['controller_prior'] = prior
@@ -105,6 +158,16 @@ def with_controller_prior(packet, prior, *, grid=None, map_lower=None, resolutio
             reference_generation=packet['reference_generation'],
             free_bits=base64.b64encode(np.packbits((values == 0).ravel()).tobytes()).decode(),
             blocked_bits=base64.b64encode(np.packbits((values == 100).ravel()).tobytes()).decode())
+        if observed_free is not None:
+            observed_free = np.asarray(observed_free, dtype=bool)
+            if observed_free.shape != values.shape:
+                raise ValueError('Observed free space does not match the controller grid')
+            result['controller_map']['stop_guard'] = dict(
+                schema='kalo-mode3-stop-grid/v1',
+                follow_session=packet['follow_session'],
+                transport_generation=packet['transport_generation'],
+                observed_free_bits=base64.b64encode(
+                    np.packbits((observed_free & (values == 0)).ravel()).tobytes()).decode())
         if cloud is not None and len(cloud['points']):
             from _wla_sim_geometry import ray_slots
             lower = np.asarray(cloud['points'])[:, 2] <= cloud['origin'][2]+.02

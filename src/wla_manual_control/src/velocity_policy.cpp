@@ -190,9 +190,9 @@ bool VelocityPolicy::person_input(const json & message, double t, int64_t now_ns
   return true;
 }
 
-json VelocityPolicy::mode3_output_trace(const Velocity & published, int64_t stamp_ns) const
+json VelocityPolicy::mode3_output_trace(const Velocity & published, int64_t stamp_ns, bool include_zero) const
 {
-  if (output_source != "PERSON" || (published.first == 0. && published.second == 0.)) {return nullptr;}
+  if (output_source != "PERSON" || (!include_zero && published.first == 0. && published.second == 0.)) {return nullptr;}
   const auto it = commands.find("PERSON");
   const auto stamp = last_stamps.find("PERSON");
   if (it == commands.end() || stamp == last_stamps.end() || stamp->second > stamp_ns) {return nullptr;}
