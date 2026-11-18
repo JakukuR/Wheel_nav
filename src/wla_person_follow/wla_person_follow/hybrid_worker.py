@@ -7,6 +7,7 @@ one acknowledged slot per direction; there is no frame queue behind the solver.
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import json
+import math
 import logging
 import mmap
 import os
@@ -190,6 +191,15 @@ class WorkerTransport:
                      valid_until=result['valid_until'] if result else 0., generated_at=time.monotonic(),
                      permitted=bool(status['motion_permitted']),
                      linear=float(self.candidate.get('linear', 0.)), angular=float(self.candidate.get('angular', 0.)))
+        if (result and proof['permitted'] and result['key'][:2] == (proof['request_id'], '3')
+                and self.candidate.get('request_id') == proof['request_id']
+                and self.candidate.get('follow_session') == status.get('follow_session')
+                and self.candidate.get('stamp_ns') == status.get('stamp_ns')):
+            pose = result.get('pose')
+            pose_stamp = result.get('control_stamp_ns')
+            if (pose is not None and len(pose) == 3 and type(pose_stamp) is int and pose_stamp > 0
+                    and all(math.isfinite(value) for value in pose)):
+                proof['mode3_control_pose'] = dict(stamp_ns=pose_stamp, xy_yaw=[float(value) for value in pose])
         if text is None:
             self.send(dict(kind='result', proof=proof, status=status, preview=self.preview))
             return

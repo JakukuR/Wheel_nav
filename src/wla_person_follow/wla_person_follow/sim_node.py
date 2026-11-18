@@ -64,7 +64,7 @@ TARGET_CLUSTER_MAX_AGE_S=.5
 # wla_terrain_analysis cloud matched to a depth frame (same camera frames, ~10 Hz).
 TERRAIN_MATCH_NS=150_000_000
 # Exploration primitives (modes 3/4): arrival bands on the wheel pose.
-POINT_ARRIVAL_M=.15
+POINT_ARRIVAL_M=.03
 ORIENT_ARRIVAL_RAD=.08
 
 
@@ -568,12 +568,29 @@ class FollowEngine:
                         prior = dict(source='operator_assumed_robot_free', state='continuous',
                             center_odom=np.asarray(pose[:2]).tolist(), radius_m=self.p['local_assumed_free_radius_m'],
                             reference_generation=key[-1])
+                    from .l4_clearance import coverage_decision
+                    coverage_ok, coverage_policy = coverage_decision(float(np.mean(valid)),
+                        float(np.mean(front)) if front.size else 0., valid_min=self.p['camera_min_valid_fraction'],
+                        front_min=self.p['camera_front_min_valid_fraction'], active=active, mode=key[1],
+                        map_exploration=os.environ.get('KALO_L4_MAP_EXPLORATION') == '1')
+                    from .task_modes import POINT_GOAL_MAX_M
+                    from .sim_runtime import POINT_GOAL_MAX_V
+                    l4_clearance['capabilities'] = dict(goal_max_m=POINT_GOAL_MAX_M,
+                        arrival_m=POINT_ARRIVAL_M, radius_m=self.model_tuning['radius'],
+                        margin_m=self.model_tuning['margin'],
+                        point_max_v_mps=POINT_GOAL_MAX_V, max_turn_rps=self.model_tuning['max_w'],
+                        linear_accel_mps2=self.model_tuning['accel'],
+                        angular_accel_rps2=self.model_tuning['yaw_accel'],
+                        planning_horizon_s=self.model_tuning['step']*self.model_tuning['horizon'],
+                        view_half_angle_rad=math.atan(msg.width/(2*info.k[0])), map_max_age_s=self.p['map_max_age_s'])
                     l4_clearance['native_coverage'] = dict(valid_fraction=float(np.mean(valid)),
                         front_fraction=float(np.mean(front)) if front.size else 0.,
                         valid_min=self.p['camera_min_valid_fraction'],
-                        front_min=self.p['camera_front_min_valid_fraction'])
+                        front_min=self.p['camera_front_min_valid_fraction'], policy=coverage_policy)
                     self.raw_l4_clearance = with_controller_prior(l4_clearance, prior)
-                if np.mean(valid)<self.p['camera_min_valid_fraction'] or not front.size or np.mean(front)<self.p['camera_front_min_valid_fraction']:
+                if not (coverage_ok if l4_clearance is not None else
+                        np.mean(valid)>=self.p['camera_min_valid_fraction'] and front.size
+                        and np.mean(front)>=self.p['camera_front_min_valid_fraction']):
                     if person and active:
                         self._coverage_recovery(key,stamp_ns(msg),valid_until)
                         continue
@@ -798,7 +815,7 @@ class FollowEngine:
                         prior = dict(prior)
                         prior.setdefault('reference_generation', key[-1])
                     result['l4_clearance'] = with_controller_prior(l4_clearance, prior,
-                        grid=result['grid'], map_lower=result['map_lower'], resolution=result['resolution'])
+                        grid=result['grid'], map_lower=result['map_lower'], resolution=result['resolution'], cloud=packet)
                 with self.guard:
                     self.computation_diagnostic=dict(key=key,control_stamp_s=control_stamp,
                         depth_stamp_ns=stamp_ns(msg),target_mask=deepcopy(mask_status),

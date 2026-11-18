@@ -5,6 +5,7 @@ Startup prior is carried separately and is never counted as measured free space.
 """
 
 import hashlib
+import base64
 import json
 import math
 import numpy as np
@@ -21,7 +22,25 @@ def current_packet(raw, mapped):
         return raw
     if raw is None or mapped.get('depth_stamp_ns', 0) >= raw.get('depth_stamp_ns', 0):
         return mapped
+    if (mapped.get('controller_map') is not None
+            and (mapped.get('follow_session'), mapped.get('reference_generation')) ==
+                (raw.get('follow_session'), raw.get('reference_generation'))):
+        # Keep both acquisition times: fresh raw obstacles plus the latest native
+        # map, whose own timestamp/TTL remain unchanged.
+        return dict(raw, controller_map=mapped['controller_map'])
     return raw
+
+
+def coverage_decision(valid_fraction, front_fraction, *, valid_min, front_min,
+                      map_exploration=False, active=False, mode=''):
+    """Map updates use valid returns, not a whole-image fill ratio.
+
+    Native mode3/4 still require a current feasible controller result before output.
+    Other active tasks retain their existing aggregate-coverage policy.
+    """
+    mapping = map_exploration and valid_fraction > 0. and (not active or mode in {'3', '4'})
+    native = valid_fraction >= valid_min and front_fraction >= front_min
+    return native or mapping, 'map_exploration' if mapping else 'native_coverage'
 
 
 def packet_from_depth(depth, k, rotation, translation, pose, *, stamp_ns, pose_stamp_ns,
@@ -73,23 +92,27 @@ def packet_from_depth(depth, k, rotation, translation, pose, *, stamp_ns, pose_s
         obstacle_returns_unmasked=True, floor_hits=floor, measured_clear=measured, blocked=blocked)
 
 
-def with_controller_prior(packet, prior, *, grid=None, map_lower=None, resolution=None):
+def with_controller_prior(packet, prior, *, grid=None, map_lower=None, resolution=None, cloud=None):
     """Preserve the controller's declared prior without promoting it to a measurement."""
     result = dict(packet)
     result['controller_prior'] = prior
     if grid is not None and resolution == packet['cell_m']:
-        width = packet['width']
-        offset = np.rint(np.asarray(packet['origin_xy'])/resolution).astype(int)-np.asarray(map_lower, dtype=int)
-        indices = np.indices((width, width)).reshape(2, -1).T
-        native = indices+offset
-        valid = ((native >= 0) & (native < np.asarray(grid).shape)).all(1)
-        indices, native = indices[valid], native[valid]
-        values = np.asarray(grid)[native[:, 0], native[:, 1]]
+        values = np.asarray(grid)
         result['controller_map'] = dict(source='native_mode3_local_grid_mixed',
-            origin_xy=packet['origin_xy'], cell_m=resolution, depth_stamp_ns=packet['depth_stamp_ns'],
+            origin_xy=(np.asarray(map_lower)*resolution).tolist(), cell_m=resolution,
+            width=values.shape[0], height=values.shape[1], encoding='bitset-row-major/v1',
+            depth_stamp_ns=packet['depth_stamp_ns'],
             reference_generation=packet['reference_generation'],
-            free=indices[values == 0].tolist(), blocked=indices[values == 100].tolist())
-    if len(json.dumps(result, separators=(',', ':')).encode()) > 40000:
-        return dict(status='unavailable', reason='clearance_packet_budget_exceeded',
-                    depth_stamp_ns=packet['depth_stamp_ns'])
+            free_bits=base64.b64encode(np.packbits((values == 0).ravel()).tobytes()).decode(),
+            blocked_bits=base64.b64encode(np.packbits((values == 100).ravel()).tobytes()).decode())
+        if cloud is not None and len(cloud['points']):
+            from _wla_sim_geometry import ray_slots
+            lower = np.asarray(cloud['points'])[:, 2] <= cloud['origin'][2]+.02
+            endpoint = np.ascontiguousarray(np.asarray(cloud['points_odom'])[lower, :2], dtype=float)
+            observed = np.zeros(values.shape, dtype=bool)
+            if len(endpoint):
+                a, b = ray_slots(endpoint, np.asarray(cloud['origin_odom'][:2], dtype=float),
+                                 np.asarray(map_lower, dtype=float), resolution, values.shape[0])
+                observed[a, b] = True
+            result['controller_map']['sensor_bits'] = base64.b64encode(np.packbits(observed.ravel()).tobytes()).decode()
     return result

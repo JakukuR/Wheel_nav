@@ -483,8 +483,17 @@ class FollowTransport: public rclcpp::Node {
     const auto ns=now().nanoseconds();const double t=monotonic();
     const auto reason=gate.blocker(t,ns,motion.healthy(ns*1e-9));const bool permitted=reason.empty();
     const double v=permitted?gate.result.at("linear").get<double>():0.,w=permitted?gate.result.at("angular").get<double>():0.;
-    String m;m.data=Json({{"schema","wla-person-candidate/v1"},{"follow_session",session},{"request_id",gate.request},
-      {"stamp_ns",ns},{"linear",v},{"angular",w}}).dump();candidate->publish(m);
+    Json row={{"schema","wla-person-candidate/v1"},{"follow_session",session},{"request_id",gate.request},
+      {"stamp_ns",ns},{"linear",v},{"angular",w}};
+    if (permitted && gate.result.contains("mode3_control_pose")) {
+      const auto &r=gate.result;
+      row["mode3_origin"]={{"schema","kalo-mode3-origin/v1"},{"mode","3"},
+        {"request_id",gate.request},{"follow_session",session},{"sequence",r.at("sequence")},
+        {"transport_generation",r.at("generation")},{"reference_generation",r.at("motion_generation")},
+        {"depth_stamp_ns",r.at("frame_ns")},{"control_pose",r.at("mode3_control_pose")},
+        {"worker_linear",v},{"worker_angular",w}};
+    }
+    String m;m.data=row.dump();candidate->publish(m);
     Twist pv;
     if(last_status_at>0 && t-last_status_at<gate.result_ttl) { pv.linear.x=latest_preview.value("linear",0.);pv.angular.z=latest_preview.value("angular",0.); }
     preview->publish(pv);

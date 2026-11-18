@@ -52,6 +52,7 @@ public:
   {
     out_ = create_publisher<Twist>("/r680_base/cmd_vel", 1);
     report_ = create_publisher<String>("/r680_base/control_state", 10);
+    mode3_trace_ = create_publisher<String>("/r680_base/mode3_velocity_provenance", rclcpp::SensorDataQoS());
     subs_.push_back(create_subscription<Twist>("/r680_manual/cmd_vel", 1,
       [this](Twist::ConstSharedPtr m) {manual(*m);}));
     subs_.push_back(create_subscription<Twist>("/r680_nav/chassis_cmd_vel", 1,
@@ -176,7 +177,17 @@ private:
     Twist msg;
     msg.linear.x = v.first;
     msg.angular.z = v.second;
+    const auto stamp = now_ns();
     out_->publish(msg);
+    ++output_sequence_;
+    auto trace = p_.mode3_output_trace({msg.linear.x, msg.angular.z}, stamp);
+    if (trace.is_object()) {
+      trace["control_session"] = control_session_;
+      trace["output_sequence"] = output_sequence_;
+      String receipt;
+      receipt.data = trace.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+      mode3_trace_->publish(receipt);
+    }
     if (now - last_report_ > .2) {
       last_report_ = now;
       report(now, v);
@@ -220,6 +231,8 @@ private:
   double last_report_{0.};
   rclcpp::Publisher<Twist>::SharedPtr out_;
   rclcpp::Publisher<String>::SharedPtr report_;
+  rclcpp::Publisher<String>::SharedPtr mode3_trace_;
+  uint64_t output_sequence_{0};
   std::vector<rclcpp::SubscriptionBase::SharedPtr> subs_;
   std::vector<rclcpp::ServiceBase::SharedPtr> services_;
   std::vector<rclcpp::Client<action_msgs::srv::CancelGoal>::SharedPtr> cancel_;
