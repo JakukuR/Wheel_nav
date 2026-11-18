@@ -1,0 +1,8 @@
+D455机械调整后恢复上仰15°，2026-11-18
+目标主机orin@192.168.9.114。用户明确要求相对底盘上仰15°。
+已更新r680_mapping_floor -> d455_link安装TF，RPY=(0,-15°,0)，q(xyzw)=(0,-0.130526192220052,0,0.991444861373810)，XYZ暂保留(0.184428484,0.059803590,0.501660007)m；机械调整后的平移尚未测量。
+同步Nav启动/独立调试入口、cuVSLAM配置及C++默认值、OpenVINS D455内部IMU分支T_imu_base、底盘IMU分支相机外参及配置SHA256；内部相机-IMU、相机内参及双目相对几何保留。20261117与原始Kalibr来源留档，新安装来源另记mount_change_20261118。
+Agent安装测量和新矩阵均为15°，geometry_gate_passed保持false，不声称完成新地面标定。
+连接时相机和Kalo未运行。本轮仅启动相机临时用户单元r680-camera-maintenance-20261118.service。启动曾有Depth stream start failure警告，后续实际图像正常；4秒RGB119帧、对齐深度120帧，约29.95/29.97Hz、640x480。实时TF机身pitch=-15°，RGB光轴上仰约15.09927°。
+验证：Agent现有安装几何/场景5项，Nav配置一致性2项，离线矩阵链/配置摘要/Python语法校验通过。未启动Kalo、VIO或执行运动；cuVSLAM默认值源码未编译。XYZ和新安装空间精度未实测。
+改前备份、changes.json、geometry.json、verification.json、runtime.json、frame_check.json、commits.json保存在/home/orin/Wheel_Legged_Agent/output/d455-up15-20261118/。

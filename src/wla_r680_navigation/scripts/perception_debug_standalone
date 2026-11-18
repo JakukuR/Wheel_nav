@@ -118,11 +118,11 @@ def commands(args, owners, web_running, bridge_running):
         # The camera has a single owner shared with navigation.
         raise RuntimeError('No D455 topics in this ROS domain; start the camera first: '+CAMERA_HINT)
     if not owners['mount']:
-        # User-specified +5 degree body elevation; retain previous XYZ.
+        # User-specified +15 degree body elevation; retain previous XYZ.
         mount_executable=Path(get_package_prefix('tf2_ros'))/'lib/tf2_ros/static_transform_publisher'
         result.append(('mount', [str(mount_executable),
             '--x','0.184428484','--y','0.059803590','--z','0.501660007',
-            '--qx','0.000000000000000','--qy','-0.043619387365336','--qz','0.000000000000000','--qw','0.999048221581858',
+            '--qx','0.000000000000000','--qy','-0.130526192220052','--qz','0.000000000000000','--qw','0.991444861373810',
             '--frame-id','r680_mapping_floor','--child-frame-id','d455_link'],{}))
     if not owners['detector']:
         result.append(('detector', [args.python,str(nav/'nav_yolo_detector'),'--model',args.model,
