@@ -294,7 +294,7 @@ class NavDetector(Node):
                     tf = None
             except Exception:
                 tf = None
-        rows, edge_ids = [], []
+        rows, edge_ids, depth_diagnostics = [], [], {}
         for obj in batch['objects']:
             yaw, distance = None, None
             sample = person_point if obj['label'] == 'person' else bbox_point
@@ -308,8 +308,9 @@ class NavDetector(Node):
                 if all(math.isfinite(v) for v in robot):
                     yaw, distance = math.atan2(robot[1], robot[0]), math.hypot(robot[0], robot[1])
             key = f"{batch['session']}:{batch['epoch']}:{obj['track_id']}"
-            rows.append(dict(detected=True, label=obj['label'], id=key, yaw=yaw, distance=distance,
-                             depth_quality=quality))
+            rows.append(dict(detected=True, label=obj['label'], id=key, yaw=yaw, distance=distance))
+            if quality is not None:
+                depth_diagnostics[key] = quality
             if touches_side(obj['bbox_xyxy'], batch['width']):
                 edge_ids.append(key)
         return dict(schema='wla-relative-detections/v1', stamp_ns=stamp,
@@ -318,7 +319,7 @@ class NavDetector(Node):
                     base_frame=self.args.base_frame, ttl_s=.30, objects=rows,
                     # Boxes cut by the left/right image border (depth mostly background).
                     # Kept out of the rows: consumers check the row field set exactly.
-                    image_edge_ids=edge_ids,
+                    image_edge_ids=edge_ids, depth_quality=depth_diagnostics,
                     association=batch.get('association', {}),
                     depth_stamp_ns=depth_stamp if aligned else None)
 
