@@ -65,19 +65,47 @@ class PointStopGuard
                      std::max({bottom - y, 0., y - bottom - cell}));
   }
 
-  static bool clear_disk(const Grid & g, double x, double y, double start_x, double start_y,
-    double radius)
+  static bool capsule_hits(double ax, double ay, double bx, double by,
+    double left, double bottom, double cell, double radius)
   {
-    if (x-radius < g.x || y-radius < g.y || x+radius >= g.x+g.width*g.cell ||
-      y+radius >= g.y+g.height*g.cell) {return false;}
-    const int i0 = std::max(0, static_cast<int>(std::floor((x-radius-g.x)/g.cell)));
-    const int i1 = static_cast<int>(std::floor((x+radius-g.x)/g.cell));
-    const int j0 = std::max(0, static_cast<int>(std::floor((y-radius-g.y)/g.cell)));
-    const int j1 = static_cast<int>(std::floor((y+radius-g.y)/g.cell));
+    const double dx = bx-ax, dy = by-ay, length2 = dx*dx+dy*dy;
+    if (cell_distance(ax,ay,left,bottom,cell) <= radius ||
+      cell_distance(bx,by,left,bottom,cell) <= radius) {return true;}
+    if (length2 == 0.) {return false;}
+    double first = 0., last = 1.;
+    const auto clip = [&](double start, double delta, double min) {
+      if (delta == 0.) {return min <= start && start <= min+cell;}
+      const double near = (min-start)/delta, far = (min+cell-start)/delta;
+      first = std::max(first,std::min(near,far));
+      last = std::min(last,std::max(near,far));
+      return first <= last;
+    };
+    if (clip(ax,dx,left) && clip(ay,dy,bottom)) {return true;}
+    for (double x : {left,left+cell}) {
+      for (double y : {bottom,bottom+cell}) {
+        const double t = std::clamp(((x-ax)*dx+(y-ay)*dy)/length2,0.,1.);
+        const double ux = x-(ax+t*dx), uy = y-(ay+t*dy);
+        if (ux*ux+uy*uy <= radius*radius) {return true;}
+      }
+    }
+    return false;
+  }
+
+  static bool clear_capsule(const Grid & g, double ax, double ay, double bx, double by,
+    double start_x, double start_y, double radius)
+  {
+    const double low_x = std::min(ax,bx)-radius, high_x = std::max(ax,bx)+radius;
+    const double low_y = std::min(ay,by)-radius, high_y = std::max(ay,by)+radius;
+    if (low_x < g.x || low_y < g.y || high_x >= g.x+g.width*g.cell ||
+      high_y >= g.y+g.height*g.cell) {return false;}
+    const int i0 = std::max(0, static_cast<int>(std::ceil((low_x-g.x)/g.cell))-1);
+    const int i1 = static_cast<int>(std::floor((high_x-g.x)/g.cell));
+    const int j0 = std::max(0, static_cast<int>(std::ceil((low_y-g.y)/g.cell))-1);
+    const int j1 = static_cast<int>(std::floor((high_y-g.y)/g.cell));
     for (int i = i0; i <= i1; ++i) {
       for (int j = j0; j <= j1; ++j) {
         const double left = g.x+i*g.cell, bottom = g.y+j*g.cell;
-        if (cell_distance(x,y,left,bottom,g.cell) > radius) {continue;}
+        if (!capsule_hits(ax,ay,bx,by,left,bottom,g.cell,radius)) {continue;}
         if (g.bit(g.blocked,i,j)) {return false;}
         if (!g.bit(g.free,i,j) &&
           cell_distance(start_x,start_y,left,bottom,g.cell) > g.radius) {return false;}
@@ -91,14 +119,24 @@ class PointStopGuard
   {
     const double travel = std::abs(v.first) * (pose_age + .10) +
       v.first*v.first/(2.*decel);
-    const int steps = std::max(1, static_cast<int>(std::ceil(travel/(g.cell*.25))));
-    const double turn_per_m = std::abs(v.first) < 1e-6 ? 0. : v.second/v.first;
-    for (int i = 0; i <= steps; ++i) {
+    const double turn_per_m = v.first == 0. ? 0. : v.second/v.first;
+    const double angle = std::abs(travel*turn_per_m);
+    if (!std::isfinite(travel) || !std::isfinite(angle)) {return false;}
+    const int steps = std::max(1, static_cast<int>(std::ceil(angle/.25)));
+    const double quarter = angle/(4.*steps);
+    // A chord capsule expanded by the sagitta covers the continuous curved
+    // sweep. A straight sweep needs no padding around either endpoint.
+    const double sinc_quarter = quarter == 0. ? 1. : std::sin(quarter)/quarter;
+    const double padding = (travel/steps)*quarter/2.*sinc_quarter*sinc_quarter;
+    double ax = x, ay = y;
+    for (int i = 1; i <= steps; ++i) {
       const double s = std::copysign(travel*i/steps, v.first), turn = s*turn_per_m;
       const double sinc = std::abs(turn) < 1e-6 ? 1. : std::sin(turn/2.)/(turn/2.);
       const double px = x+s*sinc*std::cos(yaw+turn/2.);
       const double py = y+s*sinc*std::sin(yaw+turn/2.);
-      if (!clear_disk(g,px,py,x,y,g.radius + travel/(2.*steps))) {return false;}
+      if (!clear_capsule(g,ax,ay,px,py,x,y,g.radius+padding+1e-9)) {return false;}
+      ax = px;
+      ay = py;
     }
     return true;
   }
