@@ -412,6 +412,24 @@ struct DetourPlanner::Impl
         return std::vector<Point2>{p, look};
     }
 
+    [[nodiscard]] std::optional<std::vector<Point2>> routeToPoint(const MapView& map, const Point2& p,
+        const Point2& target, const Tuning& c, double window_m, double clearance_weight,
+        bool* usedAstar = nullptr) const
+    {
+        if (usedAstar) *usedAstar = false;
+        auto route = gridRoute(map, p, target, c, window_m, clearance_weight);
+        if (route && c.m_gridRouteAstar)
+        {
+            auto refined = astarRoute(map, p, *route, c);
+            if (refined)
+            {
+                if (usedAstar) *usedAstar = true;
+                return refined;
+            }
+        }
+        return route;
+    }
+
     [[nodiscard]] std::optional<std::vector<Point2>> astarRoute(const MapView& map, const Point2& p,
                                                                 const std::vector<Point2>& route,
                                                                 const Tuning& c) const
@@ -716,19 +734,10 @@ struct DetourPlanner::Impl
         }
         if (best.empty())
         {
-            auto route = gridRoute(map, p, target, c, 3.5, 2.);
+            bool astar = false;
+            auto route = routeToPoint(map, p, target, c, 3.5, 2., &astar);
             if (route)
             {
-                bool astar = false;
-                if (c.m_gridRouteAstar)
-                {
-                    auto refined = astarRoute(map, p, *route, c);
-                    if (refined)
-                    {
-                        route = std::move(refined);
-                        astar = true;
-                    }
-                }
                 m_lookHold = 0;
                 m_held = (*route)[1];
                 m_last = {};
@@ -786,6 +795,12 @@ std::optional<std::vector<Point2>> DetourPlanner::gridRoute(const RollingMap& ma
                                                             double clearance_weight) const
 {
     return m_impl->gridRoute(MapView(map), p, target, c, window_m, clearance_weight);
+}
+
+std::optional<std::vector<Point2>> DetourPlanner::routeToPoint(const RollingMap& map, const Point2& p,
+    const Point2& target, const Tuning& c, double window_m, double clearance_weight) const
+{
+    return m_impl->routeToPoint(MapView(map), p, target, c, window_m, clearance_weight);
 }
 
 bool DetourPlanner::lookReached(bool reached) noexcept

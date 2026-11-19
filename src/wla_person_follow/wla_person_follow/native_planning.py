@@ -76,6 +76,11 @@ class NativeDetour:
                                      np.asarray(target, dtype=float), c, float(window_m), float(clearance_weight))
 
 
+    def route_to_point(self, p, target, local_map, c, window_m=3.5, clearance_weight=2.):
+        return self._core.route_to_point(_native_map(local_map), np.asarray(p, dtype=float),
+                                        np.asarray(target, dtype=float), c, float(window_m), float(clearance_weight))
+
+
 class NativeHybridFollower:
     backend = 'cpp'
 

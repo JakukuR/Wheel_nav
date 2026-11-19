@@ -176,6 +176,11 @@ def test_grid_route_and_helpers_match_reference(seed):
         assert (a is None) == (b is None)
         if a is not None:
             np.testing.assert_array_equal(a, b)
+        a = py.detour.route_to_point(pose[:2], goal, maps[0], c)
+        b = cpp.detour.route_to_point(pose[:2], goal, maps[1], c)
+        assert (a is None) == (b is None)
+        if a is not None:
+            np.testing.assert_array_equal(a, b)
         for w in rng.uniform(-1.2, 1.2, 20):
             assert float(chassis_yaw(w, c)) == native_planning._core.chassis_yaw(float(w), c)
         people = _people(rng, pose)

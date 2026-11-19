@@ -1,5 +1,6 @@
 """Exploration primitives: mode 3 point goal and mode 4 in-place orient."""
 import math
+from dataclasses import replace
 import numpy as np
 from wla_person_follow.native_map import map_backend
 import pytest
@@ -65,6 +66,32 @@ def test_point_goal_route_is_reused_then_refreshed():
     assert e.point_route[1]==first
     e._plan(np.zeros(3),np.zeros(2),None,.7,None,None,'3',None,goal=goal)
     assert e.point_route[1]==pytest.approx(.7)
+
+
+@pytest.mark.parametrize('backend', ['python', 'cpp'])
+def test_point_goal_uses_shared_astar_route_around_box(backend):
+    e=SimulationEngine(np.zeros(3),0.,numeric_backend=backend)
+    e.mapping=_box_ahead_map(backend)
+    e.tuning=replace(e.tuning,grid_route_planner='astar')
+    goal=np.array([2.5,0.])
+    shared=e.controller.detour.route_to_point(np.zeros(2),goal,e.mapping,e.tuning)
+    raw=e.controller.detour._grid_route(np.zeros(2),goal,e.mapping,e.tuning)
+    assert shared is not None and raw is not None
+    # A* removes the nearby lattice waypoint and still routes around the box.
+    assert not np.array_equal(shared,raw)
+    assert np.max(np.abs(shared[:,1]))>.45
+    assert np.allclose(shared[-1],goal)
+    out=e._plan(np.zeros(3),np.zeros(2),None,.1,None,None,'3',None,
+                goal=dict(kind='point',point=goal))
+    # MPC densifies the polyline: compare its departure direction and geometry.
+    direction=out['path'][1]-out['path'][0]
+    expected=shared[1]-shared[0]
+    # Allow one degree for MPC corner rounding, well below the old lattice turn.
+    heading_error=math.atan2(direction[1],direction[0])-math.atan2(expected[1],expected[0])
+    assert abs(math.atan2(math.sin(heading_error),math.cos(heading_error)))<math.radians(1.)
+    assert np.max(np.abs(out['path'][:,1]))>.45
+    np.testing.assert_allclose(out['path'][-1],goal,atol=1e-12)
+    assert out['planner_feasible']
 
 
 @pytest.mark.parametrize('remaining,sign',[(math.pi,1.),(-1.,-1.)])

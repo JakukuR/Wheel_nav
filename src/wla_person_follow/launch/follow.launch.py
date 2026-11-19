@@ -65,7 +65,7 @@ def generate_launch_description():
         DeclareLaunchArgument('local_planner',default_value='mpc',choices=['mpc','neupan']),
         DeclareLaunchArgument('person_filter',default_value='cylinder',choices=['cylinder','cluster']),
         DeclareLaunchArgument('depth_speckle',default_value='0'),
-        DeclareLaunchArgument('grid_route',default_value='dijkstra',choices=['dijkstra','astar']),
+        DeclareLaunchArgument('grid_route',default_value='astar',choices=['dijkstra','astar']),
         DeclareLaunchArgument('numeric_backend',default_value='python',choices=['python','cpp']),
         # Local pose yaw rate: chassis encoders (wheel) or the chassis gyro (imu).
         DeclareLaunchArgument('yaw_rate_source',default_value='wheel',choices=['wheel','imu']),

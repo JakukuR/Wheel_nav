@@ -94,13 +94,8 @@ class DetourPlanner:
                 break
         if not best:
             # Multi-segment way round (e.g. step aside, then forward): grid search.
-            route = self._grid_route(p, target, local_map, c)
+            route, search = self._search_route(p, target, local_map, c)
             if route is not None:
-                search = 'dijkstra'
-                if getattr(c, 'grid_route_planner', 'dijkstra') == 'astar':
-                    refined = self._astar_route(p, route, local_map, c)
-                    if refined is not None:
-                        route, search = refined, 'astar'
                 self.look_hold = 0
                 self.held = np.asarray(route[1], dtype=float).copy()
                 self.last = dict(active=True, side='grid', waypoint=route[1].tolist(), route=route.tolist(), search=search)
@@ -200,6 +195,18 @@ class DetourPlanner:
         """Count control cycles spent already facing the look direction."""
         self.look_hold = self.look_hold + 1 if reached else 0
         return reached
+
+    def route_to_point(self, p, target, local_map, c, window_m=3.5, clearance_weight=2.):
+        """The same configured grid search for person detours and fixed point goals."""
+        return self._search_route(p, target, local_map, c, window_m, clearance_weight)[0]
+
+    def _search_route(self, p, target, local_map, c, window_m=3.5, clearance_weight=2.):
+        route = self._grid_route(p, target, local_map, c, window_m, clearance_weight)
+        if route is not None and getattr(c, 'grid_route_planner', 'dijkstra') == 'astar':
+            refined = self._astar_route(p, route, local_map, c)
+            if refined is not None:
+                return refined, 'astar'
+        return route, 'dijkstra'
 
     def _astar_route(self, p, route, local_map, c):
         """Native A* from the robot to the end cell Dijkstra chose, or None to keep Dijkstra's.

@@ -164,6 +164,9 @@ public:
                                                                const Point2& target, const Tuning& c,
                                                                double window_m = 3.5,
                                                                double clearance_weight = 2.) const;
+    // Shared configured search: Dijkstra endpoint/clearance cost, optional native A* refinement.
+    [[nodiscard]] std::optional<std::vector<Point2>> routeToPoint(const RollingMap& map, const Point2& p,
+        const Point2& target, const Tuning& c, double window_m = 3.5, double clearance_weight = 2.) const;
     bool lookReached(bool reached) noexcept;
 
     [[nodiscard]] const DetourReport& last() const noexcept;

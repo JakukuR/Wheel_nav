@@ -269,7 +269,7 @@ struct FollowCore::Impl
                 }
             }
         }
-        std::optional<std::vector<Point2>> path = m_controller->detour().gridRoute(*m_map, here, goal, tuning);
+        std::optional<std::vector<Point2>> path = m_controller->detour().routeToPoint(*m_map, here, goal, tuning);
         if (!path)
         {
             path = std::vector<Point2>{here, goal};

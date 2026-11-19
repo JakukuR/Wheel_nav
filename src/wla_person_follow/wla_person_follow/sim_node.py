@@ -580,6 +580,7 @@ class FollowEngine:
                     l4_clearance['capabilities'] = dict(goal_max_m=POINT_GOAL_MAX_M,
                         arrival_m=POINT_ARRIVAL_M, radius_m=self.model_tuning['radius'],
                         margin_m=self.model_tuning['margin'],
+                        grid_route_lookahead_m=self.model_tuning['grid_route_lookahead_m'],
                         point_max_v_mps=POINT_GOAL_MAX_V, max_turn_rps=self.model_tuning['max_w'],
                         linear_accel_mps2=self.model_tuning['accel'],
                         angular_accel_rps2=self.model_tuning['yaw_accel'],

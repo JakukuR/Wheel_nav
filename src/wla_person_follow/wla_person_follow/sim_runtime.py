@@ -216,7 +216,7 @@ class SimulationEngine:
         return self._plan(pose,previous,observation,now,policy,tracker_snapshot,task_mode,object_surface,recovery,goal)
 
     def _point_route(self, pose, goal, tuning, now):
-        """Clearance-weighted grid route to a fixed odom point (DetourPlanner's Dijkstra).
+        """Shared configured grid route to a fixed odom point (Dijkstra plus optional A*).
 
         Reused for POINT_ROUTE_REFRESH_S while its remaining part stays clear;
         without a route the MPC gets the straight line and creeps on known space.
@@ -226,7 +226,7 @@ class SimulationEngine:
             path=old[2];near=int(np.argmin(np.linalg.norm(path-pose[:2],axis=1)))
             suffix=np.vstack((pose[:2],path[near+1:])) if near+1<len(path) else np.vstack((pose[:2],goal))
             if np.all(self.mapping.query(ApproachGoal._samples(suffix))>=tuning.radius):return suffix
-        path=self.controller.detour._grid_route(np.asarray(pose[:2],dtype=float),goal,self.mapping,tuning)
+        path=self.controller.detour.route_to_point(np.asarray(pose[:2],dtype=float),goal,self.mapping,tuning)
         if path is None:path=np.vstack((pose[:2],goal))
         self.point_route=(goal.copy(),now,path)
         return path

@@ -413,6 +413,22 @@ void BindPlanning(py::module_& m)
              },
              py::arg("map"), py::arg("p"), py::arg("target"), py::arg("tuning"), py::arg("window_m") = 3.5,
              py::arg("clearance_weight") = 2.)
+        .def("route_to_point",
+             [](HybridFollower& self, const py::handle& map, const py::handle& p, const py::handle& target,
+                const py::handle& tuning, double window_m, double clearance_weight) -> py::object {
+                 const Point2 a = Vector2(p, "invalid_point");
+                 const Point2 b = Vector2(target, "invalid_target");
+                 const Tuning c = TuningFrom(tuning);
+                 const RollingMap& rolling = Map(map);
+                 std::optional<std::vector<Point2>> route;
+                 {
+                     py::gil_scoped_release release;
+                     route = self.detour().routeToPoint(rolling, a, b, c, window_m, clearance_weight);
+                 }
+                 return route ? py::object(Array(*route)) : py::object(py::none());
+             },
+             py::arg("map"), py::arg("p"), py::arg("target"), py::arg("tuning"), py::arg("window_m") = 3.5,
+             py::arg("clearance_weight") = 2.)
         .def("set_detour_trigger", [](HybridFollower& self, const std::string& trigger) {
             if (trigger != "line" && trigger != "path")
             {
