@@ -431,8 +431,7 @@ def process_step(job):
         local_free_prior=dict(source='operator_assumed_robot_free',radius_m=local_radius,
             center_odom=np.asarray(pose[:2]).tolist(),state='continuous' if local_radius else 'disabled',
             assumed_cells=int(np.count_nonzero(engine.mapping.assumed_free))),
-        grid=np.where(engine.mapping.occupied,100,np.where(engine.mapping.known,0,-1)).astype(np.int8),
-        observed_free=engine.mapping.sensor_known & ~engine.mapping.occupied)
+        grid=np.where(engine.mapping.occupied,100,np.where(engine.mapping.known,0,-1)).astype(np.int8))
     return result
 
 
@@ -461,6 +460,5 @@ def _process_step_cpp(key, pose, previous, packets, observation, now, startup, r
         raise ValueError('unknown_grid_route_planner: '+str(grid_route))
     result=engine.step(key,pose,previous,packets,observation,now,startup,local_radius=local_radius,radius=radius,
         motion_threshold=motion_threshold,grid_route=grid_route,neupan=neupan)
-    result['observed_free'] = engine.mapping.sensor_known & ~engine.mapping.occupied
     _PROCESS_STARTUP_USED=result['startup_prior_consumed'];_PROCESS_STARTUP_PRIOR=engine.prior_base
     return result

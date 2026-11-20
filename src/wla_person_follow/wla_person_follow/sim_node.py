@@ -5,7 +5,6 @@ from multiprocessing import get_context
 from copy import deepcopy
 import json
 import math
-import os
 import signal
 import threading
 import time
@@ -156,9 +155,6 @@ class FollowEngine:
         self.done = False
         self.result = None
         self.map_result = None
-        self.raw_l4_clearance = None
-        from .l4_clearance import ObservedObstacles
-        self.l4_obstacle_memory = ObservedObstacles()
         self.map_frame = None  # newest map frame a control-rate replan may use
         self.terrain_clouds = deque(maxlen=6)  # (stamp_ns, frame_id, base-frame obstacle points)
         self.last_plan_at = -math.inf
@@ -559,41 +555,7 @@ class FollowEngine:
                 depth=depth_meters(msg)
                 valid=np.isfinite(depth)&(depth>=self.p['depth_min_m'])&(depth<=self.p['depth_max_m'])
                 h,w=valid.shape;front=valid[int(h*.35):max(int(h*.8),int(h*.35)+1),int(w*.3):max(int(w*.7),int(w*.3)+1)]
-                l4_clearance = None
-                if os.environ.get('KALO_L4_CLEARANCE', '1') == '1':
-                    from .l4_clearance import packet_from_depth as l4_packet_from_depth, with_controller_prior
-                    l4_clearance = l4_packet_from_depth(depth, info.k, r, trans, pose,
-                        stamp_ns=stamp_ns(msg), pose_stamp_ns=stamp_ns(msg), follow_session=self.follow_session,
-                        reference_generation=key[-1], transport_generation=transport_generation)
-                    prior = None
-                    if self.p['local_assumed_free_radius_m'] > 0:
-                        prior = dict(source='operator_assumed_robot_free', state='continuous',
-                            center_odom=np.asarray(pose[:2]).tolist(), radius_m=self.p['local_assumed_free_radius_m'],
-                            reference_generation=key[-1])
-                    from .l4_clearance import coverage_decision
-                    coverage_ok, coverage_policy = coverage_decision(float(np.mean(valid)),
-                        float(np.mean(front)) if front.size else 0., valid_min=self.p['camera_min_valid_fraction'],
-                        front_min=self.p['camera_front_min_valid_fraction'], active=active, mode=key[1],
-                        map_exploration=os.environ.get('KALO_L4_MAP_EXPLORATION') == '1')
-                    from .task_modes import POINT_GOAL_MAX_M
-                    from .sim_runtime import POINT_GOAL_MAX_V
-                    l4_clearance['capabilities'] = dict(goal_max_m=POINT_GOAL_MAX_M,
-                        arrival_m=POINT_ARRIVAL_M, radius_m=self.model_tuning['radius'],
-                        margin_m=self.model_tuning['margin'],
-                        grid_route_lookahead_m=self.model_tuning['grid_route_lookahead_m'],
-                        point_max_v_mps=POINT_GOAL_MAX_V, max_turn_rps=self.model_tuning['max_w'],
-                        linear_accel_mps2=self.model_tuning['accel'],
-                        angular_accel_rps2=self.model_tuning['yaw_accel'],
-                        planning_horizon_s=self.model_tuning['step']*self.model_tuning['horizon'],
-                        view_half_angle_rad=math.atan(msg.width/(2*info.k[0])), map_max_age_s=self.p['map_max_age_s'])
-                    l4_clearance['native_coverage'] = dict(valid_fraction=float(np.mean(valid)),
-                        front_fraction=float(np.mean(front)) if front.size else 0.,
-                        valid_min=self.p['camera_min_valid_fraction'],
-                        front_min=self.p['camera_front_min_valid_fraction'], policy=coverage_policy)
-                    self.raw_l4_clearance = with_controller_prior(l4_clearance, prior)
-                if not (coverage_ok if l4_clearance is not None else
-                        np.mean(valid)>=self.p['camera_min_valid_fraction'] and front.size
-                        and np.mean(front)>=self.p['camera_front_min_valid_fraction']):
+                if np.mean(valid)<self.p['camera_min_valid_fraction'] or not front.size or np.mean(front)<self.p['camera_front_min_valid_fraction']:
                     if person and active:
                         self._coverage_recovery(key,stamp_ns(msg),valid_until)
                         continue
@@ -757,13 +719,6 @@ class FollowEngine:
                 mask_status['target_ghost_radius_m']=self.p['target_ghost_clear_radius_m']
                 mask_status['target_ghost_clear_enabled']=self.p['target_ghost_clear_enabled']
                 mask_status['target_ghost_clear_ttl_s']=self.p['target_ghost_clear_ttl_s']
-                # Keep repeated raw obstacles in the same wheel reference both
-                # while observing at rest and across mode3 request replacement.
-                if l4_clearance is not None and (not active or mode == MODE_POINT_GOAL):
-                    self.l4_obstacle_memory.update(l4_clearance, keep_radius_m=4.)
-                    retained = self.l4_obstacle_memory.marks()
-                    if len(retained):
-                        packet['marking_points_odom'] = np.vstack((packet['marking_points_odom'], retained))
                 frontend_ms=(time.monotonic()-frontend_begun)*1000.
                 packets=[(stamp,packet)]
                 # Optional anonymous ToF points: no packets or inferred clear
@@ -814,19 +769,6 @@ class FollowEngine:
                         observation_to_result_ms=(self.now_ns()/1e9-obs_stamp)*1000.,
                         processing_ms=(time.monotonic()-processing_started)*1000.),
                     compute_ms=(time.monotonic()-begun)*1000.,pose=np.asarray(control_pose),control_stamp_ns=int(control_stamp*1e9))
-                if l4_clearance is not None:
-                    prior = result.get('local_free_prior') if self.p['local_assumed_free_radius_m'] > 0 else result.get('startup_prior')
-                    if (prior is None and not result.get('startup_prior_consumed', False)
-                            and self.p['startup_clear_radius_m'] > 0 and self.p['local_assumed_free_radius_m'] == 0):
-                        prior = dict(source='existing_mode3_startup_policy',
-                            center_odom=np.asarray(pose[:2]).tolist(), radius_m=self.p['startup_clear_radius_m'],
-                            reference_generation=key[-1], state='pending_native_activation')
-                    if prior is not None:
-                        prior = dict(prior)
-                        prior.setdefault('reference_generation', key[-1])
-                    result['l4_clearance'] = with_controller_prior(l4_clearance, prior,
-                        grid=result['grid'], map_lower=result['map_lower'], resolution=result['resolution'], cloud=packet,
-                        observed_free=result['observed_free'])
                 with self.guard:
                     self.computation_diagnostic=dict(key=key,control_stamp_s=control_stamp,
                         depth_stamp_ns=stamp_ns(msg),target_mask=deepcopy(mask_status),
@@ -1197,13 +1139,6 @@ class FollowEngine:
                     pose_source='LocalMotion wheel-twist integration; not global localization'),
                 actual_published_command=dict(linear_mps=float(actual[0]),angular_rps=float(actual[1])),
                 diagnostics=detail)
-            from .l4_clearance import current_packet
-            l4_packet = current_packet(self.raw_l4_clearance,
-                self.map_result.get('l4_clearance') if self.map_result else None)
-            if l4_packet is not None:
-                state['l4_clearance'] = l4_packet
-                if len(json.dumps(state, allow_nan=False).encode()) > 110000:
-                    state['l4_clearance'] = dict(status='unavailable', reason='worker_status_budget_exceeded')
             # The hybrid worker forwards this dict without parsing the text back.
             self.last_status=state
             self.status_pub.publish(String(data=json.dumps(state,allow_nan=False)))

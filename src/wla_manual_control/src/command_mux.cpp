@@ -19,7 +19,6 @@
 #include <std_srvs/srv/set_bool.hpp>
 
 #include "wla_manual_control/velocity_policy.hpp"
-#include "wla_manual_control/l4_stop_guard.hpp"
 
 namespace wla_manual_control
 {
@@ -49,7 +48,6 @@ public:
   : Node("r680_command_mux"),
     p_(declare_parameter("max_forward_mps", 1.0), declare_parameter("max_reverse_mps", .3),
       declare_parameter("max_turn_rps", 1.5)),
-    stop_decel_(declare_parameter("mode3_stop_decel_mps2", .35)),
     control_session_(session_id())
   {
     out_ = create_publisher<Twist>("/r680_base/cmd_vel", 1);
@@ -62,10 +60,7 @@ public:
     subs_.push_back(create_subscription<String>("/r680/person_follow/command_candidate", 1,
       [this](String::ConstSharedPtr m) {p_.person_input(decode(m->data), monotonic_s(), now_ns());}));
     subs_.push_back(create_subscription<String>("/r680/person_follow/status", 1,
-      [this](String::ConstSharedPtr m) {
-        const auto row = decode(m->data);
-        if (p_.person_status_input(row, monotonic_s(), now_ns())) {point_guard_.observe(row);}
-      }));
+      [this](String::ConstSharedPtr m) {p_.person_status_input(decode(m->data), monotonic_s(), now_ns());}));
     subs_.push_back(create_subscription<String>("/gamepad_status", 10,
       [this](String::ConstSharedPtr m) {status(*m);}));
     subs_.push_back(create_subscription<nav_msgs::msg::Odometry>("/wheel/odom", rclcpp::SensorDataQoS(),
@@ -140,12 +135,10 @@ private:
 
   void wheel(const nav_msgs::msg::Odometry & msg)
   {
+    p_.wheel = {msg.twist.twist.linear.x, msg.twist.twist.angular.z};
     const double age = static_cast<double>(now_ns()) * 1e-9 -
       (msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9);
-    if (-.05 <= age && age <= .2) {
-      p_.wheel = {msg.twist.twist.linear.x, msg.twist.twist.angular.z};
-      p_.wheel_at = monotonic_s();
-    }
+    if (-.05 <= age && age <= .2) {p_.wheel_at = monotonic_s();}
   }
 
   void mode(const SetBool::Request & req, SetBool::Response & res)
@@ -176,23 +169,21 @@ private:
   {
     const double now = monotonic_s();
     const std::string previous = p_.mode;
-    Velocity v = p_.output(now);
+    const Velocity v = p_.output(now);
     if (previous == "AUTO" && p_.mode == "MANUAL") {
       cancel_navigation();
       last_report_ = 0.;
     }
-    const auto stamp = now_ns();
-    guard_reason_ = point_guard_.apply(p_, v, stamp, now, stop_decel_);
     Twist msg;
     msg.linear.x = v.first;
     msg.angular.z = v.second;
+    const auto stamp = now_ns();
     out_->publish(msg);
     ++output_sequence_;
-    auto trace = p_.mode3_output_trace({msg.linear.x, msg.angular.z}, stamp, !guard_reason_.empty());
+    auto trace = p_.mode3_output_trace({msg.linear.x, msg.angular.z}, stamp);
     if (trace.is_object()) {
       trace["control_session"] = control_session_;
       trace["output_sequence"] = output_sequence_;
-      trace["stop_guard"] = guard_reason_;
       String receipt;
       receipt.data = trace.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
       mode3_trace_->publish(receipt);
@@ -227,7 +218,6 @@ private:
     j["gamepad"] = p_.status;
     j["linear"] = v.first;
     j["angular"] = v.second;
-    j["mode3_stop_guard"] = guard_reason_;
     j["navigation_fresh"] = p_.command_fresh("NAV", now);
     j["person_fresh"] = p_.command_fresh("PERSON", now);
     String msg;
@@ -237,9 +227,6 @@ private:
   }
 
   VelocityPolicy p_;
-  PointStopGuard point_guard_;
-  const double stop_decel_;
-  std::string guard_reason_;
   std::string control_session_;
   double last_report_{0.};
   rclcpp::Publisher<Twist>::SharedPtr out_;

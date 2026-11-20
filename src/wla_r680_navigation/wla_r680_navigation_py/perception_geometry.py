@@ -59,41 +59,19 @@ def person_point(box, depth, k, quantile=.2):
     return [(cx-k[2])*z/k[0], (cy-k[5])*z/k[4], z]
 
 def bbox_point(box, depth, k):
-    return bbox_point_details(box, depth, k)[0]
-
-
-def bbox_point_details(box, depth, k):
-    """A supported central surface; ambiguity is not a current object range."""
-    quality = dict(method='central_surface_quality_v2', reason='invalid_input')
-    if (depth is None or np.ndim(depth) != 2 or len(box) != 4
-            or not np.isfinite(box).all() or len(k) != 9
-            or not np.isfinite(k).all() or k[0] <= 0 or k[4] <= 0):
-        return None, quality
+    """Central depth surface candidate, not an object centre or approach pose."""
     x1, y1, x2, y2 = box
     width, height = x2-x1, y2-y1
-    if width < 12 or height < 12:
-        return None, quality
+    if (width < 12 or height < 12 or len(k) != 9
+            or not np.isfinite(k).all() or k[0] <= 0 or k[4] <= 0):
+        return None
     cx, cy = (x1+x2)/2, (y1+y2)/2
-    if not (0 <= cx < depth.shape[1] and 0 <= cy < depth.shape[0]):
-        return None, quality
     radius = max(3, int(min(width, height)*.08))
     u, v = int(cx), int(cy)
     patch = depth[max(0,v-radius):min(depth.shape[0],v+radius+1),
                   max(0,u-radius):min(depth.shape[1],u+radius+1)]
     valid = patch[(patch >= 250) & (patch <= 4000)]
-    fraction = float(valid.size/max(1, patch.size))
-    quality.update(valid_count=int(valid.size), sample_count=int(patch.size), valid_fraction=fraction,
-                   roi=[max(0,u-radius), max(0,v-radius), min(depth.shape[1],u+radius+1), min(depth.shape[0],v+radius+1)])
-    if valid.size < 25 or fraction < .2:
-        quality['reason'] = 'insufficient_surface_support'
-        return None, quality
-    q10, z, q90 = np.quantile(valid, [.1, .5, .9])*.001
-    quality.update(q10_m=float(q10), median_m=float(z), q90_m=float(q90))
-    # Engineering initial tolerance, exposed in the diagnostic; no temporal carry.
-    limit = max(.15, .15*z)
-    quality['spread_limit_m'] = float(limit)
-    if q90-q10 > limit:
-        quality['reason'] = 'ambiguous_depth_surfaces'
-        return None, quality
-    quality['reason'] = 'supported_surface'
-    return [(cx-k[2])*z/k[0], (cy-k[5])*z/k[4], float(z)], quality
+    if valid.size < 10:
+        return None
+    z = float(np.median(valid))*.001
+    return [(cx-k[2])*z/k[0], (cy-k[5])*z/k[4], z]
