@@ -63,7 +63,7 @@ TARGET_CLUSTER_MAX_AGE_S=.5
 # wla_terrain_analysis cloud matched to a depth frame (same camera frames, ~10 Hz).
 TERRAIN_MATCH_NS=150_000_000
 # Exploration primitives (modes 3/4): arrival bands on the wheel pose.
-POINT_ARRIVAL_M=.15
+POINT_ARRIVAL_M=.10
 ORIENT_ARRIVAL_RAD=.08
 
 
