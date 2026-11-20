@@ -39,7 +39,6 @@ public:
   bool automatic_input(const Velocity & v, double t);
   bool candidate(const std::string & source, const nlohmann::json & message, double t, int64_t now_ns);
   bool person_input(const nlohmann::json & message, double t, int64_t now_ns);
-  nlohmann::json mode3_output_trace(const Velocity & published, int64_t stamp_ns) const;
   bool person_status_input(const nlohmann::json & message, double t, int64_t now_ns);
   void gamepad_status_input(const std::string & status, double t);
   Result set_estop(bool enabled, double t);
@@ -103,7 +102,6 @@ public:
     Velocity values;
     double received;
     double until;
-    nlohmann::json mode3_origin{};
   };
   std::map<std::string, Command> commands;
   std::map<std::string, int64_t> last_stamps;

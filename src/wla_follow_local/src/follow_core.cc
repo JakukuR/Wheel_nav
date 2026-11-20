@@ -394,7 +394,7 @@ struct FollowCore::Impl
         else if (mode == '3')
         {
             tuning.m_desiredGap = 0.;
-            tuning.m_targetStopGap = .05;
+            tuning.m_targetStopGap = .10;
             tuning.m_targetHardGap = 0.;
             tuning.m_targetClearanceMax = 0.;
             tuning.m_maxV = POINT_GOAL_MAX_V;

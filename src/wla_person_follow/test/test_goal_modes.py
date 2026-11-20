@@ -55,6 +55,7 @@ def test_point_goal_routes_round_a_box_and_drives():
     # Reference bends past the box instead of through it and ends at the goal.
     assert np.max(np.abs(path[:,1]))>.45 and np.allclose(path[-1],[2.5,0.])
     assert out['command'][0]>=0 and out['tuning']['max_v']==pytest.approx(.80)
+    assert out['tuning']['target_stop_gap']==pytest.approx(.10)
 
 
 def test_point_goal_route_is_reused_then_refreshed():

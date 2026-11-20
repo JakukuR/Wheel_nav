@@ -162,51 +162,7 @@ bool VelocityPolicy::candidate(
 
 bool VelocityPolicy::person_input(const json & message, double t, int64_t now_ns)
 {
-  if (!candidate("PERSON", message, t, now_ns)) {return false;}
-  const auto & origin = field(message, "mode3_origin");
-  const auto & pose = field(origin, "control_pose");
-  const auto & xyz = field(pose, "xy_yaw");
-  const auto counter = [](const json & value) {
-    return value.is_number_integer() && (value.is_number_unsigned() || value.get<int64_t>() >= 0);
-  };
-  const auto & request = field(origin, "request_id");
-  const auto & session = field(origin, "follow_session");
-  const auto & frame = field(origin, "depth_stamp_ns");
-  const auto & pose_stamp = field(pose, "stamp_ns");
-  if (string_equals(field(origin, "schema"), "kalo-mode3-origin/v1") &&
-    string_equals(field(origin, "mode"), "3") &&
-    request.is_string() && !request.get_ref<const std::string &>().empty() &&
-    session.is_string() && !session.get_ref<const std::string &>().empty() &&
-    request == field(message, "request_id") && session == field(message, "follow_session") &&
-    counter(field(origin, "sequence")) && counter(field(origin, "transport_generation")) &&
-    counter(field(origin, "reference_generation")) &&
-    frame.is_number_integer() && frame > 0 && frame <= field(message, "stamp_ns") &&
-    pose_stamp.is_number_integer() && pose_stamp > 0 &&
-    xyz.is_array() && xyz.size() == 3 && std::all_of(xyz.begin(), xyz.end(), finite_number) &&
-    finite_number(field(origin, "worker_linear")) && finite_number(field(origin, "worker_angular")))
-  {
-    commands.at("PERSON").mode3_origin = origin;
-  }
-  return true;
-}
-
-json VelocityPolicy::mode3_output_trace(const Velocity & published, int64_t stamp_ns) const
-{
-  if (output_source != "PERSON" || (published.first == 0. && published.second == 0.)) {return nullptr;}
-  const auto it = commands.find("PERSON");
-  const auto stamp = last_stamps.find("PERSON");
-  if (it == commands.end() || stamp == last_stamps.end() || stamp->second > stamp_ns) {return nullptr;}
-  const auto & origin = it->second.mode3_origin;
-  if (!origin.is_object()) {return nullptr;}
-  const bool status_owner_matches = person_enabled &&
-    string_equals(field(origin, "request_id"), person_request_id) &&
-    string_equals(field(origin, "follow_session"), person_session);
-  return {{"schema", "kalo-mode3-final-velocity/v1"}, {"stamp_ns", stamp_ns},
-    {"candidate_stamp_ns", stamp->second}, {"origin", origin}, {"status_owner_matches", status_owner_matches},
-    {"input_linear", it->second.values.first}, {"input_angular", it->second.values.second},
-    {"linear", published.first}, {"angular", published.second},
-    {"worker_velocity_unchanged", published.first == origin.at("worker_linear").get<double>() &&
-      published.second == origin.at("worker_angular").get<double>()}};
+  return candidate("PERSON", message, t, now_ns);
 }
 
 bool VelocityPolicy::manual_input(const Velocity & v, double t)

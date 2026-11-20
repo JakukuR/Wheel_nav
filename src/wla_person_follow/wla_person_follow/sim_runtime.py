@@ -266,7 +266,7 @@ class SimulationEngine:
                     route=approach['path'];estimate=approach['point'];face=np.median(surface,axis=0)
             if approach is None:state='holding'
         elif task_mode=='3':
-            tuning=replace(tuning,desired_gap=0.,target_stop_gap=.05,target_hard_gap=0.,
+            tuning=replace(tuning,desired_gap=0.,target_stop_gap=.10,target_hard_gap=0.,
                 target_clearance_max=0.,max_v=POINT_GOAL_MAX_V)
             estimate=np.asarray(goal['point'],dtype=float);velocity=np.zeros(2);history=[];state='visible'
             route=self._point_route(pose,estimate,tuning,now)
